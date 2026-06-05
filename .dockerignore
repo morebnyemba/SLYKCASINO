@@ -1,0 +1,31 @@
+# --- Node / build artifacts (must NOT poison the build context) ---
+**/node_modules
+**/.next
+**/.turbo
+**/dist
+**/build
+**/out
+**/coverage
+
+# --- Env files: never bake secrets into an image layer ---
+**/.env
+**/.env.*
+!**/.env.example
+
+# --- VCS / editor / OS cruft ---
+.git
+.gitignore
+**/.DS_Store
+**/.vscode
+**/.idea
+**/*.log
+npm-debug.log*
+yarn-error.log*
+
+# --- Docker / infra meta (not needed inside the frontend image) ---
+docker-compose*.yml
+**/Dockerfile*
+README.md
+DEPLOYMENT.md
+nginx/
+certbot/

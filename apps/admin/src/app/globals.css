@@ -1,0 +1,5 @@
+/* Tailwind v4 + shared SLYK theme from packages/ui. */
+@import "@slyk/ui/globals.css";
+
+/* Defensive: explicitly scan this app's source for utility classes. */
+@source "../";

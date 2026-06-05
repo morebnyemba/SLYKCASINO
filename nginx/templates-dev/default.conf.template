@@ -1,0 +1,72 @@
+# =============================================================================
+#  SLYK CASINO — Nginx gateway (LOCAL DEV, HTTP only, no TLS / no certbot)
+#  Used by docker-compose.override.yml. Same routing as production.
+# =============================================================================
+
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+
+upstream player_upstream { server player_frontend:3000; }
+upstream admin_upstream  { server admin_frontend:3000;  }
+upstream django_upstream { server django:8000; }
+upstream erlang_upstream { server erlang:8080; }
+
+proxy_set_header Host              $host;
+proxy_set_header X-Real-IP         $remote_addr;
+proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+proxy_set_header X-Forwarded-Proto $scheme;
+
+server {
+    listen 80;
+    server_name ${DOMAIN};
+    client_max_body_size 25m;
+
+    # Django REST API
+    location /api/ {
+        proxy_pass http://django_upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+    }
+
+    # Django admin (raw DB intervention)
+    location /django-admin/ {
+        proxy_pass http://django_upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+    }
+
+    # Django admin static assets (WhiteNoise).
+    location /django-static/ {
+        proxy_pass http://django_upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+    }
+
+    # Erlang realtime WebSocket
+    location /ws/ {
+        proxy_pass http://erlang_upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade    $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_buffering off;
+        proxy_read_timeout 3600s;
+    }
+
+    # Next.js Admin UI (basePath /admin-portal). Upgrade headers => HMR works.
+    location /admin-portal {
+        proxy_pass http://admin_upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade    $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+    }
+
+    # Next.js Player UI (root). Upgrade headers => HMR works.
+    location / {
+        proxy_pass http://player_upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade    $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+    }
+}

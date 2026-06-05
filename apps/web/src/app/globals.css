@@ -1,0 +1,7 @@
+/* Pulls in Tailwind v4 + the shared SLYK theme/tokens from packages/ui.
+   The package's own globals.css @imports "tailwindcss" and @sources its
+   components; Tailwind auto-detects this app's src/ for class usage. */
+@import "@slyk/ui/globals.css";
+
+/* Defensive: explicitly scan this app's source for utility classes. */
+@source "../";

@@ -1,0 +1,36 @@
+# deps & build output
+node_modules/
+.pnpm-store/
+**/.next/
+**/.turbo/
+**/dist/
+**/out/
+next-env.d.ts
+*.tsbuildinfo
+
+# python / django backend
+**/.venv/
+**/__pycache__/
+*.pyc
+backend/db.sqlite3
+backend/staticfiles/
+
+# erlang realtime engine
+realtime/_build/
+realtime/.rebar3/
+*.beam
+erl_crash.dump
+
+# env & secrets
+.env
+.env.*
+!.env.example
+
+# certs issued at runtime
+certbot/
+
+# os / editor
+.DS_Store
+*.log
+.vscode/
+.idea/

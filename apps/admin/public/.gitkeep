@@ -1,0 +1,1 @@
+# keep apps/admin/public present so the Dockerfile COPY of public/ succeeds

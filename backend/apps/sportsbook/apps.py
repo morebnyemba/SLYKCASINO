@@ -1,0 +1,7 @@
+from django.apps import AppConfig
+
+
+class SportsbookConfig(AppConfig):
+    default_auto_field = 'django.db.models.BigAutoField'
+    name = 'apps.sportsbook'
+    label = 'sportsbook'

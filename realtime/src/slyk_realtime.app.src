@@ -1,0 +1,15 @@
+{application, slyk_realtime, [
+    {description, "SLYK Casino realtime WebSocket engine (livechat + betting feeds)"},
+    {vsn, "0.1.0"},
+    {registered, [slyk_realtime_sup]},
+    {mod, {slyk_realtime_app, []}},
+    {applications, [
+        kernel,
+        stdlib,
+        cowboy
+    ]},
+    {env, []},
+    {modules, []},
+    {licenses, ["Apache-2.0"]},
+    {links, []}
+]}.

@@ -1,0 +1,213 @@
+# =============================================================================
+#  SLYK CASINO — master compose
+#  Topology: postgres + redis + django + erlang (BACKEND, internal only)
+#            player_frontend + admin_frontend (Next.js, internal only)
+#            nginx (the ONLY host-exposed service) + certbot (TLS renewal)
+#
+#  SECURITY: frontend & backend services declare NO `ports:` — they are only
+#  reachable on the internal `edge` network. All ingress flows through nginx.
+#
+#  NOTE: the postgres/redis/django/erlang blocks are scaffolds meant to be
+#  merged with your existing backend topology. Adjust build contexts/images.
+# =============================================================================
+
+x-restart: &restart
+  restart: unless-stopped
+
+networks:
+  edge:
+    driver: bridge
+
+volumes:
+  pg_data:
+  redis_data:
+  letsencrypt:        # /etc/letsencrypt — issued certs + recommended params
+  certbot_www:        # /var/www/certbot — http-01 challenge webroot
+
+services:
+  # ---------------------------------------------------------------------------
+  # Datastores
+  # ---------------------------------------------------------------------------
+  postgres:
+    <<: *restart
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    networks: [edge]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    <<: *restart
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    networks: [edge]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ---------------------------------------------------------------------------
+  # Backend — Django (REST API + raw-DB admin)
+  # ---------------------------------------------------------------------------
+  django:
+    <<: *restart
+    build:
+      context: ./backend           # <-- adjust to your Django app location
+    expose:
+      - "8000"                      # internal only — reached via nginx /api & /django-admin
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
+      DJANGO_DEBUG: "false"
+      DJANGO_ALLOWED_HOSTS: ${DOMAIN},django,localhost,127.0.0.1
+      DJANGO_CSRF_TRUSTED_ORIGINS: https://${DOMAIN}
+      CORS_ALLOWED_ORIGINS: https://${DOMAIN}
+      # Optional: auto-create the raw-DB-access superuser on first boot.
+      DJANGO_SUPERUSER_USERNAME: ${DJANGO_SUPERUSER_USERNAME:-}
+      DJANGO_SUPERUSER_EMAIL: ${DJANGO_SUPERUSER_EMAIL:-}
+      DJANGO_SUPERUSER_PASSWORD: ${DJANGO_SUPERUSER_PASSWORD:-}
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis:    { condition: service_healthy }
+    networks: [edge]
+
+  # ---------------------------------------------------------------------------
+  # Celery worker — runs domain recovery tasks (reconciliation).
+  # ---------------------------------------------------------------------------
+  celery_worker:
+    <<: *restart
+    build:
+      context: ./backend
+    command: celery -A config worker -l info
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis:    { condition: service_healthy }
+    networks: [edge]
+
+  # ---------------------------------------------------------------------------
+  # Celery beat — schedules periodic reconciliation (CELERY_BEAT_SCHEDULE).
+  # ---------------------------------------------------------------------------
+  celery_beat:
+    <<: *restart
+    build:
+      context: ./backend
+    command: celery -A config beat -l info
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis:    { condition: service_healthy }
+    networks: [edge]
+
+  # ---------------------------------------------------------------------------
+  # Backend — Erlang realtime engine (WebSocket: live chat + betting feeds)
+  # ---------------------------------------------------------------------------
+  erlang:
+    <<: *restart
+    build:
+      context: ./realtime          # <-- adjust to your Erlang app location
+    expose:
+      - "8080"                      # internal only — reached via nginx /ws/
+    environment:
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      redis: { condition: service_healthy }
+    networks: [edge]
+
+  # ---------------------------------------------------------------------------
+  # Frontend — Next.js Player UI (apps/web).  NO host ports.
+  # ---------------------------------------------------------------------------
+  player_frontend:
+    <<: *restart
+    build:
+      context: .                              # monorepo root (turbo prune needs full graph)
+      dockerfile: docker/frontend.Dockerfile
+      args:
+        APP_NAME: web
+        APP_PATH: apps/web
+        # NEXT_PUBLIC_* are baked at BUILD time:
+        NEXT_PUBLIC_API_URL: https://${DOMAIN}/api
+        NEXT_PUBLIC_WS_URL: wss://${DOMAIN}/ws
+        NEXT_PUBLIC_SITE_URL: https://${DOMAIN}
+    expose:
+      - "3000"
+    networks: [edge]
+
+  # ---------------------------------------------------------------------------
+  # Frontend — Next.js Admin UI (apps/admin).  basePath '/admin-portal'. NO host ports.
+  # ---------------------------------------------------------------------------
+  admin_frontend:
+    <<: *restart
+    build:
+      context: .
+      dockerfile: docker/frontend.Dockerfile
+      args:
+        APP_NAME: admin
+        APP_PATH: apps/admin
+        NEXT_PUBLIC_API_URL: https://${DOMAIN}/api
+        NEXT_PUBLIC_WS_URL: wss://${DOMAIN}/ws
+        NEXT_PUBLIC_SITE_URL: https://${DOMAIN}/admin-portal
+    expose:
+      - "3000"
+    networks: [edge]
+
+  # ---------------------------------------------------------------------------
+  # Nginx — API gateway. The ONLY service published to the host.
+  # ---------------------------------------------------------------------------
+  nginx:
+    <<: *restart
+    image: nginx:1.27-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN}             # substituted into the .template by the entrypoint
+    volumes:
+      - ./nginx/templates:/etc/nginx/templates:ro
+      - letsencrypt:/etc/letsencrypt:ro
+      - certbot_www:/var/www/certbot:ro
+    depends_on:
+      - player_frontend
+      - admin_frontend
+      - django
+      - erlang
+    networks: [edge]
+
+  # ---------------------------------------------------------------------------
+  # Certbot — issues + renews Let's Encrypt certs via the shared webroot.
+  # Renewal loop; run ./init-letsencrypt.sh ONCE for first issuance.
+  # ---------------------------------------------------------------------------
+  certbot:
+    image: certbot/certbot:latest
+    volumes:
+      - letsencrypt:/etc/letsencrypt
+      - certbot_www:/var/www/certbot
+    entrypoint: >
+      /bin/sh -c "trap exit TERM;
+      while :; do certbot renew --webroot -w /var/www/certbot --quiet;
+      sleep 12h & wait $${!}; done"
+    networks: [edge]
