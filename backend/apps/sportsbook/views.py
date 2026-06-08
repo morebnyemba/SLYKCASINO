@@ -24,10 +24,15 @@ class EventViewSet(viewsets.ModelViewSet):
         return services.list_events(featured=featured or None)
 
 
-class BetViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
-    queryset = Bet.objects.all()
+class BetViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.CreateModelMixin, viewsets.GenericViewSet):
     serializer_class = BetSerializer
     permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        player = accounts_services.get_current_player(self.request)
+        if player is None:
+            return Bet.objects.none()
+        return Bet.objects.filter(player_id=player.id).order_by('-placed_at')
 
     def create(self, request, *args, **kwargs):
         player = accounts_services.get_current_player(request)
