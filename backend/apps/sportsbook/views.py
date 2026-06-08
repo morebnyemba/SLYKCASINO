@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from rest_framework import mixins, status, viewsets
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
 from apps.accounts import services as accounts_services
@@ -15,6 +16,8 @@ from .serializers import BetSerializer, EventSerializer
 
 class EventViewSet(viewsets.ModelViewSet):
     serializer_class = EventSerializer
+    # Events are publicly browsable; mutations require auth.
+    permission_classes = [AllowAny]
 
     def get_queryset(self):
         featured = self.request.query_params.get('featured') == 'true'
@@ -24,6 +27,7 @@ class EventViewSet(viewsets.ModelViewSet):
 class BetViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
     queryset = Bet.objects.all()
     serializer_class = BetSerializer
+    permission_classes = [IsAuthenticated]
 
     def create(self, request, *args, **kwargs):
         player = accounts_services.get_current_player(request)

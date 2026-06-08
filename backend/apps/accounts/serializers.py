@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from rest_framework import serializers
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
 from apps.wallet import services as wallet_services
 
@@ -22,3 +23,23 @@ class PlayerSerializer(serializers.ModelSerializer):
 
     def get_currency(self, obj: Player) -> str:
         return wallet_services.get_currency(obj.id)
+
+
+class RegisterSerializer(serializers.Serializer):
+    username = serializers.CharField(max_length=150)
+    email = serializers.EmailField()
+    password = serializers.CharField(min_length=8, write_only=True)
+    currency = serializers.CharField(max_length=3, default='USD')
+
+
+class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
+    @classmethod
+    def get_token(cls, user):
+        token = super().get_token(user)
+        token['is_staff'] = user.is_staff
+        token['is_superuser'] = user.is_superuser
+        try:
+            token['username'] = user.player.username
+        except Exception:
+            token['username'] = user.username
+        return token

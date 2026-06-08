@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from typing import Optional
 
+from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.utils import timezone
 
@@ -27,12 +28,29 @@ def get_player(player_id: int) -> Optional[Player]:
 
 
 def get_current_player(request) -> Optional[Player]:
-    """Resolve the acting player. Falls back to the first player until real
-    auth lands (documented stand-in, mirrors the previous behaviour)."""
+    """Resolve the acting player from the authenticated request user."""
     user = getattr(request, 'user', None)
     if user is not None and user.is_authenticated:
         return Player.objects.filter(user=user).first()
-    return Player.objects.order_by('id').first()
+    return None
+
+
+@transaction.atomic
+def register_player(*, username: str, email: str, password: str, currency: str = 'USD') -> Player:
+    """Create a Django User + Player atomically, then provision the wallet."""
+    User = get_user_model()
+    errors = helpers.validate_player_payload({'username': username, 'email': email})
+    if errors:
+        raise ValueError('; '.join(errors))
+    normalized = utils.normalize_username(username)
+    if User.objects.filter(username=normalized).exists():
+        raise ValueError('username already taken')
+    if User.objects.filter(email=email).exists():
+        raise ValueError('email already registered')
+    user = User.objects.create_user(username=normalized, email=email, password=password)
+    player = Player.objects.create(user=user, username=normalized, email=email)
+    wallet_services.ensure_wallet(player.id, currency=currency)
+    return player
 
 
 @transaction.atomic
