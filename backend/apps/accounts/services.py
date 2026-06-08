@@ -80,6 +80,65 @@ def set_kyc_status(player_id: int, status: str) -> Player:
     return player
 
 
+@transaction.atomic
+def set_deposit_limit(player_id: int, daily_limit) -> Player:
+    """Set or clear the player's daily deposit limit."""
+    from decimal import Decimal, InvalidOperation
+    player = Player.objects.select_for_update().get(pk=player_id)
+    if daily_limit is None or str(daily_limit).strip() == '':
+        player.deposit_limit_daily = None
+    else:
+        try:
+            limit = Decimal(str(daily_limit))
+            if limit <= 0:
+                raise ValueError('limit must be positive')
+            player.deposit_limit_daily = limit
+        except InvalidOperation:
+            raise ValueError('invalid deposit limit')
+    player.save(update_fields=['deposit_limit_daily'])
+    return player
+
+
+@transaction.atomic
+def self_exclude(player_id: int, days: Optional[int] = None) -> Player:
+    """Self-exclude a player. days=None means indefinite exclusion."""
+    player = Player.objects.select_for_update().get(pk=player_id)
+    player.self_excluded = True
+    if days is not None and days > 0:
+        player.exclusion_ends_at = timezone.now() + timezone.timedelta(days=days)
+    else:
+        player.exclusion_ends_at = None
+    player.save(update_fields=['self_excluded', 'exclusion_ends_at'])
+    return player
+
+
+def lift_expired_exclusions() -> int:
+    """Called periodically; lifts exclusions whose end date has passed."""
+    expired = Player.objects.filter(
+        self_excluded=True,
+        exclusion_ends_at__lte=timezone.now(),
+    )
+    count = expired.count()
+    expired.update(self_excluded=False, exclusion_ends_at=None)
+    return count
+
+
+def check_responsible_gambling(player: Player) -> None:
+    """Raise ValueError if the player is blocked from gambling."""
+    # Re-check exclusion expiry inline (avoids race with the periodic task).
+    if player.self_excluded:
+        if player.exclusion_ends_at and timezone.now() >= player.exclusion_ends_at:
+            # Lift inline — the periodic task may not have run yet.
+            Player.objects.filter(pk=player.id).update(
+                self_excluded=False, exclusion_ends_at=None,
+            )
+        else:
+            until = (
+                f' until {player.exclusion_ends_at.date()}' if player.exclusion_ends_at else ' (indefinite)'
+            )
+            raise ValueError(f'Account is self-excluded{until}')
+
+
 def run_kyc_verification(player_id: int) -> Player:
     """Call the external KYC provider and apply the normalized result."""
     result = KycProviderClient().verify(player_id)

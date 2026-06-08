@@ -21,6 +21,16 @@ class Player(models.Model):
     kyc_updated_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
+    # --- Responsible gambling ---
+    # Daily deposit limit in the player's wallet currency. None = no limit set.
+    deposit_limit_daily = models.DecimalField(
+        max_digits=12, decimal_places=2, null=True, blank=True,
+    )
+    # Cooling-off / self-exclusion. While self_excluded=True the account cannot
+    # deposit, bet, or spin. exclusion_ends_at=None means indefinite exclusion.
+    self_excluded = models.BooleanField(default=False)
+    exclusion_ends_at = models.DateTimeField(null=True, blank=True)
+
     class Meta:
         db_table = 'accounts_player'
         ordering = ['username']

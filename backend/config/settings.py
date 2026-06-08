@@ -97,6 +97,15 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
     ],
+    'DEFAULT_THROTTLE_CLASSES': [
+        'rest_framework.throttling.AnonRateThrottle',
+        'rest_framework.throttling.UserRateThrottle',
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        'anon': '60/minute',
+        'user': '300/minute',
+        'auth': '10/minute',   # used explicitly on auth endpoints
+    },
 }
 
 CORS_ALLOWED_ORIGINS = [
@@ -164,6 +173,10 @@ CELERY_BEAT_SCHEDULE = {
     },
     'accounts-reconcile-kyc': {
         'task': 'apps.accounts.tasks.reconcile_kyc',
+        'schedule': 3600.0,
+    },
+    'accounts-lift-exclusions': {
+        'task': 'apps.accounts.tasks.lift_expired_exclusions',
         'schedule': 3600.0,
     },
 }

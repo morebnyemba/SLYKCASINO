@@ -51,12 +51,26 @@ class DepositView(APIView):
         player, err = _get_player_or_404(request)
         if err:
             return err
+
+        # Responsible gambling: block excluded players.
+        try:
+            accounts_services.check_responsible_gambling(player)
+        except ValueError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_403_FORBIDDEN)
+
         try:
             amount = Decimal(str(request.data.get('amount', '0')))
             if amount <= 0:
                 raise ValueError('amount must be positive')
         except (InvalidOperation, ValueError) as exc:
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Enforce daily deposit limit if set.
+        if player.deposit_limit_daily is not None and amount > player.deposit_limit_daily:
+            return Response(
+                {'detail': f'Amount exceeds your daily deposit limit of {player.deposit_limit_daily}'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         idempotency_key = request.data.get('idempotency_key') or f'deposit:req:{uuid.uuid4()}'
         entry = services.credit(

@@ -4,7 +4,6 @@ import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle } from '@slyk/ui/components/card';
 import { Badge } from '@slyk/ui/components/badge';
 import { useApi } from '@/lib/use-api';
-import { config } from '@/lib/config';
 
 interface Game {
   id: number;
@@ -18,7 +17,6 @@ interface GamesResponse {
   results?: Game[];
 }
 
-// Game type icons mapped by name keywords
 function gameIcon(name: string): string {
   const n = name.toLowerCase();
   if (n.includes('roulette')) return '🎡';
@@ -27,18 +25,6 @@ function gameIcon(name: string): string {
   if (n.includes('baccarat')) return '🎴';
   if (n.includes('dice') || n.includes('craps')) return '🎲';
   return '🎰';
-}
-
-async function fetchGamesPublic(): Promise<Game[]> {
-  try {
-    const res = await fetch(`${config.apiUrl}/casino/games/`, { cache: 'no-store' });
-    if (!res.ok) return DEMO_GAMES;
-    const data = await res.json();
-    const results = data.results ?? [];
-    return results.length > 0 ? results : DEMO_GAMES;
-  } catch {
-    return DEMO_GAMES;
-  }
 }
 
 const DEMO_GAMES: Game[] = [

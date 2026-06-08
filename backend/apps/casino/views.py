@@ -36,6 +36,12 @@ class GameViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.Gen
         except (InvalidOperation, ValueError) as exc:
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
+        # Responsible gambling check.
+        try:
+            accounts_services.check_responsible_gambling(player)
+        except ValueError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_403_FORBIDDEN)
+
         try:
             rnd = services.start_round(player_id=player.id, game_id=int(pk), stake=stake)
         except InsufficientFunds as exc:

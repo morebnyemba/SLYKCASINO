@@ -5,8 +5,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '@slyk/ui/components/ca
 import { Badge } from '@slyk/ui/components/badge';
 import { useAuth } from '@/lib/auth-context';
 import { useApi, authedPost } from '@/lib/use-api';
-import { config } from '@/lib/config';
-
 interface Promo {
   id: number;
   name: string;
@@ -36,23 +34,6 @@ const KIND_ICON: Record<string, string> = {
   freebet: '🎁',
   cashback: '💸',
 };
-
-const DEMO_PROMOS: Promo[] = [
-  { id: 0, name: 'Welcome Bonus', kind: 'deposit', active: true, bonus_amount: '100.00', wagering_multiplier: '20.0' },
-  { id: 0, name: 'Free Bet Friday', kind: 'freebet', active: true, bonus_amount: '10.00', wagering_multiplier: '5.0' },
-  { id: 0, name: 'Weekend Cashback', kind: 'cashback', active: true, bonus_amount: '25.00', wagering_multiplier: '10.0' },
-];
-
-async function fetchPublicPromos(): Promise<Promo[]> {
-  try {
-    const res = await fetch(`${config.apiUrl}/promotions/`, { cache: 'no-store' });
-    if (!res.ok) return [];
-    const data = await res.json();
-    return data.results ?? [];
-  } catch {
-    return [];
-  }
-}
 
 export default function PromotionsPage() {
   const { user, accessToken } = useAuth();

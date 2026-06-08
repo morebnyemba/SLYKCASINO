@@ -36,6 +36,11 @@ class BetViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.Create
 
     def create(self, request, *args, **kwargs):
         player = accounts_services.get_current_player(request)
+        if player:
+            try:
+                accounts_services.check_responsible_gambling(player)
+            except ValueError as exc:
+                return Response({'detail': str(exc)}, status=status.HTTP_403_FORBIDDEN)
         try:
             dto = BetRequestDTO(
                 player_id=player.id if player else None,
