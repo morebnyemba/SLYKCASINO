@@ -12,6 +12,7 @@ const nav = [
   { href: '/betting-feeds', label: 'Betting Feeds' },
   { href: '/promotions', label: 'Promotions' },
   { href: '/users', label: 'Players' },
+  { href: '/events', label: 'Events' },
 ];
 
 export function Sidebar() {

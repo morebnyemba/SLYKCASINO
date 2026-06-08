@@ -3,9 +3,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import { config } from './config';
 import { useAuth } from './auth-context';
+import { apiRefresh, getStoredTokens, storeTokens } from './auth';
 
 export function useApi<T>(path: string | null) {
-  const { accessToken } = useAuth();
+  const { accessToken, logout } = useAuth();
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -14,10 +15,33 @@ export function useApi<T>(path: string | null) {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${config.apiUrl}${p}`, {
+      let res = await fetch(`${config.apiUrl}${p}`, {
         headers: { Authorization: `Bearer ${token}` },
         cache: 'no-store',
       });
+
+      if (res.status === 401) {
+        const stored = getStoredTokens();
+        if (stored?.refresh) {
+          try {
+            const refreshed = await apiRefresh(stored.refresh);
+            storeTokens(refreshed);
+            res = await fetch(`${config.apiUrl}${p}`, {
+              headers: { Authorization: `Bearer ${refreshed.access}` },
+              cache: 'no-store',
+            });
+          } catch {
+            logout();
+            setError('Session expired');
+            return;
+          }
+        } else {
+          logout();
+          setError('Session expired');
+          return;
+        }
+      }
+
       if (!res.ok) throw new Error(`API ${res.status}`);
       setData((await res.json()) as T);
     } catch (e) {
@@ -25,7 +49,7 @@ export function useApi<T>(path: string | null) {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [logout]);
 
   useEffect(() => {
     if (path && accessToken) {
@@ -48,11 +72,25 @@ export async function authedPost<T>(
   token: string,
 ): Promise<{ data?: T; error?: string; status: number }> {
   try {
-    const res = await fetch(`${config.apiUrl}${path}`, {
+    let res = await fetch(`${config.apiUrl}${path}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify(body),
     });
+
+    if (res.status === 401) {
+      const stored = getStoredTokens();
+      if (stored?.refresh) {
+        const refreshed = await apiRefresh(stored.refresh);
+        storeTokens(refreshed);
+        res = await fetch(`${config.apiUrl}${path}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${refreshed.access}` },
+          body: JSON.stringify(body),
+        });
+      }
+    }
+
     const json = await res.json().catch(() => ({}));
     if (!res.ok) {
       const msg = (json as { detail?: string }).detail ?? `API ${res.status}`;

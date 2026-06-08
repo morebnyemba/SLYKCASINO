@@ -7,6 +7,8 @@ import { useAuth } from '@/lib/auth-context';
 import { useApi, authedPost } from '@/lib/use-api';
 import { config } from '@/lib/config';
 
+
+
 interface RGSettings {
   deposit_limit_daily: string | null;
   self_excluded: boolean;
@@ -14,7 +16,62 @@ interface RGSettings {
 }
 
 export default function SettingsPage() {
-  const { accessToken } = useAuth();
+  const { accessToken, logout } = useAuth();
+
+  // GDPR state
+  const [exportLoading, setExportLoading] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deletePassword, setDeletePassword] = useState('');
+  const [deleteError, setDeleteError] = useState('');
+  const [deleteLoading, setDeleteLoading] = useState(false);
+
+  const handleExport = async () => {
+    if (!accessToken) return;
+    setExportLoading(true);
+    try {
+      const res = await fetch(`${config.apiUrl}/players/me/export/`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (!res.ok) throw new Error('Export failed');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'my-slyk-data.json';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      alert('Failed to export data. Please try again.');
+    } finally {
+      setExportLoading(false);
+    }
+  };
+
+  const handleDeleteAccount = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setDeleteError('');
+    setDeleteLoading(true);
+    try {
+      const res = await fetch(`${config.apiUrl}/players/me/delete/`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken ?? ''}` },
+        body: JSON.stringify({ password: deletePassword }),
+      });
+      if (res.ok) {
+        logout();
+        window.location.href = '/';
+      } else {
+        const data = (await res.json().catch(() => ({}))) as { detail?: string };
+        setDeleteError(data.detail || 'Incorrect password or request failed.');
+      }
+    } catch {
+      setDeleteError('Network error. Please try again.');
+    } finally {
+      setDeleteLoading(false);
+    }
+  };
   const { data: rg, loading, refetch } = useApi<RGSettings>('/players/me/rg/');
 
   const [limitInput, setLimitInput] = useState('');
@@ -195,6 +252,69 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* GDPR / Your data */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Your data</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div>
+            <p className="text-sm text-muted-foreground mb-2">
+              Download a copy of all your personal data (GDPR data export).
+            </p>
+            <button
+              onClick={handleExport}
+              disabled={exportLoading}
+              className="rounded-md border border-border px-4 py-2 text-sm hover:bg-accent disabled:opacity-50"
+            >
+              {exportLoading ? 'Preparing…' : 'Export my data'}
+            </button>
+          </div>
+          <div className="border-t border-border pt-4">
+            <p className="text-sm text-muted-foreground mb-2">
+              Permanently delete your account and all associated data. This cannot be undone.
+            </p>
+            {!showDeleteConfirm ? (
+              <button
+                onClick={() => setShowDeleteConfirm(true)}
+                className="rounded-md border border-destructive px-4 py-2 text-sm font-medium text-destructive hover:bg-destructive/10"
+              >
+                Delete my account
+              </button>
+            ) : (
+              <form onSubmit={handleDeleteAccount} className="rounded-lg border border-destructive/50 bg-destructive/5 p-4 space-y-3">
+                <p className="text-sm font-medium">Enter your password to confirm account deletion.</p>
+                {deleteError && <p className="text-sm text-red-500">{deleteError}</p>}
+                <input
+                  type="password"
+                  required
+                  value={deletePassword}
+                  onChange={(e) => setDeletePassword(e.target.value)}
+                  placeholder="Your current password"
+                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+                <div className="flex gap-2">
+                  <button
+                    type="submit"
+                    disabled={deleteLoading}
+                    className="rounded-md bg-destructive px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+                  >
+                    {deleteLoading ? 'Deleting…' : 'Confirm delete'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setShowDeleteConfirm(false); setDeleteError(''); setDeletePassword(''); }}
+                    className="rounded-md border border-border px-4 py-2 text-sm hover:bg-accent"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </CardContent>
+      </Card>
 
       {/* External resources */}
       <Card>
