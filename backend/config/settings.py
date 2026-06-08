@@ -1,5 +1,6 @@
 """Django settings for the SLYK Casino backend."""
 import os
+from datetime import timedelta
 from pathlib import Path
 
 import dj_database_url
@@ -44,6 +45,7 @@ INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + DOMAIN_APPS
 
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
+    'config.middleware.GeoBlockMiddleware',
     'django.middleware.security.SecurityMiddleware',
     # WhiteNoise serves /django-static/ (admin CSS/JS) straight from gunicorn,
     # so the Django admin is styled without extra nginx static routing.
@@ -108,6 +110,15 @@ REST_FRAMEWORK = {
     },
 }
 
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=15),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
+    'ROTATE_REFRESH_TOKENS': True,
+    'BLACKLIST_AFTER_ROTATION': True,
+    'UPDATE_LAST_LOGIN': True,
+    'TOKEN_OBTAIN_SERIALIZER': 'apps.accounts.serializers.CustomTokenObtainPairSerializer',
+}
+
 CORS_ALLOWED_ORIGINS = [
     o for o in os.environ.get('CORS_ALLOWED_ORIGINS', 'http://localhost').split(',') if o
 ]
@@ -130,16 +141,7 @@ STORAGES = {
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-from datetime import timedelta  # noqa: E402
-
-SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=15),
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
-    'ROTATE_REFRESH_TOKENS': True,
-    'BLACKLIST_AFTER_ROTATION': True,
-    'UPDATE_LAST_LOGIN': True,
-    'TOKEN_OBTAIN_SERIALIZER': 'apps.accounts.serializers.CustomTokenObtainPairSerializer',
-}
+BLOCKED_COUNTRIES = os.environ.get('BLOCKED_COUNTRIES', 'US,FR,AU,SG,HK').split(',')
 
 # ---------------------------------------------------------------------------
 # Celery — workers run domain recovery; beat schedules reconciliation passes.

@@ -5,6 +5,7 @@ Imports allowed: models, dtos, utils, helpers, clients, and *other apps' service
 """
 from __future__ import annotations
 
+import secrets
 from typing import Optional
 
 from django.contrib.auth import get_user_model
@@ -17,6 +18,8 @@ from . import helpers, utils
 from .clients import KycProviderClient
 from .dtos import PlayerDTO
 from .models import Player
+
+User = get_user_model()
 
 
 def to_dto(player: Player) -> PlayerDTO:
@@ -143,3 +146,45 @@ def run_kyc_verification(player_id: int) -> Player:
     """Call the external KYC provider and apply the normalized result."""
     result = KycProviderClient().verify(player_id)
     return set_kyc_status(player_id, result.status)
+
+
+# ---------------------------------------------------------------------------
+# Email verification
+# ---------------------------------------------------------------------------
+
+def generate_verify_token(player_id: int) -> str:
+    """Generate and store an email verification token for the player."""
+    player = Player.objects.get(pk=player_id)
+    token = secrets.token_urlsafe(32)
+    player.email_verify_token = token
+    player.save(update_fields=['email_verify_token'])
+    return token
+
+
+def verify_email(token: str) -> Player:
+    """Find player by verification token, mark email as verified, clear token."""
+    try:
+        player = Player.objects.get(email_verify_token=token)
+    except Player.DoesNotExist:
+        raise ValueError('Invalid or expired verification token.')
+    player.email_verified = True
+    player.email_verify_token = ''
+    player.save(update_fields=['email_verified', 'email_verify_token'])
+    return player
+
+
+# ---------------------------------------------------------------------------
+# Audit log
+# ---------------------------------------------------------------------------
+
+def audit(player_id, event_type, request=None, **metadata):
+    from .models import AuditLog
+    ip = None
+    if request:
+        ip = request.META.get('HTTP_X_FORWARDED_FOR', '').split(',')[0].strip() or request.META.get('REMOTE_ADDR')
+    AuditLog.objects.create(
+        player_id=player_id,
+        event_type=event_type,
+        ip_address=ip or None,
+        metadata=metadata,
+    )

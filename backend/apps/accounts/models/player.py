@@ -22,14 +22,15 @@ class Player(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     # --- Responsible gambling ---
-    # Daily deposit limit in the player's wallet currency. None = no limit set.
     deposit_limit_daily = models.DecimalField(
         max_digits=12, decimal_places=2, null=True, blank=True,
     )
-    # Cooling-off / self-exclusion. While self_excluded=True the account cannot
-    # deposit, bet, or spin. exclusion_ends_at=None means indefinite exclusion.
     self_excluded = models.BooleanField(default=False)
     exclusion_ends_at = models.DateTimeField(null=True, blank=True)
+
+    # --- Email verification ---
+    email_verified = models.BooleanField(default=False)
+    email_verify_token = models.CharField(max_length=64, blank=True, default='')
 
     class Meta:
         db_table = 'accounts_player'

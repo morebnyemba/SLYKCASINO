@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from rest_framework import mixins, status, viewsets
+from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny, IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
 
@@ -22,6 +23,11 @@ class EventViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         featured = self.request.query_params.get('featured') == 'true'
         return services.list_events(featured=featured or None)
+
+    def get_permissions(self):
+        if self.action in ('create', 'update', 'partial_update', 'destroy'):
+            return [IsAdminUser()]
+        return [AllowAny()]
 
 
 class BetViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.CreateModelMixin, viewsets.GenericViewSet):
@@ -69,3 +75,23 @@ class AdminBetViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         if status_filter:
             qs = qs.filter(status=status_filter)
         return qs[:200]
+
+    @action(detail=True, methods=['post'], url_path='settle')
+    def settle(self, request, pk=None):
+        """Settle a bet. Takes {outcome: 'won'|'lost'|'void'}."""
+        outcome = request.data.get('outcome', '')
+        if outcome not in ('won', 'lost', 'void'):
+            return Response(
+                {'detail': "outcome must be 'won', 'lost', or 'void'"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            bet = services.settle_bet(int(pk), outcome)
+        except Bet.DoesNotExist:
+            return Response({'detail': 'Bet not found'}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as exc:  # noqa: BLE001
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        # Audit
+        from apps.accounts.services import audit
+        audit(bet.player_id, 'bet_settled', request, bet_id=bet.id, outcome=outcome)
+        return Response(self.get_serializer(bet).data)
