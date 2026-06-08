@@ -9,6 +9,7 @@ const tabs = [
   { href: '/account/profile', label: 'Profile' },
   { href: '/account/wallet', label: 'Wallet' },
   { href: '/account/bets', label: 'My Bets' },
+  { href: '/account/casino', label: 'Casino History' },
 ];
 
 export default function AccountLayout({ children }: { children: React.ReactNode }) {

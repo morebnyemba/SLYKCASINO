@@ -7,6 +7,8 @@ import { useAuth } from '@/lib/auth-context';
 const links = [
   { href: '/', label: 'Lobby' },
   { href: '/sportsbook', label: 'Sportsbook' },
+  { href: '/casino', label: 'Casino' },
+  { href: '/promotions', label: 'Promotions' },
   { href: '/livechat', label: 'Live Chat' },
 ];
 
