@@ -34,3 +34,4 @@ certbot/
 *.log
 .vscode/
 .idea/
+.claude/
