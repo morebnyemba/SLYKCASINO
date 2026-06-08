@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from rest_framework import mixins, status, viewsets
-from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
 
 from apps.accounts import services as accounts_services
@@ -51,3 +51,16 @@ class BetViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.Create
         except (ValueError, Exception) as exc:  # noqa: BLE001
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(self.get_serializer(bet).data, status=status.HTTP_201_CREATED)
+
+
+class AdminBetViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
+    """Staff-only view of all bets across all players."""
+    serializer_class = BetSerializer
+    permission_classes = [IsAdminUser]
+
+    def get_queryset(self):
+        qs = Bet.objects.order_by('-placed_at')
+        status_filter = self.request.query_params.get('status')
+        if status_filter:
+            qs = qs.filter(status=status_filter)
+        return qs[:200]
