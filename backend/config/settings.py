@@ -210,3 +210,9 @@ LOGGING = {
     },
     'root': {'handlers': ['console'], 'level': 'WARNING'},
 }
+
+# ---------------------------------------------------------------------------
+# Payment & KYC provider selection
+# ---------------------------------------------------------------------------
+PSP_PROVIDER = os.environ.get('PSP_PROVIDER', 'stub')
+KYC_PROVIDER = os.environ.get('KYC_PROVIDER', 'stub')
