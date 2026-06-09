@@ -25,25 +25,25 @@ export function Sidebar() {
   }
 
   return (
-    <aside className="flex min-h-screen w-56 flex-col gap-6 border-r border-border bg-card p-5">
-      <div className="text-base font-bold">🛡️ SLYK Admin</div>
+    <aside className="flex min-h-screen w-56 flex-col gap-6 border-r border-border bg-primary p-5">
+      <div className="text-base font-bold text-white">🛡️ SLYK Admin</div>
       <nav className="flex flex-col gap-2 text-sm">
         {nav.map((n) => (
-          <Link key={n.href} href={n.href} className="text-muted-foreground transition-colors hover:text-foreground">
+          <Link key={n.href} href={n.href} className="text-white/70 transition-colors hover:text-white font-medium">
             {n.label}
           </Link>
         ))}
       </nav>
-      <div className="mt-auto flex flex-col gap-3 text-xs text-muted-foreground">
+      <div className="mt-auto flex flex-col gap-3 text-xs text-white/60">
         {user && (
           <div className="flex items-center justify-between">
-            <span className="font-medium text-foreground">{user.username}</span>
-            <button onClick={handleLogout} className="hover:text-foreground">Log out</button>
+            <span className="font-semibold text-white">{user.username}</span>
+            <button onClick={handleLogout} className="hover:text-white">Log out</button>
           </div>
         )}
         <div>
-          Raw DB intervention →{' '}
-          <a href="/django-admin/" className="text-primary underline-offset-4 hover:underline">Django Admin</a>
+          Raw DB →{' '}
+          <a href="/django-admin/" className="text-secondary underline-offset-4 hover:underline">Django Admin</a>
         </div>
       </div>
     </aside>

@@ -4,7 +4,13 @@
    @source for their src/ trees in their local globals.css. */
 @source "../components";
 
-/* shadcn/ui design tokens (Tailwind v4 CSS-first theme). Dark casino palette. */
+/*
+  SLYK Casino palette — 4-colour system:
+    White        30% — backgrounds, cards, text surfaces
+    Sky blue     30% — primary actions, nav, interactive elements  (~#87CEEB family)
+    Orange       25% — secondary accents, badges, highlights       (~#F97316 family)
+    Darkgoldenrod 15% — gold VIP accents, ring, special badges     (~#B8860B)
+*/
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -22,6 +28,8 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-gold: var(--gold);
+  --color-gold-foreground: var(--gold-foreground);
   --radius-lg: var(--radius);
   --radius-md: calc(var(--radius) - 2px);
   --radius-sm: calc(var(--radius) - 4px);
@@ -29,22 +37,38 @@
 
 :root {
   --radius: 0.625rem;
-  --background: oklch(0.16 0.03 265);
-  --foreground: oklch(0.93 0.02 265);
-  --card: oklch(0.20 0.03 265);
-  --card-foreground: oklch(0.93 0.02 265);
-  --primary: oklch(0.62 0.20 260);
-  --primary-foreground: oklch(0.98 0 0);
-  --secondary: oklch(0.27 0.03 265);
-  --secondary-foreground: oklch(0.93 0.02 265);
-  --muted: oklch(0.27 0.03 265);
-  --muted-foreground: oklch(0.70 0.03 265);
-  --accent: oklch(0.30 0.04 265);
-  --accent-foreground: oklch(0.98 0 0);
-  --destructive: oklch(0.58 0.22 27);
-  --border: oklch(0.30 0.03 265);
-  --input: oklch(0.30 0.03 265);
-  --ring: oklch(0.62 0.20 260);
+
+  /* White (30%) — dominant surface colour */
+  --background:         oklch(0.97 0.005 220);   /* warm white with faint blue tint */
+  --foreground:         oklch(0.15 0.02  220);   /* near-black text */
+  --card:               oklch(1.00 0     0  );   /* pure white cards */
+  --card-foreground:    oklch(0.15 0.02  220);
+
+  /* Sky blue (30%) — primary interactive colour */
+  --primary:            oklch(0.68 0.13  215);   /* skyblue: ~#4BB8E8 */
+  --primary-foreground: oklch(1.00 0     0  );   /* white text on blue */
+
+  /* Orange (25%) — secondary / accent */
+  --secondary:          oklch(0.75 0.17   52);   /* orange: ~#F97316 family */
+  --secondary-foreground: oklch(1.00 0   0  );
+  --accent:             oklch(0.80 0.14   52);   /* lighter orange for hover states */
+  --accent-foreground:  oklch(0.15 0.02  220);
+
+  /* Neutral surfaces (uses white budget) */
+  --muted:              oklch(0.92 0.01  215);   /* light blue-grey */
+  --muted-foreground:   oklch(0.50 0.03  215);
+
+  /* Darkgoldenrod (15%) — gold VIP accents */
+  --gold:               oklch(0.60 0.13   75);   /* darkgoldenrod: ~#B8860B */
+  --gold-foreground:    oklch(1.00 0     0  );
+  --ring:               oklch(0.60 0.13   75);   /* gold focus ring */
+
+  /* Borders & inputs */
+  --border:             oklch(0.85 0.03  215);   /* soft blue-grey border */
+  --input:              oklch(0.95 0.01  215);
+
+  /* Destructive — warm red that doesn't clash */
+  --destructive:        oklch(0.58 0.22   27);
 }
 
 @layer base {
