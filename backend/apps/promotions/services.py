@@ -50,6 +50,15 @@ def claim_promotion(*, player_id: int, promotion_id: int) -> PromotionClaim:
         )
         claim.bonus_credited = True
         claim.save(update_fields=['bonus_credited'])
+        # Notify player that bonus was credited (lazy import avoids circular).
+        from apps.notifications import services as notif_services
+        promo_name = getattr(promo, 'name', f'Promotion #{promo.pk}')
+        notif_services.notify(
+            player_id=player_id,
+            kind='bonus_credited',
+            title='Bonus credited',
+            body=f'{promo.bonus_amount} bonus from "{promo_name}" has been credited to your wallet.',
+        )
     return claim
 
 

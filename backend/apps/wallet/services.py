@@ -106,3 +106,42 @@ def recompute_balance(player_id: int) -> Decimal:
 def list_entries(player_id: int, limit: int = 50) -> list[LedgerEntryDTO]:
     rows = LedgerEntry.objects.filter(wallet__player_id=player_id)[:limit]
     return [LedgerEntryDTO.model_validate(r) for r in rows]
+
+
+def deposit(
+    *, player_id: int, amount: Decimal,
+    idempotency_key: str, reference: str = '',
+) -> LedgerEntry:
+    """Credit a deposit to the wallet and notify the player."""
+    entry = credit(
+        player_id=player_id, amount=amount, kind='deposit',
+        idempotency_key=idempotency_key, reference=reference,
+    )
+    # Lazy import to avoid circular dependency (notifications -> wallet is not needed).
+    from apps.notifications import services as notif_services
+    notif_services.notify(
+        player_id=player_id,
+        kind='deposit_confirmed',
+        title='Deposit confirmed',
+        body=f'{utils.quantize(amount)} credited to your wallet.',
+    )
+    return entry
+
+
+def withdrawal(
+    *, player_id: int, amount: Decimal,
+    idempotency_key: str, reference: str = '',
+) -> LedgerEntry:
+    """Debit a withdrawal from the wallet and notify the player."""
+    entry = debit(
+        player_id=player_id, amount=amount, kind='withdrawal',
+        idempotency_key=idempotency_key, reference=reference,
+    )
+    from apps.notifications import services as notif_services
+    notif_services.notify(
+        player_id=player_id,
+        kind='withdrawal_processed',
+        title='Withdrawal processed',
+        body=f'{utils.quantize(amount)} has been withdrawn from your wallet.',
+    )
+    return entry

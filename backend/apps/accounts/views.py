@@ -1,6 +1,7 @@
 """accounts transport — views move data; all logic is in services."""
 from __future__ import annotations
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.tokens import PasswordResetTokenGenerator
 from django.utils.encoding import force_bytes, force_str
@@ -15,6 +16,7 @@ from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from . import services
+from .emails import send_password_reset_email, send_verification_email, send_welcome_email
 from .models import Player
 from .serializers import PlayerSerializer, RegisterSerializer
 
@@ -24,18 +26,6 @@ User = get_user_model()
 class AuthRateThrottle(AnonRateThrottle):
     rate = '10/minute'
     scope = 'auth'
-
-
-class PlayerViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
-    queryset = Player.objects.all()
-    serializer_class = PlayerSerializer
-
-    @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
-    def me(self, request):
-        player = services.get_current_player(request)
-        if player is None:
-            return Response({'detail': 'player profile not found'}, status=status.HTTP_404_NOT_FOUND)
-        return Response(self.get_serializer(player).data)
 
 
 class RegisterView(APIView):
@@ -57,6 +47,8 @@ class RegisterView(APIView):
             services.audit(player.id, 'register', request)
         except ValueError as exc:
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        token = services.generate_verify_token(player.id)
+        send_verification_email(player, token)
         return Response(PlayerSerializer(player).data, status=status.HTTP_201_CREATED)
 
 
@@ -132,15 +124,17 @@ class SelfExcludeView(APIView):
 # ---------------------------------------------------------------------------
 
 class RequestVerificationView(APIView):
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
 
     def post(self, request):
         player = services.get_current_player(request)
         if player is None:
-            return Response({'detail': 'Player not found'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'detail': 'player not found'}, status=status.HTTP_404_NOT_FOUND)
+        if not player.email:
+            return Response({'detail': 'no email on file'}, status=status.HTTP_400_BAD_REQUEST)
         token = services.generate_verify_token(player.id)
-        print(f'[EMAIL STUB] Verification token for {player.email}: {token}')
-        return Response({'detail': 'Verification email sent', 'token': token})
+        send_verification_email(player, token)
+        return Response({'detail': 'verification email sent'})
 
 
 class VerifyEmailView(APIView):
@@ -155,6 +149,7 @@ class VerifyEmailView(APIView):
             services.audit(player.id, 'email_verified', request)
         except ValueError as exc:
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        send_welcome_email(player)
         return Response({'detail': 'Email verified successfully'})
 
 
@@ -167,15 +162,21 @@ class PasswordResetRequestView(APIView):
 
     def post(self, request):
         email = request.data.get('email', '')
+        if not email:
+            return Response({'detail': 'if that email is registered, a reset link has been sent'})
         try:
             user = User.objects.get(email=email)
         except User.DoesNotExist:
-            return Response({'detail': 'Reset email sent'})
+            return Response({'detail': 'if that email is registered, a reset link has been sent'})
         generator = PasswordResetTokenGenerator()
         token = generator.make_token(user)
         uid = urlsafe_base64_encode(force_bytes(user.pk))
-        print(f'[EMAIL STUB] Password reset token for {email}: uid={uid} token={token}')
-        return Response({'detail': 'Reset email sent', 'uid': uid, 'token': token})
+        send_password_reset_email(user, uid, token)
+        resp_data: dict = {'detail': 'if that email is registered, a reset link has been sent'}
+        if settings.DEBUG:
+            resp_data['uid'] = uid
+            resp_data['token'] = token
+        return Response(resp_data)
 
 
 class PasswordResetConfirmView(APIView):
@@ -339,3 +340,15 @@ class DeleteAccountView(APIView):
             player.user.save(update_fields=['email', 'is_active'])
 
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class PlayerViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
+    queryset = Player.objects.all()
+    serializer_class = PlayerSerializer
+
+    @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
+    def me(self, request):
+        player = services.get_current_player(request)
+        if player is None:
+            return Response({'detail': 'player profile not found'}, status=status.HTTP_404_NOT_FOUND)
+        return Response(self.get_serializer(player).data)

@@ -9,8 +9,11 @@ import secrets
 from typing import Optional
 
 from django.contrib.auth import get_user_model
+from django.contrib.auth.tokens import default_token_generator
 from django.db import transaction
 from django.utils import timezone
+from django.utils.encoding import force_bytes
+from django.utils.http import urlsafe_base64_encode
 
 from apps.wallet import services as wallet_services
 
@@ -41,7 +44,6 @@ def get_current_player(request) -> Optional[Player]:
 @transaction.atomic
 def register_player(*, username: str, email: str, password: str, currency: str = 'USD') -> Player:
     """Create a Django User + Player atomically, then provision the wallet."""
-    User = get_user_model()
     errors = helpers.validate_player_payload({'username': username, 'email': email})
     if errors:
         raise ValueError('; '.join(errors))
@@ -171,6 +173,16 @@ def verify_email(token: str) -> Player:
     player.email_verify_token = ''
     player.save(update_fields=['email_verified', 'email_verify_token'])
     return player
+
+
+def generate_password_reset_token(email: str):
+    """Generate uid+token for password reset. Returns (user, uid, token) or None."""
+    user = User.objects.filter(email=email).first()
+    if user is None:
+        return None
+    uid = urlsafe_base64_encode(force_bytes(user.pk))
+    token = default_token_generator.make_token(user)
+    return user, uid, token
 
 
 # ---------------------------------------------------------------------------
