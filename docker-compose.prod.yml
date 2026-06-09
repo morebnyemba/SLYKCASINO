@@ -1,0 +1,166 @@
+# =============================================================================
+#  SLYK CASINO — Production Compose Override
+#  Usage: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+#  Differences from dev:
+#    - Pinned image names (built by CI) instead of local build contexts
+#    - Gunicorn replaces the dev runserver
+#    - Celery worker/beat run with production concurrency & DatabaseScheduler
+#    - Named prod volumes (pgdata_prod, redis_prod) isolated from dev data
+#    - All services read secrets from .env.prod
+#    - Nginx mounts nginx/prod/ configs and certbot webroot
+#    - DEBUG env var is absent (never set in prod)
+# =============================================================================
+
+x-restart: &restart
+  restart: unless-stopped
+
+x-django-env: &django-env
+  env_file: .env.prod
+
+networks:
+  edge:
+    driver: bridge
+
+volumes:
+  pgdata_prod:
+  redis_prod:
+  letsencrypt:
+  certbot_www:
+
+services:
+  # ---------------------------------------------------------------------------
+  # Datastores
+  # ---------------------------------------------------------------------------
+  postgres:
+    <<: *restart
+    image: postgres:16-alpine
+    env_file: .env.prod
+    volumes:
+      - pgdata_prod:/var/lib/postgresql/data
+    networks: [edge]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    <<: *restart
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_prod:/data
+    networks: [edge]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ---------------------------------------------------------------------------
+  # Backend — Django (REST API)
+  # ---------------------------------------------------------------------------
+  django:
+    <<: *restart
+    image: slykcasino/django:latest
+    env_file: .env.prod
+    command: gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 4 --timeout 120
+    expose:
+      - "8000"
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis:    { condition: service_healthy }
+    networks: [edge]
+
+  # ---------------------------------------------------------------------------
+  # Celery worker
+  # ---------------------------------------------------------------------------
+  celery_worker:
+    <<: *restart
+    image: slykcasino/django:latest
+    env_file: .env.prod
+    command: celery -A config worker -l info -c 4
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis:    { condition: service_healthy }
+    networks: [edge]
+
+  # ---------------------------------------------------------------------------
+  # Celery beat — DatabaseScheduler keeps schedules in Postgres
+  # ---------------------------------------------------------------------------
+  celery_beat:
+    <<: *restart
+    image: slykcasino/django:latest
+    env_file: .env.prod
+    command: celery -A config beat -l info --scheduler django_celery_beat.schedulers:DatabaseScheduler
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis:    { condition: service_healthy }
+    networks: [edge]
+
+  # ---------------------------------------------------------------------------
+  # Backend — Erlang realtime engine
+  # ---------------------------------------------------------------------------
+  erlang:
+    <<: *restart
+    image: slykcasino/erlang-ws:latest
+    expose:
+      - "8080"
+    depends_on:
+      redis: { condition: service_healthy }
+    networks: [edge]
+
+  # ---------------------------------------------------------------------------
+  # Frontend — Next.js Player UI
+  # ---------------------------------------------------------------------------
+  player_frontend:
+    <<: *restart
+    image: slykcasino/web:latest
+    expose:
+      - "3000"
+    networks: [edge]
+
+  # ---------------------------------------------------------------------------
+  # Frontend — Next.js Admin UI
+  # ---------------------------------------------------------------------------
+  admin_frontend:
+    <<: *restart
+    image: slykcasino/admin:latest
+    expose:
+      - "3000"
+    networks: [edge]
+
+  # ---------------------------------------------------------------------------
+  # Nginx — production config + certbot volumes
+  # ---------------------------------------------------------------------------
+  nginx:
+    <<: *restart
+    image: nginx:1.27-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/prod:/etc/nginx/conf.d:ro
+      - letsencrypt:/etc/letsencrypt:ro
+      - certbot_www:/var/www/certbot:ro
+    depends_on:
+      - player_frontend
+      - admin_frontend
+      - django
+      - erlang
+    networks: [edge]
+
+  # ---------------------------------------------------------------------------
+  # Certbot — automatic renewal loop
+  # ---------------------------------------------------------------------------
+  certbot:
+    image: certbot/certbot:latest
+    volumes:
+      - letsencrypt:/etc/letsencrypt
+      - certbot_www:/var/www/certbot
+    entrypoint: >
+      /bin/sh -c "trap exit TERM;
+      while :; do certbot renew --webroot -w /var/www/certbot --quiet;
+      sleep 12h & wait $${!}; done"
+    networks: [edge]

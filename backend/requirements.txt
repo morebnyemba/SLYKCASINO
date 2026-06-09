@@ -9,4 +9,5 @@ dj-database-url>=2.2
 redis>=5.0
 whitenoise>=6.7
 celery>=5.4
+django-celery-beat>=2.6
 pydantic>=2.7
