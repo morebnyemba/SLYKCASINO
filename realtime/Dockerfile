@@ -16,9 +16,10 @@ COPY . .
 RUN rebar3 as prod release
 
 # ---- Runtime stage: minimal image, just the release ------------------------
-FROM alpine:3.20 AS runtime
+FROM alpine:3.21 AS runtime
 # OTP release bundles ERTS but still needs libstdc++/ncurses at runtime.
-RUN apk add --no-cache libstdc++ ncurses-libs openssl \
+# alpine:3.21 ships OpenSSL 3.3.x matching the erlang:27-alpine build image.
+RUN apk add --no-cache libstdc++ ncurses-libs openssl openssl-dev \
  && addgroup -S slyk && adduser -S slyk -G slyk
 WORKDIR /opt/slyk
 
