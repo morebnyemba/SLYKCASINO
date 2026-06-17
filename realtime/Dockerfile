@@ -15,12 +15,12 @@ RUN rebar3 get-deps || true
 COPY . .
 RUN rebar3 as prod release
 
-# ---- Runtime stage: minimal image, just the release ------------------------
-FROM alpine:3.21 AS runtime
-# OTP release bundles ERTS but still needs libstdc++/ncurses at runtime.
-# alpine:3.21 ships OpenSSL 3.3.x matching the erlang:27-alpine build image.
-RUN apk add --no-cache libstdc++ ncurses-libs openssl openssl-dev \
- && addgroup -S slyk && adduser -S slyk -G slyk
+# ---- Runtime stage: same base as build, so the crypto NIF's OpenSSL ABI
+#      always matches exactly (mixing Alpine versions caused repeated
+#      "symbol not found" relocation crashes against a differently-built
+#      libcrypto/libssl, even on releases that match the major Alpine version).
+FROM erlang:27-alpine AS runtime
+RUN addgroup -S slyk && adduser -S slyk -G slyk
 WORKDIR /opt/slyk
 
 COPY --from=build /src/_build/prod/rel/slyk_realtime ./
