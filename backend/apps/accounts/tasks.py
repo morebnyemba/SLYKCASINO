@@ -9,3 +9,10 @@ from .recovery import RecoveryManager
 @shared_task(name='apps.accounts.tasks.reconcile_kyc')
 def reconcile_kyc(dry_run: bool = False) -> dict:
     return RecoveryManager(dry_run=dry_run).run().model_dump(mode='json')
+
+
+@shared_task(name='apps.accounts.tasks.lift_expired_exclusions')
+def lift_expired_exclusions() -> dict:
+    from . import services
+    lifted = services.lift_expired_exclusions()
+    return {'lifted': lifted}

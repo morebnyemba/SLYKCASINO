@@ -1,5 +1,6 @@
 """Django settings for the SLYK Casino backend."""
 import os
+from datetime import timedelta
 from pathlib import Path
 
 import dj_database_url
@@ -25,6 +26,8 @@ DJANGO_APPS = [
 
 THIRD_PARTY_APPS = [
     'rest_framework',
+    'rest_framework_simplejwt',
+    'rest_framework_simplejwt.token_blacklist',
     'corsheaders',
 ]
 
@@ -36,12 +39,14 @@ DOMAIN_APPS = [
     'apps.casino',
     'apps.promotions',
     'apps.livechat',
+    'apps.notifications',
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + DOMAIN_APPS
 
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
+    'config.middleware.GeoBlockMiddleware',
     'django.middleware.security.SecurityMiddleware',
     # WhiteNoise serves /django-static/ (admin CSS/JS) straight from gunicorn,
     # so the Django admin is styled without extra nginx static routing.
@@ -89,6 +94,30 @@ REST_FRAMEWORK = {
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 25,
     'DEFAULT_RENDERER_CLASSES': ['rest_framework.renderers.JSONRenderer'],
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+    ],
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.IsAuthenticated',
+    ],
+    'DEFAULT_THROTTLE_CLASSES': [
+        'rest_framework.throttling.AnonRateThrottle',
+        'rest_framework.throttling.UserRateThrottle',
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        'anon': '60/minute',
+        'user': '300/minute',
+        'auth': '10/minute',   # used explicitly on auth endpoints
+    },
+}
+
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=15),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
+    'ROTATE_REFRESH_TOKENS': True,
+    'BLACKLIST_AFTER_ROTATION': True,
+    'UPDATE_LAST_LOGIN': True,
+    'TOKEN_OBTAIN_SERIALIZER': 'apps.accounts.serializers.CustomTokenObtainPairSerializer',
 }
 
 CORS_ALLOWED_ORIGINS = [
@@ -112,6 +141,8 @@ STORAGES = {
 }
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+BLOCKED_COUNTRIES = os.environ.get('BLOCKED_COUNTRIES', 'US,FR,AU,SG,HK').split(',')
 
 # ---------------------------------------------------------------------------
 # Celery — workers run domain recovery; beat schedules reconciliation passes.
@@ -147,7 +178,27 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'apps.accounts.tasks.reconcile_kyc',
         'schedule': 3600.0,
     },
+    'accounts-lift-exclusions': {
+        'task': 'apps.accounts.tasks.lift_expired_exclusions',
+        'schedule': 3600.0,
+    },
+    'notifications-expiring-promos': {
+        'task': 'apps.notifications.tasks.notify_expiring_promos',
+        'schedule': 86400.0,  # daily
+    },
 }
+
+# ---------------------------------------------------------------------------
+# Email
+# ---------------------------------------------------------------------------
+EMAIL_BACKEND = os.environ.get('EMAIL_BACKEND', 'django.core.mail.backends.console.EmailBackend')
+EMAIL_HOST = os.environ.get('EMAIL_HOST', 'localhost')
+EMAIL_PORT = int(os.environ.get('EMAIL_PORT', '587'))
+EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', 'true').lower() == 'true'
+EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
+DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'noreply@slyk.casino')
+FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://localhost:3000')
 
 # Domain logging (recovery managers log under recovery.<domain>).
 LOGGING = {
@@ -159,3 +210,9 @@ LOGGING = {
     },
     'root': {'handlers': ['console'], 'level': 'WARNING'},
 }
+
+# ---------------------------------------------------------------------------
+# Payment & KYC provider selection
+# ---------------------------------------------------------------------------
+PSP_PROVIDER = os.environ.get('PSP_PROVIDER', 'stub')
+KYC_PROVIDER = os.environ.get('KYC_PROVIDER', 'stub')

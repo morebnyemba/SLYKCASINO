@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from rest_framework import mixins, status, viewsets
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
 from apps.accounts import services as accounts_services
@@ -12,11 +13,15 @@ from .serializers import ChatMessageSerializer
 
 
 class ChatMessageViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
-    queryset = ChatMessage.objects.all()
     serializer_class = ChatMessageSerializer
 
+    def get_permissions(self):
+        if self.action == 'create':
+            return [IsAuthenticated()]
+        return [AllowAny()]
+
     def get_queryset(self):
-        channel = self.request.query_params.get('channel')
+        channel = self.request.query_params.get('channel', 'lobby')
         return services.list_messages(channel=channel)
 
     def create(self, request, *args, **kwargs):

@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 from rest_framework import mixins, status, viewsets
+from rest_framework.decorators import action
+from rest_framework.permissions import AllowAny, IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
 
 from apps.accounts import services as accounts_services
@@ -15,18 +17,36 @@ from .serializers import BetSerializer, EventSerializer
 
 class EventViewSet(viewsets.ModelViewSet):
     serializer_class = EventSerializer
+    # Events are publicly browsable; mutations require auth.
+    permission_classes = [AllowAny]
 
     def get_queryset(self):
         featured = self.request.query_params.get('featured') == 'true'
         return services.list_events(featured=featured or None)
 
+    def get_permissions(self):
+        if self.action in ('create', 'update', 'partial_update', 'destroy'):
+            return [IsAdminUser()]
+        return [AllowAny()]
 
-class BetViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
-    queryset = Bet.objects.all()
+
+class BetViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.CreateModelMixin, viewsets.GenericViewSet):
     serializer_class = BetSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        player = accounts_services.get_current_player(self.request)
+        if player is None:
+            return Bet.objects.none()
+        return Bet.objects.filter(player_id=player.id).order_by('-placed_at')
 
     def create(self, request, *args, **kwargs):
         player = accounts_services.get_current_player(request)
+        if player:
+            try:
+                accounts_services.check_responsible_gambling(player)
+            except ValueError as exc:
+                return Response({'detail': str(exc)}, status=status.HTTP_403_FORBIDDEN)
         try:
             dto = BetRequestDTO(
                 player_id=player.id if player else None,
@@ -42,3 +62,36 @@ class BetViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.Gene
         except (ValueError, Exception) as exc:  # noqa: BLE001
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(self.get_serializer(bet).data, status=status.HTTP_201_CREATED)
+
+
+class AdminBetViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
+    """Staff-only view of all bets across all players."""
+    serializer_class = BetSerializer
+    permission_classes = [IsAdminUser]
+
+    def get_queryset(self):
+        qs = Bet.objects.order_by('-placed_at')
+        status_filter = self.request.query_params.get('status')
+        if status_filter:
+            qs = qs.filter(status=status_filter)
+        return qs[:200]
+
+    @action(detail=True, methods=['post'], url_path='settle')
+    def settle(self, request, pk=None):
+        """Settle a bet. Takes {outcome: 'won'|'lost'|'void'}."""
+        outcome = request.data.get('outcome', '')
+        if outcome not in ('won', 'lost', 'void'):
+            return Response(
+                {'detail': "outcome must be 'won', 'lost', or 'void'"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            bet = services.settle_bet(int(pk), outcome)
+        except Bet.DoesNotExist:
+            return Response({'detail': 'Bet not found'}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as exc:  # noqa: BLE001
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        # Audit
+        from apps.accounts.services import audit
+        audit(bet.player_id, 'bet_settled', request, bet_id=bet.id, outcome=outcome)
+        return Response(self.get_serializer(bet).data)

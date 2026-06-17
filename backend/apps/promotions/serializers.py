@@ -3,10 +3,23 @@ from __future__ import annotations
 
 from rest_framework import serializers
 
-from .models import Promotion
+from .models import Promotion, PromotionClaim
 
 
 class PromotionSerializer(serializers.ModelSerializer):
     class Meta:
         model = Promotion
         fields = ['id', 'name', 'kind', 'active', 'bonus_amount', 'wagering_multiplier', 'starts_at', 'ends_at']
+
+
+class PromotionClaimSerializer(serializers.ModelSerializer):
+    promotion_name = serializers.CharField(source='promotion.name', read_only=True)
+
+    class Meta:
+        model = PromotionClaim
+        fields = [
+            'id', 'promotion', 'promotion_name', 'bonus_amount',
+            'wagering_required', 'wagering_progress', 'status',
+            'bonus_credited', 'created_at', 'completed_at',
+        ]
+        read_only_fields = fields

@@ -5,10 +5,15 @@ Imports allowed: models, dtos, utils, helpers, clients, and *other apps' service
 """
 from __future__ import annotations
 
+import secrets
 from typing import Optional
 
+from django.contrib.auth import get_user_model
+from django.contrib.auth.tokens import default_token_generator
 from django.db import transaction
 from django.utils import timezone
+from django.utils.encoding import force_bytes
+from django.utils.http import urlsafe_base64_encode
 
 from apps.wallet import services as wallet_services
 
@@ -16,6 +21,8 @@ from . import helpers, utils
 from .clients import KycProviderClient
 from .dtos import PlayerDTO
 from .models import Player
+
+User = get_user_model()
 
 
 def to_dto(player: Player) -> PlayerDTO:
@@ -27,12 +34,28 @@ def get_player(player_id: int) -> Optional[Player]:
 
 
 def get_current_player(request) -> Optional[Player]:
-    """Resolve the acting player. Falls back to the first player until real
-    auth lands (documented stand-in, mirrors the previous behaviour)."""
+    """Resolve the acting player from the authenticated request user."""
     user = getattr(request, 'user', None)
     if user is not None and user.is_authenticated:
         return Player.objects.filter(user=user).first()
-    return Player.objects.order_by('id').first()
+    return None
+
+
+@transaction.atomic
+def register_player(*, username: str, email: str, password: str, currency: str = 'USD') -> Player:
+    """Create a Django User + Player atomically, then provision the wallet."""
+    errors = helpers.validate_player_payload({'username': username, 'email': email})
+    if errors:
+        raise ValueError('; '.join(errors))
+    normalized = utils.normalize_username(username)
+    if User.objects.filter(username=normalized).exists():
+        raise ValueError('username already taken')
+    if User.objects.filter(email=email).exists():
+        raise ValueError('email already registered')
+    user = User.objects.create_user(username=normalized, email=email, password=password)
+    player = Player.objects.create(user=user, username=normalized, email=email)
+    wallet_services.ensure_wallet(player.id, currency=currency)
+    return player
 
 
 @transaction.atomic
@@ -62,7 +85,118 @@ def set_kyc_status(player_id: int, status: str) -> Player:
     return player
 
 
+@transaction.atomic
+def set_deposit_limit(player_id: int, daily_limit) -> Player:
+    """Set or clear the player's daily deposit limit."""
+    from decimal import Decimal, InvalidOperation
+    player = Player.objects.select_for_update().get(pk=player_id)
+    if daily_limit is None or str(daily_limit).strip() == '':
+        player.deposit_limit_daily = None
+    else:
+        try:
+            limit = Decimal(str(daily_limit))
+            if limit <= 0:
+                raise ValueError('limit must be positive')
+            player.deposit_limit_daily = limit
+        except InvalidOperation:
+            raise ValueError('invalid deposit limit')
+    player.save(update_fields=['deposit_limit_daily'])
+    return player
+
+
+@transaction.atomic
+def self_exclude(player_id: int, days: Optional[int] = None) -> Player:
+    """Self-exclude a player. days=None means indefinite exclusion."""
+    player = Player.objects.select_for_update().get(pk=player_id)
+    player.self_excluded = True
+    if days is not None and days > 0:
+        player.exclusion_ends_at = timezone.now() + timezone.timedelta(days=days)
+    else:
+        player.exclusion_ends_at = None
+    player.save(update_fields=['self_excluded', 'exclusion_ends_at'])
+    return player
+
+
+def lift_expired_exclusions() -> int:
+    """Called periodically; lifts exclusions whose end date has passed."""
+    expired = Player.objects.filter(
+        self_excluded=True,
+        exclusion_ends_at__lte=timezone.now(),
+    )
+    count = expired.count()
+    expired.update(self_excluded=False, exclusion_ends_at=None)
+    return count
+
+
+def check_responsible_gambling(player: Player) -> None:
+    """Raise ValueError if the player is blocked from gambling."""
+    # Re-check exclusion expiry inline (avoids race with the periodic task).
+    if player.self_excluded:
+        if player.exclusion_ends_at and timezone.now() >= player.exclusion_ends_at:
+            # Lift inline — the periodic task may not have run yet.
+            Player.objects.filter(pk=player.id).update(
+                self_excluded=False, exclusion_ends_at=None,
+            )
+        else:
+            until = (
+                f' until {player.exclusion_ends_at.date()}' if player.exclusion_ends_at else ' (indefinite)'
+            )
+            raise ValueError(f'Account is self-excluded{until}')
+
+
 def run_kyc_verification(player_id: int) -> Player:
     """Call the external KYC provider and apply the normalized result."""
     result = KycProviderClient().verify(player_id)
     return set_kyc_status(player_id, result.status)
+
+
+# ---------------------------------------------------------------------------
+# Email verification
+# ---------------------------------------------------------------------------
+
+def generate_verify_token(player_id: int) -> str:
+    """Generate and store an email verification token for the player."""
+    player = Player.objects.get(pk=player_id)
+    token = secrets.token_urlsafe(32)
+    player.email_verify_token = token
+    player.save(update_fields=['email_verify_token'])
+    return token
+
+
+def verify_email(token: str) -> Player:
+    """Find player by verification token, mark email as verified, clear token."""
+    try:
+        player = Player.objects.get(email_verify_token=token)
+    except Player.DoesNotExist:
+        raise ValueError('Invalid or expired verification token.')
+    player.email_verified = True
+    player.email_verify_token = ''
+    player.save(update_fields=['email_verified', 'email_verify_token'])
+    return player
+
+
+def generate_password_reset_token(email: str):
+    """Generate uid+token for password reset. Returns (user, uid, token) or None."""
+    user = User.objects.filter(email=email).first()
+    if user is None:
+        return None
+    uid = urlsafe_base64_encode(force_bytes(user.pk))
+    token = default_token_generator.make_token(user)
+    return user, uid, token
+
+
+# ---------------------------------------------------------------------------
+# Audit log
+# ---------------------------------------------------------------------------
+
+def audit(player_id, event_type, request=None, **metadata):
+    from .models import AuditLog
+    ip = None
+    if request:
+        ip = request.META.get('HTTP_X_FORWARDED_FOR', '').split(',')[0].strip() or request.META.get('REMOTE_ADDR')
+    AuditLog.objects.create(
+        player_id=player_id,
+        event_type=event_type,
+        ip_address=ip or None,
+        metadata=metadata,
+    )

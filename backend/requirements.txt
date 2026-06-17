@@ -1,5 +1,7 @@
 Django>=5.1,<5.2
 djangorestframework>=3.15
+djangorestframework-simplejwt>=5.3
+PyJWT>=2.8
 django-cors-headers>=4.4
 psycopg[binary]>=3.2
 gunicorn>=23.0
@@ -7,4 +9,8 @@ dj-database-url>=2.2
 redis>=5.0
 whitenoise>=6.7
 celery>=5.4
+django-celery-beat>=2.6
 pydantic>=2.7
+pytest>=8.0
+pytest-django>=4.8
+factory-boy>=3.3

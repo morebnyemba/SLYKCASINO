@@ -92,4 +92,30 @@ def settle_bet(bet_id: int, outcome: str) -> Bet:
 
     bet.settled_at = timezone.now()
     bet.save(update_fields=['status', 'payout', 'settled_at'])
+
+    # Notify the player about the settlement result (lazy import avoids circular).
+    if bet.player_id:
+        from apps.notifications import services as notif_services
+        if outcome == 'won':
+            notif_services.notify(
+                player_id=bet.player_id,
+                kind='bet_won',
+                title='Bet won!',
+                body=f'Your bet #{bet.id} won. Payout: {bet.payout}',
+            )
+        elif outcome == 'void':
+            notif_services.notify(
+                player_id=bet.player_id,
+                kind='account_alert',
+                title='Bet voided',
+                body=f'Your bet #{bet.id} has been voided and your stake refunded.',
+            )
+        else:
+            notif_services.notify(
+                player_id=bet.player_id,
+                kind='bet_lost',
+                title='Bet lost',
+                body=f'Your bet #{bet.id} did not win this time.',
+            )
+
     return bet
