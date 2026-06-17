@@ -16,11 +16,13 @@ export default function RegisterPage() {
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError('');
     if (password !== confirm) { setError('Passwords do not match'); return; }
+    if (!acceptedTerms) { setError('You must accept the Terms & Conditions and Privacy Policy to continue'); return; }
     setLoading(true);
     try {
       await register(username, email, password);
@@ -59,10 +61,26 @@ export default function RegisterPage() {
                 />
               </div>
             ))}
+            <label htmlFor="acceptedTerms" className="flex items-start gap-2 text-sm text-muted-foreground">
+              <input
+                id="acceptedTerms"
+                type="checkbox"
+                checked={acceptedTerms}
+                onChange={(e) => setAcceptedTerms(e.target.checked)}
+                required
+                className="mt-0.5"
+              />
+              <span>
+                I confirm I am at least 18 years old and agree to the{' '}
+                <Link href="/legal/terms" className="text-primary underline-offset-4 hover:underline">Terms &amp; Conditions</Link>,{' '}
+                <Link href="/legal/privacy-policy" className="text-primary underline-offset-4 hover:underline">Privacy Policy</Link>, and{' '}
+                <Link href="/legal/responsible-gambling" className="text-primary underline-offset-4 hover:underline">Responsible Gambling Policy</Link>.
+              </span>
+            </label>
             {error && <p className="text-sm text-destructive">{error}</p>}
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || !acceptedTerms}
               className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
             >
               {loading ? 'Creating account…' : 'Create account'}
