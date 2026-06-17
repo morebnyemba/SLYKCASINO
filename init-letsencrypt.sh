@@ -19,34 +19,40 @@ if [ -f .env ]; then set -a; . ./.env; set +a; fi
 STAGING="${STAGING:-0}"   # set STAGING=1 to test against LE staging (avoids rate limits)
 LE_PATH="/etc/letsencrypt/live/$DOMAIN"
 
+# IMPORTANT: always pin -f docker-compose.yml. Without it, `docker compose`
+# auto-merges docker-compose.override.yml (the local dev stack: next dev,
+# stale node_modules volumes, nginx/templates-dev with DOMAIN=localhost),
+# silently breaking production nginx/cert issuance.
+COMPOSE="docker compose -f docker-compose.yml"
+
 echo "### Fetching recommended TLS params into the letsencrypt volume ..."
-docker compose run --rm --entrypoint "/bin/sh -c '\
+$COMPOSE run --rm --entrypoint "/bin/sh -c '\
   curl -s https://raw.githubusercontent.com/certbot/certbot/master/certbot-nginx/certbot_nginx/_internal/tls_configs/options-ssl-nginx.conf \
     -o /etc/letsencrypt/options-ssl-nginx.conf; \
   openssl dhparam -out /etc/letsencrypt/ssl-dhparams.pem 2048'" certbot
 
 echo "### Creating a temporary self-signed cert so nginx can boot ..."
-docker compose run --rm --entrypoint "/bin/sh -c '\
+$COMPOSE run --rm --entrypoint "/bin/sh -c '\
   mkdir -p $LE_PATH && \
   openssl req -x509 -nodes -newkey rsa:2048 -days 1 \
     -keyout $LE_PATH/privkey.pem -out $LE_PATH/fullchain.pem \
     -subj \"/CN=localhost\"'" certbot
 
 echo "### Starting nginx ..."
-docker compose up -d nginx
+$COMPOSE up -d nginx
 
 echo "### Deleting dummy cert ..."
-docker compose run --rm --entrypoint "/bin/sh -c 'rm -rf $LE_PATH'" certbot
+$COMPOSE run --rm --entrypoint "/bin/sh -c 'rm -rf $LE_PATH'" certbot
 
 echo "### Requesting the real certificate from Let's Encrypt ..."
 STAGING_FLAG=""; [ "$STAGING" = "1" ] && STAGING_FLAG="--staging"
-docker compose run --rm certbot certonly \
+$COMPOSE run --rm --entrypoint certbot certbot certonly \
   --webroot -w /var/www/certbot \
   --email "$CERTBOT_EMAIL" --agree-tos --no-eff-email \
   $STAGING_FLAG \
   -d "$DOMAIN"
 
 echo "### Reloading nginx with the real certificate ..."
-docker compose exec nginx nginx -s reload
+$COMPOSE exec nginx nginx -s reload
 
 echo "### Done. TLS is live for https://$DOMAIN"
