@@ -26,6 +26,10 @@ ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN corepack enable
+# Pin pnpm explicitly: the pruner stage runs `pnpm add -g turbo` before any
+# package.json is copied in, so corepack can't read the "packageManager"
+# field yet and would otherwise fetch latest pnpm (requires Node 22+).
+RUN corepack prepare pnpm@9.12.0 --activate
 WORKDIR /app
 
 # -----------------------------------------------------------------------------
