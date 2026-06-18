@@ -16,7 +16,10 @@ class PlayerSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Player
-        fields = ['id', 'username', 'email', 'kyc_status', 'balance', 'currency', 'created_at']
+        fields = [
+            'id', 'username', 'email', 'kyc_status', 'balance', 'currency',
+            'created_at', 'avatar_url', 'loyalty_tier',
+        ]
 
     def get_balance(self, obj: Player) -> str:
         return str(wallet_services.get_balance(obj.id))

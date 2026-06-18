@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { FaDownload } from 'react-icons/fa';
 import { Card } from '@slyk/ui/components/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@slyk/ui/components/table';
@@ -31,7 +31,15 @@ const STATUS_VARIANT: Record<string, 'default' | 'secondary' | 'destructive'> = 
 
 export default function MyBetsPage() {
   const { data, loading, error } = useApi<BetsResponse>('/bets/');
-  const bets = data?.results ?? [];
+  const allBets = data?.results ?? [];
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
+  const bets = allBets.filter((b) => {
+    const d = b.placed_at.slice(0, 10);
+    if (fromDate && d < fromDate) return false;
+    if (toDate && d > toDate) return false;
+    return true;
+  });
 
   const stats = useMemo(() => {
     const totalStaked = bets.reduce((sum, b) => sum + parseFloat(b.stake || '0'), 0);
@@ -61,17 +69,32 @@ export default function MyBetsPage() {
 
   return (
     <div>
-      <div className="mb-4 flex items-center justify-between">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-2xl font-bold">My Bets</h1>
-        {bets.length > 0 && (
-          <button
-            onClick={exportCsv}
-            className="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent"
-          >
-            <FaDownload size={11} />
-            Export CSV
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          <input
+            type="date"
+            value={fromDate}
+            onChange={(e) => setFromDate(e.target.value)}
+            className="rounded-md border border-border bg-background px-2 py-1 text-xs"
+          />
+          <span className="text-xs text-muted-foreground">to</span>
+          <input
+            type="date"
+            value={toDate}
+            onChange={(e) => setToDate(e.target.value)}
+            className="rounded-md border border-border bg-background px-2 py-1 text-xs"
+          />
+          {allBets.length > 0 && (
+            <button
+              onClick={exportCsv}
+              className="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent"
+            >
+              <FaDownload size={11} />
+              Export CSV
+            </button>
+          )}
+        </div>
       </div>
 
       {bets.length > 0 && (
@@ -106,7 +129,9 @@ export default function MyBetsPage() {
           <TableBody>
             {bets.length === 0 && (
               <TableRow>
-                <TableCell colSpan={6} className="text-muted-foreground">No bets yet.</TableCell>
+                <TableCell colSpan={6} className="text-muted-foreground">
+                  {allBets.length === 0 ? 'No bets yet.' : 'No bets in this date range.'}
+                </TableCell>
               </TableRow>
             )}
             {bets.map((b) => (

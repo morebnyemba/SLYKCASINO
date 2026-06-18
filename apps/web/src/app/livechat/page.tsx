@@ -26,6 +26,8 @@ export default function LiveChatPage() {
   const [wsStatus, setWsStatus] = useState<WsStatus>('connecting');
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const socketRef = useRef<WebSocket | null>(null);
 
@@ -36,11 +38,31 @@ export default function LiveChatPage() {
       .then((data) => {
         if (data?.results) {
           // API returns newest-first; reverse for display
-          setMessages([...(data.results as Message[])].reverse());
+          const results = data.results as Message[];
+          setMessages([...results].reverse());
+          setHasMore(results.length >= 50);
         }
       })
       .catch(() => {});
   }, []);
+
+  async function loadOlder() {
+    if (messages.length === 0 || loadingMore) return;
+    setLoadingMore(true);
+    const oldestId = messages[0].id;
+    try {
+      const res = await fetch(`${config.apiUrl}/chat/?channel=lobby&before=${oldestId}`, { cache: 'no-store' });
+      const data = res.ok ? await res.json() : null;
+      const results = (data?.results ?? []) as Message[];
+      if (results.length > 0) {
+        setMessages((prev) => [...[...results].reverse(), ...prev]);
+      }
+      setHasMore(results.length >= 50);
+    } catch {
+      setHasMore(false);
+    }
+    setLoadingMore(false);
+  }
 
   // WebSocket for live incoming messages
   useEffect(() => {
@@ -122,6 +144,17 @@ export default function LiveChatPage() {
       <Card className="flex flex-1 flex-col overflow-hidden">
         {/* Message list */}
         <CardContent className="flex-1 overflow-y-auto p-4 space-y-3">
+          {hasMore && (
+            <div className="flex justify-center pb-1">
+              <button
+                onClick={loadOlder}
+                disabled={loadingMore}
+                className="rounded-md border border-border px-3 py-1 text-xs font-medium text-muted-foreground hover:bg-accent disabled:opacity-50"
+              >
+                {loadingMore ? 'Loading…' : 'Load older messages'}
+              </button>
+            </div>
+          )}
           {messages.length === 0 && (
             <p className="text-center text-sm text-muted-foreground pt-8">
               No messages yet — be the first to say hello!

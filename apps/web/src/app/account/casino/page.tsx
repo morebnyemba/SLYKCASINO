@@ -1,5 +1,7 @@
 'use client';
 
+import { useState } from 'react';
+import { FaDownload } from 'react-icons/fa';
 import { Card } from '@slyk/ui/components/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@slyk/ui/components/table';
 import { Badge } from '@slyk/ui/components/badge';
@@ -18,14 +20,63 @@ interface RoundsResponse { results?: Round[] }
 
 export default function CasinoHistoryPage() {
   const { data, loading, error } = useApi<RoundsResponse>('/casino/rounds/');
-  const rounds = data?.results ?? [];
+  const allRounds = data?.results ?? [];
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
+  const rounds = allRounds.filter((r) => {
+    const d = r.created_at.slice(0, 10);
+    if (fromDate && d < fromDate) return false;
+    if (toDate && d > toDate) return false;
+    return true;
+  });
+
+  function exportCsv() {
+    const header = 'Round,Stake,Win,Net,Status,Date\n';
+    const rows = rounds.map((r) => {
+      const net = (parseFloat(r.win) - parseFloat(r.stake)).toFixed(2);
+      return [r.id, r.stake, r.win, net, r.status, r.created_at].join(',');
+    });
+    const blob = new Blob([header + rows.join('\n')], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'casino-history.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  }
 
   if (loading) return <p className="text-sm text-muted-foreground">Loading…</p>;
   if (error) return <p className="text-sm text-destructive">{error}</p>;
 
   return (
     <div>
-      <h1 className="mb-4 text-2xl font-bold">Casino History</h1>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+        <h1 className="text-2xl font-bold">Casino History</h1>
+        <div className="flex items-center gap-2">
+          <input
+            type="date"
+            value={fromDate}
+            onChange={(e) => setFromDate(e.target.value)}
+            className="rounded-md border border-border bg-background px-2 py-1 text-xs"
+          />
+          <span className="text-xs text-muted-foreground">to</span>
+          <input
+            type="date"
+            value={toDate}
+            onChange={(e) => setToDate(e.target.value)}
+            className="rounded-md border border-border bg-background px-2 py-1 text-xs"
+          />
+          {allRounds.length > 0 && (
+            <button
+              onClick={exportCsv}
+              className="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent"
+            >
+              <FaDownload size={11} />
+              Export CSV
+            </button>
+          )}
+        </div>
+      </div>
       <Card className="p-2">
         <Table>
           <TableHeader>
@@ -41,7 +92,9 @@ export default function CasinoHistoryPage() {
           <TableBody>
             {rounds.length === 0 && (
               <TableRow>
-                <TableCell colSpan={6} className="text-muted-foreground">No casino rounds yet. Try a game!</TableCell>
+                <TableCell colSpan={6} className="text-muted-foreground">
+                  {allRounds.length === 0 ? 'No casino rounds yet. Try a game!' : 'No rounds in this date range.'}
+                </TableCell>
               </TableRow>
             )}
             {rounds.map((r) => {

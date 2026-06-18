@@ -22,7 +22,9 @@ class ChatMessageViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
 
     def get_queryset(self):
         channel = self.request.query_params.get('channel', 'lobby')
-        return services.list_messages(channel=channel)
+        before = self.request.query_params.get('before')
+        before_id = int(before) if before and before.isdigit() else None
+        return services.list_messages(channel=channel, before_id=before_id)
 
     def create(self, request, *args, **kwargs):
         player = accounts_services.get_current_player(request)

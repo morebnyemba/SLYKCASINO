@@ -9,6 +9,7 @@ from __future__ import annotations
 from decimal import Decimal
 
 from django.db import transaction
+from django.db.models import Count
 from django.utils import timezone
 
 from apps.wallet import services as wallet_services
@@ -19,7 +20,7 @@ from .models import Promotion, PromotionClaim
 
 
 def list_promotions():
-    return Promotion.objects.all()
+    return Promotion.objects.annotate(claim_count=Count('claims'))
 
 
 @transaction.atomic

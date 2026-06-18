@@ -7,9 +7,14 @@ from .models import Promotion, PromotionClaim
 
 
 class PromotionSerializer(serializers.ModelSerializer):
+    claim_count = serializers.IntegerField(read_only=True, default=0)
+
     class Meta:
         model = Promotion
-        fields = ['id', 'name', 'kind', 'active', 'bonus_amount', 'wagering_multiplier', 'starts_at', 'ends_at']
+        fields = [
+            'id', 'name', 'kind', 'active', 'bonus_amount', 'wagering_multiplier',
+            'starts_at', 'ends_at', 'code', 'terms_html', 'claim_count',
+        ]
 
 
 class PromotionClaimSerializer(serializers.ModelSerializer):

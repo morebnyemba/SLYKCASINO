@@ -15,6 +15,9 @@ interface Promo {
   bonus_amount: string;
   wagering_multiplier: string;
   ends_at?: string;
+  code?: string;
+  terms_html?: string;
+  claim_count?: number;
 }
 
 interface PromosResponse { results?: Promo[] }
@@ -119,10 +122,32 @@ export default function PromotionsPage() {
                   <span>{p.wagering_multiplier}×</span>
                 </div>
 
-                {p.ends_at && (
-                  <Badge variant="secondary" className="bg-gold/10 text-gold">
-                    {timeLeft(p.ends_at, now)}
-                  </Badge>
+                <div className="flex items-center gap-2">
+                  {p.ends_at && (
+                    <Badge variant="secondary" className="bg-gold/10 text-gold">
+                      {timeLeft(p.ends_at, now)}
+                    </Badge>
+                  )}
+                  {typeof p.claim_count === 'number' && p.claim_count > 0 && (
+                    <Badge variant="secondary">{p.claim_count} claimed</Badge>
+                  )}
+                </div>
+
+                {p.code && (
+                  <button
+                    onClick={() => navigator.clipboard?.writeText(p.code!)}
+                    className="w-full rounded-md border border-dashed border-border px-3 py-1.5 text-center font-mono text-sm tracking-wider hover:bg-accent"
+                    title="Click to copy"
+                  >
+                    {p.code}
+                  </button>
+                )}
+
+                {p.terms_html && (
+                  <details className="text-xs text-muted-foreground">
+                    <summary className="cursor-pointer select-none">Terms &amp; conditions</summary>
+                    <div className="mt-1" dangerouslySetInnerHTML={{ __html: p.terms_html }} />
+                  </details>
                 )}
 
                 {msg && <p className="text-sm text-muted-foreground">{msg}</p>}
