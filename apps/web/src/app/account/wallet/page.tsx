@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { FaDownload } from 'react-icons/fa';
 import { Card, CardContent, CardHeader, CardTitle } from '@slyk/ui/components/card';
 import { Badge } from '@slyk/ui/components/badge';
 import { useAuth } from '@/lib/auth-context';
@@ -76,6 +77,20 @@ export default function WalletPage() {
   const currency = wallet?.currency ?? 'USD';
   const entries = Array.isArray(ledger) ? ledger : [];
 
+  function exportCsv() {
+    const header = 'Type,Amount,Reference,Date\n';
+    const rows = entries.map((e) =>
+      [KIND_LABEL[e.kind] ?? e.kind, e.amount, e.reference || '', e.created_at].join(','),
+    );
+    const blob = new Blob([header + rows.join('\n')], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'wallet-transactions.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold">Wallet</h1>
@@ -138,8 +153,17 @@ export default function WalletPage() {
       </Card>
 
       <Card>
-        <CardHeader>
+        <CardHeader className="flex-row items-center justify-between space-y-0">
           <CardTitle className="text-base">Transaction history</CardTitle>
+          {entries.length > 0 && (
+            <button
+              onClick={exportCsv}
+              className="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent"
+            >
+              <FaDownload size={11} />
+              Export CSV
+            </button>
+          )}
         </CardHeader>
         <CardContent className="p-0">
           {lLoading ? (

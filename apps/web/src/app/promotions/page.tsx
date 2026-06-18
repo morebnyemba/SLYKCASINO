@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { FaWallet, FaGift, FaCoins } from 'react-icons/fa6';
 import type { IconType } from 'react-icons';
 import { Card, CardContent, CardHeader, CardTitle } from '@slyk/ui/components/card';
@@ -37,6 +37,17 @@ const KIND_ICON: Record<string, IconType> = {
   cashback: FaCoins,
 };
 
+function timeLeft(endsAt: string, now: number): string {
+  const diff = new Date(endsAt).getTime() - now;
+  if (diff <= 0) return 'Expired';
+  const days = Math.floor(diff / 86_400_000);
+  const hours = Math.floor((diff % 86_400_000) / 3_600_000);
+  const minutes = Math.floor((diff % 3_600_000) / 60_000);
+  if (days > 0) return `${days}d ${hours}h left`;
+  if (hours > 0) return `${hours}h ${minutes}m left`;
+  return `${minutes}m left`;
+}
+
 export default function PromotionsPage() {
   const { user, accessToken } = useAuth();
   const { data: promosData, loading: promosLoading } = useApi<PromosResponse>('/promotions/');
@@ -50,6 +61,12 @@ export default function PromotionsPage() {
 
   const [claiming, setClaiming] = useState<number | null>(null);
   const [messages, setMessages] = useState<Record<number, string>>({});
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const interval = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(interval);
+  }, []);
 
   async function handleClaim(promoId: number) {
     if (!accessToken) return;
@@ -100,13 +117,13 @@ export default function PromotionsPage() {
                   <span className="font-medium">{p.bonus_amount}</span>
                   <span className="text-muted-foreground">Wagering</span>
                   <span>{p.wagering_multiplier}×</span>
-                  {p.ends_at && (
-                    <>
-                      <span className="text-muted-foreground">Expires</span>
-                      <span>{new Date(p.ends_at).toLocaleDateString()}</span>
-                    </>
-                  )}
                 </div>
+
+                {p.ends_at && (
+                  <Badge variant="secondary" className="bg-gold/10 text-gold">
+                    {timeLeft(p.ends_at, now)}
+                  </Badge>
+                )}
 
                 {msg && <p className="text-sm text-muted-foreground">{msg}</p>}
 

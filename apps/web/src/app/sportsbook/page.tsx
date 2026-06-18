@@ -38,8 +38,14 @@ export default async function SportsbookPage() {
             )}
             {events.map((ev) => (
               <TableRow key={ev.id}>
-                <TableCell>{ev.name}</TableCell>
-                <TableCell>{ev.odds}</TableCell>
+                <TableCell>
+                  <span className="mr-2 inline-flex items-center gap-1.5 rounded-full bg-red-500/10 px-2 py-0.5 text-xs font-medium text-red-500">
+                    <span className="h-1.5 w-1.5 rounded-full bg-red-500 animate-pulse" />
+                    Live
+                  </span>
+                  {ev.name}
+                </TableCell>
+                <TableCell className="font-mono font-semibold">{ev.odds}</TableCell>
                 <TableCell className="text-right">
                   <Link href={`/sportsbook/${ev.id}`} className={buttonVariants({ size: 'sm', variant: 'outline' })}>
                     Bet →

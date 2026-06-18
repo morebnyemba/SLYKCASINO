@@ -5,9 +5,15 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { BsGrid1X2Fill } from 'react-icons/bs';
 import { GiTrophy, GiRollingDices } from 'react-icons/gi';
-import { FaGift, FaRegCommentDots, FaUser, FaSignOutAlt, FaBars, FaTimes } from 'react-icons/fa';
+import { FaGift, FaRegCommentDots, FaUser, FaSignOutAlt, FaBars, FaTimes, FaWallet } from 'react-icons/fa';
 import type { IconType } from 'react-icons';
 import { useAuth } from '@/lib/auth-context';
+import { useApi } from '@/lib/use-api';
+
+interface Wallet {
+  balance?: string;
+  currency?: string;
+}
 
 const links: { href: string; label: string; icon: IconType }[] = [
   { href: '/', label: 'Lobby', icon: BsGrid1X2Fill },
@@ -26,6 +32,7 @@ export function SiteHeader() {
   const { user, logout } = useAuth();
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
+  const { data: wallet } = useApi<Wallet>(user ? '/wallet/' : null);
 
   async function handleLogout() {
     await logout();
@@ -69,6 +76,13 @@ export function SiteHeader() {
         <div className="ml-auto hidden items-center gap-3 text-sm lg:flex">
           {user ? (
             <>
+              <Link
+                href="/account/wallet"
+                className="flex items-center gap-1.5 rounded-md bg-white/10 px-3 py-1.5 font-mono font-semibold text-white transition-colors hover:bg-white/20"
+              >
+                <FaWallet size={13} className="text-secondary" />
+                {wallet?.balance ?? '—'} <span className="text-white/60">{wallet?.currency ?? ''}</span>
+              </Link>
               <Link
                 href="/account/profile"
                 className="flex items-center gap-1.5 rounded-md px-2 py-1.5 font-semibold text-white transition-colors hover:bg-white/10"
@@ -135,6 +149,14 @@ export function SiteHeader() {
           <div className="mt-2 flex flex-col gap-2 border-t border-white/10 pt-3">
             {user ? (
               <>
+                <Link
+                  href="/account/wallet"
+                  onClick={() => setMenuOpen(false)}
+                  className="flex items-center gap-2 rounded-md bg-white/10 px-3 py-2 font-mono font-semibold text-white"
+                >
+                  <FaWallet size={13} className="text-secondary" />
+                  {wallet?.balance ?? '—'} <span className="text-white/60">{wallet?.currency ?? ''}</span>
+                </Link>
                 <Link
                   href="/account/profile"
                   onClick={() => setMenuOpen(false)}

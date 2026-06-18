@@ -1,8 +1,9 @@
 'use client';
 
+import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { GiRollingDices, GiSpades } from 'react-icons/gi';
-import { BsGrid1X2Fill } from 'react-icons/bs';
+import { BsGrid1X2Fill, BsSearch, BsStarFill } from 'react-icons/bs';
 import { TbDiscFilled } from 'react-icons/tb';
 import type { IconType } from 'react-icons';
 import { Card, CardContent, CardHeader, CardTitle } from '@slyk/ui/components/card';
@@ -38,10 +39,48 @@ const DEMO_GAMES: Game[] = [
   { id: 6, slug: 'baccarat-vip', name: 'Baccarat VIP', provider: 'SLYK', rtp: '98.80' },
 ];
 
+const FAVORITES_KEY = 'slyk:favorite-games';
+
+function loadFavorites(): Set<string> {
+  if (typeof window === 'undefined') return new Set();
+  try {
+    return new Set(JSON.parse(window.localStorage.getItem(FAVORITES_KEY) ?? '[]'));
+  } catch {
+    return new Set();
+  }
+}
+
 export default function CasinoPage() {
   const { data, loading } = useApi<GamesResponse>('/casino/games/');
   const apiGames = data?.results ?? [];
   const games = apiGames.length > 0 ? apiGames : DEMO_GAMES;
+
+  const [search, setSearch] = useState('');
+  const [provider, setProvider] = useState('all');
+  const [sort, setSort] = useState<'name' | 'rtp'>('name');
+  const [favorites, setFavorites] = useState<Set<string>>(() => loadFavorites());
+  const [onlyFavorites, setOnlyFavorites] = useState(false);
+
+  const providers = useMemo(() => Array.from(new Set(games.map((g) => g.provider))).sort(), [games]);
+
+  function toggleFavorite(slug: string) {
+    setFavorites((prev) => {
+      const next = new Set(prev);
+      if (next.has(slug)) next.delete(slug); else next.add(slug);
+      window.localStorage.setItem(FAVORITES_KEY, JSON.stringify(Array.from(next)));
+      return next;
+    });
+  }
+
+  const filtered = useMemo(() => {
+    let list = games.filter((g) => g.name.toLowerCase().includes(search.toLowerCase()));
+    if (provider !== 'all') list = list.filter((g) => g.provider === provider);
+    if (onlyFavorites) list = list.filter((g) => favorites.has(g.slug));
+    list = [...list].sort((a, b) => (
+      sort === 'rtp' ? parseFloat(b.rtp) - parseFloat(a.rtp) : a.name.localeCompare(b.name)
+    ));
+    return list;
+  }, [games, search, provider, onlyFavorites, favorites, sort]);
 
   return (
     <div>
@@ -50,30 +89,78 @@ export default function CasinoPage() {
         <p className="text-muted-foreground">Choose a game and start playing. Bets are settled instantly.</p>
       </div>
 
+      <div className="mb-6 flex flex-wrap items-center gap-3">
+        <div className="relative flex-1 min-w-[200px]">
+          <BsSearch className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={14} />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search games…"
+            className="w-full rounded-md border border-border bg-background py-2 pl-9 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+          />
+        </div>
+        <select
+          value={provider}
+          onChange={(e) => setProvider(e.target.value)}
+          className="rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+        >
+          <option value="all">All providers</option>
+          {providers.map((p) => <option key={p} value={p}>{p}</option>)}
+        </select>
+        <select
+          value={sort}
+          onChange={(e) => setSort(e.target.value as 'name' | 'rtp')}
+          className="rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+        >
+          <option value="name">Sort: A–Z</option>
+          <option value="rtp">Sort: Highest RTP</option>
+        </select>
+        <button
+          onClick={() => setOnlyFavorites((v) => !v)}
+          className={`flex items-center gap-1.5 rounded-md border px-3 py-2 text-sm font-medium transition-colors ${
+            onlyFavorites ? 'border-gold bg-gold/10 text-gold' : 'border-border text-muted-foreground hover:bg-accent'
+          }`}
+        >
+          <BsStarFill size={13} />
+          Favorites
+        </button>
+      </div>
+
       {loading && <p className="text-sm text-muted-foreground mb-4">Loading games…</p>}
+      {!loading && filtered.length === 0 && (
+        <p className="text-sm text-muted-foreground">No games match your filters.</p>
+      )}
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {games.map((game) => {
+        {filtered.map((game) => {
           const Icon = gameIcon(game.name);
+          const isFav = favorites.has(game.slug);
           return (
-          <Link key={game.slug} href={`/casino/${game.slug}?id=${game.id}`}>
-            <Card className="cursor-pointer transition-colors hover:bg-accent">
-              <CardHeader className="flex-row items-center gap-3 space-y-0 pb-2">
-                <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                  <Icon size={20} />
-                </span>
-                <div>
-                  <CardTitle className="text-base">{game.name}</CardTitle>
-                  <p className="text-xs text-muted-foreground">{game.provider}</p>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="flex items-center gap-2">
-                  <Badge variant="secondary">RTP {game.rtp}%</Badge>
-                </div>
-              </CardContent>
+            <Card key={game.slug} className="relative transition-colors hover:bg-accent">
+              <button
+                onClick={(e) => { e.preventDefault(); toggleFavorite(game.slug); }}
+                aria-label="Toggle favorite"
+                className={`absolute right-3 top-3 z-10 transition-colors ${isFav ? 'text-gold' : 'text-muted-foreground/40 hover:text-gold'}`}
+              >
+                <BsStarFill size={16} />
+              </button>
+              <Link href={`/casino/${game.slug}?id=${game.id}`} className="block">
+                <CardHeader className="flex-row items-center gap-3 space-y-0 pb-2">
+                  <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                    <Icon size={20} />
+                  </span>
+                  <div>
+                    <CardTitle className="text-base">{game.name}</CardTitle>
+                    <p className="text-xs text-muted-foreground">{game.provider}</p>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="secondary">RTP {game.rtp}%</Badge>
+                  </div>
+                </CardContent>
+              </Link>
             </Card>
-          </Link>
           );
         })}
       </div>

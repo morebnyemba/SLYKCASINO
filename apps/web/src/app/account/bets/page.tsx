@@ -1,5 +1,7 @@
 'use client';
 
+import { useMemo } from 'react';
+import { FaDownload } from 'react-icons/fa';
 import { Card } from '@slyk/ui/components/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@slyk/ui/components/table';
 import { Badge } from '@slyk/ui/components/badge';
@@ -31,12 +33,64 @@ export default function MyBetsPage() {
   const { data, loading, error } = useApi<BetsResponse>('/bets/');
   const bets = data?.results ?? [];
 
+  const stats = useMemo(() => {
+    const totalStaked = bets.reduce((sum, b) => sum + parseFloat(b.stake || '0'), 0);
+    const settled = bets.filter((b) => b.status === 'won' || b.status === 'lost');
+    const won = bets.filter((b) => b.status === 'won');
+    const totalPayout = won.reduce((sum, b) => sum + parseFloat(b.payout || '0'), 0);
+    const winRate = settled.length > 0 ? (won.length / settled.length) * 100 : 0;
+    return { totalStaked, totalPayout, winRate, count: bets.length };
+  }, [bets]);
+
+  function exportCsv() {
+    const header = 'Event,Stake,Odds,Payout,Status,Date\n';
+    const rows = bets.map((b) =>
+      [b.event, b.stake, b.odds, b.payout ?? '', b.status, b.placed_at].join(','),
+    );
+    const blob = new Blob([header + rows.join('\n')], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'my-bets.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   if (loading) return <p className="text-sm text-muted-foreground">Loading…</p>;
   if (error) return <p className="text-sm text-destructive">{error}</p>;
 
   return (
     <div>
-      <h1 className="mb-4 text-2xl font-bold">My Bets</h1>
+      <div className="mb-4 flex items-center justify-between">
+        <h1 className="text-2xl font-bold">My Bets</h1>
+        {bets.length > 0 && (
+          <button
+            onClick={exportCsv}
+            className="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent"
+          >
+            <FaDownload size={11} />
+            Export CSV
+          </button>
+        )}
+      </div>
+
+      {bets.length > 0 && (
+        <div className="mb-4 grid gap-3 sm:grid-cols-3">
+          <Card className="p-4">
+            <p className="text-xs text-muted-foreground">Total staked</p>
+            <p className="text-lg font-bold">{stats.totalStaked.toFixed(2)}</p>
+          </Card>
+          <Card className="p-4">
+            <p className="text-xs text-muted-foreground">Total returns</p>
+            <p className="text-lg font-bold text-green-600">{stats.totalPayout.toFixed(2)}</p>
+          </Card>
+          <Card className="p-4">
+            <p className="text-xs text-muted-foreground">Win rate</p>
+            <p className="text-lg font-bold">{stats.winRate.toFixed(0)}%</p>
+          </Card>
+        </div>
+      )}
+
       <Card className="p-2">
         <Table>
           <TableHeader>
