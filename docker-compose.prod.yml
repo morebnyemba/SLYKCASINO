@@ -137,6 +137,11 @@ services:
   nginx:
     <<: *restart
     image: nginx:1.27-alpine
+    # Skip the stock docker-entrypoint.sh: it tries to envsubst its bundled
+    # /etc/nginx/templates/default.conf.template into conf.d, which we mount
+    # read-only with our own static config. That write failure is fatal and
+    # crash-loops the container before nginx ever starts, so exec it directly.
+    entrypoint: ["nginx", "-g", "daemon off;"]
     ports:
       - "80:80"
       - "443:443"
