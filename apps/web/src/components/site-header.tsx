@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { BsGrid1X2Fill } from 'react-icons/bs';
 import { GiTrophy, GiRollingDices } from 'react-icons/gi';
-import { FaGift, FaRegCommentDots, FaUser, FaSignOutAlt, FaBars, FaTimes, FaWallet } from 'react-icons/fa';
+import { FaGift, FaRegCommentDots, FaUser, FaSignOutAlt, FaBars, FaTimes, FaWallet, FaBell } from 'react-icons/fa';
 import type { IconType } from 'react-icons';
 import { useAuth } from '@/lib/auth-context';
 import { useApi } from '@/lib/use-api';
@@ -13,6 +13,11 @@ import { useApi } from '@/lib/use-api';
 interface Wallet {
   balance?: string;
   currency?: string;
+}
+
+interface Notification {
+  id: number;
+  read: boolean;
 }
 
 const links: { href: string; label: string; icon: IconType }[] = [
@@ -33,6 +38,8 @@ export function SiteHeader() {
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
   const { data: wallet } = useApi<Wallet>(user ? '/wallet/' : null);
+  const { data: notifications } = useApi<Notification[]>(user ? '/notifications/' : null);
+  const unreadCount = notifications?.filter((n) => !n.read).length ?? 0;
 
   async function handleLogout() {
     await logout();
@@ -82,6 +89,18 @@ export function SiteHeader() {
               >
                 <FaWallet size={13} className="text-secondary" />
                 {wallet?.balance ?? '—'} <span className="text-white/60">{wallet?.currency ?? ''}</span>
+              </Link>
+              <Link
+                href="/account/notifications"
+                aria-label="Notifications"
+                className="relative flex h-9 w-9 items-center justify-center rounded-md text-white/80 transition-colors hover:bg-white/10 hover:text-white"
+              >
+                <FaBell size={15} />
+                {unreadCount > 0 && (
+                  <span className="absolute right-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-secondary px-1 text-[10px] font-bold text-white">
+                    {unreadCount > 9 ? '9+' : unreadCount}
+                  </span>
+                )}
               </Link>
               <Link
                 href="/account/profile"
@@ -156,6 +175,19 @@ export function SiteHeader() {
                 >
                   <FaWallet size={13} className="text-secondary" />
                   {wallet?.balance ?? '—'} <span className="text-white/60">{wallet?.currency ?? ''}</span>
+                </Link>
+                <Link
+                  href="/account/notifications"
+                  onClick={() => setMenuOpen(false)}
+                  className="flex items-center gap-2 rounded-md px-3 py-2 font-semibold text-white hover:bg-white/10"
+                >
+                  <FaBell size={14} />
+                  Notifications
+                  {unreadCount > 0 && (
+                    <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-secondary px-1 text-[10px] font-bold text-white">
+                      {unreadCount > 9 ? '9+' : unreadCount}
+                    </span>
+                  )}
                 </Link>
                 <Link
                   href="/account/profile"

@@ -17,3 +17,12 @@ class GameRoundSerializer(serializers.ModelSerializer):
         model = GameRound
         fields = ['id', 'game', 'stake', 'win', 'status', 'debit_confirmed', 'created_at', 'settled_at']
         read_only_fields = fields
+
+
+class RecentWinSerializer(serializers.ModelSerializer):
+    game_name = serializers.CharField(source='game.name', read_only=True)
+
+    class Meta:
+        model = GameRound
+        fields = ['id', 'game_name', 'stake', 'win', 'created_at']
+        read_only_fields = fields

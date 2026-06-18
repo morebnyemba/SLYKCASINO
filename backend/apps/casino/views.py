@@ -14,7 +14,7 @@ from apps.wallet.services import InsufficientFunds
 
 from . import services
 from .models import Game, GameRound
-from .serializers import GameRoundSerializer, GameSerializer
+from .serializers import GameRoundSerializer, GameSerializer, RecentWinSerializer
 
 
 class GameViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
@@ -72,3 +72,9 @@ class GameRoundViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         if player is None:
             return GameRound.objects.none()
         return GameRound.objects.filter(player_id=player.id).order_by('-created_at')[:50]
+
+    @action(detail=False, methods=['get'], permission_classes=[AllowAny], url_path='recent-wins')
+    def recent_wins(self, request):
+        """GET /api/casino/rounds/recent-wins/ — public win ticker (no player identity)."""
+        qs = GameRound.objects.filter(status='settled', win__gt=0).select_related('game').order_by('-created_at')[:10]
+        return Response(RecentWinSerializer(qs, many=True).data)
