@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { GiRollingDices, GiSpades } from 'react-icons/gi';
 import { BsGrid1X2Fill, BsSearch, BsStarFill } from 'react-icons/bs';
@@ -16,10 +16,12 @@ interface Game {
   name: string;
   provider: string;
   rtp: string;
+  image_url?: string;
 }
 
 interface GamesResponse {
   results?: Game[];
+  next?: string | null;
 }
 
 function gameIcon(name: string): IconType {
@@ -52,8 +54,29 @@ function loadFavorites(): Set<string> {
 
 export default function CasinoPage() {
   const { data, loading } = useApi<GamesResponse>('/casino/games/');
+  const [extraGames, setExtraGames] = useState<Game[]>([]);
+  const [nextPage, setNextPage] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
   const apiGames = data?.results ?? [];
-  const games = apiGames.length > 0 ? apiGames : DEMO_GAMES;
+  const games = apiGames.length > 0 ? [...apiGames, ...extraGames] : DEMO_GAMES;
+
+  useEffect(() => {
+    setNextPage(data?.next ?? null);
+  }, [data]);
+
+  async function loadMore() {
+    if (!nextPage || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const res = await fetch(nextPage);
+      const json = (await res.json()) as GamesResponse;
+      setExtraGames((prev) => [...prev, ...(json.results ?? [])]);
+      setNextPage(json.next ?? null);
+    } catch {
+      setNextPage(null);
+    }
+    setLoadingMore(false);
+  }
 
   const [search, setSearch] = useState('');
   const [provider, setProvider] = useState('all');
@@ -146,9 +169,14 @@ export default function CasinoPage() {
               </button>
               <Link href={`/casino/${game.slug}?id=${game.id}`} className="block">
                 <CardHeader className="flex-row items-center gap-3 space-y-0 pb-2">
-                  <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                    <Icon size={20} />
-                  </span>
+                  {game.image_url ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={game.image_url} alt={game.name} className="h-10 w-10 rounded-lg object-cover" />
+                  ) : (
+                    <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                      <Icon size={20} />
+                    </span>
+                  )}
                   <div>
                     <CardTitle className="text-base">{game.name}</CardTitle>
                     <p className="text-xs text-muted-foreground">{game.provider}</p>
@@ -164,6 +192,18 @@ export default function CasinoPage() {
           );
         })}
       </div>
+
+      {nextPage && (
+        <div className="mt-6 flex justify-center">
+          <button
+            onClick={loadMore}
+            disabled={loadingMore}
+            className="rounded-md border border-border px-4 py-2 text-sm font-medium text-muted-foreground hover:bg-accent disabled:opacity-50"
+          >
+            {loadingMore ? 'Loading…' : 'Load more games'}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
