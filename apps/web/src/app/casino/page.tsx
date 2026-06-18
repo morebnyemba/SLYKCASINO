@@ -1,6 +1,10 @@
 'use client';
 
 import Link from 'next/link';
+import { GiRollingDices, GiSpades } from 'react-icons/gi';
+import { BsGrid1X2Fill } from 'react-icons/bs';
+import { TbDiscFilled } from 'react-icons/tb';
+import type { IconType } from 'react-icons';
 import { Card, CardContent, CardHeader, CardTitle } from '@slyk/ui/components/card';
 import { Badge } from '@slyk/ui/components/badge';
 import { useApi } from '@/lib/use-api';
@@ -17,14 +21,12 @@ interface GamesResponse {
   results?: Game[];
 }
 
-function gameIcon(name: string): string {
+function gameIcon(name: string): IconType {
   const n = name.toLowerCase();
-  if (n.includes('roulette')) return '🎡';
-  if (n.includes('blackjack') || n.includes('black jack')) return '🃏';
-  if (n.includes('poker')) return '♠️';
-  if (n.includes('baccarat')) return '🎴';
-  if (n.includes('dice') || n.includes('craps')) return '🎲';
-  return '🎰';
+  if (n.includes('roulette')) return TbDiscFilled;
+  if (n.includes('blackjack') || n.includes('black jack') || n.includes('poker') || n.includes('baccarat')) return GiSpades;
+  if (n.includes('dice') || n.includes('craps')) return GiRollingDices;
+  return BsGrid1X2Fill;
 }
 
 const DEMO_GAMES: Game[] = [
@@ -51,11 +53,15 @@ export default function CasinoPage() {
       {loading && <p className="text-sm text-muted-foreground mb-4">Loading games…</p>}
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {games.map((game) => (
+        {games.map((game) => {
+          const Icon = gameIcon(game.name);
+          return (
           <Link key={game.slug} href={`/casino/${game.slug}?id=${game.id}`}>
             <Card className="cursor-pointer transition-colors hover:bg-accent">
               <CardHeader className="flex-row items-center gap-3 space-y-0 pb-2">
-                <span className="text-3xl">{gameIcon(game.name)}</span>
+                <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                  <Icon size={20} />
+                </span>
                 <div>
                   <CardTitle className="text-base">{game.name}</CardTitle>
                   <p className="text-xs text-muted-foreground">{game.provider}</p>
@@ -68,7 +74,8 @@ export default function CasinoPage() {
               </CardContent>
             </Card>
           </Link>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

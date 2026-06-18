@@ -21,7 +21,7 @@ export function BetSlip({ event = 'demo-event', initialOdds = 1.95 }: { event?: 
       { event, stake: Number(stake), odds: initialOdds },
       accessToken,
     );
-    setStatus(error ? `Rejected: ${error}` : 'Bet placed ✅');
+    setStatus(error ? `Rejected: ${error}` : 'Bet placed.');
     setBusy(false);
   }
 

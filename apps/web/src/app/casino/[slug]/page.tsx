@@ -73,7 +73,7 @@ export default function GamePage({ params, searchParams }: PageProps) {
 
     if (err || !data) {
       setError(err ?? 'Spin failed');
-      setReels(['❌', '❌', '❌']);
+      setReels(['×', '×', '×']);
       return;
     }
 
@@ -155,7 +155,7 @@ export default function GamePage({ params, searchParams }: PageProps) {
                 disabled={spinning}
                 className="w-full rounded-xl bg-primary py-4 text-lg font-bold text-primary-foreground transition-all hover:opacity-90 active:scale-95 disabled:opacity-50"
               >
-                {spinning ? '⌛ Spinning…' : '🎰 SPIN'}
+                {spinning ? 'Spinning…' : 'SPIN'}
               </button>
             ) : (
               <Link

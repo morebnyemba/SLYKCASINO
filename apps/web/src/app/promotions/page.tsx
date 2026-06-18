@@ -1,6 +1,8 @@
 'use client';
 
 import { useState } from 'react';
+import { FaWallet, FaGift, FaCoins } from 'react-icons/fa6';
+import type { IconType } from 'react-icons';
 import { Card, CardContent, CardHeader, CardTitle } from '@slyk/ui/components/card';
 import { Badge } from '@slyk/ui/components/badge';
 import { useAuth } from '@/lib/auth-context';
@@ -29,10 +31,10 @@ interface Claim {
 
 interface ClaimsResponse { results?: Claim[] }
 
-const KIND_ICON: Record<string, string> = {
-  deposit: '💰',
-  freebet: '🎁',
-  cashback: '💸',
+const KIND_ICON: Record<string, IconType> = {
+  deposit: FaWallet,
+  freebet: FaGift,
+  cashback: FaCoins,
 };
 
 export default function PromotionsPage() {
@@ -53,7 +55,7 @@ export default function PromotionsPage() {
     if (!accessToken) return;
     setClaiming(promoId);
     const { error } = await authedPost(`/promotions/${promoId}/claim/`, {}, accessToken);
-    setMessages((m) => ({ ...m, [promoId]: error ? error : 'Bonus claimed! ✓' }));
+    setMessages((m) => ({ ...m, [promoId]: error ? error : 'Bonus claimed.' }));
     setClaiming(null);
     refetchClaims();
   }
@@ -80,11 +82,14 @@ export default function PromotionsPage() {
         {promos.map((p) => {
           const claimed = claimedIds.has(p.id);
           const msg = messages[p.id];
+          const Icon = KIND_ICON[p.kind] ?? FaGift;
           return (
             <Card key={p.id} className={claimed ? 'opacity-70' : ''}>
               <CardHeader className="pb-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-2xl">{KIND_ICON[p.kind] ?? '🎁'}</span>
+                  <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-secondary/10 text-secondary">
+                    <Icon size={16} />
+                  </span>
                   <Badge variant={p.active ? 'default' : 'secondary'}>{p.active ? 'Active' : 'Off'}</Badge>
                 </div>
                 <CardTitle className="text-base">{p.name}</CardTitle>
@@ -107,7 +112,7 @@ export default function PromotionsPage() {
 
                 {user ? (
                   claimed ? (
-                    <p className="text-sm text-green-600 font-medium">Already claimed ✓</p>
+                    <p className="text-sm text-green-600 font-medium">Already claimed</p>
                   ) : (
                     <button
                       onClick={() => handleClaim(p.id)}

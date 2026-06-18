@@ -54,7 +54,7 @@ export default function WalletPage() {
       { amount: depositAmt, currency: wallet?.currency ?? 'USD' },
       accessToken,
     );
-    setMsg(error ? `Error: ${error}` : `Deposited ${depositAmt} ${wallet?.currency ?? 'USD'} ✓`);
+    setMsg(error ? `Error: ${error}` : `Deposited ${depositAmt} ${wallet?.currency ?? 'USD'}.`);
     refetchWallet(); refetchLedger();
     setBusy(false);
   }
@@ -67,7 +67,7 @@ export default function WalletPage() {
       { amount: withdrawAmt },
       accessToken,
     );
-    setMsg(error ? `Error: ${error}` : `Withdrawal of ${withdrawAmt} submitted ✓`);
+    setMsg(error ? `Error: ${error}` : `Withdrawal of ${withdrawAmt} submitted.`);
     refetchWallet(); refetchLedger();
     setBusy(false);
   }
