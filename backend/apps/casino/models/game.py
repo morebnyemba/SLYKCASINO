@@ -9,6 +9,7 @@ class Game(models.Model):
     provider = models.CharField(max_length=80, default='stub')
     rtp = models.DecimalField(max_digits=5, decimal_places=2, default=96.0)  # %
     is_active = models.BooleanField(default=True)
+    image_url = models.CharField(max_length=500, blank=True)
 
     class Meta:
         db_table = 'casino_game'

@@ -11,6 +11,7 @@ interface EventItem {
   id: string | number;
   name: string;
   odds: number;
+  previous_odds?: number | null;
 }
 
 export default async function SportsbookPage() {
@@ -38,8 +39,21 @@ export default async function SportsbookPage() {
             )}
             {events.map((ev) => (
               <TableRow key={ev.id}>
-                <TableCell>{ev.name}</TableCell>
-                <TableCell>{ev.odds}</TableCell>
+                <TableCell>
+                  <span className="mr-2 inline-flex items-center gap-1.5 rounded-full bg-red-500/10 px-2 py-0.5 text-xs font-medium text-red-500">
+                    <span className="h-1.5 w-1.5 rounded-full bg-red-500 animate-pulse" />
+                    Live
+                  </span>
+                  {ev.name}
+                </TableCell>
+                <TableCell className="font-mono font-semibold">
+                  {ev.odds}
+                  {ev.previous_odds != null && ev.previous_odds !== ev.odds && (
+                    <span className={`ml-1.5 text-xs ${ev.odds > ev.previous_odds ? 'text-green-600' : 'text-red-500'}`}>
+                      {ev.odds > ev.previous_odds ? '▲' : '▼'}
+                    </span>
+                  )}
+                </TableCell>
                 <TableCell className="text-right">
                   <Link href={`/sportsbook/${ev.id}`} className={buttonVariants({ size: 'sm', variant: 'outline' })}>
                     Bet →

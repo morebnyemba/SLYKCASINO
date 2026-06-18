@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { FaDownload } from 'react-icons/fa';
 import { Card, CardContent, CardHeader, CardTitle } from '@slyk/ui/components/card';
 import { Badge } from '@slyk/ui/components/badge';
 import { useAuth } from '@/lib/auth-context';
@@ -45,6 +46,8 @@ export default function WalletPage() {
   const [withdrawAmt, setWithdrawAmt] = useState('');
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
 
   async function handleDeposit() {
     if (!accessToken) return;
@@ -54,7 +57,7 @@ export default function WalletPage() {
       { amount: depositAmt, currency: wallet?.currency ?? 'USD' },
       accessToken,
     );
-    setMsg(error ? `Error: ${error}` : `Deposited ${depositAmt} ${wallet?.currency ?? 'USD'} ✓`);
+    setMsg(error ? `Error: ${error}` : `Deposited ${depositAmt} ${wallet?.currency ?? 'USD'}.`);
     refetchWallet(); refetchLedger();
     setBusy(false);
   }
@@ -67,14 +70,34 @@ export default function WalletPage() {
       { amount: withdrawAmt },
       accessToken,
     );
-    setMsg(error ? `Error: ${error}` : `Withdrawal of ${withdrawAmt} submitted ✓`);
+    setMsg(error ? `Error: ${error}` : `Withdrawal of ${withdrawAmt} submitted.`);
     refetchWallet(); refetchLedger();
     setBusy(false);
   }
 
   const balance = wallet?.balance ?? '0.00';
   const currency = wallet?.currency ?? 'USD';
-  const entries = Array.isArray(ledger) ? ledger : [];
+  const allEntries = Array.isArray(ledger) ? ledger : [];
+  const entries = allEntries.filter((e) => {
+    const d = e.created_at.slice(0, 10);
+    if (fromDate && d < fromDate) return false;
+    if (toDate && d > toDate) return false;
+    return true;
+  });
+
+  function exportCsv() {
+    const header = 'Type,Amount,Reference,Date\n';
+    const rows = entries.map((e) =>
+      [KIND_LABEL[e.kind] ?? e.kind, e.amount, e.reference || '', e.created_at].join(','),
+    );
+    const blob = new Blob([header + rows.join('\n')], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'wallet-transactions.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  }
 
   return (
     <div className="space-y-6">
@@ -138,14 +161,40 @@ export default function WalletPage() {
       </Card>
 
       <Card>
-        <CardHeader>
+        <CardHeader className="flex-row items-center justify-between space-y-0">
           <CardTitle className="text-base">Transaction history</CardTitle>
+          <div className="flex items-center gap-2">
+            <input
+              type="date"
+              value={fromDate}
+              onChange={(e) => setFromDate(e.target.value)}
+              className="rounded-md border border-border bg-background px-2 py-1 text-xs"
+            />
+            <span className="text-xs text-muted-foreground">to</span>
+            <input
+              type="date"
+              value={toDate}
+              onChange={(e) => setToDate(e.target.value)}
+              className="rounded-md border border-border bg-background px-2 py-1 text-xs"
+            />
+            {allEntries.length > 0 && (
+              <button
+                onClick={exportCsv}
+                className="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent"
+              >
+                <FaDownload size={11} />
+                Export CSV
+              </button>
+            )}
+          </div>
         </CardHeader>
         <CardContent className="p-0">
           {lLoading ? (
             <p className="px-6 py-4 text-sm text-muted-foreground">Loading…</p>
           ) : entries.length === 0 ? (
-            <p className="px-6 py-4 text-sm text-muted-foreground">No transactions yet.</p>
+            <p className="px-6 py-4 text-sm text-muted-foreground">
+              {allEntries.length === 0 ? 'No transactions yet.' : 'No transactions in this date range.'}
+            </p>
           ) : (
             <table className="w-full text-sm">
               <thead>

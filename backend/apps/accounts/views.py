@@ -352,3 +352,35 @@ class PlayerViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.G
         if player is None:
             return Response({'detail': 'player profile not found'}, status=status.HTTP_404_NOT_FOUND)
         return Response(self.get_serializer(player).data)
+
+    @action(detail=False, methods=['get'], url_path='me/stats', permission_classes=[IsAuthenticated])
+    def stats(self, request):
+        from django.db.models import Count, Sum
+        from apps.sportsbook.models import Bet
+        from apps.casino.models import GameRound
+
+        player = services.get_current_player(request)
+        if player is None:
+            return Response({'detail': 'player profile not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        bet_agg = Bet.objects.filter(player_id=player.id).aggregate(
+            total_staked=Sum('stake'), total_payout=Sum('payout'), count=Count('id'),
+        )
+        bets_won = Bet.objects.filter(player_id=player.id, status='won').count()
+        round_agg = GameRound.objects.filter(player_id=player.id).aggregate(
+            total_staked=Sum('stake'), total_win=Sum('win'), count=Count('id'),
+        )
+
+        return Response({
+            'bets': {
+                'count': bet_agg['count'] or 0,
+                'won': bets_won,
+                'total_staked': str(bet_agg['total_staked'] or 0),
+                'total_payout': str(bet_agg['total_payout'] or 0),
+            },
+            'casino': {
+                'count': round_agg['count'] or 0,
+                'total_staked': str(round_agg['total_staked'] or 0),
+                'total_win': str(round_agg['total_win'] or 0),
+            },
+        })

@@ -14,7 +14,7 @@ interface Me {
 const KYC_LABEL: Record<string, string> = {
   unverified: 'Unverified',
   pending: 'Pending review',
-  verified: 'Verified ✓',
+  verified: 'Verified',
 };
 
 export default function ProfilePage() {

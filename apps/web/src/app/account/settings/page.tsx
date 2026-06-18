@@ -97,7 +97,7 @@ export default function SettingsPage() {
       body: JSON.stringify({ deposit_limit_daily: limitInput || null }),
     });
     const json = await res.json();
-    setLimitMsg(res.ok ? 'Deposit limit saved ✓' : (json.detail ?? 'Failed'));
+    setLimitMsg(res.ok ? 'Deposit limit saved.' : (json.detail ?? 'Failed'));
     setLimitBusy(false);
     refetch();
   }

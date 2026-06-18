@@ -9,7 +9,7 @@ from .models import Bet, Event
 class EventSerializer(serializers.ModelSerializer):
     class Meta:
         model = Event
-        fields = ['id', 'name', 'odds', 'featured', 'is_open', 'starts_at']
+        fields = ['id', 'name', 'odds', 'previous_odds', 'featured', 'is_open', 'starts_at']
 
 
 class BetSerializer(serializers.ModelSerializer):

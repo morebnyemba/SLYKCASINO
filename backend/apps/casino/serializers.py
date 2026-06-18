@@ -9,7 +9,7 @@ from .models import Game, GameRound
 class GameSerializer(serializers.ModelSerializer):
     class Meta:
         model = Game
-        fields = ['id', 'slug', 'name', 'provider', 'rtp', 'is_active']
+        fields = ['id', 'slug', 'name', 'provider', 'rtp', 'is_active', 'image_url']
 
 
 class GameRoundSerializer(serializers.ModelSerializer):

@@ -1,6 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { FaWallet, FaGift, FaCoins } from 'react-icons/fa6';
+import type { IconType } from 'react-icons';
 import { Card, CardContent, CardHeader, CardTitle } from '@slyk/ui/components/card';
 import { Badge } from '@slyk/ui/components/badge';
 import { useAuth } from '@/lib/auth-context';
@@ -13,6 +15,9 @@ interface Promo {
   bonus_amount: string;
   wagering_multiplier: string;
   ends_at?: string;
+  code?: string;
+  terms_html?: string;
+  claim_count?: number;
 }
 
 interface PromosResponse { results?: Promo[] }
@@ -29,11 +34,22 @@ interface Claim {
 
 interface ClaimsResponse { results?: Claim[] }
 
-const KIND_ICON: Record<string, string> = {
-  deposit: '💰',
-  freebet: '🎁',
-  cashback: '💸',
+const KIND_ICON: Record<string, IconType> = {
+  deposit: FaWallet,
+  freebet: FaGift,
+  cashback: FaCoins,
 };
+
+function timeLeft(endsAt: string, now: number): string {
+  const diff = new Date(endsAt).getTime() - now;
+  if (diff <= 0) return 'Expired';
+  const days = Math.floor(diff / 86_400_000);
+  const hours = Math.floor((diff % 86_400_000) / 3_600_000);
+  const minutes = Math.floor((diff % 3_600_000) / 60_000);
+  if (days > 0) return `${days}d ${hours}h left`;
+  if (hours > 0) return `${hours}h ${minutes}m left`;
+  return `${minutes}m left`;
+}
 
 export default function PromotionsPage() {
   const { user, accessToken } = useAuth();
@@ -48,12 +64,18 @@ export default function PromotionsPage() {
 
   const [claiming, setClaiming] = useState<number | null>(null);
   const [messages, setMessages] = useState<Record<number, string>>({});
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const interval = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(interval);
+  }, []);
 
   async function handleClaim(promoId: number) {
     if (!accessToken) return;
     setClaiming(promoId);
     const { error } = await authedPost(`/promotions/${promoId}/claim/`, {}, accessToken);
-    setMessages((m) => ({ ...m, [promoId]: error ? error : 'Bonus claimed! ✓' }));
+    setMessages((m) => ({ ...m, [promoId]: error ? error : 'Bonus claimed.' }));
     setClaiming(null);
     refetchClaims();
   }
@@ -80,11 +102,14 @@ export default function PromotionsPage() {
         {promos.map((p) => {
           const claimed = claimedIds.has(p.id);
           const msg = messages[p.id];
+          const Icon = KIND_ICON[p.kind] ?? FaGift;
           return (
             <Card key={p.id} className={claimed ? 'opacity-70' : ''}>
               <CardHeader className="pb-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-2xl">{KIND_ICON[p.kind] ?? '🎁'}</span>
+                  <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-secondary/10 text-secondary">
+                    <Icon size={16} />
+                  </span>
                   <Badge variant={p.active ? 'default' : 'secondary'}>{p.active ? 'Active' : 'Off'}</Badge>
                 </div>
                 <CardTitle className="text-base">{p.name}</CardTitle>
@@ -95,19 +120,41 @@ export default function PromotionsPage() {
                   <span className="font-medium">{p.bonus_amount}</span>
                   <span className="text-muted-foreground">Wagering</span>
                   <span>{p.wagering_multiplier}×</span>
+                </div>
+
+                <div className="flex items-center gap-2">
                   {p.ends_at && (
-                    <>
-                      <span className="text-muted-foreground">Expires</span>
-                      <span>{new Date(p.ends_at).toLocaleDateString()}</span>
-                    </>
+                    <Badge variant="secondary" className="bg-gold/10 text-gold">
+                      {timeLeft(p.ends_at, now)}
+                    </Badge>
+                  )}
+                  {typeof p.claim_count === 'number' && p.claim_count > 0 && (
+                    <Badge variant="secondary">{p.claim_count} claimed</Badge>
                   )}
                 </div>
+
+                {p.code && (
+                  <button
+                    onClick={() => navigator.clipboard?.writeText(p.code!)}
+                    className="w-full rounded-md border border-dashed border-border px-3 py-1.5 text-center font-mono text-sm tracking-wider hover:bg-accent"
+                    title="Click to copy"
+                  >
+                    {p.code}
+                  </button>
+                )}
+
+                {p.terms_html && (
+                  <details className="text-xs text-muted-foreground">
+                    <summary className="cursor-pointer select-none">Terms &amp; conditions</summary>
+                    <div className="mt-1" dangerouslySetInnerHTML={{ __html: p.terms_html }} />
+                  </details>
+                )}
 
                 {msg && <p className="text-sm text-muted-foreground">{msg}</p>}
 
                 {user ? (
                   claimed ? (
-                    <p className="text-sm text-green-600 font-medium">Already claimed ✓</p>
+                    <p className="text-sm text-green-600 font-medium">Already claimed</p>
                   ) : (
                     <button
                       onClick={() => handleClaim(p.id)}
