@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle } from '@slyk/ui/components/card';
@@ -8,7 +8,7 @@ import { Button } from '@slyk/ui/components/button';
 import { Input } from '@slyk/ui/components/input';
 import { config } from '@/lib/config';
 
-export default function ResetPasswordPage() {
+function ResetPasswordForm() {
   const searchParams = useSearchParams();
   const uid = searchParams.get('uid') ?? '';
   const token = searchParams.get('token') ?? '';
@@ -110,5 +110,13 @@ export default function ResetPasswordPage() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+export default function ResetPasswordPage() {
+  return (
+    <Suspense>
+      <ResetPasswordForm />
+    </Suspense>
   );
 }
