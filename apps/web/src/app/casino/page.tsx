@@ -2,13 +2,12 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { GiRollingDices, GiSpades } from 'react-icons/gi';
-import { BsGrid1X2Fill, BsSearch, BsStarFill } from 'react-icons/bs';
-import { TbDiscFilled } from 'react-icons/tb';
-import type { IconType } from 'react-icons';
+import { BsSearch, BsStarFill } from 'react-icons/bs';
 import { Card, CardContent, CardHeader, CardTitle } from '@slyk/ui/components/card';
 import { Badge } from '@slyk/ui/components/badge';
+import { Carousel, CarouselItem } from '@/components/carousel';
 import { useApi } from '@/lib/use-api';
+import { gameAvatarUrl, CASINO_HERO_IMAGES } from '@/lib/game-images';
 
 interface Game {
   id: number;
@@ -22,14 +21,6 @@ interface Game {
 interface GamesResponse {
   results?: Game[];
   next?: string | null;
-}
-
-function gameIcon(name: string): IconType {
-  const n = name.toLowerCase();
-  if (n.includes('roulette')) return TbDiscFilled;
-  if (n.includes('blackjack') || n.includes('black jack') || n.includes('poker') || n.includes('baccarat')) return GiSpades;
-  if (n.includes('dice') || n.includes('craps')) return GiRollingDices;
-  return BsGrid1X2Fill;
 }
 
 const DEMO_GAMES: Game[] = [
@@ -112,6 +103,22 @@ export default function CasinoPage() {
         <p className="text-muted-foreground">Choose a game and start playing. Bets are settled instantly.</p>
       </div>
 
+      <Carousel className="mb-6">
+        {CASINO_HERO_IMAGES.map((src, i) => (
+          <CarouselItem key={src} className="w-[280px] sm:w-[360px]">
+            <Link href={`/casino/${games[i % games.length]?.slug ?? ''}?id=${games[i % games.length]?.id ?? ''}`}>
+              <div className="relative h-36 overflow-hidden rounded-xl sm:h-44">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={src} alt="Casino highlight" className="h-full w-full object-cover" />
+                <div className="absolute inset-0 flex items-end bg-gradient-to-t from-black/70 to-transparent p-3">
+                  <p className="font-semibold text-white">{games[i % games.length]?.name ?? 'Featured game'}</p>
+                </div>
+              </div>
+            </Link>
+          </CarouselItem>
+        ))}
+      </Carousel>
+
       <div className="mb-6 flex flex-wrap items-center gap-3">
         <div className="relative flex-1 min-w-[200px]">
           <BsSearch className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={14} />
@@ -156,7 +163,6 @@ export default function CasinoPage() {
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {filtered.map((game) => {
-          const Icon = gameIcon(game.name);
           const isFav = favorites.has(game.slug);
           return (
             <Card key={game.slug} className="relative transition-colors hover:bg-accent">
@@ -169,14 +175,12 @@ export default function CasinoPage() {
               </button>
               <Link href={`/casino/${game.slug}?id=${game.id}`} className="block">
                 <CardHeader className="flex-row items-center gap-3 space-y-0 pb-2">
-                  {game.image_url ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={game.image_url} alt={game.name} className="h-10 w-10 rounded-lg object-cover" />
-                  ) : (
-                    <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                      <Icon size={20} />
-                    </span>
-                  )}
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={game.image_url || gameAvatarUrl(game.slug)}
+                    alt={game.name}
+                    className="h-10 w-10 rounded-lg bg-primary/10 object-cover"
+                  />
                   <div>
                     <CardTitle className="text-base">{game.name}</CardTitle>
                     <p className="text-xs text-muted-foreground">{game.provider}</p>

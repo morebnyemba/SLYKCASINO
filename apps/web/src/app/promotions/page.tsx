@@ -1,12 +1,12 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { FaWallet, FaGift, FaCoins } from 'react-icons/fa6';
-import type { IconType } from 'react-icons';
 import { Card, CardContent, CardHeader, CardTitle } from '@slyk/ui/components/card';
 import { Badge } from '@slyk/ui/components/badge';
+import { Carousel, CarouselItem } from '@/components/carousel';
 import { useAuth } from '@/lib/auth-context';
 import { useApi, authedPost } from '@/lib/use-api';
+import { gameAvatarUrl, CASINO_HERO_IMAGES } from '@/lib/game-images';
 interface Promo {
   id: number;
   name: string;
@@ -33,12 +33,6 @@ interface Claim {
 }
 
 interface ClaimsResponse { results?: Claim[] }
-
-const KIND_ICON: Record<string, IconType> = {
-  deposit: FaWallet,
-  freebet: FaGift,
-  cashback: FaCoins,
-};
 
 function timeLeft(endsAt: string, now: number): string {
   const diff = new Date(endsAt).getTime() - now;
@@ -93,6 +87,27 @@ export default function PromotionsPage() {
         <p className="text-muted-foreground">Claim a bonus and start playing.</p>
       </div>
 
+      {promos.length > 0 && (
+        <Carousel>
+          {promos.slice(0, 6).map((p, i) => (
+            <CarouselItem key={p.id} className="w-[260px] sm:w-[320px]">
+              <div className="relative h-32 overflow-hidden rounded-xl sm:h-36">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={CASINO_HERO_IMAGES[i % CASINO_HERO_IMAGES.length]}
+                  alt={p.name}
+                  className="h-full w-full object-cover"
+                />
+                <div className="absolute inset-0 flex flex-col justify-end bg-gradient-to-t from-black/75 to-transparent p-3">
+                  <p className="font-semibold text-white">{p.name}</p>
+                  <p className="text-xs text-white/80">{p.bonus_amount} bonus</p>
+                </div>
+              </div>
+            </CarouselItem>
+          ))}
+        </Carousel>
+      )}
+
       {/* Available promotions */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {promosLoading && <p className="text-sm text-muted-foreground col-span-3">Loading promotions…</p>}
@@ -102,14 +117,16 @@ export default function PromotionsPage() {
         {promos.map((p) => {
           const claimed = claimedIds.has(p.id);
           const msg = messages[p.id];
-          const Icon = KIND_ICON[p.kind] ?? FaGift;
           return (
             <Card key={p.id} className={claimed ? 'opacity-70' : ''}>
               <CardHeader className="pb-2">
                 <div className="flex items-center justify-between">
-                  <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-secondary/10 text-secondary">
-                    <Icon size={16} />
-                  </span>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={gameAvatarUrl(`promo-${p.kind}-${p.id}`)}
+                    alt={p.kind}
+                    className="h-9 w-9 rounded-lg bg-secondary/10 object-cover"
+                  />
                   <Badge variant={p.active ? 'default' : 'secondary'}>{p.active ? 'Active' : 'Off'}</Badge>
                 </div>
                 <CardTitle className="text-base">{p.name}</CardTitle>
