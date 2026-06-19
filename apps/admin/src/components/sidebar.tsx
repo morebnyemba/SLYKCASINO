@@ -11,6 +11,7 @@ const nav = [
   { href: '/livechat', label: 'Live Chat Console' },
   { href: '/betting-feeds', label: 'Betting Feeds' },
   { href: '/promotions', label: 'Promotions' },
+  { href: '/banners', label: 'Site Banners' },
   { href: '/users', label: 'Players' },
   { href: '/events', label: 'Events' },
 ];

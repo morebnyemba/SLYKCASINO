@@ -1,6 +1,14 @@
 from django.contrib import admin
 
-from .models import Promotion, PromotionClaim, Tournament, TournamentEntry
+from .models import Banner, Promotion, PromotionClaim, Tournament, TournamentEntry
+
+
+@admin.register(Banner)
+class BannerAdmin(admin.ModelAdmin):
+    list_display = ('title', 'placement', 'sort_order', 'active', 'starts_at', 'ends_at')
+    list_filter = ('placement', 'active')
+    list_editable = ('sort_order', 'active')
+    search_fields = ('title', 'subtitle')
 
 
 @admin.register(Promotion)

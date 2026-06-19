@@ -3,7 +3,18 @@ from __future__ import annotations
 
 from rest_framework import serializers
 
-from .models import Promotion, PromotionClaim, Tournament, TournamentEntry
+from .models import Banner, Promotion, PromotionClaim, Tournament, TournamentEntry
+
+
+class BannerSerializer(serializers.ModelSerializer):
+    is_live = serializers.BooleanField(read_only=True)
+
+    class Meta:
+        model = Banner
+        fields = [
+            'id', 'title', 'subtitle', 'image_url', 'link_url', 'cta_label',
+            'placement', 'sort_order', 'active', 'is_live', 'starts_at', 'ends_at',
+        ]
 
 
 class PromotionSerializer(serializers.ModelSerializer):

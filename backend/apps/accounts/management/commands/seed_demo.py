@@ -13,6 +13,7 @@ class Command(BaseCommand):
         self._seed_events()
         self._seed_promotions()
         self._seed_tournaments()
+        self._seed_banners()
 
     def _seed_games(self):
         from apps.casino.models import Game
@@ -80,3 +81,28 @@ class Command(BaseCommand):
             obj, created = Tournament.objects.get_or_create(name=data['name'], defaults=data)
             label = 'Created' if created else 'Found'
             self.stdout.write(f'  [{label}] Tournament: {obj.name}')
+
+    def _seed_banners(self):
+        from apps.promotions.models import Banner
+        base = 'https://images.unsplash.com'
+        banners = [
+            {
+                'title': 'SLYK Aviator', 'subtitle': 'Cash out before the crash — win up to 100×',
+                'image_url': f'{base}/photo-1606167668584-78701c57f13d?w=1600&q=80&auto=format',
+                'link_url': '/casino/crash', 'cta_label': 'Play now', 'sort_order': 1,
+            },
+            {
+                'title': 'Welcome Bonus', 'subtitle': 'Claim your 100% deposit match and start winning',
+                'image_url': f'{base}/photo-1596731498067-93a4b7174c93?w=1600&q=80&auto=format',
+                'link_url': '/promotions', 'cta_label': 'Claim bonus', 'sort_order': 2,
+            },
+            {
+                'title': 'Weekly Tournaments', 'subtitle': 'Climb the leaderboard and share the prize pool',
+                'image_url': f'{base}/photo-1518895949257-7621c3c786d7?w=1600&q=80&auto=format',
+                'link_url': '/tournaments', 'cta_label': 'View races', 'sort_order': 3,
+            },
+        ]
+        for data in banners:
+            obj, created = Banner.objects.get_or_create(title=data['title'], defaults=data)
+            label = 'Created' if created else 'Found'
+            self.stdout.write(f'  [{label}] Banner: {obj.title}')
