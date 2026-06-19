@@ -103,7 +103,7 @@ export default function GamePage({ params, searchParams }: PageProps) {
       </div>
 
       <Card className="overflow-hidden">
-        <CardHeader className="bg-gradient-to-r from-purple-900/40 to-indigo-900/40 pb-4">
+        <CardHeader className="bg-gradient-to-r from-primary/30 to-secondary/30 pb-4">
           <CardTitle className="text-center text-xl">{gameName}</CardTitle>
           <p className="text-center text-sm text-muted-foreground">
             Balance: <span className="font-bold text-foreground">{balance} {currency}</span>
