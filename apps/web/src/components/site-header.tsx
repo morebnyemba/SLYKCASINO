@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { BsGrid1X2Fill } from 'react-icons/bs';
-import { GiTrophy, GiRollingDices } from 'react-icons/gi';
+import { GiTrophy, GiRollingDices, GiPodiumWinner } from 'react-icons/gi';
 import { FaGift, FaRegCommentDots, FaUser, FaSignOutAlt, FaBars, FaTimes, FaWallet, FaBell } from 'react-icons/fa';
 import type { IconType } from 'react-icons';
 import { useAuth } from '@/lib/auth-context';
@@ -24,6 +24,7 @@ const links: { href: string; label: string; icon: IconType }[] = [
   { href: '/', label: 'Lobby', icon: BsGrid1X2Fill },
   { href: '/sportsbook', label: 'Sportsbook', icon: GiTrophy },
   { href: '/casino', label: 'Casino', icon: GiRollingDices },
+  { href: '/tournaments', label: 'Tournaments', icon: GiPodiumWinner },
   { href: '/promotions', label: 'Promotions', icon: FaGift },
   { href: '/livechat', label: 'Live Chat', icon: FaRegCommentDots },
 ];

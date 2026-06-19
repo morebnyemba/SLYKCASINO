@@ -5,15 +5,16 @@ import type { IconType } from 'react-icons';
 import { Card, CardContent, CardHeader, CardTitle } from '@slyk/ui/components/card';
 import { Badge } from '@slyk/ui/components/badge';
 import { LiveFeed } from '@/components/live-feed';
+import { WinnersTicker } from '@/components/winners-ticker';
 import { Carousel, CarouselItem } from '@/components/carousel';
 import { apiGet } from '@/lib/config';
 import { CASINO_HERO_IMAGES } from '@/lib/game-images';
 
 const HERO_SLIDES = [
+  { image: CASINO_HERO_IMAGES[3], title: 'SLYK Aviator', subtitle: 'Cash out before the crash', href: '/casino/crash' },
   { image: CASINO_HERO_IMAGES[0], title: 'Spin the wheel', subtitle: 'Live roulette tables open now', href: '/casino' },
   { image: CASINO_HERO_IMAGES[1], title: 'Lucky Slots', subtitle: 'Daily jackpot drops', href: '/casino' },
-  { image: CASINO_HERO_IMAGES[2], title: 'Table games', subtitle: 'Blackjack, baccarat & poker', href: '/casino' },
-  { image: CASINO_HERO_IMAGES[3], title: 'Welcome bonus', subtitle: 'Claim your deposit match', href: '/promotions' },
+  { image: CASINO_HERO_IMAGES[2], title: 'Tournaments', subtitle: 'Climb the leaderboard for prizes', href: '/tournaments' },
 ];
 
 interface EventItem {
@@ -56,6 +57,8 @@ export default async function LobbyPage() {
           </CarouselItem>
         ))}
       </Carousel>
+
+      <WinnersTicker />
 
       <div className="grid gap-4 sm:grid-cols-3">
         {QUICK_LINKS.map((l) => {

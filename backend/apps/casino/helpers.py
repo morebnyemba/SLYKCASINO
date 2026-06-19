@@ -20,6 +20,15 @@ def round_credit_key(round_id: int) -> str:
     return make_key('wallet:casino', round_id, 'credit')
 
 
+def crash_debit_key(crash_id: int) -> str:
+    """Deterministic wallet key for a crash bet's stake debit."""
+    return make_key('wallet:crash', crash_id, 'debit')
+
+
+def crash_credit_key(crash_id: int) -> str:
+    return make_key('wallet:crash', crash_id, 'credit')
+
+
 def validate_spin_request_structure(payload: dict[str, Any]) -> list[str]:
     errors: list[str] = []
     if not payload.get('game_id'):
