@@ -48,7 +48,7 @@ export function SiteHeader() {
   }
 
   return (
-    <header className="sticky top-0 z-50 border-b border-border bg-foreground shadow-md">
+    <header className="sticky top-0 z-50 border-b border-border bg-primary shadow-md">
       <div className="mx-auto flex max-w-6xl items-center gap-8 px-4 py-3 sm:px-6">
         <Link href="/" className="flex items-center gap-2 text-lg font-extrabold tracking-tight text-white">
           <span className="rounded-md bg-primary px-2 py-1 text-sm text-primary-foreground">SLYK</span>
@@ -140,7 +140,7 @@ export function SiteHeader() {
       </div>
 
       {menuOpen && (
-        <nav className="flex flex-col gap-1 border-t border-white/10 bg-foreground px-4 py-3 text-sm lg:hidden">
+        <nav className="flex flex-col gap-1 border-t border-white/10 bg-primary px-4 py-3 text-sm lg:hidden">
           {links.map((l) => {
             const Icon = l.icon;
             return (
