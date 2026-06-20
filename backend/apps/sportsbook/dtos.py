@@ -12,6 +12,8 @@ class BetRequestDTO(BaseDTO):
     """Inbound bet placement request (validated before it crosses into services)."""
     player_id: Optional[int] = None
     event: str
+    event_id: Optional[int] = None
+    selection: str = 'home'
     stake: Decimal
     odds: Decimal
 
@@ -20,6 +22,7 @@ class BetDTO(BaseDTO):
     id: int
     player_id: Optional[int] = None
     event: str
+    selection: str = 'home'
     stake: Decimal
     odds: Decimal
     status: str

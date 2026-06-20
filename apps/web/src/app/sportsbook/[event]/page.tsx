@@ -30,12 +30,15 @@ export default async function EventPage({ params, searchParams }: PageProps) {
 
   let label = name;
   let odds = typeof detail.odds === 'number' ? detail.odds : 1.95;
+  let selection: 'home' | 'draw' | 'away' = 'home';
   if (outcome === 'draw' && detail.odds_draw != null) {
     label = `${name} — Draw`;
     odds = detail.odds_draw;
+    selection = 'draw';
   } else if (outcome === 'away' && detail.odds_away != null) {
     label = `${name} — Away`;
     odds = detail.odds_away;
+    selection = 'away';
   } else if (detail.odds_draw != null) {
     label = `${name} — Home`;
   }
@@ -47,7 +50,7 @@ export default async function EventPage({ params, searchParams }: PageProps) {
         <p className="mb-4 text-muted-foreground">Live betting market. Odds update in real time from the Erlang engine.</p>
         <LiveFeed channel={`odds:${event}`} title="Live Odds" height={200} />
       </section>
-      <BetSlip event={label} initialOdds={odds} />
+      <BetSlip event={label} initialOdds={odds} eventId={event} selection={selection} />
     </div>
   );
 }

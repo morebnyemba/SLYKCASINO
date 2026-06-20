@@ -26,9 +26,22 @@ class EventViewSet(viewsets.ModelViewSet):
         return services.list_events(featured=featured or None, sport=sport)
 
     def get_permissions(self):
-        if self.action in ('create', 'update', 'partial_update', 'destroy'):
+        if self.action in ('create', 'update', 'partial_update', 'destroy', 'settle'):
             return [IsAdminUser()]
         return [AllowAny()]
+
+    @action(detail=True, methods=['post'], url_path='settle')
+    def settle(self, request, pk=None):
+        """Settle every open bet on this event from one result.
+        Takes {result: 'home'|'draw'|'away'|'void'}."""
+        result = request.data.get('result', '')
+        try:
+            count = services.settle_event(int(pk), result)
+        except ValueError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        from apps.accounts.services import audit
+        audit(None, 'event_settled', request, event_id=int(pk), result=result, bets_settled=count)
+        return Response({'event': int(pk), 'result': result, 'bets_settled': count})
 
 
 class BetViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.CreateModelMixin, viewsets.GenericViewSet):
@@ -52,11 +65,14 @@ class BetViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.Create
             dto = BetRequestDTO(
                 player_id=player.id if player else None,
                 event=request.data.get('event'),
+                event_id=request.data.get('event_id'),
+                selection=request.data.get('selection') or 'home',
                 stake=request.data.get('stake'),
                 odds=request.data.get('odds'),
             )
             bet = services.place_bet(
                 event=dto.event, stake=dto.stake, odds=dto.odds, player_id=dto.player_id,
+                event_id=dto.event_id, selection=dto.selection,
             )
         except InsufficientFunds as exc:
             return Response({'detail': str(exc)}, status=status.HTTP_402_PAYMENT_REQUIRED)

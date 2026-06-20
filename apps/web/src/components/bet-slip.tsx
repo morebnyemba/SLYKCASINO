@@ -9,7 +9,12 @@ import { authedPost } from '@/lib/use-api';
 
 const QUICK_STAKES = ['10', '25', '50', '100'];
 
-export function BetSlip({ event = 'demo-event', initialOdds = 1.95 }: { event?: string; initialOdds?: number }) {
+export function BetSlip({ event = 'demo-event', initialOdds = 1.95, eventId, selection = 'home' }: {
+  event?: string;
+  initialOdds?: number;
+  eventId?: string | number;
+  selection?: string;
+}) {
   const { user, accessToken } = useAuth();
   const [stake, setStake] = useState('10');
   const [status, setStatus] = useState<string | null>(null);
@@ -23,7 +28,10 @@ export function BetSlip({ event = 'demo-event', initialOdds = 1.95 }: { event?: 
     setBusy(true); setStatus('Placing…');
     const { error } = await authedPost(
       '/bets/',
-      { event, stake: Number(stake), odds: initialOdds },
+      {
+        event, stake: Number(stake), odds: initialOdds, selection,
+        ...(eventId != null ? { event_id: Number(eventId) } : {}),
+      },
       accessToken,
     );
     setStatus(error ? `Rejected: ${error}` : 'Bet placed.');

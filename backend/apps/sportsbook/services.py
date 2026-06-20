@@ -16,7 +16,7 @@ from apps.wallet import services as wallet_services
 
 from . import helpers, utils
 from .dtos import BetDTO
-from .models import Bet, Event
+from .models import Bet, Event, Selection
 
 
 # -- reads -------------------------------------------------------------------
@@ -30,6 +30,13 @@ def list_events(*, featured: Optional[bool] = None, sport: Optional[str] = None)
     return qs
 
 
+def _outcome_for(selection: str, result: str) -> str:
+    """Map a wager's backed selection against the event result to a settle outcome."""
+    if result == 'void':
+        return 'void'
+    return 'won' if selection == result else 'lost'
+
+
 def to_dto(bet: Bet) -> BetDTO:
     return BetDTO.model_validate(bet)
 
@@ -37,23 +44,32 @@ def to_dto(bet: Bet) -> BetDTO:
 # -- mutations ---------------------------------------------------------------
 
 @transaction.atomic
-def place_bet(*, event: str, stake: Decimal, odds: Decimal, player_id: Optional[int] = None) -> Bet:
+def place_bet(
+    *, event: str, stake: Decimal, odds: Decimal, player_id: Optional[int] = None,
+    event_id: Optional[int] = None, selection: str = Selection.HOME,
+) -> Bet:
     """Place a bet. For an identified player the stake is debited from the wallet
-    atomically; raising InsufficientFunds rolls the whole placement back."""
+    atomically; raising InsufficientFunds rolls the whole placement back.
+
+    `event_id`/`selection` soft-link the bet to its market so a single result can
+    settle every bet on it (see settle_event)."""
     errors = helpers.validate_bet_request_structure({'event': event, 'stake': stake, 'odds': odds})
     if errors:
         raise ValueError('; '.join(errors))
+    if selection not in Selection.values:
+        selection = Selection.HOME
 
     if player_id is None:
         # Anonymous compatibility path — no wallet movement (documented).
         return Bet.objects.create(
             event=event, stake=utils.quantize(stake), odds=odds, status=Bet.Status.OPEN,
+            event_ref_id=event_id, selection=selection,
         )
 
     # Record intent as PENDING, debit the stake, then mark OPEN.
     bet = Bet.objects.create(
         player_id=player_id, event=event, stake=utils.quantize(stake),
-        odds=odds, status=Bet.Status.PENDING,
+        odds=odds, status=Bet.Status.PENDING, event_ref_id=event_id, selection=selection,
     )
     wallet_services.debit(
         player_id=player_id, amount=bet.stake, kind='bet_stake',
@@ -62,6 +78,26 @@ def place_bet(*, event: str, stake: Decimal, odds: Decimal, player_id: Optional[
     bet.status = Bet.Status.OPEN
     bet.save(update_fields=['status'])
     return bet
+
+
+@transaction.atomic
+def settle_event(event_id: int, result: str) -> int:
+    """Settle every open bet linked to an event from a single result.
+
+    `result` is one of 'home' | 'draw' | 'away' | 'void'. Each bet is won/lost by
+    comparing its backed selection; settlement is delegated to settle_bet so wallet
+    payouts stay idempotent. Returns the number of bets settled."""
+    if result not in (*Selection.values, 'void'):
+        raise ValueError("result must be 'home', 'draw', 'away', or 'void'")
+
+    bets = Bet.objects.filter(
+        event_ref_id=event_id, status__in=(Bet.Status.OPEN, Bet.Status.PENDING),
+    ).values_list('id', 'selection')
+    settled = 0
+    for bet_id, selection in list(bets):
+        settle_bet(bet_id, _outcome_for(selection, result))
+        settled += 1
+    return settled
 
 
 @transaction.atomic

@@ -12,6 +12,7 @@ class EventAdmin(admin.ModelAdmin):
 
 @admin.register(Bet)
 class BetAdmin(admin.ModelAdmin):
-    list_display = ('event', 'player_id', 'stake', 'odds', 'status', 'payout', 'placed_at')
-    list_filter = ('status',)
+    list_display = ('event', 'selection', 'player_id', 'stake', 'odds', 'status', 'payout', 'placed_at')
+    list_filter = ('status', 'selection')
     search_fields = ('event', 'player_id')
+    raw_id_fields = ('event_ref',)

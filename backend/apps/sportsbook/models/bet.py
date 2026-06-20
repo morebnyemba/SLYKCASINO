@@ -1,6 +1,14 @@
 from django.db import models
 
 
+class Selection(models.TextChoices):
+    """Which outcome a wager backs. For two-outcome markets (e.g. tennis) only
+    HOME is used; 1/X/2 markets use all three."""
+    HOME = 'home', 'Home / 1'
+    DRAW = 'draw', 'Draw / X'
+    AWAY = 'away', 'Away / 2'
+
+
 class Bet(models.Model):
     """A wager. `player_id` is an integer reference to accounts.Player (no
     cross-app FK). Lifecycle: PENDING (created, stake not yet debited) ->
@@ -15,6 +23,12 @@ class Bet(models.Model):
 
     player_id = models.BigIntegerField(null=True, blank=True, db_index=True)
     event = models.CharField(max_length=200)            # market identifier/label
+    # Soft link back to the market so a result can settle every bet on it at once.
+    # Nullable: legacy/anonymous free-text bets keep working without a link.
+    event_ref = models.ForeignKey(
+        'Event', null=True, blank=True, on_delete=models.SET_NULL, related_name='bets',
+    )
+    selection = models.CharField(max_length=10, choices=Selection.choices, default=Selection.HOME)
     stake = models.DecimalField(max_digits=12, decimal_places=2)
     odds = models.DecimalField(max_digits=6, decimal_places=2)
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.OPEN)
