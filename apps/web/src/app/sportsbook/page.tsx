@@ -10,7 +10,10 @@ export const metadata: Metadata = { title: 'Sportsbook — SLYK' };
 interface EventItem {
   id: string | number;
   name: string;
+  sport?: string;
   odds: number;
+  odds_draw?: number | null;
+  odds_away?: number | null;
   previous_odds?: number | null;
 }
 

@@ -21,10 +21,12 @@ from .models import Bet, Event
 
 # -- reads -------------------------------------------------------------------
 
-def list_events(*, featured: Optional[bool] = None):
+def list_events(*, featured: Optional[bool] = None, sport: Optional[str] = None):
     qs = Event.objects.all()
     if featured:
         qs = qs.filter(featured=True)
+    if sport:
+        qs = qs.filter(sport=sport)
     return qs
 
 

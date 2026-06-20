@@ -5,8 +5,8 @@ from .models import Bet, Event
 
 @admin.register(Event)
 class EventAdmin(admin.ModelAdmin):
-    list_display = ('name', 'odds', 'featured', 'is_open', 'starts_at')
-    list_filter = ('featured', 'is_open')
+    list_display = ('name', 'sport', 'odds', 'odds_draw', 'odds_away', 'featured', 'is_open', 'starts_at')
+    list_filter = ('sport', 'featured', 'is_open')
     search_fields = ('name',)
 
 

@@ -6,12 +6,15 @@ import { BsSearch } from 'react-icons/bs';
 import { Card } from '@slyk/ui/components/card';
 import { buttonVariants } from '@slyk/ui/components/button';
 import { LiveFeed } from '@/components/live-feed';
-import { SPORT_CATEGORIES, SportsSidebar, matchesCategory } from '@/components/sports-sidebar';
+import { SPORT_CATEGORIES, SportsSidebar } from '@/components/sports-sidebar';
 
 interface EventItem {
   id: string | number;
   name: string;
+  sport?: string;
   odds: number;
+  odds_draw?: number | null;
+  odds_away?: number | null;
   previous_odds?: number | null;
 }
 
@@ -22,17 +25,14 @@ export function SportsbookBrowser({ events }: { events: EventItem[] }) {
   const counts = useMemo(() => {
     const c: Record<string, number> = {};
     for (const cat of SPORT_CATEGORIES) {
-      c[cat.id] = events.filter((ev) => matchesCategory(ev.name, cat)).length;
+      c[cat.id] = events.filter((ev) => ev.sport === cat.id).length;
     }
     return c;
   }, [events]);
 
   const filtered = useMemo(() => {
     let list = events;
-    if (activeId) {
-      const cat = SPORT_CATEGORIES.find((c) => c.id === activeId);
-      if (cat) list = list.filter((ev) => matchesCategory(ev.name, cat));
-    }
+    if (activeId) list = list.filter((ev) => ev.sport === activeId);
     if (search) list = list.filter((ev) => ev.name.toLowerCase().includes(search.toLowerCase()));
     return list;
   }, [events, activeId, search]);
@@ -81,17 +81,34 @@ export function SportsbookBrowser({ events }: { events: EventItem[] }) {
                 <p className="truncate font-medium leading-snug">{ev.name}</p>
               </div>
               <div className="flex items-center gap-3 shrink-0">
-                <div className="rounded-md border border-primary/30 bg-primary/5 px-3 py-1.5 text-center">
-                  <p className="text-[10px] uppercase text-muted-foreground">Odds</p>
-                  <p className="font-mono font-bold text-primary">
-                    {ev.odds}
-                    {ev.previous_odds != null && ev.previous_odds !== ev.odds && (
-                      <span className={`ml-1 text-xs ${ev.odds > ev.previous_odds ? 'text-green-600' : 'text-red-500'}`}>
-                        {ev.odds > ev.previous_odds ? '▲' : '▼'}
-                      </span>
-                    )}
-                  </p>
-                </div>
+                {ev.odds_draw != null ? (
+                  <div className="flex gap-1.5">
+                    <Link href={`/sportsbook/${ev.id}?outcome=home`} className="rounded-md border border-primary/30 bg-primary/5 px-2.5 py-1.5 text-center transition-colors hover:bg-primary/10">
+                      <p className="text-[10px] uppercase text-muted-foreground">1</p>
+                      <p className="font-mono text-sm font-bold text-primary">{ev.odds}</p>
+                    </Link>
+                    <Link href={`/sportsbook/${ev.id}?outcome=draw`} className="rounded-md border border-primary/30 bg-primary/5 px-2.5 py-1.5 text-center transition-colors hover:bg-primary/10">
+                      <p className="text-[10px] uppercase text-muted-foreground">X</p>
+                      <p className="font-mono text-sm font-bold text-primary">{ev.odds_draw}</p>
+                    </Link>
+                    <Link href={`/sportsbook/${ev.id}?outcome=away`} className="rounded-md border border-primary/30 bg-primary/5 px-2.5 py-1.5 text-center transition-colors hover:bg-primary/10">
+                      <p className="text-[10px] uppercase text-muted-foreground">2</p>
+                      <p className="font-mono text-sm font-bold text-primary">{ev.odds_away}</p>
+                    </Link>
+                  </div>
+                ) : (
+                  <div className="rounded-md border border-primary/30 bg-primary/5 px-3 py-1.5 text-center">
+                    <p className="text-[10px] uppercase text-muted-foreground">Odds</p>
+                    <p className="font-mono font-bold text-primary">
+                      {ev.odds}
+                      {ev.previous_odds != null && ev.previous_odds !== ev.odds && (
+                        <span className={`ml-1 text-xs ${ev.odds > ev.previous_odds ? 'text-green-600' : 'text-red-500'}`}>
+                          {ev.odds > ev.previous_odds ? '▲' : '▼'}
+                        </span>
+                      )}
+                    </p>
+                  </div>
+                )}
                 <Link href={`/sportsbook/${ev.id}`} className={buttonVariants({ size: 'sm' })}>
                   Bet →
                 </Link>
