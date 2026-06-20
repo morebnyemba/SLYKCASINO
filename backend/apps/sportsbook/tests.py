@@ -93,3 +93,53 @@ class BetPlacementTests(TestCase):
         )
         settled = sportsbook_services.settle_bet(bet.id, 'won')
         self.assertEqual(settled.status, Bet.Status.WON)
+
+
+class SettleEventTests(TestCase):
+    def setUp(self):
+        self.player = _make_player(username='settler', email='settle@example.com')
+        self.event = _make_event('Man Utd vs Arsenal')
+
+    def _bet(self, selection, stake='50.00', odds='2.00'):
+        return sportsbook_services.place_bet(
+            event=f'Man Utd vs Arsenal — {selection}', stake=Decimal(stake), odds=Decimal(odds),
+            player_id=self.player.id, event_id=self.event.id, selection=selection,
+        )
+
+    def test_settle_event_pays_matching_selection_only(self):
+        home = self._bet('home')
+        draw = self._bet('draw')
+        away = self._bet('away')
+        before = wallet_services.get_balance(self.player.id)
+
+        count = sportsbook_services.settle_event(self.event.id, 'draw')
+
+        self.assertEqual(count, 3)
+        home.refresh_from_db(); draw.refresh_from_db(); away.refresh_from_db()
+        self.assertEqual(draw.status, Bet.Status.WON)
+        self.assertEqual(home.status, Bet.Status.LOST)
+        self.assertEqual(away.status, Bet.Status.LOST)
+        after = wallet_services.get_balance(self.player.id)
+        # Only the 50.00 @ 2.00 draw bet pays out 100.00.
+        self.assertEqual(after - before, Decimal('100.00'))
+
+    def test_settle_event_void_refunds_all(self):
+        self._bet('home'); self._bet('away')
+        before = wallet_services.get_balance(self.player.id)
+        sportsbook_services.settle_event(self.event.id, 'void')
+        after = wallet_services.get_balance(self.player.id)
+        # Two 50.00 stakes refunded.
+        self.assertEqual(after - before, Decimal('100.00'))
+
+    def test_settle_event_ignores_unlinked_bets(self):
+        # A free-text bet with no event link must not be touched.
+        sportsbook_services.place_bet(
+            event='Some Other Match', stake=Decimal('20.00'), odds=Decimal('1.50'),
+            player_id=self.player.id,
+        )
+        count = sportsbook_services.settle_event(self.event.id, 'home')
+        self.assertEqual(count, 0)
+
+    def test_settle_event_rejects_bad_result(self):
+        with self.assertRaises(ValueError):
+            sportsbook_services.settle_event(self.event.id, 'nonsense')
