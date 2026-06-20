@@ -10,9 +10,9 @@ from apps.accounts import services as accounts_services
 from apps.wallet.services import InsufficientFunds
 
 from . import services
-from .dtos import BetRequestDTO
-from .models import Bet, Event
-from .serializers import BetSerializer, EventSerializer
+from .dtos import AccumulatorRequestDTO, BetRequestDTO
+from .models import Bet, BetSlip, Event
+from .serializers import BetSerializer, BetSlipSerializer, EventSerializer
 
 
 class EventViewSet(viewsets.ModelViewSet):
@@ -79,6 +79,42 @@ class BetViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.Create
         except (ValueError, Exception) as exc:  # noqa: BLE001
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(self.get_serializer(bet).data, status=status.HTTP_201_CREATED)
+
+
+class BetSlipViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.CreateModelMixin, viewsets.GenericViewSet):
+    """Accumulator slips for the authenticated player."""
+    serializer_class = BetSlipSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        player = accounts_services.get_current_player(self.request)
+        if player is None:
+            return BetSlip.objects.none()
+        return BetSlip.objects.filter(player_id=player.id).prefetch_related('legs').order_by('-placed_at')
+
+    def create(self, request, *args, **kwargs):
+        player = accounts_services.get_current_player(request)
+        if player:
+            try:
+                accounts_services.check_responsible_gambling(player)
+            except ValueError as exc:
+                return Response({'detail': str(exc)}, status=status.HTTP_403_FORBIDDEN)
+        try:
+            dto = AccumulatorRequestDTO(
+                player_id=player.id if player else None,
+                stake=request.data.get('stake'),
+                legs=request.data.get('legs') or [],
+            )
+            slip = services.place_accumulator(
+                stake=dto.stake,
+                legs=[leg.model_dump() for leg in dto.legs],
+                player_id=dto.player_id,
+            )
+        except InsufficientFunds as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_402_PAYMENT_REQUIRED)
+        except (ValueError, Exception) as exc:  # noqa: BLE001
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(self.get_serializer(slip).data, status=status.HTTP_201_CREATED)
 
 
 class AdminBetViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
