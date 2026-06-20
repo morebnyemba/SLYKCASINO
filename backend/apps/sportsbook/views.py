@@ -22,7 +22,8 @@ class EventViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         featured = self.request.query_params.get('featured') == 'true'
-        return services.list_events(featured=featured or None)
+        sport = self.request.query_params.get('sport')
+        return services.list_events(featured=featured or None, sport=sport)
 
     def get_permissions(self):
         if self.action in ('create', 'update', 'partial_update', 'destroy'):

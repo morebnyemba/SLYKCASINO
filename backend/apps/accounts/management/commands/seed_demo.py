@@ -38,9 +38,18 @@ class Command(BaseCommand):
     def _seed_events(self):
         from apps.sportsbook.models import Event
         events = [
-            {'name': 'Man Utd vs Arsenal', 'odds': 1.95, 'featured': True,  'is_open': True, 'starts_at': timezone.now() + timedelta(days=1)},
-            {'name': 'Lakers vs Warriors', 'odds': 2.10, 'featured': True,  'is_open': True, 'starts_at': timezone.now() + timedelta(days=2)},
-            {'name': 'Federer vs Nadal',   'odds': 1.75, 'featured': False, 'is_open': True, 'starts_at': timezone.now() + timedelta(days=3)},
+            {
+                'name': 'Man Utd vs Arsenal', 'sport': 'football', 'odds': 1.95, 'odds_draw': 3.40,
+                'odds_away': 3.80, 'featured': True, 'is_open': True, 'starts_at': timezone.now() + timedelta(days=1),
+            },
+            {
+                'name': 'Lakers vs Warriors', 'sport': 'basketball', 'odds': 2.10,
+                'featured': True, 'is_open': True, 'starts_at': timezone.now() + timedelta(days=2),
+            },
+            {
+                'name': 'Federer vs Nadal', 'sport': 'tennis', 'odds': 1.75,
+                'featured': False, 'is_open': True, 'starts_at': timezone.now() + timedelta(days=3),
+            },
         ]
         for data in events:
             obj, created = Event.objects.get_or_create(name=data['name'], defaults=data)
