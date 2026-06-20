@@ -145,6 +145,14 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 BLOCKED_COUNTRIES = os.environ.get('BLOCKED_COUNTRIES', 'US,FR,AU,SG,HK').split(',')
 
 # ---------------------------------------------------------------------------
+# Realtime engine (Erlang) — internal HTTP ingest used to fan out live odds and
+# chat. Disabled by default so dev/test never block on the network; enable in
+# production where the engine is reachable on the compose network.
+# ---------------------------------------------------------------------------
+REALTIME_PUBLISH_ENABLED = os.environ.get('REALTIME_PUBLISH_ENABLED', 'false').lower() == 'true'
+REALTIME_PUBLISH_URL = os.environ.get('REALTIME_PUBLISH_URL', 'http://erlang:8080/publish')
+
+# ---------------------------------------------------------------------------
 # Celery — workers run domain recovery; beat schedules reconciliation passes.
 # ---------------------------------------------------------------------------
 CELERY_BROKER_URL = os.environ.get('CELERY_BROKER_URL', 'redis://redis:6379/1')
