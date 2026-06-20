@@ -16,7 +16,7 @@ from apps.wallet import services as wallet_services
 
 from . import helpers, utils
 from .dtos import BetDTO
-from .models import Bet, Event, Selection
+from .models import Bet, BetLeg, BetSlip, Event, Selection
 
 
 # -- reads -------------------------------------------------------------------
@@ -97,6 +97,21 @@ def settle_event(event_id: int, result: str) -> int:
     for bet_id, selection in list(bets):
         settle_bet(bet_id, _outcome_for(selection, result))
         settled += 1
+
+    # Resolve any accumulator legs on this event, then re-check their parent slips.
+    legs = BetLeg.objects.filter(
+        event_ref_id=event_id, result=BetLeg.Result.PENDING,
+        slip__status__in=(BetSlip.Status.OPEN, BetSlip.Status.PENDING),
+    ).select_related('slip')
+    slips = {}
+    for leg in legs:
+        outcome = _outcome_for(leg.selection, result)
+        leg.result = {'won': BetLeg.Result.WON, 'lost': BetLeg.Result.LOST}.get(outcome, BetLeg.Result.VOID)
+        leg.save(update_fields=['result'])
+        slips[leg.slip_id] = leg.slip
+    for slip in slips.values():
+        _settle_slip_if_ready(slip.id)
+
     return settled
 
 
@@ -157,3 +172,89 @@ def settle_bet(bet_id: int, outcome: str) -> Bet:
             )
 
     return bet
+
+
+# -- accumulators ------------------------------------------------------------
+
+@transaction.atomic
+def place_accumulator(*, stake: Decimal, legs: list[dict], player_id: Optional[int] = None) -> BetSlip:
+    """Place a multi-leg accumulator. `legs` is a list of dicts with keys
+    `event` (label), `odds`, optional `event_id` and `selection`. Combined odds
+    are the product of every leg; a single stake is debited for an identified
+    player, rolling back atomically on InsufficientFunds."""
+    if not legs or len(legs) < 2:
+        raise ValueError('an accumulator needs at least 2 selections')
+
+    combined = Decimal('1')
+    normalised: list[dict] = []
+    for leg in legs:
+        errors = helpers.validate_bet_request_structure({
+            'event': leg.get('event'), 'stake': stake, 'odds': leg.get('odds'),
+        })
+        if errors:
+            raise ValueError('; '.join(errors))
+        odds = Decimal(str(leg['odds']))
+        selection = leg.get('selection') or Selection.HOME
+        if selection not in Selection.values:
+            selection = Selection.HOME
+        combined *= odds
+        normalised.append({
+            'event': leg['event'], 'odds': odds, 'selection': selection,
+            'event_id': leg.get('event_id'),
+        })
+    combined_odds = utils.quantize(combined)
+
+    status_ = BetSlip.Status.OPEN if player_id is None else BetSlip.Status.PENDING
+    slip = BetSlip.objects.create(
+        player_id=player_id, stake=utils.quantize(stake),
+        combined_odds=combined_odds, status=status_,
+    )
+    BetLeg.objects.bulk_create([
+        BetLeg(slip=slip, event=n['event'], odds=n['odds'], selection=n['selection'],
+               event_ref_id=n['event_id'])
+        for n in normalised
+    ])
+
+    if player_id is not None:
+        wallet_services.debit(
+            player_id=player_id, amount=slip.stake, kind='bet_stake',
+            idempotency_key=helpers.slip_stake_idempotency_key(slip.id), reference=f'slip:{slip.id}',
+        )
+        slip.status = BetSlip.Status.OPEN
+        slip.save(update_fields=['status'])
+    return slip
+
+
+@transaction.atomic
+def _settle_slip_if_ready(slip_id: int) -> BetSlip:
+    """Resolve an accumulator once none of its legs are still pending. Any lost
+    leg loses the slip; otherwise it wins and pays stake x (product of won-leg
+    odds, void legs counting as 1.0). Payout credit is idempotency-keyed."""
+    slip = BetSlip.objects.select_for_update().get(pk=slip_id)
+    if slip.status not in (BetSlip.Status.OPEN, BetSlip.Status.PENDING):
+        return slip  # already settled — idempotent
+
+    legs = list(slip.legs.all())
+    if any(leg.result == BetLeg.Result.PENDING for leg in legs):
+        return slip  # not all legs resolved yet
+
+    if any(leg.result == BetLeg.Result.LOST for leg in legs):
+        slip.status = BetSlip.Status.LOST
+    else:
+        effective = Decimal('1')
+        for leg in legs:
+            if leg.result == BetLeg.Result.WON:
+                effective *= leg.odds
+        payout = utils.calculate_payout(slip.stake, effective)
+        if slip.player_id:
+            wallet_services.credit(
+                player_id=slip.player_id, amount=payout, kind='bet_payout',
+                idempotency_key=helpers.slip_payout_idempotency_key(slip.id),
+                reference=f'slip:{slip.id}',
+            )
+        slip.payout = payout
+        slip.status = BetSlip.Status.WON
+
+    slip.settled_at = timezone.now()
+    slip.save(update_fields=['status', 'payout', 'settled_at'])
+    return slip

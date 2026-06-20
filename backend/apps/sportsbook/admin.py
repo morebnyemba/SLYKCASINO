@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Bet, Event
+from .models import Bet, BetLeg, BetSlip, Event
 
 
 @admin.register(Event)
@@ -16,3 +16,17 @@ class BetAdmin(admin.ModelAdmin):
     list_filter = ('status', 'selection')
     search_fields = ('event', 'player_id')
     raw_id_fields = ('event_ref',)
+
+
+class BetLegInline(admin.TabularInline):
+    model = BetLeg
+    extra = 0
+    raw_id_fields = ('event_ref',)
+
+
+@admin.register(BetSlip)
+class BetSlipAdmin(admin.ModelAdmin):
+    list_display = ('id', 'player_id', 'stake', 'combined_odds', 'status', 'payout', 'placed_at')
+    list_filter = ('status',)
+    search_fields = ('player_id',)
+    inlines = [BetLegInline]

@@ -10,7 +10,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 
 from apps.accounts import services as account_services
 from apps.sportsbook import services as sportsbook_services
-from apps.sportsbook.models import Bet, Event
+from apps.sportsbook.models import Bet, BetSlip, Event
 from apps.wallet import services as wallet_services
 
 
@@ -143,3 +143,69 @@ class SettleEventTests(TestCase):
     def test_settle_event_rejects_bad_result(self):
         with self.assertRaises(ValueError):
             sportsbook_services.settle_event(self.event.id, 'nonsense')
+
+
+class AccumulatorTests(TestCase):
+    def setUp(self):
+        self.player = _make_player(username='accaplayer', email='acca@example.com')
+        self.e1 = _make_event('Man Utd vs Arsenal', odds=Decimal('2.00'))
+        self.e2 = _make_event('Lakers vs Warriors', odds=Decimal('3.00'))
+
+    def _legs(self):
+        return [
+            {'event': 'Man Utd vs Arsenal', 'event_id': self.e1.id, 'selection': 'home', 'odds': '2.00'},
+            {'event': 'Lakers vs Warriors', 'event_id': self.e2.id, 'selection': 'away', 'odds': '3.00'},
+        ]
+
+    def test_place_accumulator_debits_once_and_multiplies_odds(self):
+        before = wallet_services.get_balance(self.player.id)
+        slip = sportsbook_services.place_accumulator(
+            stake=Decimal('10.00'), legs=self._legs(), player_id=self.player.id,
+        )
+        after = wallet_services.get_balance(self.player.id)
+        self.assertEqual(before - after, Decimal('10.00'))      # single stake debit
+        self.assertEqual(slip.combined_odds, Decimal('6.00'))   # 2.00 * 3.00
+        self.assertEqual(slip.legs.count(), 2)
+        self.assertEqual(slip.status, BetSlip.Status.OPEN)
+
+    def test_accumulator_needs_two_legs(self):
+        with self.assertRaises(ValueError):
+            sportsbook_services.place_accumulator(
+                stake=Decimal('10.00'), legs=self._legs()[:1], player_id=self.player.id,
+            )
+
+    def test_accumulator_wins_only_when_all_legs_win(self):
+        slip = sportsbook_services.place_accumulator(
+            stake=Decimal('10.00'), legs=self._legs(), player_id=self.player.id,
+        )
+        before = wallet_services.get_balance(self.player.id)
+        sportsbook_services.settle_event(self.e1.id, 'home')   # leg 1 wins
+        slip.refresh_from_db()
+        self.assertEqual(slip.status, BetSlip.Status.OPEN)     # still open, leg 2 pending
+        sportsbook_services.settle_event(self.e2.id, 'away')   # leg 2 wins -> acca wins
+        slip.refresh_from_db()
+        self.assertEqual(slip.status, BetSlip.Status.WON)
+        after = wallet_services.get_balance(self.player.id)
+        # Payout = 10 * 6.00 = 60
+        self.assertEqual(after - before, Decimal('60.00'))
+
+    def test_accumulator_loses_if_any_leg_loses(self):
+        slip = sportsbook_services.place_accumulator(
+            stake=Decimal('10.00'), legs=self._legs(), player_id=self.player.id,
+        )
+        before = wallet_services.get_balance(self.player.id)
+        sportsbook_services.settle_event(self.e1.id, 'away')   # leg 1 loses (backed home)
+        sportsbook_services.settle_event(self.e2.id, 'away')   # leg 2 wins, irrelevant
+        slip.refresh_from_db()
+        self.assertEqual(slip.status, BetSlip.Status.LOST)
+        after = wallet_services.get_balance(self.player.id)
+        self.assertEqual(before, after)                        # no payout
+
+    def test_accumulator_api_create(self):
+        refresh = RefreshToken.for_user(self.player.user)
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f'Bearer {str(refresh.access_token)}')
+        resp = client.post('/api/betslips/', {'stake': '5.00', 'legs': self._legs()}, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(resp.data['combined_odds'], '6.00')
+        self.assertEqual(len(resp.data['legs']), 2)

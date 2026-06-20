@@ -21,6 +21,28 @@ interface BetsResponse {
   results?: Bet[];
 }
 
+interface SlipLeg {
+  id: number;
+  event: string;
+  selection: string;
+  odds: string;
+  result: string;
+}
+
+interface BetSlip {
+  id: number;
+  stake: string;
+  combined_odds: string;
+  status: string;
+  payout: string | null;
+  placed_at: string;
+  legs: SlipLeg[];
+}
+
+interface SlipsResponse {
+  results?: BetSlip[];
+}
+
 const STATUS_VARIANT: Record<string, 'default' | 'secondary' | 'destructive'> = {
   open: 'default',
   won: 'default',
@@ -31,6 +53,8 @@ const STATUS_VARIANT: Record<string, 'default' | 'secondary' | 'destructive'> = 
 
 export default function MyBetsPage() {
   const { data, loading, error } = useApi<BetsResponse>('/bets/');
+  const { data: slipsData } = useApi<SlipsResponse>('/betslips/');
+  const slips = slipsData?.results ?? [];
   const allBets = data?.results ?? [];
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
@@ -151,6 +175,36 @@ export default function MyBetsPage() {
           </TableBody>
         </Table>
       </Card>
+
+      {slips.length > 0 && (
+        <div className="mt-8">
+          <h2 className="mb-3 text-lg font-bold">Accumulators</h2>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {slips.map((s) => (
+              <Card key={s.id} className="p-4">
+                <div className="mb-2 flex items-center justify-between">
+                  <span className="text-sm font-semibold">{s.legs.length}-leg accumulator</span>
+                  <Badge variant={STATUS_VARIANT[s.status] ?? 'secondary'}>{s.status}</Badge>
+                </div>
+                <ul className="mb-3 space-y-1 border-l-2 border-border pl-3 text-xs">
+                  {s.legs.map((leg) => (
+                    <li key={leg.id} className="flex items-center justify-between gap-2">
+                      <span className="truncate text-muted-foreground">{leg.event}</span>
+                      <span className="font-mono shrink-0">{leg.odds}</span>
+                    </li>
+                  ))}
+                </ul>
+                <div className="flex items-center justify-between border-t border-border pt-2 text-xs">
+                  <span className="text-muted-foreground">Stake {s.stake} @ {s.combined_odds}</span>
+                  <span className="font-semibold">
+                    {s.status === 'won' ? <span className="text-green-600">+{s.payout}</span> : `Return ${(parseFloat(s.stake) * parseFloat(s.combined_odds)).toFixed(2)}`}
+                  </span>
+                </div>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

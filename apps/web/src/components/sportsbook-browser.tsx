@@ -7,6 +7,8 @@ import { Card } from '@slyk/ui/components/card';
 import { buttonVariants } from '@slyk/ui/components/button';
 import { LiveFeed } from '@/components/live-feed';
 import { SPORT_CATEGORIES, SportsSidebar } from '@/components/sports-sidebar';
+import { BetslipCard, BetslipDrawer } from '@/components/betslip-panel';
+import { useBetslip, type Selection } from '@/lib/betslip-context';
 
 interface EventItem {
   id: string | number;
@@ -16,6 +18,27 @@ interface EventItem {
   odds_draw?: number | null;
   odds_away?: number | null;
   previous_odds?: number | null;
+}
+
+/** A tappable price that adds/removes a selection from the shared bet slip. */
+function OddsButton({ ev, selection, label, odds }: {
+  ev: EventItem; selection: Selection; label: string; odds: number;
+}) {
+  const { isOnSlip, toggleLeg } = useBetslip();
+  const active = isOnSlip(ev.id, selection);
+  return (
+    <button
+      onClick={() => toggleLeg({ eventId: ev.id, eventName: ev.name, selection, odds })}
+      className={`rounded-md border px-2.5 py-1.5 text-center transition-colors ${
+        active
+          ? 'border-primary bg-primary text-primary-foreground'
+          : 'border-primary/30 bg-primary/5 text-primary hover:bg-primary/10'
+      }`}
+    >
+      <p className={`text-[10px] uppercase ${active ? 'text-primary-foreground/80' : 'text-muted-foreground'}`}>{label}</p>
+      <p className="font-mono text-sm font-bold">{odds.toFixed(2)}</p>
+    </button>
+  );
 }
 
 export function SportsbookBrowser({ events }: { events: EventItem[] }) {
@@ -83,34 +106,22 @@ export function SportsbookBrowser({ events }: { events: EventItem[] }) {
               <div className="flex items-center gap-3 shrink-0">
                 {ev.odds_draw != null ? (
                   <div className="flex gap-1.5">
-                    <Link href={`/sportsbook/${ev.id}?outcome=home`} className="rounded-md border border-primary/30 bg-primary/5 px-2.5 py-1.5 text-center transition-colors hover:bg-primary/10">
-                      <p className="text-[10px] uppercase text-muted-foreground">1</p>
-                      <p className="font-mono text-sm font-bold text-primary">{ev.odds}</p>
-                    </Link>
-                    <Link href={`/sportsbook/${ev.id}?outcome=draw`} className="rounded-md border border-primary/30 bg-primary/5 px-2.5 py-1.5 text-center transition-colors hover:bg-primary/10">
-                      <p className="text-[10px] uppercase text-muted-foreground">X</p>
-                      <p className="font-mono text-sm font-bold text-primary">{ev.odds_draw}</p>
-                    </Link>
-                    <Link href={`/sportsbook/${ev.id}?outcome=away`} className="rounded-md border border-primary/30 bg-primary/5 px-2.5 py-1.5 text-center transition-colors hover:bg-primary/10">
-                      <p className="text-[10px] uppercase text-muted-foreground">2</p>
-                      <p className="font-mono text-sm font-bold text-primary">{ev.odds_away}</p>
-                    </Link>
+                    <OddsButton ev={ev} selection="home" label="1" odds={ev.odds} />
+                    <OddsButton ev={ev} selection="draw" label="X" odds={Number(ev.odds_draw)} />
+                    <OddsButton ev={ev} selection="away" label="2" odds={Number(ev.odds_away)} />
                   </div>
                 ) : (
-                  <div className="rounded-md border border-primary/30 bg-primary/5 px-3 py-1.5 text-center">
-                    <p className="text-[10px] uppercase text-muted-foreground">Odds</p>
-                    <p className="font-mono font-bold text-primary">
-                      {ev.odds}
-                      {ev.previous_odds != null && ev.previous_odds !== ev.odds && (
-                        <span className={`ml-1 text-xs ${ev.odds > ev.previous_odds ? 'text-green-600' : 'text-red-500'}`}>
-                          {ev.odds > ev.previous_odds ? '▲' : '▼'}
-                        </span>
-                      )}
-                    </p>
+                  <div className="flex items-center gap-1">
+                    <OddsButton ev={ev} selection="home" label="Odds" odds={ev.odds} />
+                    {ev.previous_odds != null && ev.previous_odds !== ev.odds && (
+                      <span className={`text-xs ${ev.odds > ev.previous_odds ? 'text-green-600' : 'text-red-500'}`}>
+                        {ev.odds > ev.previous_odds ? '▲' : '▼'}
+                      </span>
+                    )}
                   </div>
                 )}
-                <Link href={`/sportsbook/${ev.id}`} className={buttonVariants({ size: 'sm' })}>
-                  Bet →
+                <Link href={`/sportsbook/${ev.id}`} className={buttonVariants({ size: 'sm', variant: 'outline' })}>
+                  More
                 </Link>
               </div>
             </Card>
@@ -119,19 +130,11 @@ export function SportsbookBrowser({ events }: { events: EventItem[] }) {
       </section>
 
       <aside className="hidden space-y-4 lg:block">
-        <Card className="p-4">
-          <p className="mb-2 text-sm font-semibold">Quick links</p>
-          <div className="space-y-1.5 text-sm">
-            <Link href="/account/bets" className="block rounded-md px-2 py-1.5 text-muted-foreground hover:bg-accent/10 hover:text-foreground">
-              My Bets
-            </Link>
-            <Link href="/account/wallet" className="block rounded-md px-2 py-1.5 text-muted-foreground hover:bg-accent/10 hover:text-foreground">
-              Wallet
-            </Link>
-          </div>
-        </Card>
+        <BetslipCard />
         <LiveFeed channel="odds" title="Live Odds" height={200} />
       </aside>
+
+      <BetslipDrawer />
     </div>
   );
 }
