@@ -5,3 +5,15 @@
 
 /* Defensive: explicitly scan this app's source for utility classes. */
 @source "../";
+
+/* Horizontal marquee for the live winners ticker. */
+@keyframes slyk-marquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+.animate-marquee {
+  animation: slyk-marquee 30s linear infinite;
+}
+.animate-marquee:hover {
+  animation-play-state: paused;
+}

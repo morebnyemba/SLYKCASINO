@@ -14,6 +14,7 @@ interface Game {
   slug: string;
   name: string;
   provider: string;
+  category?: string;
   rtp: string;
   image_url?: string;
 }
@@ -24,13 +25,31 @@ interface GamesResponse {
 }
 
 const DEMO_GAMES: Game[] = [
-  { id: 1, slug: 'lucky-slots', name: 'Lucky Slots', provider: 'SLYK', rtp: '96.00' },
-  { id: 2, slug: 'golden-wheel', name: 'Golden Wheel', provider: 'SLYK', rtp: '97.50' },
-  { id: 3, slug: 'mega-dice', name: 'Mega Dice', provider: 'SLYK', rtp: '98.00' },
-  { id: 4, slug: 'blackjack-classic', name: 'Blackjack Classic', provider: 'SLYK', rtp: '99.50' },
-  { id: 5, slug: 'roulette-pro', name: 'Roulette Pro', provider: 'SLYK', rtp: '97.30' },
-  { id: 6, slug: 'baccarat-vip', name: 'Baccarat VIP', provider: 'SLYK', rtp: '98.80' },
+  { id: 1, slug: 'slyk-aviator', name: 'SLYK Aviator', provider: 'SLYK', category: 'crash', rtp: '99.00' },
+  { id: 2, slug: 'lucky-slots', name: 'Lucky Slots', provider: 'SLYK', category: 'slots', rtp: '96.00' },
+  { id: 3, slug: 'golden-wheel', name: 'Golden Wheel', provider: 'SLYK', category: 'slots', rtp: '97.50' },
+  { id: 4, slug: 'mega-dice', name: 'Mega Dice', provider: 'SLYK', category: 'instant', rtp: '98.00' },
+  { id: 5, slug: 'blackjack-classic', name: 'Blackjack Classic', provider: 'SLYK', category: 'table', rtp: '99.50' },
+  { id: 6, slug: 'roulette-pro', name: 'Roulette Pro', provider: 'SLYK', category: 'table', rtp: '97.30' },
+  { id: 7, slug: 'live-baccarat', name: 'Live Baccarat', provider: 'SLYK', category: 'live', rtp: '98.80' },
+  { id: 8, slug: 'virtual-league', name: 'Virtual League', provider: 'SLYK', category: 'virtual', rtp: '95.00' },
 ];
+
+const CATEGORIES: { value: string; label: string }[] = [
+  { value: 'all', label: 'All games' },
+  { value: 'crash', label: 'Crash' },
+  { value: 'slots', label: 'Slots' },
+  { value: 'live', label: 'Live Casino' },
+  { value: 'table', label: 'Table Games' },
+  { value: 'virtual', label: 'Virtual Sports' },
+  { value: 'instant', label: 'Instant Win' },
+];
+
+// Crash-category games open the dedicated Aviator-style page, not the slot view.
+function gameHref(game: Game): string {
+  if (game.category === 'crash') return '/casino/crash';
+  return `/casino/${game.slug}?id=${game.id}`;
+}
 
 const FAVORITES_KEY = 'slyk:favorite-games';
 
@@ -70,12 +89,17 @@ export default function CasinoPage() {
   }
 
   const [search, setSearch] = useState('');
+  const [category, setCategory] = useState('all');
   const [provider, setProvider] = useState('all');
   const [sort, setSort] = useState<'name' | 'rtp'>('name');
   const [favorites, setFavorites] = useState<Set<string>>(() => loadFavorites());
   const [onlyFavorites, setOnlyFavorites] = useState(false);
 
   const providers = useMemo(() => Array.from(new Set(games.map((g) => g.provider))).sort(), [games]);
+  const visibleCategories = useMemo(() => {
+    const present = new Set(games.map((g) => g.category).filter(Boolean));
+    return CATEGORIES.filter((c) => c.value === 'all' || present.has(c.value));
+  }, [games]);
 
   function toggleFavorite(slug: string) {
     setFavorites((prev) => {
@@ -88,13 +112,14 @@ export default function CasinoPage() {
 
   const filtered = useMemo(() => {
     let list = games.filter((g) => g.name.toLowerCase().includes(search.toLowerCase()));
+    if (category !== 'all') list = list.filter((g) => g.category === category);
     if (provider !== 'all') list = list.filter((g) => g.provider === provider);
     if (onlyFavorites) list = list.filter((g) => favorites.has(g.slug));
     list = [...list].sort((a, b) => (
       sort === 'rtp' ? parseFloat(b.rtp) - parseFloat(a.rtp) : a.name.localeCompare(b.name)
     ));
     return list;
-  }, [games, search, provider, onlyFavorites, favorites, sort]);
+  }, [games, search, category, provider, onlyFavorites, favorites, sort]);
 
   return (
     <div>
@@ -118,6 +143,22 @@ export default function CasinoPage() {
           </CarouselItem>
         ))}
       </Carousel>
+
+      <div className="mb-4 flex flex-wrap gap-2">
+        {visibleCategories.map((c) => (
+          <button
+            key={c.value}
+            onClick={() => setCategory(c.value)}
+            className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+              category === c.value
+                ? 'bg-primary text-primary-foreground'
+                : 'bg-muted text-muted-foreground hover:bg-accent/10'
+            }`}
+          >
+            {c.label}
+          </button>
+        ))}
+      </div>
 
       <div className="mb-6 flex flex-wrap items-center gap-3">
         <div className="relative flex-1 min-w-[200px]">
@@ -173,7 +214,7 @@ export default function CasinoPage() {
               >
                 <BsStarFill size={16} />
               </button>
-              <Link href={`/casino/${game.slug}?id=${game.id}`} className="block">
+              <Link href={gameHref(game)} className="block">
                 <CardHeader className="flex-row items-center gap-3 space-y-0 pb-2">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
@@ -187,11 +228,22 @@ export default function CasinoPage() {
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {game.category === 'crash' && <Badge className="bg-secondary text-white">Crash</Badge>}
                     <Badge variant="secondary">RTP {game.rtp}%</Badge>
                   </div>
                 </CardContent>
               </Link>
+              {game.category !== 'crash' && (
+                <div className="px-6 pb-4">
+                  <Link
+                    href={`/casino/${game.slug}?id=${game.id}&demo=1`}
+                    className="inline-block rounded-md border border-border px-3 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent/10"
+                  >
+                    Practice (demo)
+                  </Link>
+                </div>
+              )}
             </Card>
           );
         })}

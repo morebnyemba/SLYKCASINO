@@ -16,7 +16,7 @@ from apps.wallet import services as wallet_services
 
 from . import helpers, utils
 from .clients import CampaignProviderClient
-from .models import Promotion, PromotionClaim
+from .models import Promotion, PromotionClaim, Tournament, TournamentEntry
 
 
 def list_promotions():
@@ -79,3 +79,48 @@ def record_wagering(*, player_id: int, amount: Decimal) -> int:
             completed += 1
         claim.save(update_fields=['wagering_progress', 'status', 'completed_at'])
     return completed
+
+
+# -- tournaments / leaderboards ----------------------------------------------
+
+def list_tournaments():
+    return Tournament.objects.all()
+
+
+def leaderboard(tournament_id: int, *, limit: int = 50):
+    return TournamentEntry.objects.filter(tournament_id=tournament_id).order_by('-score', 'updated_at')[:limit]
+
+
+@transaction.atomic
+def join_tournament(*, player_id: int, player_name: str, tournament_id: int) -> TournamentEntry:
+    """Opt a player into a tournament. Idempotent — one entry per (tournament, player)."""
+    tournament = Tournament.objects.get(pk=tournament_id)
+    if not tournament.is_live:
+        raise ValueError('tournament is not currently open')
+    entry, _ = TournamentEntry.objects.get_or_create(
+        tournament=tournament, player_id=player_id,
+        defaults={'player_name': player_name},
+    )
+    return entry
+
+
+@transaction.atomic
+def record_tournament_play(*, player_id: int, wagered: Decimal) -> int:
+    """Add a player's wager to their entries in every live, wagered-metric
+    tournament. Returns the number of entries updated. Players who have not opted
+    in are not scored."""
+    if wagered is None or wagered <= 0:
+        return 0
+    entries = TournamentEntry.objects.select_for_update().filter(
+        player_id=player_id,
+        tournament__active=True,
+        tournament__metric=Tournament.Metric.WAGERED,
+    ).select_related('tournament')
+    updated = 0
+    for entry in entries:
+        if not entry.tournament.is_live:
+            continue
+        entry.score = utils.quantize(entry.score + wagered)
+        entry.save(update_fields=['score', 'updated_at'])
+        updated += 1
+    return updated

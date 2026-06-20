@@ -5,15 +5,16 @@ import type { IconType } from 'react-icons';
 import { Card, CardContent, CardHeader, CardTitle } from '@slyk/ui/components/card';
 import { Badge } from '@slyk/ui/components/badge';
 import { LiveFeed } from '@/components/live-feed';
-import { Carousel, CarouselItem } from '@/components/carousel';
+import { WinnersTicker } from '@/components/winners-ticker';
+import { BannerSlider, type Banner } from '@/components/banner-slider';
 import { apiGet } from '@/lib/config';
 import { CASINO_HERO_IMAGES } from '@/lib/game-images';
 
-const HERO_SLIDES = [
-  { image: CASINO_HERO_IMAGES[0], title: 'Spin the wheel', subtitle: 'Live roulette tables open now', href: '/casino' },
-  { image: CASINO_HERO_IMAGES[1], title: 'Lucky Slots', subtitle: 'Daily jackpot drops', href: '/casino' },
-  { image: CASINO_HERO_IMAGES[2], title: 'Table games', subtitle: 'Blackjack, baccarat & poker', href: '/casino' },
-  { image: CASINO_HERO_IMAGES[3], title: 'Welcome bonus', subtitle: 'Claim your deposit match', href: '/promotions' },
+// Shown only when an operator has not configured any banners yet.
+const FALLBACK_BANNERS: Banner[] = [
+  { id: 'f1', image_url: CASINO_HERO_IMAGES[3], title: 'SLYK Aviator', subtitle: 'Cash out before the crash', link_url: '/casino/crash', cta_label: 'Play now' },
+  { id: 'f2', image_url: CASINO_HERO_IMAGES[1], title: 'Welcome Bonus', subtitle: 'Claim your deposit match and start playing', link_url: '/promotions', cta_label: 'Claim bonus' },
+  { id: 'f3', image_url: CASINO_HERO_IMAGES[2], title: 'Tournaments', subtitle: 'Climb the leaderboard for prizes', link_url: '/tournaments', cta_label: 'View races' },
 ];
 
 interface EventItem {
@@ -35,27 +36,18 @@ const TRUST_BADGES: { label: string; icon: IconType }[] = [
 ];
 
 export default async function LobbyPage() {
-  const data = await apiGet<EventItem>('/events/?featured=true');
-  const events = (data.results ?? []) as EventItem[];
+  const [eventsData, bannersData] = await Promise.all([
+    apiGet<EventItem>('/events/?featured=true'),
+    apiGet<Banner>('/promotions/banners/'),
+  ]);
+  const events = (eventsData.results ?? []) as EventItem[];
+  const banners = (bannersData.results ?? []) as Banner[];
 
   return (
     <div className="space-y-8">
-      <Carousel>
-        {HERO_SLIDES.map((slide) => (
-          <CarouselItem key={slide.title} className="w-[300px] sm:w-[420px]">
-            <Link href={slide.href}>
-              <div className="relative h-40 overflow-hidden rounded-xl sm:h-52">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={slide.image} alt={slide.title} className="h-full w-full object-cover" />
-                <div className="absolute inset-0 flex flex-col justify-end bg-gradient-to-t from-black/75 to-transparent p-4">
-                  <p className="text-lg font-bold text-white">{slide.title}</p>
-                  <p className="text-sm text-white/80">{slide.subtitle}</p>
-                </div>
-              </div>
-            </Link>
-          </CarouselItem>
-        ))}
-      </Carousel>
+      <BannerSlider banners={banners.length > 0 ? banners : FALLBACK_BANNERS} />
+
+      <WinnersTicker />
 
       <div className="grid gap-4 sm:grid-cols-3">
         {QUICK_LINKS.map((l) => {
