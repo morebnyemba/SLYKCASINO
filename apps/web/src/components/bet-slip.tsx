@@ -50,7 +50,7 @@ export function BetSlip({ event = 'demo-event', initialOdds = 1.95 }: { event?: 
                 key={v}
                 onClick={() => setStake(v)}
                 className={`flex-1 rounded-md py-1 text-xs font-medium transition-colors ${
-                  stake === v ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-accent'
+                  stake === v ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-accent/10'
                 }`}
               >
                 {v}

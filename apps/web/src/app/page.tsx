@@ -93,7 +93,7 @@ export default async function LobbyPage() {
             )}
             {events.map((ev) => (
               <Link key={ev.id} href={`/sportsbook/${ev.id}`}>
-                <Card className="transition-colors hover:bg-accent">
+                <Card className="transition-colors hover:bg-accent/10">
                   <CardHeader className="flex-row items-center justify-between space-y-0">
                     <div className="flex items-center gap-2">
                       <Badge className="bg-red-500/10 text-red-500">Live</Badge>

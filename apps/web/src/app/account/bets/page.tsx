@@ -88,7 +88,7 @@ export default function MyBetsPage() {
           {allBets.length > 0 && (
             <button
               onClick={exportCsv}
-              className="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent"
+              className="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent/10"
             >
               <FaDownload size={11} />
               Export CSV

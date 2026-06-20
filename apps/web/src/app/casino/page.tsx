@@ -148,7 +148,7 @@ export default function CasinoPage() {
         <button
           onClick={() => setOnlyFavorites((v) => !v)}
           className={`flex items-center gap-1.5 rounded-md border px-3 py-2 text-sm font-medium transition-colors ${
-            onlyFavorites ? 'border-gold bg-gold/10 text-gold' : 'border-border text-muted-foreground hover:bg-accent'
+            onlyFavorites ? 'border-gold bg-gold/10 text-gold' : 'border-border text-muted-foreground hover:bg-accent/10'
           }`}
         >
           <BsStarFill size={13} />
@@ -165,7 +165,7 @@ export default function CasinoPage() {
         {filtered.map((game) => {
           const isFav = favorites.has(game.slug);
           return (
-            <Card key={game.slug} className="relative transition-colors hover:bg-accent">
+            <Card key={game.slug} className="relative transition-colors hover:bg-accent/10">
               <button
                 onClick={(e) => { e.preventDefault(); toggleFavorite(game.slug); }}
                 aria-label="Toggle favorite"
@@ -202,7 +202,7 @@ export default function CasinoPage() {
           <button
             onClick={loadMore}
             disabled={loadingMore}
-            className="rounded-md border border-border px-4 py-2 text-sm font-medium text-muted-foreground hover:bg-accent disabled:opacity-50"
+            className="rounded-md border border-border px-4 py-2 text-sm font-medium text-muted-foreground hover:bg-accent/10 disabled:opacity-50"
           >
             {loadingMore ? 'Loading…' : 'Load more games'}
           </button>
