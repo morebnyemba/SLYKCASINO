@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import { LiveFeed } from '@/components/live-feed';
-import { BetSlip } from '@/components/bet-slip';
+import { LiveBetSlip } from '@/components/live-bet-slip';
 import { apiGet } from '@/lib/config';
 
 // Next 16: route params/searchParams are async — they must be awaited.
@@ -29,19 +29,22 @@ export default async function EventPage({ params, searchParams }: PageProps) {
   const name = detail.name || `Event ${event}`;
 
   let label = name;
-  let odds = typeof detail.odds === 'number' ? detail.odds : 1.95;
   let selection: 'home' | 'draw' | 'away' = 'home';
   if (outcome === 'draw' && detail.odds_draw != null) {
     label = `${name} — Draw`;
-    odds = detail.odds_draw;
     selection = 'draw';
   } else if (outcome === 'away' && detail.odds_away != null) {
     label = `${name} — Away`;
-    odds = detail.odds_away;
     selection = 'away';
   } else if (detail.odds_draw != null) {
     label = `${name} — Home`;
   }
+
+  const initialOdds = {
+    odds: typeof detail.odds === 'number' ? detail.odds : 1.95,
+    odds_draw: detail.odds_draw ?? null,
+    odds_away: detail.odds_away ?? null,
+  };
 
   return (
     <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
@@ -50,7 +53,7 @@ export default async function EventPage({ params, searchParams }: PageProps) {
         <p className="mb-4 text-muted-foreground">Live betting market. Odds update in real time from the Erlang engine.</p>
         <LiveFeed channel={`odds:${event}`} title="Live Odds" height={200} />
       </section>
-      <BetSlip event={label} initialOdds={odds} eventId={event} selection={selection} />
+      <LiveBetSlip eventId={event} label={label} selection={selection} initial={initialOdds} />
     </div>
   );
 }

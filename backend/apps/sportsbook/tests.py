@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from unittest.mock import patch
 
 from django.test import TestCase
 from rest_framework import status
@@ -9,6 +10,7 @@ from rest_framework.test import APIClient
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from apps.accounts import services as account_services
+from apps.livechat.clients import RealtimePublisherClient
 from apps.sportsbook import services as sportsbook_services
 from apps.sportsbook.models import Bet, BetSlip, Event
 from apps.wallet import services as wallet_services
@@ -209,3 +211,18 @@ class AccumulatorTests(TestCase):
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
         self.assertEqual(resp.data['combined_odds'], '6.00')
         self.assertEqual(len(resp.data['legs']), 2)
+
+
+class OddsPublishTests(TestCase):
+    def test_saving_event_publishes_to_realtime(self):
+        with patch('apps.livechat.clients.RealtimePublisherClient.publish') as pub:
+            with self.captureOnCommitCallbacks(execute=True):
+                ev = Event.objects.create(name='Pub Test', odds=Decimal('1.50'))
+        self.assertTrue(pub.called)
+        channels = [call.args[0] for call in pub.call_args_list]
+        self.assertIn(f'odds:{ev.id}', channels)   # event-specific snapshot
+        self.assertIn('odds', channels)             # global ticker line
+
+    def test_publisher_disabled_is_noop(self):
+        # REALTIME_PUBLISH_ENABLED is false in tests -> optimistic success, no network.
+        self.assertTrue(RealtimePublisherClient().publish('odds:1', '{}'))

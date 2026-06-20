@@ -258,3 +258,29 @@ def _settle_slip_if_ready(slip_id: int) -> BetSlip:
     slip.settled_at = timezone.now()
     slip.save(update_fields=['status', 'payout', 'settled_at'])
     return slip
+
+
+# -- realtime ----------------------------------------------------------------
+
+def publish_event_odds(event: Event) -> None:
+    """Push an event's current prices to its realtime channel so open bet slips
+    update live. Best-effort: the publisher is a no-op unless realtime is
+    enabled, and never raises into the caller."""
+    import json
+
+    from apps.livechat.clients import RealtimePublisherClient
+
+    snapshot = json.dumps({
+        'event_id': event.id,
+        'name': event.name,
+        'odds': str(event.odds),
+        'odds_draw': str(event.odds_draw) if event.odds_draw is not None else None,
+        'odds_away': str(event.odds_away) if event.odds_away is not None else None,
+    })
+    client = RealtimePublisherClient()
+    try:
+        client.publish(f'odds:{event.id}', snapshot)
+        # Also feed the global live-odds ticker with a compact human line.
+        client.publish('odds', f'{event.name}: {event.odds}')
+    except Exception:  # noqa: BLE001 — realtime must never break a save
+        pass
