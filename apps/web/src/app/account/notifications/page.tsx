@@ -51,7 +51,7 @@ export default function NotificationsPage() {
         {notifications.some((n) => !n.read) && (
           <button
             onClick={markAllRead}
-            className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-accent"
+            className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-accent/10"
           >
             Mark all read
           </button>
@@ -79,7 +79,7 @@ export default function NotificationsPage() {
               {!n.read && (
                 <button
                   onClick={() => markRead(n.id)}
-                  className="shrink-0 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:bg-accent"
+                  className="shrink-0 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:bg-accent/10"
                 >
                   Mark read
                 </button>

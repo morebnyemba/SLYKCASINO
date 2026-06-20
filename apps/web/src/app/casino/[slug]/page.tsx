@@ -191,7 +191,7 @@ export default function GamePage({ params, searchParams }: PageProps) {
                   <button
                     key={v}
                     onClick={() => setStake(v)}
-                    className={`rounded-md px-3 py-1 text-sm font-medium transition-colors ${stake === v ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-accent'}`}
+                    className={`rounded-md px-3 py-1 text-sm font-medium transition-colors ${stake === v ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-accent/10'}`}
                   >
                     {v}
                   </button>

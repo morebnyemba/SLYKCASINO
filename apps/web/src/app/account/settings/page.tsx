@@ -185,7 +185,7 @@ export default function SettingsPage() {
               <button
                 onClick={removeLimit}
                 disabled={limitBusy}
-                className="rounded-md border border-border px-4 py-2 text-sm hover:bg-accent disabled:opacity-50"
+                className="rounded-md border border-border px-4 py-2 text-sm hover:bg-accent/10 disabled:opacity-50"
               >
                 Remove
               </button>
@@ -211,7 +211,7 @@ export default function SettingsPage() {
                 <button
                   key={d}
                   onClick={() => setExcludeDays(d)}
-                  className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${excludeDays === d ? 'bg-destructive text-white' : 'bg-muted hover:bg-accent'}`}
+                  className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${excludeDays === d ? 'bg-destructive text-white' : 'bg-muted hover:bg-accent/10'}`}
                 >
                   {d === 'indefinite' ? 'Indefinite' : `${d} days`}
                 </button>
@@ -241,7 +241,7 @@ export default function SettingsPage() {
                   </button>
                   <button
                     onClick={() => setConfirmExclude(false)}
-                    className="rounded-md border border-border px-4 py-2 text-sm hover:bg-accent"
+                    className="rounded-md border border-border px-4 py-2 text-sm hover:bg-accent/10"
                   >
                     Cancel
                   </button>
@@ -266,7 +266,7 @@ export default function SettingsPage() {
             <button
               onClick={handleExport}
               disabled={exportLoading}
-              className="rounded-md border border-border px-4 py-2 text-sm hover:bg-accent disabled:opacity-50"
+              className="rounded-md border border-border px-4 py-2 text-sm hover:bg-accent/10 disabled:opacity-50"
             >
               {exportLoading ? 'Preparing…' : 'Export my data'}
             </button>
@@ -305,7 +305,7 @@ export default function SettingsPage() {
                   <button
                     type="button"
                     onClick={() => { setShowDeleteConfirm(false); setDeleteError(''); setDeletePassword(''); }}
-                    className="rounded-md border border-border px-4 py-2 text-sm hover:bg-accent"
+                    className="rounded-md border border-border px-4 py-2 text-sm hover:bg-accent/10"
                   >
                     Cancel
                   </button>
@@ -333,7 +333,7 @@ export default function SettingsPage() {
                 href={r.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex items-center justify-between rounded-md border border-border px-4 py-2 hover:bg-accent"
+                className="flex items-center justify-between rounded-md border border-border px-4 py-2 hover:bg-accent/10"
               >
                 <span>{r.name}</span>
                 <span className="text-muted-foreground">→</span>

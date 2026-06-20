@@ -150,7 +150,7 @@ export default function LiveChatPage() {
               <button
                 onClick={loadOlder}
                 disabled={loadingMore}
-                className="rounded-md border border-border px-3 py-1 text-xs font-medium text-muted-foreground hover:bg-accent disabled:opacity-50"
+                className="rounded-md border border-border px-3 py-1 text-xs font-medium text-muted-foreground hover:bg-accent/10 disabled:opacity-50"
               >
                 {loadingMore ? 'Loading…' : 'Load older messages'}
               </button>

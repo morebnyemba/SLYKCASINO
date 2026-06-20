@@ -140,6 +140,26 @@ export function SiteHeader() {
         </button>
       </div>
 
+      <div className="hidden border-t border-white/10 bg-primary/95 lg:block">
+        <div className="mx-auto flex max-w-6xl items-center gap-6 px-4 py-2 sm:px-6">
+          {links.map((l) => {
+            const Icon = l.icon;
+            return (
+              <Link
+                key={l.href}
+                href={l.href}
+                className="group flex flex-col items-center gap-1 text-[11px] font-medium text-white/70 transition-colors hover:text-white"
+              >
+                <span className="flex h-9 w-9 items-center justify-center rounded-full border border-white/20 transition-colors group-hover:border-white/60 group-hover:bg-white/10">
+                  <Icon size={16} />
+                </span>
+                {l.label}
+              </Link>
+            );
+          })}
+        </div>
+      </div>
+
       {menuOpen && (
         <nav className="flex flex-col gap-1 border-t border-white/10 bg-primary px-4 py-3 text-sm lg:hidden">
           {links.map((l) => {

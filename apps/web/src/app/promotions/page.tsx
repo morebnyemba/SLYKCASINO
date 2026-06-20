@@ -153,7 +153,7 @@ export default function PromotionsPage() {
                 {p.code && (
                   <button
                     onClick={() => navigator.clipboard?.writeText(p.code!)}
-                    className="w-full rounded-md border border-dashed border-border px-3 py-1.5 text-center font-mono text-sm tracking-wider hover:bg-accent"
+                    className="w-full rounded-md border border-dashed border-border px-3 py-1.5 text-center font-mono text-sm tracking-wider hover:bg-accent/10"
                     title="Click to copy"
                   >
                     {p.code}
