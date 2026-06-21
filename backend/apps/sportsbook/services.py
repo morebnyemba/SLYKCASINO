@@ -15,6 +15,7 @@ from django.utils import timezone
 from apps.wallet import services as wallet_services
 
 from . import helpers, utils
+from .clients import ApiFootballClient, FixtureUpdate
 from .dtos import BetDTO
 from .models import Bet, BetLeg, BetSlip, Event, Selection
 
@@ -258,6 +259,44 @@ def _settle_slip_if_ready(slip_id: int) -> BetSlip:
     slip.settled_at = timezone.now()
     slip.save(update_fields=['status', 'payout', 'settled_at'])
     return slip
+
+
+# -- external provider sync (api-football) -----------------------------------
+
+@transaction.atomic
+def sync_fixture(fixture: FixtureUpdate) -> Optional[Event]:
+    """Apply one api-football fixture update to its linked Event: lock betting
+    once the match goes live, and settle every bet/leg on it once finished.
+
+    No-op (returns None) if no Event is linked to this fixture's external_id.
+    """
+    event = (
+        Event.objects.select_for_update()
+        .filter(external_id=fixture.external_id, provider=ApiFootballClient.provider_name)
+        .first()
+    )
+    if event is None:
+        return None
+
+    if (fixture.is_live or fixture.is_finished) and event.is_open:
+        event.is_open = False
+        event.save(update_fields=['is_open'])
+
+    result = fixture.result
+    if result is not None:
+        settle_event(event.id, result)
+
+    return event
+
+
+def sync_provider_fixtures(*, date: Optional[str] = None, live: Optional[str] = None) -> int:
+    """Pull fixtures from api-football and sync each linked Event. Returns the
+    number of fixtures fetched (not all are necessarily linked to an Event)."""
+    client = ApiFootballClient()
+    fixtures = client.fetch_fixtures(date=date, live=live)
+    for fixture in fixtures:
+        sync_fixture(fixture)
+    return len(fixtures)
 
 
 # -- realtime ----------------------------------------------------------------

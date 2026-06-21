@@ -5,9 +5,12 @@ from .models import Bet, BetLeg, BetSlip, Event
 
 @admin.register(Event)
 class EventAdmin(admin.ModelAdmin):
-    list_display = ('name', 'sport', 'odds', 'odds_draw', 'odds_away', 'featured', 'is_open', 'starts_at')
-    list_filter = ('sport', 'featured', 'is_open')
-    search_fields = ('name',)
+    list_display = (
+        'name', 'sport', 'odds', 'odds_draw', 'odds_away', 'featured', 'is_open',
+        'starts_at', 'provider', 'external_id',
+    )
+    list_filter = ('sport', 'featured', 'is_open', 'provider')
+    search_fields = ('name', 'external_id')
 
 
 @admin.register(Bet)

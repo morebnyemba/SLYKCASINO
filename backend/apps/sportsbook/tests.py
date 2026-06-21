@@ -226,3 +226,47 @@ class OddsPublishTests(TestCase):
     def test_publisher_disabled_is_noop(self):
         # REALTIME_PUBLISH_ENABLED is false in tests -> optimistic success, no network.
         self.assertTrue(RealtimePublisherClient().publish('odds:1', '{}'))
+
+
+class ApiFootballSyncTests(TestCase):
+    def setUp(self):
+        self.player = _make_player(username='apifb', email='apifb@example.com')
+        self.event = Event.objects.create(
+            name='Chelsea vs Arsenal', odds=Decimal('2.00'),
+            provider='api-football', external_id='12345',
+        )
+
+    def _fixture(self, status, goals_home=None, goals_away=None):
+        from apps.sportsbook.clients import FixtureUpdate
+        return FixtureUpdate(
+            external_id='12345', name='Chelsea vs Arsenal', status=status,
+            starts_at=None, goals_home=goals_home, goals_away=goals_away,
+        )
+
+    def test_client_noop_without_api_key(self):
+        from apps.sportsbook.clients import ApiFootballClient
+        self.assertEqual(ApiFootballClient().fetch_fixtures(live='all'), [])
+
+    def test_sync_fixture_locks_betting_when_live(self):
+        sportsbook_services.sync_fixture(self._fixture('1H'))
+        self.event.refresh_from_db()
+        self.assertFalse(self.event.is_open)
+
+    def test_sync_fixture_settles_linked_bets_on_finish(self):
+        bet = sportsbook_services.place_bet(
+            event='Chelsea vs Arsenal — home', stake=Decimal('20.00'), odds=Decimal('2.00'),
+            player_id=self.player.id, event_id=self.event.id, selection='home',
+        )
+        sportsbook_services.sync_fixture(self._fixture('FT', goals_home=2, goals_away=1))
+        bet.refresh_from_db()
+        self.event.refresh_from_db()
+        self.assertEqual(bet.status, Bet.Status.WON)
+        self.assertFalse(self.event.is_open)
+
+    def test_sync_fixture_unlinked_external_id_is_noop(self):
+        from apps.sportsbook.clients import FixtureUpdate
+        result = sportsbook_services.sync_fixture(
+            FixtureUpdate(external_id='nope', name='x', status='FT', starts_at=None,
+                           goals_home=1, goals_away=0),
+        )
+        self.assertIsNone(result)

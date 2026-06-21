@@ -1,9 +1,16 @@
 """sportsbook external interfaces — normalize an odds-feed provider into DTOs."""
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
+from datetime import datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, Optional
+
+import requests
+from django.conf import settings
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -44,4 +51,111 @@ class OddsFeedClient:
             name=str(raw.get('name', '')),
             odds=Decimal(str(raw.get('odds', '1.95'))),
             is_open=bool(raw.get('open', True)),
+        )
+
+
+# -- api-football.com (https://www.api-football.com/documentation-v3) -------
+
+FINISHED_STATUSES = {'FT', 'AET', 'PEN'}
+LIVE_STATUSES = {'1H', 'HT', '2H', 'ET', 'BT', 'P', 'SUSP', 'INT'}
+
+
+@dataclass(frozen=True)
+class FixtureUpdate:
+    """A normalized api-football fixture, used to sync/settle a linked Event."""
+
+    external_id: str
+    name: str
+    status: str
+    starts_at: Optional[datetime]
+    goals_home: Optional[int]
+    goals_away: Optional[int]
+
+    @property
+    def is_finished(self) -> bool:
+        return self.status in FINISHED_STATUSES
+
+    @property
+    def is_live(self) -> bool:
+        return self.status in LIVE_STATUSES
+
+    @property
+    def result(self) -> Optional[str]:
+        """'home'|'draw'|'away' once finished, else None."""
+        if not self.is_finished or self.goals_home is None or self.goals_away is None:
+            return None
+        if self.goals_home > self.goals_away:
+            return 'home'
+        if self.goals_home < self.goals_away:
+            return 'away'
+        return 'draw'
+
+
+class ApiFootballClient:
+    """Thin client for api-football.com v3 — fetches fixtures (live scores,
+    statuses, results) used to keep linked Events and bets in sync.
+
+    Credentials/base URL come from settings so this is a no-op (returns an
+    empty list, never raises into callers) when API_FOOTBALL_KEY is unset —
+    matching the rest of this app's pattern of safe-by-default external
+    integrations in dev/test environments.
+    """
+
+    provider_name = 'api-football'
+
+    def __init__(self) -> None:
+        self.api_key = getattr(settings, 'API_FOOTBALL_KEY', '') or ''
+        self.base_url = getattr(
+            settings, 'API_FOOTBALL_BASE_URL', 'https://v3.football.api-sports.io',
+        ).rstrip('/')
+
+    def fetch_fixtures(
+        self, *, date: Optional[str] = None, live: Optional[str] = None,
+        league: Optional[int] = None, season: Optional[int] = None,
+    ) -> list[FixtureUpdate]:
+        """`date` is 'YYYY-MM-DD'; `live='all'` fetches all in-play fixtures.
+        Returns [] (logged) on any missing key, network, or payload error."""
+        if not self.api_key:
+            return []
+        params: dict[str, Any] = {}
+        if date:
+            params['date'] = date
+        if live:
+            params['live'] = live
+        if league:
+            params['league'] = league
+        if season:
+            params['season'] = season
+        try:
+            resp = requests.get(
+                f'{self.base_url}/fixtures', params=params, timeout=5,
+                headers={'x-apisports-key': self.api_key},
+            )
+            resp.raise_for_status()
+            payload = resp.json()
+        except (requests.RequestException, ValueError):
+            logger.warning('api-football fetch_fixtures failed', exc_info=True)
+            return []
+        return [self._normalize(raw) for raw in payload.get('response', [])]
+
+    def _normalize(self, raw: dict[str, Any]) -> FixtureUpdate:
+        fixture = raw.get('fixture', {})
+        teams = raw.get('teams', {})
+        goals = raw.get('goals', {})
+        home = (teams.get('home') or {}).get('name', '')
+        away = (teams.get('away') or {}).get('name', '')
+        starts_at = None
+        date_str = fixture.get('date')
+        if date_str:
+            try:
+                starts_at = datetime.fromisoformat(date_str)
+            except ValueError:
+                starts_at = None
+        return FixtureUpdate(
+            external_id=str(fixture.get('id', '')),
+            name=f'{home} vs {away}',
+            status=str((fixture.get('status') or {}).get('short', 'NS')),
+            starts_at=starts_at,
+            goals_home=goals.get('home'),
+            goals_away=goals.get('away'),
         )
