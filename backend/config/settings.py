@@ -184,6 +184,10 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'apps.sportsbook.tasks.sync_live_fixtures',
         'schedule': 60.0,
     },
+    'sportsbook-sync-fixture-odds': {
+        'task': 'apps.sportsbook.tasks.sync_fixture_odds',
+        'schedule': 300.0,
+    },
     'casino-retry-debits': {
         'task': 'apps.casino.tasks.reconcile_debit_sequences',
         'schedule': 600.0,

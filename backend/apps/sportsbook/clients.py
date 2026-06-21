@@ -61,6 +61,13 @@ LIVE_STATUSES = {'1H', 'HT', '2H', 'ET', 'BT', 'P', 'SUSP', 'INT'}
 
 
 @dataclass(frozen=True)
+class TeamInfo:
+    external_id: str
+    name: str
+    logo_url: str = ''
+
+
+@dataclass(frozen=True)
 class FixtureUpdate:
     """A normalized api-football fixture, used to sync/settle a linked Event."""
 
@@ -70,6 +77,8 @@ class FixtureUpdate:
     starts_at: Optional[datetime]
     goals_home: Optional[int]
     goals_away: Optional[int]
+    home_team: Optional[TeamInfo] = None
+    away_team: Optional[TeamInfo] = None
 
     @property
     def is_finished(self) -> bool:
@@ -138,6 +147,40 @@ class ApiFootballClient:
             return []
         return [self._normalize(raw) for raw in payload.get('response', [])]
 
+    def fetch_odds(
+        self, *, date: Optional[str] = None, fixture: Optional[str] = None,
+        league: Optional[int] = None, season: Optional[int] = None,
+    ) -> list['OddsSnapshot']:
+        """Pull 1X2 ("Match Winner") odds. `date` is 'YYYY-MM-DD'. Returns []
+        (logged) on any missing key, network, or payload error."""
+        if not self.api_key:
+            return []
+        params: dict[str, Any] = {}
+        if date:
+            params['date'] = date
+        if fixture:
+            params['fixture'] = fixture
+        if league:
+            params['league'] = league
+        if season:
+            params['season'] = season
+        try:
+            resp = requests.get(
+                f'{self.base_url}/odds', params=params, timeout=5,
+                headers={'x-apisports-key': self.api_key},
+            )
+            resp.raise_for_status()
+            payload = resp.json()
+        except (requests.RequestException, ValueError):
+            logger.warning('api-football fetch_odds failed', exc_info=True)
+            return []
+        snapshots = []
+        for raw in payload.get('response', []):
+            snapshot = self._normalize_odds(raw)
+            if snapshot is not None:
+                snapshots.append(snapshot)
+        return snapshots
+
     def _normalize(self, raw: dict[str, Any]) -> FixtureUpdate:
         fixture = raw.get('fixture', {})
         teams = raw.get('teams', {})
@@ -158,4 +201,48 @@ class ApiFootballClient:
             starts_at=starts_at,
             goals_home=goals.get('home'),
             goals_away=goals.get('away'),
+            home_team=self._normalize_team(teams.get('home')),
+            away_team=self._normalize_team(teams.get('away')),
         )
+
+    def _normalize_team(self, raw: Optional[dict[str, Any]]) -> Optional[TeamInfo]:
+        if not raw or raw.get('id') is None:
+            return None
+        return TeamInfo(
+            external_id=str(raw['id']), name=str(raw.get('name', '')),
+            logo_url=str(raw.get('logo', '') or ''),
+        )
+
+    def _normalize_odds(self, raw: dict[str, Any]) -> Optional['OddsSnapshot']:
+        fixture_id = str((raw.get('fixture') or {}).get('id', ''))
+        if not fixture_id:
+            return None
+        for bookmaker in raw.get('bookmakers', []):
+            for bet in bookmaker.get('bets', []):
+                if bet.get('name') != 'Match Winner':
+                    continue
+                prices = {v.get('value'): v.get('odd') for v in bet.get('values', [])}
+                home, draw, away = prices.get('Home'), prices.get('Draw'), prices.get('Away')
+                if home is None or away is None:
+                    continue
+                try:
+                    return OddsSnapshot(
+                        external_id=fixture_id,
+                        odds_home=Decimal(str(home)),
+                        odds_draw=Decimal(str(draw)) if draw is not None else None,
+                        odds_away=Decimal(str(away)),
+                    )
+                except (ValueError, ArithmeticError):
+                    continue
+        return None
+
+
+@dataclass(frozen=True)
+class OddsSnapshot:
+    """Normalized 1X2 ("Match Winner") prices for one fixture, from the first
+    bookmaker offering that market in the response."""
+
+    external_id: str
+    odds_home: Decimal
+    odds_draw: Optional[Decimal]
+    odds_away: Decimal

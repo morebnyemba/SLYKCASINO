@@ -3,15 +3,24 @@ from __future__ import annotations
 
 from rest_framework import serializers
 
-from .models import Bet, BetLeg, BetSlip, Event
+from .models import Bet, BetLeg, BetSlip, Event, Team
+
+
+class TeamSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Team
+        fields = ['id', 'name', 'logo_url']
 
 
 class EventSerializer(serializers.ModelSerializer):
+    home_team = TeamSerializer(read_only=True)
+    away_team = TeamSerializer(read_only=True)
+
     class Meta:
         model = Event
         fields = [
             'id', 'name', 'sport', 'odds', 'odds_draw', 'odds_away', 'previous_odds',
-            'featured', 'is_open', 'starts_at',
+            'featured', 'is_open', 'starts_at', 'home_team', 'away_team',
         ]
 
 

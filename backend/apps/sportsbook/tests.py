@@ -270,3 +270,52 @@ class ApiFootballSyncTests(TestCase):
                            goals_home=1, goals_away=0),
         )
         self.assertIsNone(result)
+
+    def test_sync_fixture_upserts_linked_teams(self):
+        from apps.sportsbook.clients import FixtureUpdate, TeamInfo
+        from apps.sportsbook.models import Team
+        fixture = FixtureUpdate(
+            external_id='12345', name='Chelsea vs Arsenal', status='NS', starts_at=None,
+            goals_home=None, goals_away=None,
+            home_team=TeamInfo(external_id='t1', name='Chelsea', logo_url='https://x/c.png'),
+            away_team=TeamInfo(external_id='t2', name='Arsenal', logo_url='https://x/a.png'),
+        )
+        sportsbook_services.sync_fixture(fixture)
+        self.event.refresh_from_db()
+        self.assertEqual(self.event.home_team.name, 'Chelsea')
+        self.assertEqual(self.event.away_team.name, 'Arsenal')
+        self.assertEqual(Team.objects.count(), 2)
+
+        # Re-syncing the same fixture must not create duplicate Team rows.
+        sportsbook_services.sync_fixture(fixture)
+        self.assertEqual(Team.objects.count(), 2)
+
+
+class ApiFootballOddsSyncTests(TestCase):
+    def setUp(self):
+        self.event = Event.objects.create(
+            name='Chelsea vs Arsenal', odds=Decimal('1.50'),
+            provider='api-football', external_id='999',
+        )
+
+    def _odds(self, home='2.10', draw='3.20', away='3.50'):
+        from apps.sportsbook.clients import OddsSnapshot
+        return OddsSnapshot(
+            external_id='999', odds_home=Decimal(home),
+            odds_draw=Decimal(draw) if draw is not None else None, odds_away=Decimal(away),
+        )
+
+    def test_sync_fixture_odds_updates_open_event(self):
+        sportsbook_services.sync_fixture_odds(self._odds())
+        self.event.refresh_from_db()
+        self.assertEqual(self.event.odds, Decimal('2.10'))
+        self.assertEqual(self.event.odds_draw, Decimal('3.20'))
+        self.assertEqual(self.event.odds_away, Decimal('3.50'))
+
+    def test_sync_fixture_odds_ignores_closed_event(self):
+        self.event.is_open = False
+        self.event.save(update_fields=['is_open'])
+        result = sportsbook_services.sync_fixture_odds(self._odds())
+        self.assertIsNone(result)
+        self.event.refresh_from_db()
+        self.assertEqual(self.event.odds, Decimal('1.50'))

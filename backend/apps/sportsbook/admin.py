@@ -1,16 +1,23 @@
 from django.contrib import admin
 
-from .models import Bet, BetLeg, BetSlip, Event
+from .models import Bet, BetLeg, BetSlip, Event, Team
+
+
+@admin.register(Team)
+class TeamAdmin(admin.ModelAdmin):
+    list_display = ('name', 'provider', 'external_id', 'logo_url')
+    search_fields = ('name', 'external_id')
 
 
 @admin.register(Event)
 class EventAdmin(admin.ModelAdmin):
     list_display = (
-        'name', 'sport', 'odds', 'odds_draw', 'odds_away', 'featured', 'is_open',
-        'starts_at', 'provider', 'external_id',
+        'name', 'sport', 'home_team', 'away_team', 'odds', 'odds_draw', 'odds_away',
+        'featured', 'is_open', 'starts_at', 'provider', 'external_id',
     )
     list_filter = ('sport', 'featured', 'is_open', 'provider')
     search_fields = ('name', 'external_id')
+    raw_id_fields = ('home_team', 'away_team')
 
 
 @admin.register(Bet)

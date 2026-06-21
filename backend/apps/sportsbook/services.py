@@ -15,9 +15,9 @@ from django.utils import timezone
 from apps.wallet import services as wallet_services
 
 from . import helpers, utils
-from .clients import ApiFootballClient, FixtureUpdate
+from .clients import ApiFootballClient, FixtureUpdate, OddsSnapshot, TeamInfo
 from .dtos import BetDTO
-from .models import Bet, BetLeg, BetSlip, Event, Selection
+from .models import Bet, BetLeg, BetSlip, Event, Selection, Team
 
 
 # -- reads -------------------------------------------------------------------
@@ -263,10 +263,21 @@ def _settle_slip_if_ready(slip_id: int) -> BetSlip:
 
 # -- external provider sync (api-football) -----------------------------------
 
+def _upsert_team(info: Optional[TeamInfo]) -> Optional[Team]:
+    if info is None or not info.external_id:
+        return None
+    team, _ = Team.objects.update_or_create(
+        provider=ApiFootballClient.provider_name, external_id=info.external_id,
+        defaults={'name': info.name, 'logo_url': info.logo_url},
+    )
+    return team
+
+
 @transaction.atomic
 def sync_fixture(fixture: FixtureUpdate) -> Optional[Event]:
-    """Apply one api-football fixture update to its linked Event: lock betting
-    once the match goes live, and settle every bet/leg on it once finished.
+    """Apply one api-football fixture update to its linked Event: upsert the
+    Team records, lock betting once the match goes live, and settle every
+    bet/leg on it once finished.
 
     No-op (returns None) if no Event is linked to this fixture's external_id.
     """
@@ -278,9 +289,20 @@ def sync_fixture(fixture: FixtureUpdate) -> Optional[Event]:
     if event is None:
         return None
 
+    update_fields = []
+    home_team = _upsert_team(fixture.home_team)
+    if home_team is not None and event.home_team_id != home_team.id:
+        event.home_team = home_team
+        update_fields.append('home_team')
+    away_team = _upsert_team(fixture.away_team)
+    if away_team is not None and event.away_team_id != away_team.id:
+        event.away_team = away_team
+        update_fields.append('away_team')
     if (fixture.is_live or fixture.is_finished) and event.is_open:
         event.is_open = False
-        event.save(update_fields=['is_open'])
+        update_fields.append('is_open')
+    if update_fields:
+        event.save(update_fields=update_fields)
 
     result = fixture.result
     if result is not None:
@@ -297,6 +319,36 @@ def sync_provider_fixtures(*, date: Optional[str] = None, live: Optional[str] = 
     for fixture in fixtures:
         sync_fixture(fixture)
     return len(fixtures)
+
+
+@transaction.atomic
+def sync_fixture_odds(odds: OddsSnapshot) -> Optional[Event]:
+    """Apply a 1X2 odds snapshot to its linked, still-open Event. No-op if
+    unlinked or betting is already closed (avoids moving a locked price)."""
+    event = (
+        Event.objects.select_for_update()
+        .filter(
+            external_id=odds.external_id, provider=ApiFootballClient.provider_name, is_open=True,
+        )
+        .first()
+    )
+    if event is None:
+        return None
+    event.odds = odds.odds_home
+    event.odds_draw = odds.odds_draw
+    event.odds_away = odds.odds_away
+    event.save(update_fields=['odds', 'odds_draw', 'odds_away', 'previous_odds'])
+    return event
+
+
+def sync_provider_odds(*, date: Optional[str] = None) -> int:
+    """Pull 1X2 odds from api-football and apply each to its linked Event.
+    Returns the number of odds snapshots fetched."""
+    client = ApiFootballClient()
+    snapshots = client.fetch_odds(date=date)
+    for snapshot in snapshots:
+        sync_fixture_odds(snapshot)
+    return len(snapshots)
 
 
 # -- realtime ----------------------------------------------------------------
