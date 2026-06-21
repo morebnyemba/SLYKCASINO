@@ -65,7 +65,11 @@ services:
     <<: *restart
     image: slykcasino/django:latest
     env_file: .env.prod
-    command: gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 4 --timeout 120
+    environment:
+      GUNICORN_WORKERS: "4"
+    # entrypoint.sh applies migrations, runs collectstatic, then execs gunicorn
+    # — all inside this same persistent container, so static files & schema
+    # always match the code actually running (no separate `run --rm` needed).
     expose:
       - "8000"
     depends_on:
