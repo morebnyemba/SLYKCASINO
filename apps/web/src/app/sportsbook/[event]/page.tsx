@@ -16,9 +16,9 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 
 interface EventDetail {
   name?: string;
-  odds?: number;
-  odds_draw?: number | null;
-  odds_away?: number | null;
+  odds?: number | string;
+  odds_draw?: number | string | null;
+  odds_away?: number | string | null;
 }
 
 export default async function EventPage({ params, searchParams }: PageProps) {
@@ -41,9 +41,9 @@ export default async function EventPage({ params, searchParams }: PageProps) {
   }
 
   const initialOdds = {
-    odds: typeof detail.odds === 'number' ? detail.odds : 1.95,
-    odds_draw: detail.odds_draw ?? null,
-    odds_away: detail.odds_away ?? null,
+    odds: detail.odds != null ? Number(detail.odds) : 1.95,
+    odds_draw: detail.odds_draw != null ? Number(detail.odds_draw) : null,
+    odds_away: detail.odds_away != null ? Number(detail.odds_away) : null,
   };
 
   return (

@@ -152,6 +152,12 @@ BLOCKED_COUNTRIES = os.environ.get('BLOCKED_COUNTRIES', 'US,FR,AU,SG,HK').split(
 REALTIME_PUBLISH_ENABLED = os.environ.get('REALTIME_PUBLISH_ENABLED', 'false').lower() == 'true'
 REALTIME_PUBLISH_URL = os.environ.get('REALTIME_PUBLISH_URL', 'http://erlang:8080/publish')
 
+# --- api-football.com (https://www.api-football.com/documentation-v3) ---
+# Unset by default: ApiFootballClient no-ops (returns []) without a key, so
+# dev/test never hits the network.
+API_FOOTBALL_KEY = os.environ.get('API_FOOTBALL_KEY', '')
+API_FOOTBALL_BASE_URL = os.environ.get('API_FOOTBALL_BASE_URL', 'https://v3.football.api-sports.io')
+
 # ---------------------------------------------------------------------------
 # Celery — workers run domain recovery; beat schedules reconciliation passes.
 # ---------------------------------------------------------------------------
@@ -173,6 +179,14 @@ CELERY_BEAT_SCHEDULE = {
     'sportsbook-orphaned-bets': {
         'task': 'apps.sportsbook.tasks.reconcile_orphaned_bets',
         'schedule': 600.0,
+    },
+    'sportsbook-sync-live-fixtures': {
+        'task': 'apps.sportsbook.tasks.sync_live_fixtures',
+        'schedule': 60.0,
+    },
+    'sportsbook-sync-fixture-odds': {
+        'task': 'apps.sportsbook.tasks.sync_fixture_odds',
+        'schedule': 300.0,
     },
     'casino-retry-debits': {
         'task': 'apps.casino.tasks.reconcile_debit_sequences',

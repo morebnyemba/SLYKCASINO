@@ -14,21 +14,22 @@ interface EventItem {
   id: string | number;
   name: string;
   sport?: string;
-  odds: number;
-  odds_draw?: number | null;
-  odds_away?: number | null;
-  previous_odds?: number | null;
+  odds: number | string;
+  odds_draw?: number | string | null;
+  odds_away?: number | string | null;
+  previous_odds?: number | string | null;
 }
 
 /** A tappable price that adds/removes a selection from the shared bet slip. */
 function OddsButton({ ev, selection, label, odds }: {
-  ev: EventItem; selection: Selection; label: string; odds: number;
+  ev: EventItem; selection: Selection; label: string; odds: number | string;
 }) {
   const { isOnSlip, toggleLeg } = useBetslip();
   const active = isOnSlip(ev.id, selection);
+  const numericOdds = Number(odds);
   return (
     <button
-      onClick={() => toggleLeg({ eventId: ev.id, eventName: ev.name, selection, odds })}
+      onClick={() => toggleLeg({ eventId: ev.id, eventName: ev.name, selection, odds: numericOdds })}
       className={`rounded-md border px-2.5 py-1.5 text-center transition-colors ${
         active
           ? 'border-primary bg-primary text-primary-foreground'
@@ -36,7 +37,7 @@ function OddsButton({ ev, selection, label, odds }: {
       }`}
     >
       <p className={`text-[10px] uppercase ${active ? 'text-primary-foreground/80' : 'text-muted-foreground'}`}>{label}</p>
-      <p className="font-mono text-sm font-bold">{odds.toFixed(2)}</p>
+      <p className="font-mono text-sm font-bold">{numericOdds.toFixed(2)}</p>
     </button>
   );
 }
@@ -113,9 +114,9 @@ export function SportsbookBrowser({ events }: { events: EventItem[] }) {
                 ) : (
                   <div className="flex items-center gap-1">
                     <OddsButton ev={ev} selection="home" label="Odds" odds={ev.odds} />
-                    {ev.previous_odds != null && ev.previous_odds !== ev.odds && (
-                      <span className={`text-xs ${ev.odds > ev.previous_odds ? 'text-green-600' : 'text-red-500'}`}>
-                        {ev.odds > ev.previous_odds ? '▲' : '▼'}
+                    {ev.previous_odds != null && Number(ev.previous_odds) !== Number(ev.odds) && (
+                      <span className={`text-xs ${Number(ev.odds) > Number(ev.previous_odds) ? 'text-green-600' : 'text-red-500'}`}>
+                        {Number(ev.odds) > Number(ev.previous_odds) ? '▲' : '▼'}
                       </span>
                     )}
                   </div>
