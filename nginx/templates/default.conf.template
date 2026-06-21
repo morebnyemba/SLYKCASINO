@@ -103,6 +103,7 @@ server {
     location /api/ {
         proxy_pass http://django_upstream;
         proxy_http_version 1.1;
+        proxy_set_header Host $host;
         proxy_set_header Connection "";
     }
 
@@ -112,6 +113,7 @@ server {
     location /django-admin/ {
         proxy_pass http://django_upstream;
         proxy_http_version 1.1;
+        proxy_set_header Host $host;
         proxy_set_header Connection "";
     }
 
@@ -119,6 +121,7 @@ server {
     location /django-static/ {
         proxy_pass http://django_upstream;
         proxy_http_version 1.1;
+        proxy_set_header Host $host;
         proxy_set_header Connection "";
     }
 
@@ -130,6 +133,7 @@ server {
         set $erlang_upstream erlang:8080;
         proxy_pass http://$erlang_upstream;
         proxy_http_version 1.1;
+        proxy_set_header Host       $host;
         proxy_set_header Upgrade    $http_upgrade;
         proxy_set_header Connection $connection_upgrade;
 
@@ -147,6 +151,7 @@ server {
     location /admin-portal {
         proxy_pass http://admin_upstream;
         proxy_http_version 1.1;
+        proxy_set_header Host       $host;
         proxy_set_header Upgrade    $http_upgrade;
         proxy_set_header Connection $connection_upgrade;
         proxy_read_timeout 300s;
@@ -158,6 +163,7 @@ server {
     location / {
         proxy_pass http://player_upstream;
         proxy_http_version 1.1;
+        proxy_set_header Host       $host;
         proxy_set_header Upgrade    $http_upgrade;
         proxy_set_header Connection $connection_upgrade;
         proxy_read_timeout 300s;
