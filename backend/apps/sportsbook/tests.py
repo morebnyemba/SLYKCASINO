@@ -247,6 +247,16 @@ class ApiFootballSyncTests(TestCase):
         from apps.sportsbook.clients import ApiFootballClient
         self.assertEqual(ApiFootballClient().fetch_fixtures(live='all'), [])
 
+    def test_client_uses_admin_credential_over_env(self):
+        from apps.sportsbook.clients import ApiFootballClient
+        from apps.sportsbook.models import ProviderCredential
+        ProviderCredential.objects.create(
+            provider='api-football', api_key='admin-key', base_url='https://example.test',
+        )
+        client = ApiFootballClient()
+        self.assertEqual(client.api_key, 'admin-key')
+        self.assertEqual(client.base_url, 'https://example.test')
+
     def test_sync_fixture_locks_betting_when_live(self):
         sportsbook_services.sync_fixture(self._fixture('1H'))
         self.event.refresh_from_db()

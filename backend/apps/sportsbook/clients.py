@@ -104,19 +104,34 @@ class ApiFootballClient:
     """Thin client for api-football.com v3 — fetches fixtures (live scores,
     statuses, results) used to keep linked Events and bets in sync.
 
-    Credentials/base URL come from settings so this is a no-op (returns an
-    empty list, never raises into callers) when API_FOOTBALL_KEY is unset —
-    matching the rest of this app's pattern of safe-by-default external
-    integrations in dev/test environments.
+    The API key/base URL can be set either via a `ProviderCredential` row in
+    Django admin (lets ops rotate a key without a redeploy) or via the
+    API_FOOTBALL_KEY/API_FOOTBALL_BASE_URL env vars — the admin row wins when
+    both are present. Either way, missing credentials make this a no-op
+    (returns an empty list, never raises into callers), matching the rest of
+    this app's pattern of safe-by-default external integrations.
     """
 
     provider_name = 'api-football'
 
     def __init__(self) -> None:
-        self.api_key = getattr(settings, 'API_FOOTBALL_KEY', '') or ''
-        self.base_url = getattr(
-            settings, 'API_FOOTBALL_BASE_URL', 'https://v3.football.api-sports.io',
-        ).rstrip('/')
+        credential = self._load_credential()
+        self.api_key = (
+            (credential.api_key if credential else '')
+            or getattr(settings, 'API_FOOTBALL_KEY', '') or ''
+        )
+        base_url = (
+            (credential.base_url if credential else '')
+            or getattr(settings, 'API_FOOTBALL_BASE_URL', 'https://v3.football.api-sports.io')
+        )
+        self.base_url = base_url.rstrip('/')
+
+    def _load_credential(self):
+        from .models import ProviderCredential
+        try:
+            return ProviderCredential.objects.filter(provider=self.provider_name).first()
+        except Exception:  # noqa: BLE001 — table may not exist yet (pre-migrate)
+            return None
 
     def fetch_fixtures(
         self, *, date: Optional[str] = None, live: Optional[str] = None,

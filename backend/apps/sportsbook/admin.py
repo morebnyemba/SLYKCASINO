@@ -1,6 +1,21 @@
+from django import forms
 from django.contrib import admin
 
-from .models import Bet, BetLeg, BetSlip, Event, Team
+from .models import Bet, BetLeg, BetSlip, Event, ProviderCredential, Team
+
+
+class ProviderCredentialForm(forms.ModelForm):
+    class Meta:
+        model = ProviderCredential
+        fields = '__all__'
+        widgets = {'api_key': forms.PasswordInput(render_value=True)}
+
+
+@admin.register(ProviderCredential)
+class ProviderCredentialAdmin(admin.ModelAdmin):
+    form = ProviderCredentialForm
+    list_display = ('provider', 'base_url')
+    search_fields = ('provider',)
 
 
 @admin.register(Team)
