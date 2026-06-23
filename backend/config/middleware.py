@@ -11,7 +11,10 @@ class GeoBlockMiddleware:
         # Skip non-API paths and health check
         if not request.path.startswith('/api/') or request.path == '/api/health/':
             return self.get_response(request)
-        country = request.META.get('HTTP_CF_IPCOUNTRY') or request.META.get('HTTP_X_COUNTRY_CODE', '')
+        # Trust only the Cloudflare-set header. A client-supplied header (e.g.
+        # X-Country-Code) is fully spoofable and must never be used to decide
+        # jurisdiction blocking.
+        country = request.META.get('HTTP_CF_IPCOUNTRY', '')
         if country.upper() in BLOCKED_COUNTRIES:
             from rest_framework.response import Response
             from rest_framework.renderers import JSONRenderer

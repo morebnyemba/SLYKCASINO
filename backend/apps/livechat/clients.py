@@ -6,6 +6,8 @@ from urllib import error, request
 
 from django.conf import settings
 
+from common.realtime_auth import internal_token
+
 logger = logging.getLogger(__name__)
 
 
@@ -33,7 +35,10 @@ class RealtimePublisherClient:
         try:
             req = request.Request(
                 url, data=body.encode('utf-8'), method='POST',
-                headers={'Content-Type': 'text/plain; charset=utf-8'},
+                headers={
+                    'Content-Type': 'text/plain; charset=utf-8',
+                    'X-Internal-Token': internal_token(),
+                },
             )
             with request.urlopen(req, timeout=2) as resp:
                 return 200 <= resp.status < 300

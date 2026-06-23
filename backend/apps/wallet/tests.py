@@ -78,6 +78,9 @@ class WalletServiceTests(TestCase):
 class WalletAPITests(TestCase):
     def setUp(self):
         self.player = _make_player()
+        # Withdrawals require KYC verification; deposits don't.
+        self.player.kyc_status = self.player.Kyc.VERIFIED
+        self.player.save(update_fields=['kyc_status'])
         refresh = RefreshToken.for_user(self.player.user)
         self.client = APIClient()
         self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {str(refresh.access_token)}')
@@ -100,3 +103,26 @@ class WalletAPITests(TestCase):
     def test_withdraw_insufficient_funds_returns_402(self):
         resp = self.client.post('/api/wallet/withdraw/', {'amount': '9999.00'}, format='json')
         self.assertEqual(resp.status_code, status.HTTP_402_PAYMENT_REQUIRED)
+
+    def test_withdraw_requires_kyc_verification(self):
+        self.player.kyc_status = self.player.Kyc.PENDING
+        self.player.save(update_fields=['kyc_status'])
+        resp = self.client.post('/api/wallet/withdraw/', {'amount': '50.00'}, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+
+class PSPWebhookViewTests(TestCase):
+    def setUp(self):
+        self.player = _make_player(username='webhookplayer', email='webhook@example.com')
+        self.client = APIClient()
+
+    def test_unknown_provider_returns_404(self):
+        resp = self.client.post('/api/wallet/webhook/nope/', data=b'{}', content_type='application/json')
+        self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_stub_provider_webhook_is_rejected(self):
+        # StubPSP doesn't implement verify_webhook — an unverifiable payload
+        # must never be trusted into a credit.
+        resp = self.client.post('/api/wallet/webhook/stub/', data=b'{}', content_type='application/json')
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(wallet_services.get_balance(self.player.id), Decimal('0.00'))

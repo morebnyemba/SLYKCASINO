@@ -8,7 +8,7 @@ from django.utils.encoding import force_bytes, force_str
 from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import AnonRateThrottle
 from rest_framework.views import APIView
@@ -343,8 +343,12 @@ class DeleteAccountView(APIView):
 
 
 class PlayerViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
+    """Player directory. `list`/`retrieve` expose other players' PII (email, KYC
+    status, etc.) so they are admin-only; `me`/`stats` are self-service and
+    override this with their own `permission_classes` below."""
     queryset = Player.objects.all()
     serializer_class = PlayerSerializer
+    permission_classes = [IsAdminUser]
 
     @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
     def me(self, request):

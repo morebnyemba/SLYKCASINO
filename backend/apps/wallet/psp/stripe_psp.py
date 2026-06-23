@@ -49,10 +49,12 @@ class StripePSP(BasePSP):
         )
         pi = event['data']['object']
         status = 'completed' if event['type'] == 'payment_intent.succeeded' else 'failed'
+        player_id_raw = pi.get('metadata', {}).get('player_id')
         return PaymentResult(
             provider_ref=pi['id'],
             status=status,
             amount=Decimal(pi['amount']) / 100,
             currency=pi['currency'].upper(),
             raw=event,
+            player_id=int(player_id_raw) if player_id_raw is not None else None,
         )

@@ -134,6 +134,9 @@ services:
       - "8080"                      # internal only — reached via nginx /ws/
     environment:
       REDIS_URL: redis://redis:6379/0
+      # Shared with django's DJANGO_SECRET_KEY below — authenticates internal
+      # /publish calls and signs admin:* WebSocket join tickets.
+      REALTIME_SHARED_SECRET: ${DJANGO_SECRET_KEY}
     depends_on:
       redis: { condition: service_healthy }
     networks: [edge]

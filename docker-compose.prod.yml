@@ -109,6 +109,10 @@ services:
   erlang:
     <<: *restart
     image: slykcasino/erlang-ws:latest
+    environment:
+      # Shared with django's DJANGO_SECRET_KEY (from .env.prod) — authenticates
+      # internal /publish calls and signs admin:* WebSocket join tickets.
+      REALTIME_SHARED_SECRET: ${DJANGO_SECRET_KEY}
     expose:
       - "8080"
     depends_on:
