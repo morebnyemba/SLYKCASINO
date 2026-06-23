@@ -232,6 +232,45 @@ class ApiFootballClient:
             logo_url=str(raw.get('logo', '') or ''),
         )
 
+    def fetch_leagues(self) -> list['LeagueInfo']:
+        """Discover every league api-football currently has an active ("current")
+        season for, so fixture import doesn't depend on operator-curated league
+        IDs. One API call, but the caller still pays one /fixtures call per
+        league returned here — see import_all_current_leagues. Returns []
+        (logged) on any missing key, network, or payload error."""
+        if not self.api_key:
+            return []
+        try:
+            resp = requests.get(
+                f'{self.base_url}/leagues', params={'current': 'true'}, timeout=10,
+                headers={'x-apisports-key': self.api_key},
+            )
+            resp.raise_for_status()
+            payload = resp.json()
+        except (requests.RequestException, ValueError):
+            logger.warning('api-football fetch_leagues failed', exc_info=True)
+            return []
+        leagues = []
+        for raw in payload.get('response', []):
+            league_info = self._normalize_league(raw)
+            if league_info is not None:
+                leagues.append(league_info)
+        return leagues
+
+    def _normalize_league(self, raw: dict[str, Any]) -> Optional['LeagueInfo']:
+        league = raw.get('league') or {}
+        league_id = league.get('id')
+        if league_id is None:
+            return None
+        season_year = None
+        for season in raw.get('seasons', []):
+            if season.get('current'):
+                season_year = season.get('year')
+                break
+        if season_year is None:
+            return None
+        return LeagueInfo(id=int(league_id), season=int(season_year), name=str(league.get('name', '')))
+
     def _normalize_odds(self, raw: dict[str, Any]) -> Optional['OddsSnapshot']:
         fixture_id = str((raw.get('fixture') or {}).get('id', ''))
         if not fixture_id:
@@ -265,3 +304,14 @@ class OddsSnapshot:
     odds_home: Decimal
     odds_draw: Optional[Decimal]
     odds_away: Decimal
+
+
+@dataclass(frozen=True)
+class LeagueInfo:
+    """A league api-football currently has an active season for, with that
+    season's year — leagues each run on their own season numbering, so this
+    travels with the ID rather than relying on a single global season."""
+
+    id: int
+    season: int
+    name: str = ''

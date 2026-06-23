@@ -29,15 +29,22 @@ def sync_fixture_odds() -> int:
 
 @shared_task(name='apps.sportsbook.tasks.import_upcoming_fixtures')
 def import_upcoming_fixtures() -> int:
-    """Pull each configured league's next upcoming fixtures from api-football
-    and create an Event for any that aren't linked yet — this is what
-    actually populates the sportsbook with bettable events; sync_live_fixtures
-    /sync_fixture_odds only keep already-linked events up to date. No-op if
-    API_FOOTBALL_KEY or API_FOOTBALL_LEAGUES is unset."""
+    """Pull upcoming fixtures from api-football and create an Event for any
+    that aren't linked yet — this is what actually populates the sportsbook
+    with bettable events; sync_live_fixtures/sync_fixture_odds only keep
+    already-linked events up to date.
+
+    If API_FOOTBALL_LEAGUES is configured, only those leagues are imported
+    (each using the shared API_FOOTBALL_SEASON). Otherwise every league
+    api-football currently has an active season for is auto-discovered and
+    imported, each with its own season year. No-op if API_FOOTBALL_KEY is
+    unset."""
     from django.conf import settings
     leagues = getattr(settings, 'API_FOOTBALL_LEAGUES', [])
     season = getattr(settings, 'API_FOOTBALL_SEASON', None)
     next_count = getattr(settings, 'API_FOOTBALL_IMPORT_NEXT', 20)
+    if not leagues:
+        return services.import_all_current_leagues(next_count=next_count)
     total = 0
     for league in leagues:
         total += services.sync_provider_events(league=league, season=season, next_count=next_count)
