@@ -1,0 +1,8 @@
+version: 2
+# Django test modules use a fixed fixture password ('Passw0rd!') throughout
+# the backend test suite (apps/*/tests.py) to exercise auth/registration
+# flows. It's not a real credential, but its shape reliably trips the
+# generic-password secret detector — exclude test modules from the scan
+# instead of chasing false positives file by file.
+paths-ignore:
+  - 'backend/apps/*/tests.py'

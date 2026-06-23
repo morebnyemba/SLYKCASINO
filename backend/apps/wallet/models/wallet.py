@@ -1,4 +1,5 @@
 from django.db import models
+from django.db.models import Q
 
 
 class Wallet(models.Model):
@@ -14,6 +15,13 @@ class Wallet(models.Model):
 
     class Meta:
         db_table = 'wallet_wallet'
+        constraints = [
+            # Last line of defense against overdraft: application-level locking
+            # (wallet.services.post_entry) is the primary guard, this constraint
+            # is what makes a balance-corrupting bug fail loudly instead of
+            # silently persisting a negative balance.
+            models.CheckConstraint(check=Q(balance__gte=0), name='wallet_balance_non_negative'),
+        ]
 
     def __str__(self) -> str:
         return f'wallet(player={self.player_id}, {self.balance} {self.currency})'

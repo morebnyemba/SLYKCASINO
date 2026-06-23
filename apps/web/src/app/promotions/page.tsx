@@ -7,6 +7,7 @@ import { Carousel, CarouselItem } from '@/components/carousel';
 import { useAuth } from '@/lib/auth-context';
 import { useApi, authedPost } from '@/lib/use-api';
 import { gameAvatarUrl, CASINO_HERO_IMAGES } from '@/lib/game-images';
+import { sanitizeHtml } from '@/lib/sanitize';
 interface Promo {
   id: number;
   name: string;
@@ -163,7 +164,11 @@ export default function PromotionsPage() {
                 {p.terms_html && (
                   <details className="text-xs text-muted-foreground">
                     <summary className="cursor-pointer select-none">Terms &amp; conditions</summary>
-                    <div className="mt-1" dangerouslySetInnerHTML={{ __html: p.terms_html }} />
+                    <div
+                      className="mt-1"
+                      suppressHydrationWarning
+                      dangerouslySetInnerHTML={{ __html: sanitizeHtml(p.terms_html) }}
+                    />
                   </details>
                 )}
 

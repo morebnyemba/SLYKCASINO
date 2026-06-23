@@ -152,6 +152,10 @@ BLOCKED_COUNTRIES = os.environ.get('BLOCKED_COUNTRIES', 'US,FR,AU,SG,HK').split(
 # ---------------------------------------------------------------------------
 REALTIME_PUBLISH_ENABLED = os.environ.get('REALTIME_PUBLISH_ENABLED', 'false').lower() == 'true'
 REALTIME_PUBLISH_URL = os.environ.get('REALTIME_PUBLISH_URL', 'http://erlang:8080/publish')
+# Calls to the engine (publish + admin WebSocket tickets, see
+# common.realtime_auth) are authenticated with SECRET_KEY — the erlang
+# container is given the same value via REALTIME_SHARED_SECRET in
+# docker-compose*.yml, so no separate credential needs provisioning.
 
 # --- api-football.com (https://www.api-football.com/documentation-v3) ---
 # Unset by default: ApiFootballClient no-ops (returns []) without a key, so
