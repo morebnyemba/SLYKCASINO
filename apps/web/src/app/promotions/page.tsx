@@ -164,7 +164,11 @@ export default function PromotionsPage() {
                 {p.terms_html && (
                   <details className="text-xs text-muted-foreground">
                     <summary className="cursor-pointer select-none">Terms &amp; conditions</summary>
-                    <div className="mt-1" dangerouslySetInnerHTML={{ __html: sanitizeHtml(p.terms_html) }} />
+                    <div
+                      className="mt-1"
+                      suppressHydrationWarning
+                      dangerouslySetInnerHTML={{ __html: sanitizeHtml(p.terms_html) }}
+                    />
                   </details>
                 )}
 

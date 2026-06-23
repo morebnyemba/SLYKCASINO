@@ -63,7 +63,15 @@ def post_entry(
     lock and *before* writing the entry, which is what makes it race-free: two
     concurrent debits against the same balance can no longer both pass the
     check (previously the check ran outside the lock — see InsufficientFunds).
+
+    Checked once before the lock (cheap bail-out for the common idempotent
+    retry) and again after acquiring it (correctness for two requests racing
+    on the same key), so a retry storm doesn't serialize on row locks it
+    doesn't need.
     """
+    existing = LedgerEntry.objects.filter(idempotency_key=idempotency_key).first()
+    if existing is not None:
+        return existing
     wallet = Wallet.objects.select_for_update().get(player_id=player_id)
     existing = LedgerEntry.objects.filter(idempotency_key=idempotency_key).first()
     if existing is not None:

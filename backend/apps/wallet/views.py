@@ -4,6 +4,7 @@ from __future__ import annotations
 import uuid
 from decimal import Decimal, InvalidOperation
 
+from django.core.exceptions import ObjectDoesNotExist
 from rest_framework import status
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
@@ -129,12 +130,17 @@ class PSPWebhookView(APIView):
         if result.player_id is None:
             return Response({'detail': 'missing player reference'}, status=status.HTTP_400_BAD_REQUEST)
 
-        services.deposit(
-            player_id=result.player_id,
-            amount=result.amount,
-            idempotency_key=f'wallet:deposit:psp:{provider}:{result.provider_ref}',
-            reference=f'psp:{provider}:{result.provider_ref}',
-        )
+        try:
+            services.deposit(
+                player_id=result.player_id,
+                amount=result.amount,
+                idempotency_key=f'wallet:deposit:psp:{provider}:{result.provider_ref}',
+                reference=f'psp:{provider}:{result.provider_ref}',
+            )
+        except ObjectDoesNotExist:
+            # Unknown player_id in the PSP metadata — don't 500 and trigger
+            # provider retry storms for a payload that will never resolve.
+            return Response({'detail': 'player wallet not found'}, status=status.HTTP_404_NOT_FOUND)
         return Response({'detail': 'ok'}, status=status.HTTP_200_OK)
 
 
