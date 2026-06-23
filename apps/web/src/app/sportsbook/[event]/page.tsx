@@ -11,7 +11,7 @@ type PageProps = {
 
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { event } = await params;
-  return { title: `Event ${event} — SLYK Sportsbook` };
+  return { title: `Event ${event} — SLÝKBETS` };
 }
 
 interface EventDetail {

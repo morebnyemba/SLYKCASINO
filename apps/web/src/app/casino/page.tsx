@@ -25,14 +25,14 @@ interface GamesResponse {
 }
 
 const DEMO_GAMES: Game[] = [
-  { id: 1, slug: 'slyk-aviator', name: 'SLYK Aviator', provider: 'SLYK', category: 'crash', rtp: '99.00' },
-  { id: 2, slug: 'lucky-slots', name: 'Lucky Slots', provider: 'SLYK', category: 'slots', rtp: '96.00' },
-  { id: 3, slug: 'golden-wheel', name: 'Golden Wheel', provider: 'SLYK', category: 'slots', rtp: '97.50' },
-  { id: 4, slug: 'mega-dice', name: 'Mega Dice', provider: 'SLYK', category: 'instant', rtp: '98.00' },
-  { id: 5, slug: 'blackjack-classic', name: 'Blackjack Classic', provider: 'SLYK', category: 'table', rtp: '99.50' },
-  { id: 6, slug: 'roulette-pro', name: 'Roulette Pro', provider: 'SLYK', category: 'table', rtp: '97.30' },
-  { id: 7, slug: 'live-baccarat', name: 'Live Baccarat', provider: 'SLYK', category: 'live', rtp: '98.80' },
-  { id: 8, slug: 'virtual-league', name: 'Virtual League', provider: 'SLYK', category: 'virtual', rtp: '95.00' },
+  { id: 1, slug: 'slyk-aviator', name: 'SLÝKBETS Aviator', provider: 'SLÝKBETS', category: 'crash', rtp: '99.00' },
+  { id: 2, slug: 'lucky-slots', name: 'Lucky Slots', provider: 'SLÝKBETS', category: 'slots', rtp: '96.00' },
+  { id: 3, slug: 'golden-wheel', name: 'Golden Wheel', provider: 'SLÝKBETS', category: 'slots', rtp: '97.50' },
+  { id: 4, slug: 'mega-dice', name: 'Mega Dice', provider: 'SLÝKBETS', category: 'instant', rtp: '98.00' },
+  { id: 5, slug: 'blackjack-classic', name: 'Blackjack Classic', provider: 'SLÝKBETS', category: 'table', rtp: '99.50' },
+  { id: 6, slug: 'roulette-pro', name: 'Roulette Pro', provider: 'SLÝKBETS', category: 'table', rtp: '97.30' },
+  { id: 7, slug: 'live-baccarat', name: 'Live Baccarat', provider: 'SLÝKBETS', category: 'live', rtp: '98.80' },
+  { id: 8, slug: 'virtual-league', name: 'Virtual League', provider: 'SLÝKBETS', category: 'virtual', rtp: '95.00' },
 ];
 
 const CATEGORIES: { value: string; label: string }[] = [

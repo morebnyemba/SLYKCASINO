@@ -127,7 +127,7 @@ export default function BannersPage() {
   }
 
   const FIELDS: { label: string; key: keyof FormState; type: string; placeholder: string; full?: boolean }[] = [
-    { label: 'Title', key: 'title', type: 'text', placeholder: 'SLYK Aviator' },
+    { label: 'Title', key: 'title', type: 'text', placeholder: 'SLÝKBETS Aviator' },
     { label: 'Sort order', key: 'sort_order', type: 'number', placeholder: '0' },
     { label: 'Subtitle', key: 'subtitle', type: 'text', placeholder: 'Cash out before the crash', full: true },
     { label: 'Image URL', key: 'image_url', type: 'text', placeholder: 'https://…/banner.jpg', full: true },

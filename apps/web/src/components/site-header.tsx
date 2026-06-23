@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { BsGrid1X2Fill } from 'react-icons/bs';
-import { GiTrophy, GiRollingDices, GiPodiumWinner } from 'react-icons/gi';
+import { GiTrophy, GiRollingDices, GiPodiumWinner, GiPerspectiveDiceSixFacesRandom } from 'react-icons/gi';
 import { FaGift, FaRegCommentDots, FaUser, FaSignOutAlt, FaBars, FaTimes, FaWallet, FaBell } from 'react-icons/fa';
 import type { IconType } from 'react-icons';
 import { useAuth } from '@/lib/auth-context';
@@ -49,11 +49,24 @@ export function SiteHeader() {
   }
 
   return (
-    <header className="sticky top-0 z-50 border-b border-border bg-primary shadow-md">
+    <header className="sticky top-0 z-50 border-b border-gold/30 bg-gradient-to-r from-primary via-primary to-[#241c63] shadow-lg shadow-black/20">
       <div className="mx-auto flex max-w-6xl items-center gap-8 px-4 py-3 sm:px-6">
-        <Link href="/" className="flex items-center gap-2 text-lg font-extrabold tracking-tight text-white">
-          <span className="rounded-md bg-primary px-2 py-1 text-sm text-primary-foreground">SLYK</span>
-          <span className="hidden text-white/90 md:inline">Casino &amp; Sportsbook</span>
+        <Link href="/" className="group flex items-center gap-2.5">
+          <span className="flex items-center gap-1 rounded-md bg-gradient-to-br from-gold to-[#8a6608] px-2.5 py-1 text-sm font-black tracking-wide text-white shadow-inner shadow-black/30 ring-1 ring-white/15 transition-transform duration-300 group-hover:-rotate-6 group-hover:scale-110">
+            <GiPerspectiveDiceSixFacesRandom size={14} className="text-white/90" />
+            SL<span className="relative -mr-px">Ý</span>K
+          </span>
+          <span className="hidden flex-col leading-none md:flex">
+            <span className="text-lg font-extrabold tracking-tight text-white">BETS</span>
+            <span className="relative mt-0.5 h-3.5 w-36 overflow-hidden text-[11px] font-medium">
+              <span className="absolute inset-0 block text-white/60 transition-transform duration-300 ease-out group-hover:-translate-y-full">
+                Sportsbook &amp; Casino
+              </span>
+              <span className="absolute inset-0 block translate-y-full text-gold transition-transform duration-300 ease-out group-hover:translate-y-0">
+                Bet smart. Brag often.
+              </span>
+            </span>
+          </span>
         </Link>
 
         <nav className="hidden flex-1 items-center gap-1 text-sm lg:flex">

@@ -36,14 +36,14 @@ export function AgeGate() {
           <>
             <h2 className="mb-2 text-lg font-bold">Sorry, you can&apos;t enter</h2>
             <p className="text-sm text-muted-foreground">
-              You must be at least 18 years old to access SLYK Casino &amp; Sportsbook.
+              You must be at least 18 years old to access SLÝKBETS.
             </p>
           </>
         ) : (
           <>
             <h2 className="mb-2 text-lg font-bold">Are you 18 or older?</h2>
             <p className="mb-5 text-sm text-muted-foreground">
-              SLYK is a real-money gambling site licensed in Zimbabwe. You must confirm you are of legal
+              SLÝKBETS is a real-money gambling site licensed in Zimbabwe. You must confirm you are of legal
               age to continue. Please play responsibly.
             </p>
             <div className="flex gap-3">

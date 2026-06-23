@@ -7,13 +7,13 @@ import { AgeGate } from '@/components/age-gate';
 import { ServiceWorkerRegistration } from '@/components/service-worker-registration';
 
 export const metadata: Metadata = {
-  title: 'SLYK Casino — Player',
+  title: 'SLÝKBETS — Player',
   description: 'Real-time betting & livechat platform',
   manifest: '/manifest.json',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',
-    title: 'SLYK Casino',
+    title: 'SLÝKBETS',
   },
   icons: {
     icon: '/icons/icon-192.png',

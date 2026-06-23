@@ -25,11 +25,11 @@ export function SiteFooter() {
 
         <div className="grid gap-6 pt-6 sm:grid-cols-3">
           <div className="space-y-2">
-            <p className="font-semibold text-foreground">SLYK Casino &amp; Sportsbook</p>
+            <p className="font-semibold text-foreground">SLÝKBETS</p>
             <p className="text-xs leading-relaxed">
               Licensed and regulated by the Lotteries and Gaming Board of Zimbabwe.
               <br />
-              Licence No. LGB/SLYK/2026 (demo).
+              Licence No. LGB/SLYKBETS/2026 (demo).
             </p>
             <div className="flex items-center gap-2 pt-1">
               <span className="flex h-7 w-7 items-center justify-center rounded-full border-2 border-secondary text-xs font-bold text-secondary">
@@ -61,7 +61,7 @@ export function SiteFooter() {
         </div>
 
         <p className="mt-6 text-xs text-muted-foreground/70">
-          © {new Date().getFullYear()} SLYK. All rights reserved. Bet with your head, not over it.
+          © {new Date().getFullYear()} SLÝKBETS. All rights reserved. Bet with your head, not over it.
         </p>
       </div>
     </footer>

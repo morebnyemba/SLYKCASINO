@@ -140,7 +140,7 @@ export default function CrashPage() {
       <div className="mb-4 flex items-center gap-2">
         <Link href="/casino" className="text-sm text-muted-foreground hover:text-foreground">← Casino</Link>
         <span className="text-muted-foreground">/</span>
-        <span className="text-sm font-medium">SLYK Aviator</span>
+        <span className="text-sm font-medium">SLÝKBETS Aviator</span>
       </div>
 
       {/* Recent crash multipliers */}
@@ -166,7 +166,7 @@ export default function CrashPage() {
 
       <Card className="overflow-hidden">
         <CardHeader className="bg-gradient-to-r from-primary/30 to-secondary/30 pb-4">
-          <CardTitle className="text-center text-xl">SLYK Aviator</CardTitle>
+          <CardTitle className="text-center text-xl">SLÝKBETS Aviator</CardTitle>
           <p className="text-center text-sm text-muted-foreground">
             Balance: <span className="font-bold text-foreground">{balance} {currency}</span>
           </p>
