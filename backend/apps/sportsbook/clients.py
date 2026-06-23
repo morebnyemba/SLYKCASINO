@@ -135,9 +135,11 @@ class ApiFootballClient:
 
     def fetch_fixtures(
         self, *, date: Optional[str] = None, live: Optional[str] = None,
-        league: Optional[int] = None, season: Optional[int] = None,
+        league: Optional[int] = None, season: Optional[int] = None, next_count: Optional[int] = None,
     ) -> list[FixtureUpdate]:
-        """`date` is 'YYYY-MM-DD'; `live='all'` fetches all in-play fixtures.
+        """`date` is 'YYYY-MM-DD'; `live='all'` fetches all in-play fixtures;
+        `next_count` fetches the next N upcoming fixtures for `league`/`season`
+        (api-football's own `next` lookahead query — no date needed).
         Returns [] (logged) on any missing key, network, or payload error."""
         if not self.api_key:
             return []
@@ -150,6 +152,8 @@ class ApiFootballClient:
             params['league'] = league
         if season:
             params['season'] = season
+        if next_count:
+            params['next'] = next_count
         try:
             resp = requests.get(
                 f'{self.base_url}/fixtures', params=params, timeout=5,

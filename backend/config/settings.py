@@ -1,6 +1,6 @@
 """Django settings for the SLYK Casino backend."""
 import os
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import dj_database_url
@@ -162,6 +162,20 @@ REALTIME_PUBLISH_URL = os.environ.get('REALTIME_PUBLISH_URL', 'http://erlang:808
 # dev/test never hits the network.
 API_FOOTBALL_KEY = os.environ.get('API_FOOTBALL_KEY', '')
 API_FOOTBALL_BASE_URL = os.environ.get('API_FOOTBALL_BASE_URL', 'https://v3.football.api-sports.io')
+# League IDs to import upcoming fixtures/events for (see api-football's
+# /leagues endpoint for IDs, e.g. 39 = English Premier League). Comma-
+# separated; empty by default so the import task no-ops until an operator
+# opts in to specific leagues — pulling every league's fixtures unfiltered
+# would burn through API quota fast.
+API_FOOTBALL_LEAGUES = [
+    int(v) for v in os.environ.get('API_FOOTBALL_LEAGUES', '').split(',') if v.strip()
+]
+# api-football "season" is the year a league's season started (e.g. a
+# 2024-25 European league is season=2024). Defaults to the current year;
+# override per-deployment if your leagues' season numbering differs.
+API_FOOTBALL_SEASON = int(os.environ.get('API_FOOTBALL_SEASON', str(datetime.now().year)))
+# How many of each configured league's next upcoming fixtures to import per run.
+API_FOOTBALL_IMPORT_NEXT = int(os.environ.get('API_FOOTBALL_IMPORT_NEXT', '20'))
 
 # ---------------------------------------------------------------------------
 # Celery — workers run domain recovery; beat schedules reconciliation passes.
@@ -192,6 +206,10 @@ CELERY_BEAT_SCHEDULE = {
     'sportsbook-sync-fixture-odds': {
         'task': 'apps.sportsbook.tasks.sync_fixture_odds',
         'schedule': 300.0,
+    },
+    'sportsbook-import-upcoming-fixtures': {
+        'task': 'apps.sportsbook.tasks.import_upcoming_fixtures',
+        'schedule': 1800.0,  # every 30 min — no-op if API_FOOTBALL_LEAGUES is unset
     },
     'casino-retry-debits': {
         'task': 'apps.casino.tasks.reconcile_debit_sequences',

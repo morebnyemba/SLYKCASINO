@@ -42,6 +42,15 @@ class Event(models.Model):
     class Meta:
         db_table = 'sportsbook_event'
         ordering = ['-featured', 'name']
+        constraints = [
+            # Only enforced for provider-linked events — manually seeded ones
+            # (provider='', external_id=None) are exempt so multiple can coexist.
+            models.UniqueConstraint(
+                fields=['provider', 'external_id'],
+                condition=models.Q(external_id__isnull=False),
+                name='unique_provider_external_id',
+            ),
+        ]
 
     def __str__(self) -> str:
         return self.name
