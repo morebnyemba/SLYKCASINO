@@ -368,6 +368,24 @@ def sync_provider_events(
     return len(fixtures)
 
 
+def import_all_current_leagues(*, next_count: Optional[int] = None) -> int:
+    """Auto-discover every league api-football currently has an active season
+    for, then import each one's upcoming fixtures as Events — used when no
+    manual API_FOOTBALL_LEAGUES list is configured, so the sportsbook fills up
+    without an operator having to curate league IDs by hand.
+
+    Costs one /fixtures call per discovered league (plus the /leagues call
+    itself), so this can be API-quota-heavy on lower-tier api-football plans —
+    that trade-off is accepted in exchange for zero-config coverage. Returns
+    the total number of fixtures fetched across all leagues."""
+    client = ApiFootballClient()
+    leagues = client.fetch_leagues()
+    total = 0
+    for league in leagues:
+        total += sync_provider_events(league=league.id, season=league.season, next_count=next_count)
+    return total
+
+
 @transaction.atomic
 def sync_fixture_odds(odds: OddsSnapshot) -> Optional[Event]:
     """Apply a 1X2 odds snapshot to its linked, still-open Event. No-op if

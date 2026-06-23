@@ -164,15 +164,18 @@ API_FOOTBALL_KEY = os.environ.get('API_FOOTBALL_KEY', '')
 API_FOOTBALL_BASE_URL = os.environ.get('API_FOOTBALL_BASE_URL', 'https://v3.football.api-sports.io')
 # League IDs to import upcoming fixtures/events for (see api-football's
 # /leagues endpoint for IDs, e.g. 39 = English Premier League). Comma-
-# separated; empty by default so the import task no-ops until an operator
-# opts in to specific leagues — pulling every league's fixtures unfiltered
-# would burn through API quota fast.
+# separated; empty by default, in which case the import task auto-discovers
+# and imports every league api-football currently has an active season for
+# (see ApiFootballClient.fetch_leagues / services.import_all_current_leagues)
+# — set this to opt back into a curated subset and bound API quota usage.
 API_FOOTBALL_LEAGUES = [
     int(v) for v in os.environ.get('API_FOOTBALL_LEAGUES', '').split(',') if v.strip()
 ]
 # api-football "season" is the year a league's season started (e.g. a
 # 2024-25 European league is season=2024). Defaults to the current year;
-# override per-deployment if your leagues' season numbering differs.
+# override per-deployment if your leagues' season numbering differs. Only
+# used for the manually-curated API_FOOTBALL_LEAGUES path — auto-discovery
+# uses each league's own current season year instead.
 API_FOOTBALL_SEASON = int(os.environ.get('API_FOOTBALL_SEASON', str(datetime.now().year)))
 # How many of each configured league's next upcoming fixtures to import per run.
 API_FOOTBALL_IMPORT_NEXT = int(os.environ.get('API_FOOTBALL_IMPORT_NEXT', '20'))
@@ -209,7 +212,10 @@ CELERY_BEAT_SCHEDULE = {
     },
     'sportsbook-import-upcoming-fixtures': {
         'task': 'apps.sportsbook.tasks.import_upcoming_fixtures',
-        'schedule': 1800.0,  # every 30 min — no-op if API_FOOTBALL_LEAGUES is unset
+        # Every 30 min. Imports API_FOOTBALL_LEAGUES if set, else auto-discovers
+        # every currently-active league — no-op either way if API_FOOTBALL_KEY
+        # is unset.
+        'schedule': 1800.0,
     },
     'casino-retry-debits': {
         'task': 'apps.casino.tasks.reconcile_debit_sequences',

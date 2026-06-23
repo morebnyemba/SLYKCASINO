@@ -343,6 +343,55 @@ class ApiFootballEventImportTests(TestCase):
         self.assertEqual(Event.objects.filter(external_id='55555').count(), 1)
 
 
+class ApiFootballLeagueDiscoveryTests(TestCase):
+    """fetch_leagues/import_all_current_leagues: auto-discover every league
+    api-football currently has an active season for, so the sportsbook fills
+    up without an operator having to curate API_FOOTBALL_LEAGUES by hand."""
+
+    def test_client_fetch_leagues_noop_without_api_key(self):
+        from apps.sportsbook.clients import ApiFootballClient
+        self.assertEqual(ApiFootballClient().fetch_leagues(), [])
+
+    def test_normalize_league_picks_current_season(self):
+        from apps.sportsbook.clients import ApiFootballClient
+        client = ApiFootballClient.__new__(ApiFootballClient)
+        raw = {
+            'league': {'id': 39, 'name': 'Premier League'},
+            'seasons': [
+                {'year': 2023, 'current': False},
+                {'year': 2024, 'current': True},
+            ],
+        }
+        league = client._normalize_league(raw)
+        self.assertEqual(league.id, 39)
+        self.assertEqual(league.season, 2024)
+        self.assertEqual(league.name, 'Premier League')
+
+    def test_normalize_league_skips_entry_without_current_season(self):
+        from apps.sportsbook.clients import ApiFootballClient
+        client = ApiFootballClient.__new__(ApiFootballClient)
+        raw = {'league': {'id': 39}, 'seasons': [{'year': 2023, 'current': False}]}
+        self.assertIsNone(client._normalize_league(raw))
+
+    def test_import_all_current_leagues_imports_each_with_its_own_season(self):
+        from apps.sportsbook.clients import FixtureUpdate, LeagueInfo
+
+        def fake_fetch_fixtures(self, *, date=None, live=None, league=None, season=None, next_count=None):
+            return [FixtureUpdate(
+                external_id=f'L{league}-{season}', name=f'Fixture {league}', status='NS',
+                starts_at=None, goals_home=None, goals_away=None,
+            )]
+
+        leagues = [LeagueInfo(id=39, season=2024, name='EPL'), LeagueInfo(id=140, season=2025, name='La Liga')]
+        with patch.object(sportsbook_services.ApiFootballClient, 'fetch_leagues', return_value=leagues), \
+             patch.object(sportsbook_services.ApiFootballClient, 'fetch_fixtures', fake_fetch_fixtures):
+            total = sportsbook_services.import_all_current_leagues(next_count=20)
+
+        self.assertEqual(total, 2)
+        self.assertEqual(Event.objects.filter(external_id='L39-2024').count(), 1)
+        self.assertEqual(Event.objects.filter(external_id='L140-2025').count(), 1)
+
+
 class ApiFootballOddsSyncTests(TestCase):
     def setUp(self):
         self.event = Event.objects.create(
