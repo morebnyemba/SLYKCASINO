@@ -12,7 +12,7 @@ import { CASINO_HERO_IMAGES } from '@/lib/game-images';
 
 // Shown only when an operator has not configured any banners yet.
 const FALLBACK_BANNERS: Banner[] = [
-  { id: 'f1', image_url: CASINO_HERO_IMAGES[3], title: 'SLYK Aviator', subtitle: 'Cash out before the crash', link_url: '/casino/crash', cta_label: 'Play now' },
+  { id: 'f1', image_url: CASINO_HERO_IMAGES[3], title: 'SLÝKBETS Aviator', subtitle: 'Cash out before the crash', link_url: '/casino/crash', cta_label: 'Play now' },
   { id: 'f2', image_url: CASINO_HERO_IMAGES[1], title: 'Welcome Bonus', subtitle: 'Claim your deposit match and start playing', link_url: '/promotions', cta_label: 'Claim bonus' },
   { id: 'f3', image_url: CASINO_HERO_IMAGES[2], title: 'Tournaments', subtitle: 'Climb the leaderboard for prizes', link_url: '/tournaments', cta_label: 'View races' },
 ];

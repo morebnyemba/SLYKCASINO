@@ -27,7 +27,7 @@ export function Sidebar() {
 
   return (
     <aside className="flex min-h-screen w-56 flex-col gap-6 border-r border-border bg-primary p-5">
-      <div className="text-base font-bold text-white">🛡️ SLYK Admin</div>
+      <div className="text-base font-bold text-white">🛡️ SLÝKBETS Admin</div>
       <nav className="flex flex-col gap-2 text-sm">
         {nav.map((n) => (
           <Link key={n.href} href={n.href} className="text-white/70 transition-colors hover:text-white font-medium">

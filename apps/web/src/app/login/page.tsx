@@ -35,7 +35,7 @@ function LoginForm() {
     <div className="flex min-h-[60vh] items-center justify-center">
       <Card className="w-full max-w-sm">
         <CardHeader>
-          <CardTitle>Log in to SLYK</CardTitle>
+          <CardTitle>Log in to SLÝKBETS</CardTitle>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">

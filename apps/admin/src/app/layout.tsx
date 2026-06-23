@@ -3,7 +3,7 @@ import './globals.css';
 import { Providers } from '@/components/providers';
 
 export const metadata: Metadata = {
-  title: 'SLYK Casino — Admin',
+  title: 'SLÝKBETS — Admin',
   description: 'Operator command center: livechat, promotions, live betting feeds',
 };
 

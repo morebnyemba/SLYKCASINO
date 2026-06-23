@@ -5,7 +5,7 @@ import { Carousel, CarouselItem } from '@/components/carousel';
 import { SportsbookBrowser } from '@/components/sportsbook-browser';
 import { apiGet } from '@/lib/config';
 
-export const metadata: Metadata = { title: 'Sportsbook — SLYK' };
+export const metadata: Metadata = { title: 'Sportsbook — SLÝKBETS' };
 
 interface EventItem {
   id: string | number;
