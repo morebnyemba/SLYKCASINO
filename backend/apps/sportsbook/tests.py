@@ -301,6 +301,48 @@ class ApiFootballSyncTests(TestCase):
         self.assertEqual(Team.objects.count(), 2)
 
 
+class ApiFootballEventImportTests(TestCase):
+    """sync_provider_events/_create_event_from_fixture: turns fixtures with no
+    linked Event into new, bettable Events — the step that was previously
+    missing (sync_fixture/sync_fixture_odds only ever updated existing
+    Events, so a fixture nobody had manually linked never appeared)."""
+
+    def _fixture(self, external_id='55555', status='NS', name='Liverpool vs City'):
+        from apps.sportsbook.clients import FixtureUpdate, TeamInfo
+        return FixtureUpdate(
+            external_id=external_id, name=name, status=status, starts_at=None,
+            goals_home=None, goals_away=None,
+            home_team=TeamInfo(external_id='h1', name='Liverpool'),
+            away_team=TeamInfo(external_id='a1', name='City'),
+        )
+
+    def test_creates_event_for_new_fixture(self):
+        event = sportsbook_services._create_event_from_fixture(self._fixture())
+        self.assertIsNotNone(event)
+        self.assertEqual(event.external_id, '55555')
+        self.assertEqual(event.provider, 'api-football')
+        self.assertEqual(event.home_team.name, 'Liverpool')
+        self.assertEqual(event.away_team.name, 'City')
+        self.assertTrue(event.is_open)
+
+    def test_skips_fixture_already_linked(self):
+        Event.objects.create(name='Existing', odds=Decimal('2.00'), provider='api-football', external_id='55555')
+        result = sportsbook_services._create_event_from_fixture(self._fixture())
+        self.assertIsNone(result)
+        self.assertEqual(Event.objects.filter(external_id='55555').count(), 1)
+
+    def test_skips_finished_fixture(self):
+        result = sportsbook_services._create_event_from_fixture(self._fixture(status='FT'))
+        self.assertIsNone(result)
+        self.assertEqual(Event.objects.count(), 0)
+
+    def test_sync_provider_events_creates_from_fetched_fixtures(self):
+        with patch.object(sportsbook_services.ApiFootballClient, 'fetch_fixtures', return_value=[self._fixture()]):
+            count = sportsbook_services.sync_provider_events(league=39, season=2024, next_count=20)
+        self.assertEqual(count, 1)
+        self.assertEqual(Event.objects.filter(external_id='55555').count(), 1)
+
+
 class ApiFootballOddsSyncTests(TestCase):
     def setUp(self):
         self.event = Event.objects.create(

@@ -9,7 +9,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Optional
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from apps.wallet import services as wallet_services
@@ -318,6 +318,53 @@ def sync_provider_fixtures(*, date: Optional[str] = None, live: Optional[str] = 
     fixtures = client.fetch_fixtures(date=date, live=live)
     for fixture in fixtures:
         sync_fixture(fixture)
+    return len(fixtures)
+
+
+def _create_event_from_fixture(fixture: FixtureUpdate) -> Optional[Event]:
+    """Create a new Event for a fixture that has no linked Event yet. No-op
+    (returns None) if a linked Event already exists or the fixture is already
+    finished (nothing left to bet on). Race-safe via the DB's unique
+    constraint on (provider, external_id): a concurrent run that loses the
+    race just gets None back, same as if the Event already existed. The
+    create runs in its own savepoint so a lost race rolls back only the
+    failed insert, not the whole import loop."""
+    if not fixture.external_id or fixture.is_finished:
+        return None
+    existing = Event.objects.filter(
+        external_id=fixture.external_id, provider=ApiFootballClient.provider_name,
+    ).first()
+    if existing is not None:
+        return None
+    home_team = _upsert_team(fixture.home_team)
+    away_team = _upsert_team(fixture.away_team)
+    try:
+        with transaction.atomic():
+            return Event.objects.create(
+                name=fixture.name,
+                sport=Event.Sport.FOOTBALL,
+                external_id=fixture.external_id,
+                provider=ApiFootballClient.provider_name,
+                home_team=home_team,
+                away_team=away_team,
+                starts_at=fixture.starts_at,
+                is_open=not fixture.is_live,
+            )
+    except IntegrityError:
+        return None  # lost a race with a concurrent import — already created
+
+
+def sync_provider_events(
+    *, date: Optional[str] = None, league: Optional[int] = None,
+    season: Optional[int] = None, next_count: Optional[int] = None,
+) -> int:
+    """Pull fixtures from api-football and create an Event for each one not
+    already linked, so they become bettable/visible without manual entry.
+    Returns the number of fixtures fetched (not all necessarily new)."""
+    client = ApiFootballClient()
+    fixtures = client.fetch_fixtures(date=date, league=league, season=season, next_count=next_count)
+    for fixture in fixtures:
+        _create_event_from_fixture(fixture)
     return len(fixtures)
 
 
