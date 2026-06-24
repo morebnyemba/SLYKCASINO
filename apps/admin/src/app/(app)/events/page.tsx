@@ -3,6 +3,8 @@
 import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@slyk/ui/components/card';
 import { Badge } from '@slyk/ui/components/badge';
+import { Button } from '@slyk/ui/components/button';
+import { Input } from '@slyk/ui/components/input';
 import { useAuth } from '@/lib/auth-context';
 import { useApi, authedPost } from '@/lib/use-api';
 import { config } from '@/lib/config';
@@ -82,12 +84,9 @@ export default function EventsPage() {
           <h1 className="text-2xl font-bold">Events</h1>
           <p className="text-muted-foreground text-sm">Manage sportsbook events and odds.</p>
         </div>
-        <button
-          onClick={() => setShowForm((v) => !v)}
-          className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
-        >
+        <Button onClick={() => setShowForm((v) => !v)}>
           {showForm ? 'Cancel' : '+ New event'}
-        </button>
+        </Button>
       </div>
 
       {showForm && (
@@ -107,26 +106,21 @@ export default function EventsPage() {
               ].map(({ label, key, type, placeholder }) => (
                 <div key={key} className="space-y-1">
                   <label className="text-sm font-medium">{label}</label>
-                  <input
+                  <Input
                     type={type}
                     required
                     value={form[key as keyof typeof form]}
                     onChange={(e) => set(key, e.target.value)}
                     placeholder={placeholder}
                     step={type === 'number' ? '0.01' : undefined}
-                    className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                   />
                 </div>
               ))}
               {formError && <p className="col-span-2 text-sm text-red-500">{formError}</p>}
               <div className="col-span-2">
-                <button
-                  type="submit"
-                  disabled={saving}
-                  className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
-                >
+                <Button type="submit" disabled={saving}>
                   {saving ? 'Creating…' : 'Create event'}
-                </button>
+                </Button>
               </div>
             </form>
           </CardContent>
@@ -167,18 +161,12 @@ export default function EventsPage() {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex gap-2">
-                        <button
-                          onClick={() => handleSuspend(ev)}
-                          className="rounded px-2 py-1 text-xs border border-border hover:bg-accent"
-                        >
+                        <Button size="sm" variant="outline" onClick={() => handleSuspend(ev)}>
                           {ev.status === 'suspended' ? 'Reopen' : 'Suspend'}
-                        </button>
-                        <button
-                          onClick={() => handleDelete(ev.id)}
-                          className="rounded px-2 py-1 text-xs border border-destructive text-destructive hover:bg-destructive/10"
-                        >
+                        </Button>
+                        <Button size="sm" variant="destructive" onClick={() => handleDelete(ev.id)}>
                           Delete
-                        </button>
+                        </Button>
                       </div>
                     </td>
                   </tr>

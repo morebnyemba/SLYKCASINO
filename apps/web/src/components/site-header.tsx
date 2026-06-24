@@ -49,10 +49,10 @@ export function SiteHeader() {
   }
 
   return (
-    <header className="sticky top-0 z-50 border-b border-gold/30 bg-gradient-to-r from-primary via-primary to-[#241c63] shadow-lg shadow-black/20">
+    <header className="sticky top-0 z-50 border-b border-gold/30 bg-gradient-to-r from-primary via-primary to-primary/80 shadow-lg shadow-black/20">
       <div className="mx-auto flex max-w-6xl items-center gap-8 px-4 py-3 sm:px-6">
         <Link href="/" className="group flex items-center gap-2.5">
-          <span className="flex items-center gap-1 rounded-md bg-gradient-to-br from-gold to-[#8a6608] px-2.5 py-1 text-sm font-black tracking-wide text-white shadow-inner shadow-black/30 ring-1 ring-white/15 transition-transform duration-300 group-hover:-rotate-6 group-hover:scale-110">
+          <span className="flex items-center gap-1 rounded-md bg-gradient-to-br from-gold to-gold/70 px-2.5 py-1 text-sm font-black tracking-wide text-white shadow-inner shadow-black/30 ring-1 ring-white/15 transition-transform duration-300 group-hover:-rotate-6 group-hover:scale-110">
             <GiPerspectiveDiceSixFacesRandom size={14} className="text-white/90" />
             SL<span className="relative -mr-px">Ý</span>K
           </span>

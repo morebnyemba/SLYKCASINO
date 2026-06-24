@@ -27,9 +27,9 @@ const KYC_LABEL: Record<string, string> = {
 };
 
 const TIER_STYLE: Record<string, string> = {
-  bronze: 'bg-amber-700/10 text-amber-700',
-  silver: 'bg-slate-400/10 text-slate-500',
-  gold: 'bg-gold/10 text-gold',
+  bronze: 'bg-tier-bronze/10 text-tier-bronze',
+  silver: 'bg-tier-silver/10 text-tier-silver',
+  gold: 'bg-tier-gold/10 text-tier-gold',
 };
 
 export default function ProfilePage() {

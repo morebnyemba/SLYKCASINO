@@ -98,8 +98,8 @@ export function SportsbookBrowser({ events }: { events: EventItem[] }) {
           {filtered.map((ev) => (
             <Card key={ev.id} className="flex items-center justify-between gap-3 p-3 transition-colors hover:bg-accent/10">
               <div className="min-w-0">
-                <span className="mb-1 inline-flex items-center gap-1.5 rounded-full bg-red-500/10 px-2 py-0.5 text-[10px] font-medium text-red-500">
-                  <span className="h-1.5 w-1.5 rounded-full bg-red-500 animate-pulse" />
+                <span className="mb-1 inline-flex items-center gap-1.5 rounded-full bg-live/10 px-2 py-0.5 text-[10px] font-medium text-live">
+                  <span className="h-1.5 w-1.5 rounded-full bg-live animate-pulse" />
                   Live
                 </span>
                 <p className="truncate font-medium leading-snug">{ev.name}</p>

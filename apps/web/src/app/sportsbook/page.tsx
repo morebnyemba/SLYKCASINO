@@ -33,8 +33,8 @@ export default async function SportsbookPage() {
               <Link href={`/sportsbook/${ev.id}`}>
                 <Card className="h-full transition-colors hover:bg-accent/10">
                   <div className="p-4">
-                    <span className="mb-2 inline-flex items-center gap-1.5 rounded-full bg-red-500/10 px-2 py-0.5 text-xs font-medium text-red-500">
-                      <span className="h-1.5 w-1.5 rounded-full bg-red-500 animate-pulse" />
+                    <span className="mb-2 inline-flex items-center gap-1.5 rounded-full bg-live/10 px-2 py-0.5 text-xs font-medium text-live">
+                      <span className="h-1.5 w-1.5 rounded-full bg-live animate-pulse" />
                       Live
                     </span>
                     <p className="font-semibold leading-snug">{ev.name}</p>
