@@ -30,6 +30,11 @@
   --color-ring: var(--ring);
   --color-gold: var(--gold);
   --color-gold-foreground: var(--gold-foreground);
+  --color-live: var(--live);
+  --color-live-foreground: var(--live-foreground);
+  --color-tier-bronze: var(--tier-bronze);
+  --color-tier-silver: var(--tier-silver);
+  --color-tier-gold: var(--tier-gold);
   --radius-lg: var(--radius);
   --radius-md: calc(var(--radius) - 2px);
   --radius-sm: calc(var(--radius) - 4px);
@@ -69,7 +74,31 @@
 
   /* Destructive — warm red that doesn't clash */
   --destructive:        #DC2626;
+
+  /* Live / in-play — separate semantic name from destructive so the two can
+     diverge later even though they share a hex today */
+  --live:               #DC2626;
+  --live-foreground:    #FFFFFF;
+
+  /* Loyalty tier badges — distinct from the single VIP --gold accent */
+  --tier-bronze:            #92400E;
+  --tier-bronze-foreground: #92400E;
+  --tier-silver:            #6B7280;
+  --tier-silver-foreground: #6B7280;
+  --tier-gold:              var(--gold);
+  --tier-gold-foreground:   var(--gold);
 }
+
+/*
+  Spacing & radius convention (by convention, not enforced):
+  - gap-2/space-y-2 : tight cluster (icon+label, badge+text)
+  - gap-3/space-y-3 : within a card's internal stack
+  - gap-4/space-y-4 : between sibling cards in a grid
+  - gap-6/space-y-6 : between major page sections
+  - rounded-md : buttons, inputs, badges, nav items (default, almost everything)
+  - rounded-lg : cards and page-level containers only
+  - rounded-full : avatars, status dots, icon-only circular buttons only
+*/
 
 @layer base {
   * {
