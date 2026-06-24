@@ -88,7 +88,7 @@ export default async function LobbyPage() {
                 <Card className="transition-colors hover:bg-accent/10">
                   <CardHeader className="flex-row items-center justify-between space-y-0">
                     <div className="flex items-center gap-2">
-                      <Badge className="bg-red-500/10 text-red-500">Live</Badge>
+                      <Badge className="bg-live/10 text-live">Live</Badge>
                       <CardTitle className="text-base">{ev.name}</CardTitle>
                     </div>
                     <Badge variant="secondary">odds {ev.odds}</Badge>
