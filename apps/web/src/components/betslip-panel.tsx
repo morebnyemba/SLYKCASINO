@@ -215,7 +215,7 @@ export function BetslipDrawer() {
       {!open && (
         <button
           onClick={() => setOpen(true)}
-          className="fixed bottom-4 left-1/2 z-40 flex -translate-x-1/2 items-center gap-2 rounded-full bg-secondary px-5 py-2.5 text-sm font-semibold text-white shadow-lg"
+          className="fixed bottom-24 left-1/2 z-30 flex -translate-x-1/2 items-center gap-2 rounded-full bg-secondary px-5 py-2.5 text-sm font-semibold text-white shadow-lg"
         >
           <BsReceipt size={15} /> Bet Slip
           <span className="rounded-full bg-white/20 px-2 text-xs">{legs.length}</span>

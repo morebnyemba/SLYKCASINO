@@ -3,6 +3,7 @@ import './globals.css';
 import { Providers } from '@/components/providers';
 import { SiteHeader } from '@/components/site-header';
 import { SiteFooter } from '@/components/site-footer';
+import { BottomNav } from '@/components/bottom-nav';
 import { AgeGate } from '@/components/age-gate';
 import { ServiceWorkerRegistration } from '@/components/service-worker-registration';
 
@@ -56,8 +57,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <Providers>
           <div className="flex min-h-screen flex-col">
             <SiteHeader />
-            <main className="mx-auto w-full max-w-6xl flex-1 p-6">{children}</main>
+            <main className="mx-auto w-full max-w-6xl flex-1 p-6 pb-24 lg:pb-6">{children}</main>
             <SiteFooter />
+            <div className="h-20 lg:hidden" />
+            <BottomNav />
           </div>
         </Providers>
       </body>
