@@ -7,6 +7,8 @@ const TRUST = [
   { label: 'Fast local payouts', icon: FaBolt },
 ];
 
+const PAYMENTS = ['EcoCash', 'OneMoney', 'Visa', 'Mastercard', 'USDT', 'Innbucks'];
+
 export function SiteFooter() {
   return (
     <footer className="mt-12 border-t border-border bg-card">
@@ -56,13 +58,28 @@ export function SiteFooter() {
               <li><Link href="/promotions" className="hover:text-foreground">Promotions &amp; bonuses</Link></li>
               <li><Link href="/tournaments" className="hover:text-foreground">Tournaments</Link></li>
               <li><Link href="/livechat" className="hover:text-foreground">Live support</Link></li>
+              <li><Link href="/casino" className="hover:text-foreground">Game fairness &amp; RTP</Link></li>
             </ul>
           </div>
         </div>
 
-        <p className="mt-6 text-xs text-muted-foreground/70">
-          © {new Date().getFullYear()} SLÝKBETS. All rights reserved. Bet with your head, not over it.
-        </p>
+        <div className="flex flex-wrap items-center gap-2 border-t border-border pt-6">
+          <span className="text-xs font-semibold text-foreground">Payments</span>
+          {PAYMENTS.map((p) => (
+            <span key={p} className="rounded-md bg-chip px-2 py-1 text-xs text-muted-foreground">
+              {p}
+            </span>
+          ))}
+        </div>
+
+        <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-6 text-xs text-muted-foreground/70">
+          <p>© {new Date().getFullYear()} SLÝKBETS. All rights reserved. Bet with your head, not over it.</p>
+          <div className="flex items-center gap-4">
+            <Link href="/legal/terms" className="hover:text-foreground">Terms</Link>
+            <Link href="/legal/privacy" className="hover:text-foreground">Privacy</Link>
+            <Link href="/legal/cookies" className="hover:text-foreground">Cookies</Link>
+          </div>
+        </div>
       </div>
     </footer>
   );

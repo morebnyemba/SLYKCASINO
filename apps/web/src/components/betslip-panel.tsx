@@ -205,7 +205,7 @@ export function BetslipCard() {
 
 /** Mobile: a floating button + slide-up drawer, shown only when the slip is non-empty. */
 export function BetslipDrawer() {
-  const { legs } = useBetslip();
+  const { legs, combinedOdds } = useBetslip();
   const [open, setOpen] = useState(false);
 
   if (legs.length === 0) return null;
@@ -215,21 +215,32 @@ export function BetslipDrawer() {
       {!open && (
         <button
           onClick={() => setOpen(true)}
-          className="fixed bottom-24 left-1/2 z-30 flex -translate-x-1/2 items-center gap-2 rounded-full bg-secondary px-5 py-2.5 text-sm font-semibold text-white shadow-lg"
+          className="fixed bottom-24 left-3.5 right-3.5 z-30 flex items-center gap-3 rounded-2xl bg-gradient-to-br from-gold to-gold/70 px-4 py-3.5 text-[#1A1538] shadow-[0_10px_30px_rgba(0,0,0,0.5)]"
         >
-          <BsReceipt size={15} /> Bet Slip
-          <span className="rounded-full bg-white/20 px-2 text-xs">{legs.length}</span>
+          <span className="flex h-[26px] min-w-[26px] items-center justify-center rounded-full bg-[#1A1538] px-1.5 text-[13px] font-extrabold text-gold">
+            {legs.length}
+          </span>
+          <span className="text-sm font-extrabold">View bet slip</span>
+          <span className="ml-auto font-mono text-[13px] font-bold">@ {combinedOdds.toFixed(2)}</span>
         </button>
       )}
       {open && (
-        <div className="fixed inset-0 z-50 flex items-end bg-black/40" onClick={() => setOpen(false)}>
-          <div className="w-full p-4" onClick={(e) => e.stopPropagation()}>
-            <div className="mb-2 flex justify-end">
-              <button onClick={() => setOpen(false)} aria-label="Close bet slip" className="text-white">
+        <div className="fixed inset-0 z-50 flex items-end bg-black/60" onClick={() => setOpen(false)}>
+          <div
+            className="animate-slyk-sheet flex max-h-[85vh] w-full flex-col rounded-t-3xl border-t border-border bg-background shadow-[0_-10px_40px_rgba(0,0,0,0.5)]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex justify-center pt-2.5 pb-1">
+              <span className="h-[5px] w-10 rounded-full bg-border" />
+            </div>
+            <div className="flex items-center gap-2 px-4 py-2.5">
+              <button onClick={() => setOpen(false)} aria-label="Close bet slip" className="ml-auto text-muted-foreground">
                 <BsXLg size={18} />
               </button>
             </div>
-            <SlipBody />
+            <div className="overflow-y-auto px-4 pb-4">
+              <SlipBody />
+            </div>
           </div>
         </div>
       )}

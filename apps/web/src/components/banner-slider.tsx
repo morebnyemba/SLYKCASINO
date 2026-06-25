@@ -44,8 +44,13 @@ export function BannerSlider({ banners }: { banners: Banner[] }) {
     <div className="group relative h-44 overflow-hidden rounded-2xl sm:h-56 md:h-72">
       {banners.map((b, i) => {
         const href = b.link_url || '';
-        const content = (
-          <>
+
+        return (
+          <div
+            key={b.id}
+            className={`absolute inset-0 transition-opacity duration-700 ${i === index ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
+            aria-hidden={i === index ? undefined : true}
+          >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={b.image_url} alt={b.title} className="h-full w-full object-cover" />
             <div className="absolute inset-0 bg-gradient-to-r from-black/85 via-black/45 to-transparent" />
@@ -56,30 +61,34 @@ export function BannerSlider({ banners }: { banners: Banner[] }) {
               {b.subtitle && (
                 <p className="max-w-md text-sm text-white/85 sm:text-base">{b.subtitle}</p>
               )}
-              {b.cta_label && (
-                <span className="mt-2 inline-flex w-fit items-center rounded-lg bg-secondary px-5 py-2 text-sm font-bold uppercase tracking-wide text-white shadow-lg transition-transform group-hover:scale-105">
-                  {b.cta_label}
-                </span>
-              )}
+              <div className="mt-2 flex w-fit gap-3">
+                {b.cta_label && href && (
+                  isExternal(href) ? (
+                    <a
+                      href={href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center rounded-lg bg-secondary px-5 py-2 text-sm font-bold uppercase tracking-wide text-white shadow-lg transition-transform hover:scale-105"
+                    >
+                      {b.cta_label}
+                    </a>
+                  ) : (
+                    <Link
+                      href={href}
+                      className="inline-flex items-center rounded-lg bg-secondary px-5 py-2 text-sm font-bold uppercase tracking-wide text-white shadow-lg transition-transform hover:scale-105"
+                    >
+                      {b.cta_label}
+                    </Link>
+                  )
+                )}
+                <Link
+                  href="/casino"
+                  className="inline-flex items-center rounded-lg border border-white/25 bg-white/10 px-5 py-2 text-sm font-semibold text-white backdrop-blur-sm hover:bg-white/20"
+                >
+                  Try demo
+                </Link>
+              </div>
             </div>
-          </>
-        );
-
-        return (
-          <div
-            key={b.id}
-            className={`absolute inset-0 transition-opacity duration-700 ${i === index ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
-            aria-hidden={i === index ? undefined : true}
-          >
-            {href ? (
-              isExternal(href) ? (
-                <a href={href} className="block h-full w-full" target="_blank" rel="noopener noreferrer">{content}</a>
-              ) : (
-                <Link href={href} className="block h-full w-full">{content}</Link>
-              )
-            ) : (
-              <div className="h-full w-full">{content}</div>
-            )}
           </div>
         );
       })}

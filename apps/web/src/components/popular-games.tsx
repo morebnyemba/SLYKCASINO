@@ -81,7 +81,6 @@ export function PopularGames({ games }: { games: Game[] }) {
             tag={gameTag(game, games.map((g) => g.id))}
             isFavorite={favorites.has(game.slug)}
             onToggleFavorite={toggleFavorite}
-            showRtp={false}
           />
         ))}
       </div>

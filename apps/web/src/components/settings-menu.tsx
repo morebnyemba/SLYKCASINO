@@ -18,9 +18,10 @@ export function ThemeToggle({ className = '' }: { className?: string }) {
       onClick={toggleTheme}
       aria-label="Toggle theme"
       title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-      className={`flex h-9 w-9 items-center justify-center rounded-md text-white/80 transition-colors hover:bg-white/10 hover:text-white ${className}`}
+      className={`flex h-9 items-center gap-1.5 rounded-md px-2.5 text-xs font-semibold text-white/80 transition-colors hover:bg-white/10 hover:text-white ${className}`}
     >
-      {theme === 'dark' ? <BsSunFill size={15} /> : <BsMoonStarsFill size={15} />}
+      {theme === 'dark' ? <BsSunFill size={14} /> : <BsMoonStarsFill size={14} />}
+      <span>{theme === 'dark' ? 'Light mode' : 'Dark mode'}</span>
     </button>
   );
 }
