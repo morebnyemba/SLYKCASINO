@@ -27,9 +27,29 @@ export const viewport: Viewport = {
   themeColor: '#4ab8e8',
 };
 
+// Applied before paint so switching themes never flashes the previous theme on load.
+const THEME_INIT_SCRIPT = `
+(function () {
+  try {
+    var raw = window.localStorage.getItem('slyk:settings');
+    var s = raw ? JSON.parse(raw) : null;
+    document.documentElement.dataset.theme = (s && s.theme) || 'dark';
+    if (s && s.accent) {
+      document.documentElement.style.setProperty('--secondary', s.accent);
+      document.documentElement.style.setProperty('--ring', s.accent);
+    }
+  } catch (e) {
+    document.documentElement.dataset.theme = 'dark';
+  }
+})();
+`;
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+      </head>
       <body className="min-h-screen bg-background text-foreground antialiased">
         <ServiceWorkerRegistration />
         <AgeGate />

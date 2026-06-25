@@ -3,63 +3,22 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { BsSearch, BsStarFill } from 'react-icons/bs';
-import { Card, CardContent, CardHeader, CardTitle } from '@slyk/ui/components/card';
-import { Badge } from '@slyk/ui/components/badge';
 import { Carousel, CarouselItem } from '@/components/carousel';
+import { GameTile } from '@/components/game-tile';
 import { useApi } from '@/lib/use-api';
-import { gameAvatarUrl, CASINO_HERO_IMAGES } from '@/lib/game-images';
-
-interface Game {
-  id: number;
-  slug: string;
-  name: string;
-  provider: string;
-  category?: string;
-  rtp: string;
-  image_url?: string;
-}
+import { CASINO_HERO_IMAGES } from '@/lib/game-images';
+import {
+  CASINO_CATEGORIES as CATEGORIES,
+  DEMO_GAMES,
+  type Game,
+  gameTag,
+  loadFavorites,
+  saveFavorites,
+} from '@/lib/casino';
 
 interface GamesResponse {
   results?: Game[];
   next?: string | null;
-}
-
-const DEMO_GAMES: Game[] = [
-  { id: 1, slug: 'slyk-aviator', name: 'SLÝKBETS Aviator', provider: 'SLÝKBETS', category: 'crash', rtp: '99.00' },
-  { id: 2, slug: 'lucky-slots', name: 'Lucky Slots', provider: 'SLÝKBETS', category: 'slots', rtp: '96.00' },
-  { id: 3, slug: 'golden-wheel', name: 'Golden Wheel', provider: 'SLÝKBETS', category: 'slots', rtp: '97.50' },
-  { id: 4, slug: 'mega-dice', name: 'Mega Dice', provider: 'SLÝKBETS', category: 'instant', rtp: '98.00' },
-  { id: 5, slug: 'blackjack-classic', name: 'Blackjack Classic', provider: 'SLÝKBETS', category: 'table', rtp: '99.50' },
-  { id: 6, slug: 'roulette-pro', name: 'Roulette Pro', provider: 'SLÝKBETS', category: 'table', rtp: '97.30' },
-  { id: 7, slug: 'live-baccarat', name: 'Live Baccarat', provider: 'SLÝKBETS', category: 'live', rtp: '98.80' },
-  { id: 8, slug: 'virtual-league', name: 'Virtual League', provider: 'SLÝKBETS', category: 'virtual', rtp: '95.00' },
-];
-
-const CATEGORIES: { value: string; label: string }[] = [
-  { value: 'all', label: 'All games' },
-  { value: 'crash', label: 'Crash' },
-  { value: 'slots', label: 'Slots' },
-  { value: 'live', label: 'Live Casino' },
-  { value: 'table', label: 'Table Games' },
-  { value: 'virtual', label: 'Virtual Sports' },
-  { value: 'instant', label: 'Instant Win' },
-];
-
-// Crash-category games open the dedicated Aviator-style page, not the slot view.
-function gameHref(game: Game): string {
-  if (game.category === 'crash') return '/casino/crash';
-  return `/casino/${game.slug}?id=${game.id}`;
-}
-
-const FAVORITES_KEY = 'slyk:favorite-games';
-
-function loadFavorites(): Set<string> {
-  if (typeof window === 'undefined') return new Set();
-  try {
-    return new Set(JSON.parse(window.localStorage.getItem(FAVORITES_KEY) ?? '[]'));
-  } catch {
-    return new Set();
-  }
 }
 
 export default function CasinoPage() {
@@ -105,7 +64,7 @@ export default function CasinoPage() {
     setFavorites((prev) => {
       const next = new Set(prev);
       if (next.has(slug)) next.delete(slug); else next.add(slug);
-      window.localStorage.setItem(FAVORITES_KEY, JSON.stringify(Array.from(next)));
+      saveFavorites(next);
       return next;
     });
   }
@@ -202,51 +161,16 @@ export default function CasinoPage() {
         <p className="text-sm text-muted-foreground">No games match your filters.</p>
       )}
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {filtered.map((game) => {
-          const isFav = favorites.has(game.slug);
-          return (
-            <Card key={game.slug} className="relative transition-colors hover:bg-accent/10">
-              <button
-                onClick={(e) => { e.preventDefault(); toggleFavorite(game.slug); }}
-                aria-label="Toggle favorite"
-                className={`absolute right-3 top-3 z-10 transition-colors ${isFav ? 'text-gold' : 'text-muted-foreground/40 hover:text-gold'}`}
-              >
-                <BsStarFill size={16} />
-              </button>
-              <Link href={gameHref(game)} className="block">
-                <CardHeader className="flex-row items-center gap-3 space-y-0 pb-2">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={game.image_url || gameAvatarUrl(game.slug)}
-                    alt={game.name}
-                    className="h-10 w-10 rounded-lg bg-primary/10 object-cover"
-                  />
-                  <div>
-                    <CardTitle className="text-base">{game.name}</CardTitle>
-                    <p className="text-xs text-muted-foreground">{game.provider}</p>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="flex flex-wrap items-center gap-2">
-                    {game.category === 'crash' && <Badge className="bg-secondary text-white">Crash</Badge>}
-                    <Badge variant="secondary">RTP {game.rtp}%</Badge>
-                  </div>
-                </CardContent>
-              </Link>
-              {game.category !== 'crash' && (
-                <div className="px-6 pb-4">
-                  <Link
-                    href={`/casino/${game.slug}?id=${game.id}&demo=1`}
-                    className="inline-block rounded-md border border-border px-3 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent/10"
-                  >
-                    Practice (demo)
-                  </Link>
-                </div>
-              )}
-            </Card>
-          );
-        })}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+        {filtered.map((game) => (
+          <GameTile
+            key={game.slug}
+            game={game}
+            tag={gameTag(game, games.map((g) => g.id))}
+            isFavorite={favorites.has(game.slug)}
+            onToggleFavorite={toggleFavorite}
+          />
+        ))}
       </div>
 
       {nextPage && (

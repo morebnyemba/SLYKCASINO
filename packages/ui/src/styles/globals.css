@@ -32,6 +32,11 @@
   --color-gold-foreground: var(--gold-foreground);
   --color-live: var(--live);
   --color-live-foreground: var(--live-foreground);
+  --color-win: var(--win);
+  --color-win-foreground: var(--win-foreground);
+  --color-down: var(--down);
+  --color-chip: var(--chip);
+  --color-chip-foreground: var(--chip-foreground);
   --color-tier-bronze: var(--tier-bronze);
   --color-tier-silver: var(--tier-silver);
   --color-tier-gold: var(--tier-gold);
@@ -87,6 +92,56 @@
   --tier-silver-foreground: #6B7280;
   --tier-gold:              var(--gold);
   --tier-gold-foreground:   var(--gold);
+
+  /* Positive/negative odds-movement & payout accents */
+  --win:                #15924E;
+  --win-foreground:     #FFFFFF;
+  --down:               #DC2626;
+
+  /* Pill/chip surfaces (sport icons, RTP badges, stat tags) */
+  --chip:               #ECEDF8;
+  --chip-foreground:    #1A1538;
+}
+
+/*
+  Dark theme — opted into via <html data-theme="dark">. Values lifted from the
+  SLÝKBETS Claude Design prototypes (Casino Lobby / Sportsbook .dc.html).
+*/
+[data-theme='dark'] {
+  --background:         #0C0820;
+  --foreground:         #F2F1FB;
+  --card:               #191347;
+  --card-foreground:    #F2F1FB;
+
+  --primary:            #312783;
+  --primary-foreground: #FFFFFF;
+
+  --secondary:          #6C63E8;
+  --secondary-foreground: #FFFFFF;
+  --accent:             #8079EE;
+  --accent-foreground:  #FFFFFF;
+
+  --muted:              #1E1850;
+  --muted-foreground:   #9D99C8;
+
+  --gold:               #E6B84C;
+  --gold-foreground:    #1A1538;
+  --ring:               #6C63E8;
+
+  --border:             rgba(255, 255, 255, 0.09);
+  --input:              #1E1850;
+
+  --destructive:        #FF6B6B;
+
+  --live:               #FF5260;
+  --live-foreground:    #FFFFFF;
+
+  --win:                #36D399;
+  --win-foreground:     #0C0820;
+  --down:               #FF6B6B;
+
+  --chip:               #1E1850;
+  --chip-foreground:    #F2F1FB;
 }
 
 /*
