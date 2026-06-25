@@ -117,24 +117,24 @@ export function SportsbookBrowser({ events }: { events: EventItem[] }) {
       </aside>
 
       <section className="min-w-0">
-        <div className="mb-4 flex items-center justify-between gap-3">
-          <div className="mb-3 lg:hidden">
-            <div className="relative">
-              <BsSearch className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={13} />
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search events…"
-                className="w-full rounded-lg border border-border bg-card py-2.5 pl-8 pr-3 text-sm outline-none focus:ring-2 focus:ring-primary"
-              />
-            </div>
+        <div className="mb-3 lg:hidden">
+          <div className="relative">
+            <BsSearch className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={13} />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search events…"
+              className="w-full rounded-lg border border-border bg-card py-2.5 pl-8 pr-3 text-sm outline-none focus:ring-2 focus:ring-primary"
+            />
           </div>
-          <div className="ml-auto flex gap-1 rounded-xl border border-border bg-card p-1">
+        </div>
+        <div className="sticky top-20 z-30 -mx-1 mb-4 bg-background px-1 py-2 lg:static lg:mx-0 lg:bg-transparent lg:px-0 lg:py-0">
+          <div className="flex items-center justify-end gap-1 rounded-xl border border-border bg-card p-1">
             {TABS.map((t) => (
               <button
                 key={t.id}
                 onClick={() => setTab(t.id)}
-                className={`rounded-lg px-3.5 py-1.5 text-xs font-bold transition-colors ${
+                className={`flex-1 rounded-lg px-3.5 py-1.5 text-xs font-bold transition-colors lg:flex-none ${
                   tab === t.id ? 'bg-secondary text-white' : 'text-muted-foreground hover:text-foreground'
                 }`}
               >

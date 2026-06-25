@@ -17,3 +17,12 @@
 .animate-marquee:hover {
   animation-play-state: paused;
 }
+
+/* Slide-up entrance for the mobile bet-slip sheet. */
+@keyframes slyk-sheet {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+.animate-slyk-sheet {
+  animation: slyk-sheet 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
