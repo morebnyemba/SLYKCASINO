@@ -7,8 +7,10 @@ import { Badge } from '@slyk/ui/components/badge';
 import { LiveFeed } from '@/components/live-feed';
 import { WinnersTicker } from '@/components/winners-ticker';
 import { BannerSlider, type Banner } from '@/components/banner-slider';
+import { PopularGames } from '@/components/popular-games';
 import { apiGet } from '@/lib/config';
 import { CASINO_HERO_IMAGES } from '@/lib/game-images';
+import { DEMO_GAMES, type Game } from '@/lib/casino';
 
 // Shown only when an operator has not configured any banners yet.
 const FALLBACK_BANNERS: Banner[] = [
@@ -36,18 +38,22 @@ const TRUST_BADGES: { label: string; icon: IconType }[] = [
 ];
 
 export default async function LobbyPage() {
-  const [eventsData, bannersData] = await Promise.all([
+  const [eventsData, bannersData, gamesData] = await Promise.all([
     apiGet<EventItem>('/events/?featured=true'),
     apiGet<Banner>('/promotions/banners/'),
+    apiGet<Game>('/casino/games/'),
   ]);
   const events = (eventsData.results ?? []) as EventItem[];
   const banners = (bannersData.results ?? []) as Banner[];
+  const games = (gamesData.results ?? []) as Game[];
 
   return (
     <div className="space-y-8">
       <BannerSlider banners={banners.length > 0 ? banners : FALLBACK_BANNERS} />
 
       <WinnersTicker />
+
+      <PopularGames games={games.length > 0 ? games : DEMO_GAMES} />
 
       <div className="grid gap-4 sm:grid-cols-3">
         {QUICK_LINKS.map((l) => {

@@ -9,6 +9,7 @@ import { FaGift, FaRegCommentDots, FaUser, FaSignOutAlt, FaBars, FaTimes, FaWall
 import type { IconType } from 'react-icons';
 import { useAuth } from '@/lib/auth-context';
 import { useApi } from '@/lib/use-api';
+import { ThemeToggle, SettingsMenu } from '@/components/settings-menu';
 
 interface Wallet {
   balance?: string;
@@ -94,9 +95,12 @@ export function SiteHeader() {
           ))}
         </nav>
 
-        <div className="ml-auto hidden items-center gap-3 text-sm lg:flex">
+        <div className="ml-auto hidden items-center gap-1 text-sm lg:flex">
+          <ThemeToggle />
+          <SettingsMenu />
+          <div className="mx-1 h-5 w-px bg-white/15" />
           {user ? (
-            <>
+            <div className="flex items-center gap-3">
               <Link
                 href="/account/wallet"
                 className="flex items-center gap-1.5 rounded-md bg-white/10 px-3 py-1.5 font-mono font-semibold text-white transition-colors hover:bg-white/20"
@@ -130,9 +134,9 @@ export function SiteHeader() {
                 <FaSignOutAlt size={12} />
                 Log out
               </button>
-            </>
+            </div>
           ) : (
-            <>
+            <div className="flex items-center gap-3">
               <Link href="/login" className="font-medium text-white/75 transition-colors hover:text-white">Log in</Link>
               <Link
                 href="/register"
@@ -140,7 +144,7 @@ export function SiteHeader() {
               >
                 Sign up
               </Link>
-            </>
+            </div>
           )}
         </div>
 
@@ -155,6 +159,10 @@ export function SiteHeader() {
 
       {menuOpen && (
         <nav className="flex flex-col gap-1 border-t border-white/10 bg-primary px-4 py-3 text-sm lg:hidden">
+          <div className="mb-1 flex items-center justify-end gap-1 border-b border-white/10 pb-2">
+            <ThemeToggle />
+            <SettingsMenu />
+          </div>
           {links.map((l) => {
             const Icon = l.icon;
             return (
