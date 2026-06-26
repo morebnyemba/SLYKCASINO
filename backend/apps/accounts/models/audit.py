@@ -18,6 +18,12 @@ class AuditLog(models.Model):
         PASSWORD_RESET = 'password_reset', 'Password reset'
         DATA_EXPORT = 'data_export', 'Data export'
         ACCOUNT_DELETED = 'account_deleted', 'Account deleted'
+        KYC_SUBMITTED = 'kyc_submitted', 'KYC document submitted'
+        KYC_APPROVED = 'kyc_approved', 'KYC approved'
+        KYC_REJECTED = 'kyc_rejected', 'KYC rejected'
+        PLAYER_SUSPENDED = 'player_suspended', 'Player suspended'
+        PLAYER_UNSUSPENDED = 'player_unsuspended', 'Player unsuspended'
+        BALANCE_ADJUSTED = 'balance_adjusted', 'Balance adjusted'
 
     player_id = models.BigIntegerField(null=True, blank=True, db_index=True)
     event_type = models.CharField(max_length=30, choices=EventType.choices, db_index=True)

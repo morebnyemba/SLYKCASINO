@@ -39,6 +39,11 @@ class Player(models.Model):
     email_verified = models.BooleanField(default=False)
     email_verify_token = models.CharField(max_length=64, blank=True, default='')
 
+    # --- Suspension (admin override, hard freeze) ---
+    is_suspended = models.BooleanField(default=False)
+    suspended_reason = models.CharField(max_length=255, blank=True, default='')
+    suspended_at = models.DateTimeField(null=True, blank=True)
+
     class Meta:
         db_table = 'accounts_player'
         ordering = ['username']

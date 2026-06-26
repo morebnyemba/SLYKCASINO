@@ -46,12 +46,19 @@ class BannerViewSet(viewsets.ModelViewSet):
         return [AllowAny()]
 
 
-class PromotionViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
+class PromotionViewSet(viewsets.ModelViewSet):
+    """Public read of the promotion catalog; admin-only create/update/delete."""
     serializer_class = PromotionSerializer
-    permission_classes = [AllowAny]
 
     def get_queryset(self):
         return services.list_promotions()
+
+    def get_permissions(self):
+        if self.action in ('create', 'update', 'partial_update', 'destroy'):
+            return [IsAdminUser()]
+        if self.action == 'claim':
+            return [IsAuthenticated()]
+        return [AllowAny()]
 
     @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated], url_path='claim')
     def claim(self, request, pk=None):

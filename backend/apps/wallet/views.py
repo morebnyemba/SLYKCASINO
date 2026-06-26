@@ -5,8 +5,8 @@ import uuid
 from decimal import Decimal, InvalidOperation
 
 from django.core.exceptions import ObjectDoesNotExist
-from rest_framework import status
-from rest_framework.permissions import AllowAny
+from rest_framework import mixins, status, viewsets
+from rest_framework.permissions import AllowAny, IsAdminUser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -15,7 +15,7 @@ from apps.accounts import services as accounts_services
 from . import psp as psp_registry
 from . import services
 from .models import LedgerEntry
-from .serializers import LedgerEntrySerializer
+from .serializers import AdminLedgerEntrySerializer, LedgerEntrySerializer
 
 # Header each provider signs its webhook payload with. Anything not listed
 # here falls back to a generic header name (and will simply fail that PSP's
@@ -142,6 +142,19 @@ class PSPWebhookView(APIView):
             # provider retry storms for a payload that will never resolve.
             return Response({'detail': 'player wallet not found'}, status=status.HTTP_404_NOT_FOUND)
         return Response({'detail': 'ok'}, status=status.HTTP_200_OK)
+
+
+class AdminLedgerViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
+    """Staff-only ledger viewer — GET /api/admin/ledger/?player_id=<id>."""
+    serializer_class = AdminLedgerEntrySerializer
+    permission_classes = [IsAdminUser]
+
+    def get_queryset(self):
+        qs = LedgerEntry.objects.select_related('wallet').order_by('-created_at')
+        player_id = self.request.query_params.get('player_id')
+        if player_id:
+            qs = qs.filter(wallet__player_id=player_id)
+        return qs[:500]
 
 
 class WithdrawView(APIView):
