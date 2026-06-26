@@ -2,7 +2,8 @@
 
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@slyk/ui/components/card';
+import { GiPerspectiveDiceSixFacesRandom } from 'react-icons/gi';
+import { Card, CardContent } from '@slyk/ui/components/card';
 import { useAuth } from '@/lib/auth-context';
 
 export default function AdminLoginPage() {
@@ -29,12 +30,16 @@ export default function AdminLoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background">
-      <Card className="w-full max-w-sm">
-        <CardHeader>
-          <CardTitle>🛡️ SLÝKBETS Admin</CardTitle>
-        </CardHeader>
-        <CardContent>
+    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-primary via-primary to-secondary/60 p-4">
+      <Card className="w-full max-w-sm overflow-hidden rounded-2xl border-gold/20">
+        <div className="flex flex-col items-center gap-3 bg-gradient-to-br from-primary to-primary/80 px-6 py-8">
+          <span className="flex items-center gap-1 rounded-md bg-gradient-to-br from-gold to-gold/70 px-3 py-1.5 text-base font-black tracking-wide text-[#1A1538] shadow-inner shadow-black/30 ring-1 ring-white/15">
+            <GiPerspectiveDiceSixFacesRandom size={16} />
+            SL<span className="relative -mr-px">Ý</span>K
+          </span>
+          <p className="text-sm font-semibold text-white/90">Admin Command Center</p>
+        </div>
+        <CardContent className="pt-6">
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
             <div className="flex flex-col gap-1">
               <label className="text-sm font-medium" htmlFor="username">Username</label>
@@ -45,7 +50,7 @@ export default function AdminLoginPage() {
                 onChange={(e) => setUsername(e.target.value)}
                 required
                 autoFocus
-                className="rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                className="rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-secondary"
               />
             </div>
             <div className="flex flex-col gap-1">
@@ -56,14 +61,14 @@ export default function AdminLoginPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
-                className="rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                className="rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-secondary"
               />
             </div>
             {error && <p className="text-sm text-destructive">{error}</p>}
             <button
               type="submit"
               disabled={loading}
-              className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
+              className="rounded-md bg-gradient-to-br from-gold to-gold/70 px-4 py-2 text-sm font-bold text-[#1A1538] shadow transition-transform hover:scale-[1.02] disabled:opacity-50 disabled:hover:scale-100"
             >
               {loading ? 'Signing in…' : 'Sign in'}
             </button>
