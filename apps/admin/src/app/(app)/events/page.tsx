@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { FaCalendarAlt } from 'react-icons/fa';
 import { Card, CardContent, CardHeader, CardTitle } from '@slyk/ui/components/card';
 import { Badge } from '@slyk/ui/components/badge';
 import { Button } from '@slyk/ui/components/button';
@@ -80,17 +81,25 @@ export default function EventsPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Events</h1>
-          <p className="text-muted-foreground text-sm">Manage sportsbook events and odds.</p>
+        <div className="flex items-center gap-2.5">
+          <span className="flex h-8 w-8 items-center justify-center rounded-full bg-gold/15 text-gold">
+            <FaCalendarAlt size={13} />
+          </span>
+          <div>
+            <h1 className="text-2xl font-bold">Events</h1>
+            <p className="text-muted-foreground text-sm">Manage sportsbook events and odds.</p>
+          </div>
         </div>
-        <Button onClick={() => setShowForm((v) => !v)}>
+        <Button
+          onClick={() => setShowForm((v) => !v)}
+          className={showForm ? '' : 'bg-gradient-to-br from-gold to-gold/70 text-[#1A1538] hover:opacity-90'}
+        >
           {showForm ? 'Cancel' : '+ New event'}
         </Button>
       </div>
 
       {showForm && (
-        <Card>
+        <Card className="rounded-2xl border-gold/15">
           <CardHeader><CardTitle className="text-base">Create event</CardTitle></CardHeader>
           <CardContent>
             <form onSubmit={handleCreate} className="grid gap-3 sm:grid-cols-2">
@@ -127,7 +136,7 @@ export default function EventsPage() {
         </Card>
       )}
 
-      <Card>
+      <Card className="rounded-2xl border-gold/15">
         <CardContent className="p-0">
           {loading && <p className="p-4 text-sm text-muted-foreground">Loading events…</p>}
           {!loading && events.length === 0 && (

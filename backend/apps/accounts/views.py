@@ -4,10 +4,12 @@ from __future__ import annotations
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.tokens import PasswordResetTokenGenerator
+from django.http import FileResponse
 from django.utils.encoding import force_bytes, force_str
 from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import AllowAny, IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import AnonRateThrottle
@@ -17,8 +19,17 @@ from rest_framework_simplejwt.tokens import RefreshToken
 
 from . import services
 from .emails import send_password_reset_email, send_verification_email, send_welcome_email
-from .models import Player
-from .serializers import PlayerSerializer, RegisterSerializer
+from .models import AuditLog, KYCSubmission, Player
+from .serializers import (
+    AdjustBalanceSerializer,
+    AuditLogSerializer,
+    KYCRejectSerializer,
+    KYCSubmissionSerializer,
+    KYCSubmitSerializer,
+    PlayerSerializer,
+    RegisterSerializer,
+    SuspendPlayerSerializer,
+)
 
 User = get_user_model()
 
@@ -345,10 +356,46 @@ class DeleteAccountView(APIView):
 class PlayerViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
     """Player directory. `list`/`retrieve` expose other players' PII (email, KYC
     status, etc.) so they are admin-only; `me`/`stats` are self-service and
-    override this with their own `permission_classes` below."""
+    override this with their own `permission_classes` below. `suspend`,
+    `unsuspend`, and `adjust-balance` are staff-only operator actions."""
     queryset = Player.objects.all()
     serializer_class = PlayerSerializer
     permission_classes = [IsAdminUser]
+
+    @action(detail=True, methods=['post'])
+    def suspend(self, request, pk=None):
+        ser = SuspendPlayerSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        player = services.suspend_player(int(pk), reason=ser.validated_data['reason'])
+        services.audit(player.id, 'player_suspended', request, reason=ser.validated_data['reason'])
+        return Response(self.get_serializer(player).data)
+
+    @action(detail=True, methods=['post'])
+    def unsuspend(self, request, pk=None):
+        player = services.unsuspend_player(int(pk))
+        services.audit(player.id, 'player_unsuspended', request)
+        return Response(self.get_serializer(player).data)
+
+    @action(detail=True, methods=['post'], url_path='adjust-balance')
+    def adjust_balance(self, request, pk=None):
+        ser = AdjustBalanceSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        try:
+            entry = services.adjust_balance(
+                int(pk), amount=ser.validated_data['amount'], reason=ser.validated_data['reason'],
+            )
+        except Exception as exc:  # noqa: BLE001 — surfaces InsufficientFunds etc. to the admin
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        services.audit(
+            int(pk), 'balance_adjusted', request,
+            amount=str(ser.validated_data['amount']), reason=ser.validated_data['reason'],
+        )
+        from apps.wallet import services as wallet_services
+        return Response({
+            'entry_id': entry.id,
+            'amount': str(entry.amount),
+            'balance': str(wallet_services.get_balance(int(pk))),
+        })
 
     @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
     def me(self, request):
@@ -388,3 +435,99 @@ class PlayerViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.G
                 'total_win': str(round_agg['total_win'] or 0),
             },
         })
+
+
+# ---------------------------------------------------------------------------
+# KYC — player-facing submission (internal review only, no external provider)
+# ---------------------------------------------------------------------------
+
+class KYCSubmitView(APIView):
+    """POST /api/players/me/kyc/ — upload a document for staff review."""
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request):
+        player = services.get_current_player(request)
+        if player is None:
+            return Response({'detail': 'player not found'}, status=status.HTTP_404_NOT_FOUND)
+        ser = KYCSubmitSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        submission = services.submit_kyc_document(
+            player.id,
+            document_type=ser.validated_data['document_type'],
+            file=ser.validated_data['file'],
+        )
+        services.audit(player.id, 'kyc_submitted', request, document_type=submission.document_type)
+        return Response(KYCSubmissionSerializer(submission).data, status=status.HTTP_201_CREATED)
+
+    def get(self, request):
+        player = services.get_current_player(request)
+        if player is None:
+            return Response({'detail': 'player not found'}, status=status.HTTP_404_NOT_FOUND)
+        submissions = KYCSubmission.objects.filter(player_id=player.id)
+        return Response(KYCSubmissionSerializer(submissions, many=True).data)
+
+
+# ---------------------------------------------------------------------------
+# KYC — staff review (admin-only)
+# ---------------------------------------------------------------------------
+
+class AdminKYCViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
+    """Staff-only review queue for player-submitted KYC documents."""
+    serializer_class = KYCSubmissionSerializer
+    permission_classes = [IsAdminUser]
+
+    def get_queryset(self):
+        qs = KYCSubmission.objects.select_related('player').order_by('-submitted_at')
+        status_filter = self.request.query_params.get('status')
+        if status_filter:
+            qs = qs.filter(status=status_filter)
+        player_id = self.request.query_params.get('player_id')
+        if player_id:
+            qs = qs.filter(player_id=player_id)
+        return qs
+
+    @action(detail=True, methods=['get'])
+    def document(self, request, pk=None):
+        submission = self.get_queryset().filter(pk=pk).first()
+        if submission is None:
+            return Response({'detail': 'not found'}, status=status.HTTP_404_NOT_FOUND)
+        return FileResponse(submission.file.open('rb'), filename=submission.file.name.rsplit('/', 1)[-1])
+
+    @action(detail=True, methods=['post'])
+    def approve(self, request, pk=None):
+        submission = services.approve_kyc(int(pk), reviewer_username=request.user.username)
+        services.audit(submission.player_id, 'kyc_approved', request, submission_id=submission.id)
+        return Response(KYCSubmissionSerializer(submission).data)
+
+    @action(detail=True, methods=['post'])
+    def reject(self, request, pk=None):
+        ser = KYCRejectSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        submission = services.reject_kyc(
+            int(pk), reviewer_username=request.user.username, reason=ser.validated_data['reason'],
+        )
+        services.audit(
+            submission.player_id, 'kyc_rejected', request,
+            submission_id=submission.id, reason=ser.validated_data['reason'],
+        )
+        return Response(KYCSubmissionSerializer(submission).data)
+
+
+# ---------------------------------------------------------------------------
+# Staff audit log (admin-only, read-only)
+# ---------------------------------------------------------------------------
+
+class AdminAuditLogViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
+    serializer_class = AuditLogSerializer
+    permission_classes = [IsAdminUser]
+
+    def get_queryset(self):
+        qs = AuditLog.objects.order_by('-created_at')
+        event_type = self.request.query_params.get('event_type')
+        if event_type:
+            qs = qs.filter(event_type=event_type)
+        player_id = self.request.query_params.get('player_id')
+        if player_id:
+            qs = qs.filter(player_id=player_id)
+        return qs[:500]

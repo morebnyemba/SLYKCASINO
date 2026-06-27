@@ -3,8 +3,11 @@ from rest_framework.routers import SimpleRouter
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 from .views import (
+    AdminAuditLogViewSet,
+    AdminKYCViewSet,
     DataExportView,
     DeleteAccountView,
+    KYCSubmitView,
     LogoutView,
     PasswordResetConfirmView,
     PasswordResetRequestView,
@@ -18,12 +21,15 @@ from .views import (
 
 router = SimpleRouter()
 router.register('players', PlayerViewSet, basename='player')
+router.register('admin/kyc', AdminKYCViewSet, basename='admin-kyc')
+router.register('admin/audit-log', AdminAuditLogViewSet, basename='admin-audit-log')
 
 rg_urlpatterns = [
     path('players/me/rg/', ResponsibleGamblingView.as_view(), name='player-rg'),
     path('players/me/self-exclude/', SelfExcludeView.as_view(), name='player-self-exclude'),
     path('players/me/export/', DataExportView.as_view(), name='player-export'),
     path('players/me/delete/', DeleteAccountView.as_view(), name='player-delete'),
+    path('players/me/kyc/', KYCSubmitView.as_view(), name='player-kyc'),
 ]
 
 auth_urlpatterns = [

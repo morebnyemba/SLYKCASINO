@@ -77,7 +77,7 @@ export default function CasinoHistoryPage() {
           )}
         </div>
       </div>
-      <Card className="p-2">
+      <Card className="rounded-xl border-gold/10 p-2">
         <Table>
           <TableHeader>
             <TableRow>
@@ -104,7 +104,7 @@ export default function CasinoHistoryPage() {
                   <TableCell className="text-xs text-muted-foreground">#{r.id}</TableCell>
                   <TableCell>{r.stake}</TableCell>
                   <TableCell>{r.win}</TableCell>
-                  <TableCell className={net >= 0 ? 'text-green-600 font-medium' : 'text-red-500'}>
+                  <TableCell className={net >= 0 ? 'text-win font-medium' : 'text-down'}>
                     {net >= 0 ? '+' : ''}{net.toFixed(2)}
                   </TableCell>
                   <TableCell>

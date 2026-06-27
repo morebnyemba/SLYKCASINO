@@ -16,6 +16,7 @@ CSRF_TRUSTED_ORIGINS = [
 ]
 
 DJANGO_APPS = [
+    'jazzmin',  # must precede django.contrib.admin to override its templates
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -136,6 +137,13 @@ USE_TZ = True
 
 STATIC_URL = '/django-static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
+
+# KYC documents and other uploads. Never served as static files — access goes
+# through admin-gated API views only (apps.accounts.views.AdminKYCViewSet.document),
+# since nginx only proxies /api/ and /django-admin/ to this service.
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
+
 STORAGES = {
     'default': {'BACKEND': 'django.core.files.storage.FileSystemStorage'},
     'staticfiles': {'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage'},
@@ -267,3 +275,52 @@ LOGGING = {
 # ---------------------------------------------------------------------------
 PSP_PROVIDER = os.environ.get('PSP_PROVIDER', 'stub')
 KYC_PROVIDER = os.environ.get('KYC_PROVIDER', 'stub')
+
+# ---------------------------------------------------------------------------
+# Django admin theming (django-jazzmin) — matches the SLYK gold/indigo brand
+# used across apps/admin and apps/web, so /django-admin/ doesn't look stock.
+# ---------------------------------------------------------------------------
+JAZZMIN_SETTINGS = {
+    'site_title': 'SLYK Operator Admin',
+    'site_header': 'SLYK',
+    'site_brand': 'SLYK Casino',
+    'welcome_sign': 'SLYK Casino — Django Admin',
+    'copyright': 'SLYK Casino',
+    'show_ui_builder': False,
+    'navigation_expanded': True,
+    'order_with_respect_to': [
+        'accounts', 'wallet', 'sportsbook', 'casino', 'promotions', 'livechat', 'notifications',
+    ],
+    'icons': {
+        'auth.user': 'fas fa-user',
+        'auth.group': 'fas fa-users',
+        'accounts.player': 'fas fa-id-card',
+        'accounts.kycsubmission': 'fas fa-file-shield',
+        'accounts.auditlog': 'fas fa-list-check',
+        'wallet.wallet': 'fas fa-wallet',
+        'wallet.ledgerentry': 'fas fa-receipt',
+        'sportsbook.event': 'fas fa-futbol',
+        'sportsbook.bet': 'fas fa-ticket',
+        'promotions.promotion': 'fas fa-gift',
+        'promotions.banner': 'fas fa-image',
+    },
+}
+
+JAZZMIN_UI_TWEAKS = {
+    'theme': 'darkly',
+    'navbar': 'navbar-dark',
+    'navbar_fixed': True,
+    'no_navbar_border': True,
+    'sidebar': 'sidebar-dark-primary',
+    'sidebar_fixed': True,
+    'brand_colour': 'navbar-dark',
+    'accent': 'accent-warning',
+    'button_classes': {
+        'primary': 'btn-warning',
+        'secondary': 'btn-secondary',
+        'info': 'btn-info',
+        'warning': 'btn-warning',
+        'danger': 'btn-danger',
+        'success': 'btn-success',
+    },
+}

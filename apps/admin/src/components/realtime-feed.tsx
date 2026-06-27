@@ -67,7 +67,7 @@ export function RealtimeFeed({ channel, title, height = 320 }: { channel: string
   }
 
   return (
-    <Card className="overflow-hidden">
+    <Card className="overflow-hidden rounded-2xl border-gold/15">
       <CardHeader className="flex-row items-center justify-between space-y-0 py-3">
         <CardTitle className="text-base">{title}</CardTitle>
         <Badge variant={tone}>● {status} — /ws/{channel}</Badge>

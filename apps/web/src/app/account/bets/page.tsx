@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { FaDownload } from 'react-icons/fa';
+import { FaDownload, FaCoins, FaTrophy, FaPercentage } from 'react-icons/fa';
 import { Card } from '@slyk/ui/components/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@slyk/ui/components/table';
 import { Badge } from '@slyk/ui/components/badge';
@@ -123,22 +123,25 @@ export default function MyBetsPage() {
 
       {bets.length > 0 && (
         <div className="mb-4 grid gap-3 sm:grid-cols-3">
-          <Card className="p-4">
+          <Card className="rounded-xl border-gold/10 p-4">
+            <FaCoins className="mb-2 text-secondary" size={16} />
             <p className="text-xs text-muted-foreground">Total staked</p>
             <p className="text-lg font-bold">{stats.totalStaked.toFixed(2)}</p>
           </Card>
-          <Card className="p-4">
+          <Card className="rounded-xl border-gold/10 p-4">
+            <FaTrophy className="mb-2 text-gold" size={16} />
             <p className="text-xs text-muted-foreground">Total returns</p>
-            <p className="text-lg font-bold text-green-600">{stats.totalPayout.toFixed(2)}</p>
+            <p className="text-lg font-bold text-win">{stats.totalPayout.toFixed(2)}</p>
           </Card>
-          <Card className="p-4">
+          <Card className="rounded-xl border-gold/10 p-4">
+            <FaPercentage className="mb-2 text-secondary" size={16} />
             <p className="text-xs text-muted-foreground">Win rate</p>
             <p className="text-lg font-bold">{stats.winRate.toFixed(0)}%</p>
           </Card>
         </div>
       )}
 
-      <Card className="p-2">
+      <Card className="rounded-xl border-gold/10 p-2">
         <Table>
           <TableHeader>
             <TableRow>
@@ -181,12 +184,12 @@ export default function MyBetsPage() {
           <h2 className="mb-3 text-lg font-bold">Accumulators</h2>
           <div className="grid gap-3 sm:grid-cols-2">
             {slips.map((s) => (
-              <Card key={s.id} className="p-4">
+              <Card key={s.id} className="rounded-xl border-gold/10 p-4">
                 <div className="mb-2 flex items-center justify-between">
                   <span className="text-sm font-semibold">{s.legs.length}-leg accumulator</span>
                   <Badge variant={STATUS_VARIANT[s.status] ?? 'secondary'}>{s.status}</Badge>
                 </div>
-                <ul className="mb-3 space-y-1 border-l-2 border-border pl-3 text-xs">
+                <ul className="mb-3 space-y-1 border-l-2 border-gold/30 pl-3 text-xs">
                   {s.legs.map((leg) => (
                     <li key={leg.id} className="flex items-center justify-between gap-2">
                       <span className="truncate text-muted-foreground">{leg.event}</span>
@@ -197,7 +200,7 @@ export default function MyBetsPage() {
                 <div className="flex items-center justify-between border-t border-border pt-2 text-xs">
                   <span className="text-muted-foreground">Stake {s.stake} @ {s.combined_odds}</span>
                   <span className="font-semibold">
-                    {s.status === 'won' ? <span className="text-green-600">+{s.payout}</span> : `Return ${(parseFloat(s.stake) * parseFloat(s.combined_odds)).toFixed(2)}`}
+                    {s.status === 'won' ? <span className="text-win">+{s.payout}</span> : `Return ${(parseFloat(s.stake) * parseFloat(s.combined_odds)).toFixed(2)}`}
                   </span>
                 </div>
               </Card>

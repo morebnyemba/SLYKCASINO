@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { FaRegCommentDots } from 'react-icons/fa';
 import { Card, CardContent, CardHeader, CardTitle } from '@slyk/ui/components/card';
 import { Badge } from '@slyk/ui/components/badge';
 import { Input } from '@slyk/ui/components/input';
@@ -92,7 +93,7 @@ function ChatPane({ channel, label }: { channel: string; label: string }) {
   const statusTone = wsStatus === 'connected' ? 'default' : wsStatus === 'error' ? 'destructive' : 'secondary';
 
   return (
-    <Card className="flex flex-col" style={{ height: 480 }}>
+    <Card className="flex flex-col rounded-2xl border-gold/15" style={{ height: 480 }}>
       <CardHeader className="flex-row items-center justify-between space-y-0 py-3">
         <CardTitle className="text-sm font-semibold">{label}</CardTitle>
         <Badge variant={statusTone}>● {wsStatus}</Badge>
@@ -132,7 +133,7 @@ function ChatPane({ channel, label }: { channel: string; label: string }) {
             <button
               type="submit"
               disabled={sending || !text.trim()}
-              className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
+              className="rounded-md bg-gradient-to-br from-gold to-gold/70 px-3 py-1.5 text-sm font-bold text-[#1A1538] disabled:opacity-50"
             >
               Send
             </button>
@@ -146,8 +147,15 @@ function ChatPane({ channel, label }: { channel: string; label: string }) {
 export default function LiveChatConsolePage() {
   return (
     <div>
-      <h1 className="text-2xl font-bold">Live Chat Console</h1>
-      <p className="mb-5 text-muted-foreground">Monitor and respond to player conversations in real time.</p>
+      <div className="mb-5 flex items-center gap-2.5">
+        <span className="flex h-8 w-8 items-center justify-center rounded-full bg-gold/15 text-gold">
+          <FaRegCommentDots size={13} />
+        </span>
+        <div>
+          <h1 className="text-2xl font-bold">Live Chat Console</h1>
+          <p className="text-muted-foreground">Monitor and respond to player conversations in real time.</p>
+        </div>
+      </div>
       <div className="grid gap-5 lg:grid-cols-2">
         <ChatPane channel="chat:lobby" label="Lobby" />
         <ChatPane channel="chat:support" label="Support Queue" />

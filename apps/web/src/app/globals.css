@@ -26,3 +26,13 @@
 .animate-slyk-sheet {
   animation: slyk-sheet 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
+
+/* Draws the deposit success checkmark in over the circle background. */
+@keyframes slyk-check {
+  from { stroke-dashoffset: 34; }
+  to { stroke-dashoffset: 0; }
+}
+.animate-slyk-check {
+  stroke-dasharray: 34;
+  animation: slyk-check 0.5s 0.1s ease both;
+}

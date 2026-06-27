@@ -1,11 +1,12 @@
 'use client';
 
 import { useState } from 'react';
-import { FaDownload } from 'react-icons/fa';
+import { FaDownload, FaWallet, FaArrowDown } from 'react-icons/fa';
 import { Card, CardContent, CardHeader, CardTitle } from '@slyk/ui/components/card';
 import { Badge } from '@slyk/ui/components/badge';
 import { useAuth } from '@/lib/auth-context';
 import { useApi, authedPost } from '@/lib/use-api';
+import { DepositModal } from '@/components/deposit-modal';
 
 interface Wallet {
   balance?: string;
@@ -42,25 +43,12 @@ export default function WalletPage() {
   const { data: wallet, loading: wLoading, refetch: refetchWallet } = useApi<Wallet>('/wallet/');
   const { data: ledger, loading: lLoading, refetch: refetchLedger } = useApi<LedgerEntry[]>('/wallet/ledger/');
 
-  const [depositAmt, setDepositAmt] = useState('50');
   const [withdrawAmt, setWithdrawAmt] = useState('');
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
-
-  async function handleDeposit() {
-    if (!accessToken) return;
-    setBusy(true); setMsg('');
-    const { error } = await authedPost(
-      '/wallet/deposit/',
-      { amount: depositAmt, currency: wallet?.currency ?? 'USD' },
-      accessToken,
-    );
-    setMsg(error ? `Error: ${error}` : `Deposited ${depositAmt} ${wallet?.currency ?? 'USD'}.`);
-    refetchWallet(); refetchLedger();
-    setBusy(false);
-  }
+  const [depositOpen, setDepositOpen] = useState(false);
 
   async function handleWithdraw() {
     if (!accessToken || !withdrawAmt) return;
@@ -103,35 +91,30 @@ export default function WalletPage() {
     <div className="space-y-6">
       <h1 className="text-2xl font-bold">Wallet</h1>
 
-      <Card>
-        <CardContent className="pt-6">
+      <Card className="overflow-hidden rounded-2xl border-gold/20">
+        <div className="bg-gradient-to-br from-primary via-primary to-secondary/80 px-6 py-6">
+          <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-white/60">
+            <FaWallet size={11} />
+            Balance
+          </p>
           {wLoading ? (
-            <p className="text-sm text-muted-foreground">Loading…</p>
+            <p className="mt-1 text-sm text-white/70">Loading…</p>
           ) : (
-            <p className="text-3xl font-bold">
-              {balance} <span className="text-base font-normal text-muted-foreground">{currency}</span>
+            <p className="mt-1 text-3xl font-bold text-white">
+              {balance} <span className="text-base font-normal text-white/60">{currency}</span>
             </p>
           )}
-
-          <div className="mt-5 grid gap-4 sm:grid-cols-2">
+        </div>
+        <CardContent className="pt-6">
+          <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <p className="text-sm font-medium">Deposit</p>
-              <div className="flex gap-2">
-                <input
-                  type="number"
-                  value={depositAmt}
-                  onChange={(e) => setDepositAmt(e.target.value)}
-                  min="1"
-                  className="w-24 rounded-md border border-border bg-background px-3 py-1.5 text-sm"
-                />
-                <button
-                  onClick={handleDeposit}
-                  disabled={busy}
-                  className="rounded-md bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
-                >
-                  Deposit
-                </button>
-              </div>
+              <button
+                onClick={() => setDepositOpen(true)}
+                className="rounded-md bg-gradient-to-br from-gold to-gold/70 px-4 py-1.5 text-sm font-bold text-[#1A1538] shadow transition-transform hover:scale-105"
+              >
+                Deposit funds
+              </button>
             </div>
 
             <div className="space-y-2">
@@ -143,13 +126,14 @@ export default function WalletPage() {
                   onChange={(e) => setWithdrawAmt(e.target.value)}
                   min="1"
                   placeholder="Amount"
-                  className="w-24 rounded-md border border-border bg-background px-3 py-1.5 text-sm"
+                  className="w-24 rounded-md border border-border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-secondary"
                 />
                 <button
                   onClick={handleWithdraw}
                   disabled={busy || !withdrawAmt}
-                  className="rounded-md border border-border bg-background px-4 py-1.5 text-sm font-medium hover:bg-accent/10 disabled:opacity-50"
+                  className="flex items-center gap-1.5 rounded-md border border-border bg-background px-4 py-1.5 text-sm font-medium hover:bg-accent/10 disabled:opacity-50"
                 >
+                  <FaArrowDown size={11} />
                   Withdraw
                 </button>
               </div>
@@ -160,7 +144,7 @@ export default function WalletPage() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="rounded-2xl border-gold/15">
         <CardHeader className="flex-row items-center justify-between space-y-0">
           <CardTitle className="text-base">Transaction history</CardTitle>
           <div className="flex items-center gap-2">
@@ -211,7 +195,7 @@ export default function WalletPage() {
                     <td className="px-4 py-2">
                       <Badge variant={kindVariant(e.kind)}>{KIND_LABEL[e.kind] ?? e.kind}</Badge>
                     </td>
-                    <td className={`px-4 py-2 font-mono ${parseFloat(e.amount) >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                    <td className={`px-4 py-2 font-mono ${parseFloat(e.amount) >= 0 ? 'text-win' : 'text-down'}`}>
                       {parseFloat(e.amount) >= 0 ? '+' : ''}{e.amount}
                     </td>
                     <td className="px-4 py-2 text-muted-foreground">{e.reference || '—'}</td>
@@ -225,6 +209,11 @@ export default function WalletPage() {
           )}
         </CardContent>
       </Card>
+
+      <DepositModal
+        open={depositOpen}
+        onClose={() => { setDepositOpen(false); refetchWallet(); refetchLedger(); }}
+      />
     </div>
   );
 }

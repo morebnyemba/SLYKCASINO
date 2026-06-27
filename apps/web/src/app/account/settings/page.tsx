@@ -1,8 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { FaShieldAlt, FaCoins, FaUserSlash, FaDownload, FaTrashAlt, FaLifeRing } from 'react-icons/fa';
 import { Card, CardContent, CardHeader, CardTitle } from '@slyk/ui/components/card';
-import { Badge } from '@slyk/ui/components/badge';
 import { useAuth } from '@/lib/auth-context';
 import { useApi, authedPost } from '@/lib/use-api';
 import { config } from '@/lib/config';
@@ -131,11 +131,16 @@ export default function SettingsPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">Responsible Gambling</h1>
+      <div className="flex items-center gap-2.5">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gold/15 text-gold">
+          <FaShieldAlt size={15} />
+        </span>
+        <h1 className="text-2xl font-bold">Responsible Gambling</h1>
+      </div>
       <p className="text-sm text-muted-foreground">
         These controls help you manage your gaming activity. Changes take effect immediately.
         If you need help, contact{' '}
-        <a href="https://www.begambleaware.org" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
+        <a href="https://www.begambleaware.org" target="_blank" rel="noopener noreferrer" className="text-secondary hover:underline">
           BeGambleAware
         </a>.
       </p>
@@ -153,9 +158,12 @@ export default function SettingsPage() {
       )}
 
       {/* Deposit limits */}
-      <Card>
+      <Card className="rounded-2xl border-gold/15">
         <CardHeader>
-          <CardTitle className="text-base">Daily deposit limit</CardTitle>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <FaCoins className="text-gold" size={14} />
+            Daily deposit limit
+          </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <p className="text-sm text-muted-foreground">
@@ -172,12 +180,12 @@ export default function SettingsPage() {
               onChange={(e) => setLimitInput(e.target.value)}
               placeholder="e.g. 100"
               min="1"
-              className="w-32 rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+              className="w-32 rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-secondary"
             />
             <button
               onClick={saveLimit}
               disabled={limitBusy || !limitInput}
-              className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
+              className="rounded-md bg-gradient-to-br from-gold to-gold/70 px-4 py-2 text-sm font-bold text-[#1A1538] shadow transition-transform hover:scale-105 disabled:opacity-50 disabled:hover:scale-100"
             >
               {limitBusy ? 'Saving…' : 'Set limit'}
             </button>
@@ -197,9 +205,12 @@ export default function SettingsPage() {
 
       {/* Self-exclusion */}
       {!rg?.self_excluded && (
-        <Card>
+        <Card className="rounded-2xl border-gold/15">
           <CardHeader>
-            <CardTitle className="text-base">Self-exclusion</CardTitle>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <FaUserSlash className="text-destructive" size={14} />
+              Self-exclusion
+            </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-sm text-muted-foreground">
@@ -254,7 +265,7 @@ export default function SettingsPage() {
       )}
 
       {/* GDPR / Your data */}
-      <Card>
+      <Card className="rounded-2xl border-gold/15">
         <CardHeader>
           <CardTitle className="text-base">Your data</CardTitle>
         </CardHeader>
@@ -266,8 +277,9 @@ export default function SettingsPage() {
             <button
               onClick={handleExport}
               disabled={exportLoading}
-              className="rounded-md border border-border px-4 py-2 text-sm hover:bg-accent/10 disabled:opacity-50"
+              className="flex items-center gap-1.5 rounded-md border border-border px-4 py-2 text-sm hover:bg-accent/10 disabled:opacity-50"
             >
+              <FaDownload size={11} />
               {exportLoading ? 'Preparing…' : 'Export my data'}
             </button>
           </div>
@@ -278,8 +290,9 @@ export default function SettingsPage() {
             {!showDeleteConfirm ? (
               <button
                 onClick={() => setShowDeleteConfirm(true)}
-                className="rounded-md border border-destructive px-4 py-2 text-sm font-medium text-destructive hover:bg-destructive/10"
+                className="flex items-center gap-1.5 rounded-md border border-destructive px-4 py-2 text-sm font-medium text-destructive hover:bg-destructive/10"
               >
+                <FaTrashAlt size={11} />
                 Delete my account
               </button>
             ) : (
@@ -317,9 +330,12 @@ export default function SettingsPage() {
       </Card>
 
       {/* External resources */}
-      <Card>
+      <Card className="rounded-2xl border-gold/15">
         <CardHeader>
-          <CardTitle className="text-base">Need help?</CardTitle>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <FaLifeRing className="text-secondary" size={14} />
+            Need help?
+          </CardTitle>
         </CardHeader>
         <CardContent>
           <div className="grid gap-2 text-sm">

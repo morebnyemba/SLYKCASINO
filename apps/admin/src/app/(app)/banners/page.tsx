@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { FaImages } from 'react-icons/fa';
 import { Card, CardContent, CardHeader, CardTitle } from '@slyk/ui/components/card';
 import { Badge } from '@slyk/ui/components/badge';
 import { useAuth } from '@/lib/auth-context';
@@ -140,20 +141,27 @@ export default function BannersPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Site Banners</h1>
-          <p className="text-muted-foreground text-sm">Wide promotional banners shown on the player homepage.</p>
+        <div className="flex items-center gap-2.5">
+          <span className="flex h-8 w-8 items-center justify-center rounded-full bg-gold/15 text-gold">
+            <FaImages size={13} />
+          </span>
+          <div>
+            <h1 className="text-2xl font-bold">Site Banners</h1>
+            <p className="text-muted-foreground text-sm">Wide promotional banners shown on the player homepage.</p>
+          </div>
         </div>
         <button
           onClick={() => (showForm ? setShowForm(false) : startCreate())}
-          className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
+          className={`rounded-md px-4 py-2 text-sm font-bold shadow transition-transform hover:scale-[1.02] ${
+            showForm ? 'border border-border bg-background text-foreground hover:scale-100' : 'bg-gradient-to-br from-gold to-gold/70 text-[#1A1538]'
+          }`}
         >
           {showForm ? 'Cancel' : '+ New banner'}
         </button>
       </div>
 
       {showForm && (
-        <Card>
+        <Card className="rounded-2xl border-gold/15">
           <CardHeader><CardTitle className="text-base">{editingId == null ? 'Create banner' : 'Edit banner'}</CardTitle></CardHeader>
           <CardContent className="space-y-4">
             {form.image_url && (

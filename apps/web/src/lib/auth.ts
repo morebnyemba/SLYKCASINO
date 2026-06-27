@@ -53,7 +53,9 @@ export async function apiLogin(email: string, password: string): Promise<AuthTok
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error((err as { detail?: string }).detail ?? 'Login failed');
+    const detail = (err as Record<string, unknown>).detail
+      ?? Object.values(err as Record<string, string[]>).flat().join(' ');
+    throw new Error(String(detail) || 'Login failed');
   }
   return res.json() as Promise<AuthTokens>;
 }

@@ -6,6 +6,8 @@ Imports allowed: models, dtos, utils, helpers, clients, and *other apps' service
 from __future__ import annotations
 
 import secrets
+import uuid
+from decimal import Decimal
 from typing import Optional
 
 from django.contrib.auth import get_user_model
@@ -20,7 +22,7 @@ from apps.wallet import services as wallet_services
 from . import helpers, utils
 from .clients import KycProviderClient
 from .dtos import PlayerDTO
-from .models import Player
+from .models import KYCSubmission, Player
 
 User = get_user_model()
 
@@ -130,6 +132,8 @@ def lift_expired_exclusions() -> int:
 
 def check_responsible_gambling(player: Player) -> None:
     """Raise ValueError if the player is blocked from gambling."""
+    if player.is_suspended:
+        raise ValueError('Account is suspended')
     # Re-check exclusion expiry inline (avoids race with the periodic task).
     if player.self_excluded:
         if player.exclusion_ends_at and timezone.now() >= player.exclusion_ends_at:
@@ -148,6 +152,102 @@ def run_kyc_verification(player_id: int) -> Player:
     """Call the external KYC provider and apply the normalized result."""
     result = KycProviderClient().verify(player_id)
     return set_kyc_status(player_id, result.status)
+
+
+# ---------------------------------------------------------------------------
+# Internal KYC document review (manual staff decision, no external provider)
+# ---------------------------------------------------------------------------
+
+@transaction.atomic
+def submit_kyc_document(player_id: int, *, document_type: str, file) -> KYCSubmission:
+    """Player submits an identity document for staff review."""
+    submission = KYCSubmission.objects.create(
+        player_id=player_id, document_type=document_type, file=file,
+    )
+    player = Player.objects.select_for_update().get(pk=player_id)
+    if player.kyc_status == Player.Kyc.UNVERIFIED:
+        player.kyc_status = Player.Kyc.PENDING
+        player.kyc_updated_at = timezone.now()
+        player.save(update_fields=['kyc_status', 'kyc_updated_at'])
+    return submission
+
+
+@transaction.atomic
+def approve_kyc(submission_id: int, *, reviewer_username: str) -> KYCSubmission:
+    """Staff approves a document; player's KYC status moves to verified."""
+    submission = KYCSubmission.objects.select_for_update().get(pk=submission_id)
+    submission.status = KYCSubmission.Status.APPROVED
+    submission.reviewed_at = timezone.now()
+    submission.reviewed_by_username = reviewer_username
+    submission.save(update_fields=['status', 'reviewed_at', 'reviewed_by_username'])
+    set_kyc_status(submission.player_id, Player.Kyc.VERIFIED)
+    return submission
+
+
+@transaction.atomic
+def reject_kyc(submission_id: int, *, reviewer_username: str, reason: str) -> KYCSubmission:
+    """Staff rejects a document. Resets the player back to unverified so they
+    can resubmit — an explicit admin override of the normally forward-only
+    KYC transition rule (is_valid_kyc_transition), since only a human review
+    decision should ever move KYC status backwards."""
+    submission = KYCSubmission.objects.select_for_update().get(pk=submission_id)
+    submission.status = KYCSubmission.Status.REJECTED
+    submission.rejection_reason = reason
+    submission.reviewed_at = timezone.now()
+    submission.reviewed_by_username = reviewer_username
+    submission.save(update_fields=['status', 'rejection_reason', 'reviewed_at', 'reviewed_by_username'])
+    player = Player.objects.select_for_update().get(pk=submission.player_id)
+    player.kyc_status = Player.Kyc.UNVERIFIED
+    player.kyc_updated_at = timezone.now()
+    player.save(update_fields=['kyc_status', 'kyc_updated_at'])
+    return submission
+
+
+# ---------------------------------------------------------------------------
+# Player suspension (admin override, hard freeze)
+# ---------------------------------------------------------------------------
+
+@transaction.atomic
+def suspend_player(player_id: int, *, reason: str) -> Player:
+    player = Player.objects.select_for_update().get(pk=player_id)
+    player.is_suspended = True
+    player.suspended_reason = reason
+    player.suspended_at = timezone.now()
+    player.save(update_fields=['is_suspended', 'suspended_reason', 'suspended_at'])
+    return player
+
+
+@transaction.atomic
+def unsuspend_player(player_id: int) -> Player:
+    player = Player.objects.select_for_update().get(pk=player_id)
+    player.is_suspended = False
+    player.suspended_reason = ''
+    player.suspended_at = None
+    player.save(update_fields=['is_suspended', 'suspended_reason', 'suspended_at'])
+    return player
+
+
+# ---------------------------------------------------------------------------
+# Manual balance adjustment (staff override on the wallet ledger)
+# ---------------------------------------------------------------------------
+
+def adjust_balance(player_id: int, *, amount: Decimal, reason: str):
+    """Post a signed manual adjustment to the player's wallet ledger.
+
+    Positive amount credits, negative amount debits. Uses the same
+    append-only ledger primitive as every other money movement.
+    """
+    amount = Decimal(str(amount))
+    idempotency_key = f'adjustment:{uuid.uuid4()}'
+    if amount >= 0:
+        return wallet_services.credit(
+            player_id=player_id, amount=amount, kind='adjustment',
+            idempotency_key=idempotency_key, reference=reason,
+        )
+    return wallet_services.debit(
+        player_id=player_id, amount=amount, kind='adjustment',
+        idempotency_key=idempotency_key, reference=reason, allow_negative=True,
+    )
 
 
 # ---------------------------------------------------------------------------
