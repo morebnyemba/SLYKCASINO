@@ -3,10 +3,11 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect } from 'react';
-import { FaUser, FaWallet, FaShieldAlt, FaIdCard } from 'react-icons/fa';
+import { FaUser, FaWallet, FaShieldAlt, FaIdCard, FaBell, FaSignOutAlt } from 'react-icons/fa';
 import { GiTrophy, GiRollingDices } from 'react-icons/gi';
 import type { IconType } from 'react-icons';
 import { useAuth } from '@/lib/auth-context';
+import { ThemeToggle, SettingsMenu } from '@/components/settings-menu';
 
 const tabs: { href: string; label: string; icon: IconType }[] = [
   { href: '/account/profile', label: 'Profile', icon: FaUser },
@@ -14,11 +15,12 @@ const tabs: { href: string; label: string; icon: IconType }[] = [
   { href: '/account/bets', label: 'My Bets', icon: GiTrophy },
   { href: '/account/casino', label: 'Casino History', icon: GiRollingDices },
   { href: '/account/verification', label: 'Verification', icon: FaIdCard },
+  { href: '/account/notifications', label: 'Notifications', icon: FaBell },
   { href: '/account/settings', label: 'Responsible Gambling', icon: FaShieldAlt },
 ];
 
 export default function AccountLayout({ children }: { children: React.ReactNode }) {
-  const { user, isLoading } = useAuth();
+  const { user, logout, isLoading } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
 
@@ -27,6 +29,11 @@ export default function AccountLayout({ children }: { children: React.ReactNode 
       router.replace('/login?next=/account/profile');
     }
   }, [user, isLoading, router]);
+
+  async function handleLogout() {
+    await logout();
+    router.push('/login');
+  }
 
   if (isLoading) {
     return (
@@ -45,10 +52,12 @@ export default function AccountLayout({ children }: { children: React.ReactNode 
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-gold to-gold/70 text-base font-bold text-[#1A1538] shadow-inner shadow-black/10">
             {user.username?.[0]?.toUpperCase() ?? '?'}
           </span>
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-semibold">{user.username}</p>
             <p className="text-xs text-muted-foreground">My Account</p>
           </div>
+          <ThemeToggle className="!h-8 !w-8 !gap-0 !px-0 !text-muted-foreground hover:!bg-muted/40 hover:!text-foreground [&>span]:hidden" />
+          <SettingsMenu className="!h-8 !w-8 !text-muted-foreground hover:!bg-muted/40 hover:!text-foreground" />
         </div>
         <nav className="flex flex-col gap-1 text-sm">
           {tabs.map((t) => {
@@ -69,6 +78,13 @@ export default function AccountLayout({ children }: { children: React.ReactNode 
               </Link>
             );
           })}
+          <button
+            onClick={handleLogout}
+            className="mt-1 flex items-center gap-2.5 rounded-xl border-t border-border px-3 py-2.5 pt-3.5 text-left font-medium text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <FaSignOutAlt size={15} className="opacity-70" />
+            Log out
+          </button>
         </nav>
       </aside>
       <section>{children}</section>

@@ -27,7 +27,7 @@ export function ThemeToggle({ className = '' }: { className?: string }) {
 }
 
 /** Gear-icon dropdown: odds format, accent colour, live-feed toggle. */
-export function SettingsMenu() {
+export function SettingsMenu({ className = '' }: { className?: string }) {
   const { oddsFormat, setOddsFormat, accent, setAccent, showLiveFeed, setShowLiveFeed } = useSettings();
   const [open, setOpen] = useState(false);
 
@@ -37,7 +37,7 @@ export function SettingsMenu() {
         onClick={() => setOpen((v) => !v)}
         aria-label="Preferences"
         title="Preferences"
-        className="flex h-9 w-9 items-center justify-center rounded-md text-white/80 transition-colors hover:bg-white/10 hover:text-white"
+        className={`flex h-9 w-9 items-center justify-center rounded-md text-white/80 transition-colors hover:bg-white/10 hover:text-white ${className}`}
       >
         <BsGearFill size={15} />
       </button>
