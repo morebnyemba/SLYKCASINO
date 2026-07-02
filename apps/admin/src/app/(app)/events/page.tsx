@@ -92,7 +92,7 @@ export default function EventsPage() {
         </div>
         <Button
           onClick={() => setShowForm((v) => !v)}
-          className={showForm ? '' : 'bg-gradient-to-br from-gold to-gold/70 text-[#1A1538] hover:opacity-90'}
+          className={showForm ? '' : 'bg-gradient-to-br from-gold to-gold/70 text-gold-foreground hover:opacity-90'}
         >
           {showForm ? 'Cancel' : '+ New event'}
         </Button>

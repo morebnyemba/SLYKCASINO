@@ -57,7 +57,7 @@ export default function ProfilePage() {
                 className="h-16 w-16 rounded-full object-cover ring-2 ring-gold/60"
               />
             ) : (
-              <span className="flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-gold to-gold/70 text-2xl font-bold text-[#1A1538] shadow-inner shadow-black/10 ring-2 ring-gold/40">
+              <span className="flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-gold to-gold/70 text-2xl font-bold text-gold-foreground shadow-inner shadow-black/10 ring-2 ring-gold/40">
                 {me?.username?.[0]?.toUpperCase() ?? '?'}
               </span>
             )}

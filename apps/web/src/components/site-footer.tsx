@@ -1,5 +1,8 @@
+'use client';
+
 import Link from 'next/link';
 import { FaShieldAlt, FaLock, FaBolt } from 'react-icons/fa';
+import { useSiteIdentity } from '@/lib/identity-context';
 
 const TRUST = [
   { label: 'Licensed & regulated', icon: FaShieldAlt },
@@ -10,6 +13,7 @@ const TRUST = [
 const PAYMENTS = ['EcoCash', 'OneMoney', 'Visa', 'Mastercard', 'USDT', 'Innbucks'];
 
 export function SiteFooter() {
+  const identity = useSiteIdentity();
   return (
     <footer className="mt-12 border-t border-border bg-card">
       <div className="mx-auto max-w-6xl px-6 py-8 text-sm text-muted-foreground">
@@ -27,12 +31,8 @@ export function SiteFooter() {
 
         <div className="grid gap-6 pt-6 sm:grid-cols-3">
           <div className="space-y-2">
-            <p className="font-semibold text-foreground">SLÝKBETS</p>
-            <p className="text-xs leading-relaxed">
-              Licensed and regulated by the Lotteries and Gaming Board of Zimbabwe.
-              <br />
-              Licence No. LGB/SLYKBETS/2026 (demo).
-            </p>
+            <p className="font-semibold text-foreground">{identity.site_name}</p>
+            <p className="whitespace-pre-line text-xs leading-relaxed">{identity.license_text}</p>
             <div className="flex items-center gap-2 pt-1">
               <span className="flex h-7 w-7 items-center justify-center rounded-full border-2 border-secondary text-xs font-bold text-secondary">
                 18+
@@ -73,7 +73,7 @@ export function SiteFooter() {
         </div>
 
         <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-6 text-xs text-muted-foreground/70">
-          <p>© {new Date().getFullYear()} SLÝKBETS. All rights reserved. Bet with your head, not over it.</p>
+          <p>© {new Date().getFullYear()} {identity.site_name}. All rights reserved. Bet with your head, not over it.</p>
           <div className="flex items-center gap-4">
             <Link href="/legal/terms" className="hover:text-foreground">Terms</Link>
             <Link href="/legal/privacy" className="hover:text-foreground">Privacy</Link>

@@ -49,7 +49,7 @@ export default function AccountLayout({ children }: { children: React.ReactNode 
     <div className="grid gap-6 md:grid-cols-[220px_1fr]">
       <aside className="h-fit rounded-2xl border border-gold/20 bg-card/60 p-3 shadow-sm backdrop-blur-sm">
         <div className="mb-2 flex items-center gap-3 rounded-xl px-2 py-2.5">
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-gold to-gold/70 text-base font-bold text-[#1A1538] shadow-inner shadow-black/10">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-gold to-gold/70 text-base font-bold text-gold-foreground shadow-inner shadow-black/10">
             {user.username?.[0]?.toUpperCase() ?? '?'}
           </span>
           <div className="min-w-0 flex-1">

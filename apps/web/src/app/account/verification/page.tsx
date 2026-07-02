@@ -134,7 +134,7 @@ export default function VerificationPage() {
                 <button
                   type="submit"
                   disabled={submitting || !file}
-                  className="flex items-center gap-2 rounded-md bg-gradient-to-br from-gold to-gold/70 px-4 py-2 text-sm font-bold text-[#1A1538] shadow transition-transform hover:scale-[1.02] disabled:opacity-50 disabled:hover:scale-100"
+                  className="flex items-center gap-2 rounded-md bg-gradient-to-br from-gold to-gold/70 px-4 py-2 text-sm font-bold text-gold-foreground shadow transition-transform hover:scale-[1.02] disabled:opacity-50 disabled:hover:scale-100"
                 >
                   <FaUpload size={12} />
                   {submitting ? 'Uploading…' : 'Submit document'}

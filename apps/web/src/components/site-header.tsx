@@ -11,6 +11,7 @@ import { useAuth } from '@/lib/auth-context';
 import { useApi } from '@/lib/use-api';
 import { ThemeToggle, SettingsMenu } from '@/components/settings-menu';
 import { DepositModal } from '@/components/deposit-modal';
+import { useSiteIdentity } from '@/lib/identity-context';
 
 interface Wallet {
   balance?: string;
@@ -33,6 +34,7 @@ const links: { href: string; label: string; icon: IconType }[] = [
 
 export function SiteHeader() {
   const { user, logout } = useAuth();
+  const identity = useSiteIdentity();
   const router = useRouter();
   const [depositOpen, setDepositOpen] = useState(false);
   const { data: wallet } = useApi<Wallet>(user ? '/wallet/' : null);
@@ -49,18 +51,22 @@ export function SiteHeader() {
     <header className="sticky top-0 z-50 border-b border-gold/30 bg-gradient-to-r from-primary via-primary to-primary/80 shadow-lg shadow-black/20">
       <div className="flex items-center gap-4 px-4 py-3 sm:px-6">
         <Link href="/" className="group flex items-center gap-2.5">
-          <span className="flex items-center gap-1 rounded-md bg-gradient-to-br from-gold to-gold/70 px-2.5 py-1 text-sm font-black tracking-wide text-white shadow-inner shadow-black/30 ring-1 ring-white/15 transition-transform duration-300 group-hover:-rotate-6 group-hover:scale-110">
-            <GiPerspectiveDiceSixFacesRandom size={14} className="text-white/90" />
-            SL<span className="relative -mr-px">Ý</span>K
-          </span>
+          {identity.logo_url ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={identity.logo_url} alt={identity.site_name} className="h-9 w-auto max-w-[160px] object-contain" />
+          ) : (
+            <span className="flex items-center gap-1 rounded-md bg-gradient-to-br from-gold to-gold/70 px-2.5 py-1 text-sm font-black tracking-wide text-white shadow-inner shadow-black/30 ring-1 ring-white/15 transition-transform duration-300 group-hover:-rotate-6 group-hover:scale-110">
+              <GiPerspectiveDiceSixFacesRandom size={14} className="text-white/90" />
+            </span>
+          )}
           <span className="hidden flex-col leading-none md:flex">
-            <span className="text-lg font-extrabold tracking-tight text-white">BETS</span>
+            <span className="text-lg font-extrabold tracking-tight text-white">{identity.site_name}</span>
             <span className="relative mt-0.5 h-3.5 w-36 overflow-hidden text-[11px] font-medium">
               <span className="absolute inset-0 block text-white/60 transition-transform duration-300 ease-out group-hover:-translate-y-full">
                 Sportsbook &amp; Casino
               </span>
               <span className="absolute inset-0 block translate-y-full text-gold transition-transform duration-300 ease-out group-hover:translate-y-0">
-                Bet smart. Brag often.
+                {identity.tagline}
               </span>
             </span>
           </span>
@@ -99,7 +105,7 @@ export function SiteHeader() {
                 onClick={() => setDepositOpen(true)}
                 aria-label="Deposit"
                 title="Deposit"
-                className="rounded-md bg-gradient-to-br from-gold to-gold/70 px-2.5 py-1.5 text-xs font-extrabold text-[#1A1538] shadow transition-transform hover:scale-105 2xl:px-3"
+                className="rounded-md bg-gradient-to-br from-gold to-gold/70 px-2.5 py-1.5 text-xs font-extrabold text-gold-foreground shadow transition-transform hover:scale-105 2xl:px-3"
               >
                 <span className="2xl:hidden">+</span>
                 <span className="hidden 2xl:inline">Deposit</span>
@@ -161,7 +167,7 @@ export function SiteHeader() {
               <button
                 onClick={() => setDepositOpen(true)}
                 aria-label="Deposit"
-                className="rounded-md bg-gradient-to-br from-gold to-gold/70 px-2.5 py-1.5 text-xs font-extrabold text-[#1A1538] shadow transition-transform hover:scale-105"
+                className="rounded-md bg-gradient-to-br from-gold to-gold/70 px-2.5 py-1.5 text-xs font-extrabold text-gold-foreground shadow transition-transform hover:scale-105"
               >
                 Deposit
               </button>

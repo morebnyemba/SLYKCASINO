@@ -365,7 +365,7 @@ export function DepositModal({ open, onClose }: { open: boolean; onClose: () => 
           onClick={(e) => e.stopPropagation()}
         >
           <div className="flex items-center gap-3 bg-gradient-to-r from-primary to-secondary px-5.5 py-5">
-            <span className="flex items-center rounded-md bg-gradient-to-br from-gold to-gold/70 px-1.5 py-1 text-xs font-extrabold text-[#1A1538]">
+            <span className="flex items-center rounded-md bg-gradient-to-br from-gold to-gold/70 px-1.5 py-1 text-xs font-extrabold text-gold-foreground">
               <GiPerspectiveDiceSixFacesRandom size={12} className="mr-0.5" />
               SLÝK
             </span>
@@ -397,7 +397,7 @@ export function DepositModal({ open, onClose }: { open: boolean; onClose: () => 
               <button
                 onClick={onPrimary}
                 disabled={primaryDisabled}
-                className="rounded-xl bg-gradient-to-br from-gold to-gold/70 px-7 py-3 text-[14.5px] font-extrabold text-[#1A1538] shadow-lg disabled:cursor-not-allowed disabled:opacity-40"
+                className="rounded-xl bg-gradient-to-br from-gold to-gold/70 px-7 py-3 text-[14.5px] font-extrabold text-gold-foreground shadow-lg disabled:cursor-not-allowed disabled:opacity-40"
               >
                 {primaryLabel}
               </button>
@@ -444,7 +444,7 @@ export function DepositModal({ open, onClose }: { open: boolean; onClose: () => 
             <button
               onClick={onPrimary}
               disabled={primaryDisabled}
-              className="w-full rounded-2xl bg-gradient-to-br from-gold to-gold/70 py-3.5 text-[15px] font-extrabold text-[#1A1538] shadow-lg disabled:cursor-not-allowed disabled:opacity-40"
+              className="w-full rounded-2xl bg-gradient-to-br from-gold to-gold/70 py-3.5 text-[15px] font-extrabold text-gold-foreground shadow-lg disabled:cursor-not-allowed disabled:opacity-40"
             >
               {primaryLabel}
             </button>
@@ -473,7 +473,7 @@ function StepDots({ step }: { step: Step }) {
           <div key={label} className="flex items-center gap-2">
             <span
               className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-extrabold ${
-                active ? 'bg-gold text-[#1A1538]' : done ? 'bg-secondary text-white' : 'bg-chip text-muted-foreground'
+                active ? 'bg-gold text-gold-foreground' : done ? 'bg-secondary text-white' : 'bg-chip text-muted-foreground'
               }`}
             >
               {done ? '✓' : i + 1}
