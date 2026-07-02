@@ -9,14 +9,18 @@ import { WinnersTicker } from '@/components/winners-ticker';
 import { BannerSlider, type Banner } from '@/components/banner-slider';
 import { PopularGames } from '@/components/popular-games';
 import { apiGet } from '@/lib/config';
-import { CASINO_HERO_IMAGES } from '@/lib/game-images';
 import { DEMO_GAMES, type Game } from '@/lib/casino';
+
+// Brand gradient treatment for a hue (matches the design system's `art()` generator).
+function heroArt(hue: number): string {
+  return `linear-gradient(150deg, hsl(${hue} 58% 30%), hsl(${hue} 64% 12%))`;
+}
 
 // Shown only when an operator has not configured any banners yet.
 const FALLBACK_BANNERS: Banner[] = [
-  { id: 'f1', image_url: CASINO_HERO_IMAGES[3], title: 'SLÝKBETS Aviator', subtitle: 'Cash out before the crash', link_url: '/casino/crash', cta_label: 'Play now' },
-  { id: 'f2', image_url: CASINO_HERO_IMAGES[1], title: 'Welcome Bonus', subtitle: 'Claim your deposit match and start playing', link_url: '/promotions', cta_label: 'Claim bonus' },
-  { id: 'f3', image_url: CASINO_HERO_IMAGES[2], title: 'Tournaments', subtitle: 'Climb the leaderboard for prizes', link_url: '/tournaments', cta_label: 'View races' },
+  { id: 'f1', bg: heroArt(12), big: '2.48×', eyebrow: 'FEATURED · CRASH', title: 'SLÝKBETS Aviator', subtitle: 'Watch the multiplier climb — cash out before it crashes. 99% RTP.', link_url: '/casino/crash', cta_label: 'Play now' },
+  { id: 'f2', bg: heroArt(262), big: '+$1K', eyebrow: 'WELCOME OFFER', title: '200% up to $1,000', subtitle: 'Double your first three deposits, plus 50 free spins on the house.', link_url: '/promotions', cta_label: 'Claim bonus' },
+  { id: 'f3', bg: heroArt(180), big: '$50K', eyebrow: 'WEEKEND TOURNAMENT', title: 'Drop & Win', subtitle: 'Climb the leaderboard for a share of a $50,000 prize pool.', link_url: '/tournaments', cta_label: 'Join race' },
 ];
 
 interface EventItem {
