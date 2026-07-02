@@ -6,7 +6,7 @@ import { gameHref, tileArt, onlineCount, type Game, type GameTag } from '@/lib/c
 
 const TAG_STYLE: Record<'LIVE' | 'HOT' | 'NEW', string> = {
   LIVE: 'bg-live text-white',
-  HOT: 'bg-gold text-[#1A1538]',
+  HOT: 'bg-gold text-gold-foreground',
   NEW: 'bg-secondary text-white',
 };
 
@@ -64,7 +64,7 @@ export function GameTile({
             <span className="h-1.5 w-1.5 rounded-full bg-win" />
             {onlineCount(game.slug)}
           </span>
-          <span className="rounded-md bg-gradient-to-br from-gold to-gold/70 px-2 py-1 text-[11px] font-extrabold text-[#1A1538]">
+          <span className="rounded-md bg-gradient-to-br from-gold to-gold/70 px-2 py-1 text-[11px] font-extrabold text-gold-foreground">
             Play
           </span>
         </div>

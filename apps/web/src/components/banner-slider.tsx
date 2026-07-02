@@ -8,7 +8,13 @@ export interface Banner {
   id: number | string;
   title: string;
   subtitle?: string;
-  image_url: string;
+  /** Photo banner, uploaded by an operator in the admin app. */
+  image_url?: string;
+  /** Brand-style gradient background (CSS `background` value), used when no photo is set. */
+  bg?: string;
+  /** Large faded decorative figure shown over a gradient banner, e.g. "2.48×". */
+  big?: string;
+  eyebrow?: string;
   link_url?: string;
   cta_label?: string;
 }
@@ -51,10 +57,33 @@ export function BannerSlider({ banners }: { banners: Banner[] }) {
             className={`absolute inset-0 transition-opacity duration-700 ${i === index ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
             aria-hidden={i === index ? undefined : true}
           >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={b.image_url} alt={b.title} className="h-full w-full object-cover" />
-            <div className="absolute inset-0 bg-gradient-to-r from-black/85 via-black/45 to-transparent" />
+            {b.image_url ? (
+              <>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={b.image_url} alt={b.title} className="h-full w-full object-cover" />
+                <div className="absolute inset-0 bg-gradient-to-r from-black/85 via-black/45 to-transparent" />
+              </>
+            ) : (
+              <>
+                <div className="absolute inset-0" style={{ background: b.bg }} />
+                {b.big && (
+                  <div
+                    aria-hidden
+                    className="pointer-events-none absolute -right-2 top-1/2 -translate-y-1/2 select-none font-extrabold leading-[0.8] tracking-tighter text-white/[0.08]"
+                    style={{ fontSize: 'clamp(64px, 14vw, 190px)' }}
+                  >
+                    {b.big}
+                  </div>
+                )}
+                <div className="absolute inset-0 bg-gradient-to-r from-black/[0.86] via-black/50 to-transparent" />
+              </>
+            )}
             <div className="absolute inset-0 flex flex-col justify-center gap-2 p-6 sm:p-10">
+              {b.eyebrow && (
+                <span className="w-fit rounded-md bg-white/15 px-2.5 py-1 text-[11px] font-bold tracking-wider text-white backdrop-blur-sm">
+                  {b.eyebrow}
+                </span>
+              )}
               <p className="max-w-xl text-2xl font-extrabold leading-tight text-white drop-shadow sm:text-3xl md:text-4xl">
                 {b.title}
               </p>

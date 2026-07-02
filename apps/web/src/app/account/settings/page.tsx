@@ -185,7 +185,7 @@ export default function SettingsPage() {
             <button
               onClick={saveLimit}
               disabled={limitBusy || !limitInput}
-              className="rounded-md bg-gradient-to-br from-gold to-gold/70 px-4 py-2 text-sm font-bold text-[#1A1538] shadow transition-transform hover:scale-105 disabled:opacity-50 disabled:hover:scale-100"
+              className="rounded-md bg-gradient-to-br from-gold to-gold/70 px-4 py-2 text-sm font-bold text-gold-foreground shadow transition-transform hover:scale-105 disabled:opacity-50 disabled:hover:scale-100"
             >
               {limitBusy ? 'Saving…' : 'Set limit'}
             </button>

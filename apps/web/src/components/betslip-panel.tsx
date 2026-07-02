@@ -174,14 +174,14 @@ function SlipBody() {
               <button
                 onClick={place}
                 disabled={busy}
-                className="w-full rounded-xl bg-gradient-to-br from-gold to-gold/70 px-4 py-3 text-sm font-extrabold text-[#1A1538] shadow-[0_6px_16px_rgba(0,0,0,0.3)] transition-opacity hover:opacity-90 disabled:opacity-50"
+                className="w-full rounded-xl bg-gradient-to-br from-gold to-gold/70 px-4 py-3 text-sm font-extrabold text-gold-foreground shadow-[0_6px_16px_rgba(0,0,0,0.3)] transition-opacity hover:opacity-90 disabled:opacity-50"
               >
                 {busy ? 'Placing…' : placeLabel}
               </button>
             ) : (
               <a
                 href="/login"
-                className="block w-full rounded-xl bg-gradient-to-br from-gold to-gold/70 px-4 py-3 text-center text-sm font-extrabold text-[#1A1538] shadow-[0_6px_16px_rgba(0,0,0,0.3)] hover:opacity-90"
+                className="block w-full rounded-xl bg-gradient-to-br from-gold to-gold/70 px-4 py-3 text-center text-sm font-extrabold text-gold-foreground shadow-[0_6px_16px_rgba(0,0,0,0.3)] hover:opacity-90"
               >
                 Log in to bet
               </a>
@@ -215,9 +215,9 @@ export function BetslipDrawer() {
       {!open && (
         <button
           onClick={() => setOpen(true)}
-          className="fixed bottom-24 left-3.5 right-3.5 z-30 flex items-center gap-3 rounded-2xl bg-gradient-to-br from-gold to-gold/70 px-4 py-3.5 text-[#1A1538] shadow-[0_10px_30px_rgba(0,0,0,0.5)]"
+          className="fixed bottom-24 left-3.5 right-3.5 z-30 flex items-center gap-3 rounded-2xl bg-gradient-to-br from-gold to-gold/70 px-4 py-3.5 text-gold-foreground shadow-[0_10px_30px_rgba(0,0,0,0.5)]"
         >
-          <span className="flex h-[26px] min-w-[26px] items-center justify-center rounded-full bg-[#1A1538] px-1.5 text-[13px] font-extrabold text-gold">
+          <span className="flex h-[26px] min-w-[26px] items-center justify-center rounded-full bg-gold-foreground px-1.5 text-[13px] font-extrabold text-gold">
             {legs.length}
           </span>
           <span className="text-sm font-extrabold">View bet slip</span>

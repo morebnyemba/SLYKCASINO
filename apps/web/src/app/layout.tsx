@@ -6,21 +6,27 @@ import { SiteFooter } from '@/components/site-footer';
 import { BottomNav } from '@/components/bottom-nav';
 import { AgeGate } from '@/components/age-gate';
 import { ServiceWorkerRegistration } from '@/components/service-worker-registration';
+import { fetchSiteThemeCss } from '@/lib/site-theme';
+import { fetchSiteIdentity } from '@/lib/site-identity';
+import { IdentityProvider } from '@/lib/identity-context';
 
-export const metadata: Metadata = {
-  title: 'SLÝKBETS — Player',
-  description: 'Real-time betting & livechat platform',
-  manifest: '/manifest.json',
-  appleWebApp: {
-    capable: true,
-    statusBarStyle: 'black-translucent',
-    title: 'SLÝKBETS',
-  },
-  icons: {
-    icon: '/icons/icon-192.png',
-    apple: '/icons/apple-touch-icon.png',
-  },
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const identity = await fetchSiteIdentity();
+  return {
+    title: `${identity.site_name} — Player`,
+    description: 'Real-time betting & livechat platform',
+    manifest: '/manifest.json',
+    appleWebApp: {
+      capable: true,
+      statusBarStyle: 'black-translucent',
+      title: identity.site_name,
+    },
+    icons: {
+      icon: '/icons/icon-192.png',
+      apple: '/icons/apple-touch-icon.png',
+    },
+  };
+}
 
 export const viewport: Viewport = {
   width: 'device-width',
@@ -45,24 +51,30 @@ const THEME_INIT_SCRIPT = `
 })();
 `;
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const [themeCss, identity] = await Promise.all([fetchSiteThemeCss(), fetchSiteIdentity()]);
   return (
     <html lang="en">
       <head>
+        {/* Operator-configured brand colors from the admin dashboard, layered
+            over the static defaults in @slyk/ui/globals.css. */}
+        {themeCss && <style id="site-theme" dangerouslySetInnerHTML={{ __html: themeCss }} />}
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
       </head>
       <body className="min-h-screen bg-background text-foreground antialiased">
-        <ServiceWorkerRegistration />
-        <AgeGate />
-        <Providers>
-          <div className="flex min-h-screen flex-col">
-            <SiteHeader />
-            <main className="mx-auto w-full max-w-6xl flex-1 p-6 pb-24 lg:pb-6">{children}</main>
-            <SiteFooter />
-            <div className="h-20 lg:hidden" />
-            <BottomNav />
-          </div>
-        </Providers>
+        <IdentityProvider value={identity}>
+          <ServiceWorkerRegistration />
+          <AgeGate />
+          <Providers>
+            <div className="flex min-h-screen flex-col">
+              <SiteHeader />
+              <main className="mx-auto w-full max-w-6xl flex-1 p-6 pb-24 lg:pb-6">{children}</main>
+              <SiteFooter />
+              <div className="h-20 lg:hidden" />
+              <BottomNav />
+            </div>
+          </Providers>
+        </IdentityProvider>
       </body>
     </html>
   );

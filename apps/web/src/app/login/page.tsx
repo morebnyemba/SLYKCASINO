@@ -5,9 +5,11 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@slyk/ui/components/card';
 import { useAuth } from '@/lib/auth-context';
+import { useSiteIdentity } from '@/lib/identity-context';
 
 function LoginForm() {
   const { login } = useAuth();
+  const identity = useSiteIdentity();
   const router = useRouter();
   const params = useSearchParams();
   const next = params.get('next') ?? '/';
@@ -35,7 +37,7 @@ function LoginForm() {
     <div className="flex min-h-[60vh] items-center justify-center">
       <Card className="w-full max-w-sm">
         <CardHeader>
-          <CardTitle>Log in to SLÝKBETS</CardTitle>
+          <CardTitle>Log in to {identity.site_name}</CardTitle>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">

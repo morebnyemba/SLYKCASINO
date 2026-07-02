@@ -24,6 +24,8 @@ class AuditLog(models.Model):
         PLAYER_SUSPENDED = 'player_suspended', 'Player suspended'
         PLAYER_UNSUSPENDED = 'player_unsuspended', 'Player unsuspended'
         BALANCE_ADJUSTED = 'balance_adjusted', 'Balance adjusted'
+        THEME_UPDATED = 'theme_updated', 'Site theme updated'
+        IDENTITY_UPDATED = 'identity_updated', 'Site identity updated'
 
     player_id = models.BigIntegerField(null=True, blank=True, db_index=True)
     event_type = models.CharField(max_length=30, choices=EventType.choices, db_index=True)

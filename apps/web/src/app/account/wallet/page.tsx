@@ -111,7 +111,7 @@ export default function WalletPage() {
               <p className="text-sm font-medium">Deposit</p>
               <button
                 onClick={() => setDepositOpen(true)}
-                className="rounded-md bg-gradient-to-br from-gold to-gold/70 px-4 py-1.5 text-sm font-bold text-[#1A1538] shadow transition-transform hover:scale-105"
+                className="rounded-md bg-gradient-to-br from-gold to-gold/70 px-4 py-1.5 text-sm font-bold text-gold-foreground shadow transition-transform hover:scale-105"
               >
                 Deposit funds
               </button>

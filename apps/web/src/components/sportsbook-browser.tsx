@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import { BsSearch } from 'react-icons/bs';
 import { LiveFeed } from '@/components/live-feed';
@@ -150,10 +151,21 @@ export function SportsbookBrowser({ events }: { events: EventItem[] }) {
               No markets match your filters.
             </div>
           )}
+          {filtered.length > 0 && (
+            <div className="hidden items-center px-4 pb-0.5 lg:flex">
+              <span className="flex-1 text-[10.5px] font-extrabold tracking-widest text-muted-foreground/60">EVENTS</span>
+              <div className="flex gap-2 pr-[72px]">
+                {['1', 'X', '2'].map((l) => (
+                  <span key={l} className="w-[58px] text-center text-[10.5px] font-extrabold tracking-wider text-muted-foreground/60">{l}</span>
+                ))}
+              </div>
+            </div>
+          )}
           {filtered.map((ev) => {
             const live = isLive(ev);
             const prevOdds = ev.previous_odds != null ? Number(ev.previous_odds) : null;
             const homeMove = prevOdds != null ? (Number(ev.odds) > prevOdds ? 'up' : Number(ev.odds) < prevOdds ? 'down' : undefined) : undefined;
+            const has3Way = ev.odds_draw != null;
             return (
               <div key={ev.id} className="overflow-hidden rounded-2xl border border-border bg-card transition-colors hover:bg-accent/5">
                 <div className="flex items-center gap-3.5 px-4 py-3">
@@ -173,13 +185,13 @@ export function SportsbookBrowser({ events }: { events: EventItem[] }) {
                     </div>
                     <div className="max-w-[280px] space-y-1">
                       <TeamRow team={ev.home_team} fallback={ev.name.split(' v ')[0] ?? ev.name} />
-                      {ev.odds_draw != null && (
+                      {has3Way && (
                         <TeamRow team={ev.away_team} fallback={ev.name.split(' v ')[1] ?? ''} />
                       )}
                     </div>
                   </div>
-                  <div className="flex shrink-0 gap-2">
-                    {ev.odds_draw != null ? (
+                  <div className="flex shrink-0 items-center gap-2">
+                    {has3Way ? (
                       <>
                         <OddsButton ev={ev} selection="home" label="1" odds={ev.odds} move={homeMove} />
                         <OddsButton ev={ev} selection="draw" label="X" odds={Number(ev.odds_draw)} />
@@ -188,6 +200,12 @@ export function SportsbookBrowser({ events }: { events: EventItem[] }) {
                     ) : (
                       <OddsButton ev={ev} selection="home" label="ODDS" odds={ev.odds} move={homeMove} />
                     )}
+                    <Link
+                      href={`/sportsbook/${ev.id}`}
+                      className="hidden items-center gap-1 rounded-lg border border-border px-2.5 py-2 text-[11px] font-bold text-muted-foreground hover:border-primary hover:text-primary sm:flex"
+                    >
+                      More <span className="text-[9px]">›</span>
+                    </Link>
                   </div>
                 </div>
               </div>

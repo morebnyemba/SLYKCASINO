@@ -3,11 +3,12 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { BsGrid1X2Fill } from 'react-icons/bs';
-import { FaRegCommentDots, FaGift, FaImages, FaUsers, FaCalendarAlt, FaSignOutAlt, FaChartLine, FaIdCard, FaExchangeAlt, FaHistory } from 'react-icons/fa';
+import { FaRegCommentDots, FaGift, FaImages, FaUsers, FaCalendarAlt, FaSignOutAlt, FaChartLine, FaIdCard, FaExchangeAlt, FaHistory, FaPalette } from 'react-icons/fa';
 import { GiPerspectiveDiceSixFacesRandom } from 'react-icons/gi';
 import type { IconType } from 'react-icons';
 import { useAuth } from '@/lib/auth-context';
 import { ThemeToggle } from '@/components/theme-toggle';
+import { useSiteIdentity } from '@/lib/identity-context';
 
 // hrefs omit the /admin-portal prefix — Next.js basePath prepends it and Nginx
 // routes /admin-portal to this app.
@@ -17,6 +18,7 @@ const nav: { href: string; label: string; icon: IconType }[] = [
   { href: '/betting-feeds', label: 'Betting Feeds', icon: FaChartLine },
   { href: '/promotions', label: 'Promotions', icon: FaGift },
   { href: '/banners', label: 'Site Banners', icon: FaImages },
+  { href: '/branding', label: 'Branding', icon: FaPalette },
   { href: '/users', label: 'Players', icon: FaUsers },
   { href: '/kyc', label: 'KYC Review', icon: FaIdCard },
   { href: '/transactions', label: 'Transactions', icon: FaExchangeAlt },
@@ -26,6 +28,7 @@ const nav: { href: string; label: string; icon: IconType }[] = [
 
 export function Sidebar() {
   const { user, logout } = useAuth();
+  const identity = useSiteIdentity();
   const router = useRouter();
   const pathname = usePathname();
 
@@ -36,12 +39,16 @@ export function Sidebar() {
 
   return (
     <aside className="flex min-h-screen w-56 flex-col gap-6 border-r border-gold/15 bg-gradient-to-b from-primary to-primary/90 p-5">
-      <Link href="/" className="flex items-center gap-2">
-        <span className="flex items-center gap-1 rounded-md bg-gradient-to-br from-gold to-gold/70 px-2.5 py-1 text-sm font-black tracking-wide text-[#1A1538] shadow-inner shadow-black/30 ring-1 ring-white/15">
-          <GiPerspectiveDiceSixFacesRandom size={14} />
-          SL<span className="relative -mr-px">Ý</span>K
-        </span>
-        <span className="text-sm font-bold text-white">Admin</span>
+      <Link href="/" className="flex min-w-0 items-center gap-2">
+        {identity.logo_url ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={identity.logo_url} alt={identity.site_name} className="h-7 w-auto max-w-[110px] shrink-0 object-contain" />
+        ) : (
+          <span className="flex shrink-0 items-center gap-1 rounded-md bg-gradient-to-br from-gold to-gold/70 px-2.5 py-1 text-sm font-black tracking-wide text-gold-foreground shadow-inner shadow-black/30 ring-1 ring-white/15">
+            <GiPerspectiveDiceSixFacesRandom size={14} />
+          </span>
+        )}
+        <span className="truncate text-sm font-bold text-white">{identity.site_name}</span>
       </Link>
       <nav className="flex flex-col gap-1 text-sm">
         {nav.map((n) => {

@@ -44,7 +44,7 @@ export function BottomNav() {
             }`}
           >
             {tab.center ? (
-              <span className="-mt-[22px] flex h-[46px] w-[46px] items-center justify-center rounded-full bg-gradient-to-br from-gold to-gold/70 text-[#1A1538] shadow-[0_6px_16px_rgba(0,0,0,0.35)]">
+              <span className="-mt-[22px] flex h-[46px] w-[46px] items-center justify-center rounded-full bg-gradient-to-br from-gold to-gold/70 text-gold-foreground shadow-[0_6px_16px_rgba(0,0,0,0.35)]">
                 <Icon size={22} />
               </span>
             ) : (

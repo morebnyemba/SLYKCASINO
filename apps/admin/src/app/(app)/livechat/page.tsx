@@ -133,7 +133,7 @@ function ChatPane({ channel, label }: { channel: string; label: string }) {
             <button
               type="submit"
               disabled={sending || !text.trim()}
-              className="rounded-md bg-gradient-to-br from-gold to-gold/70 px-3 py-1.5 text-sm font-bold text-[#1A1538] disabled:opacity-50"
+              className="rounded-md bg-gradient-to-br from-gold to-gold/70 px-3 py-1.5 text-sm font-bold text-gold-foreground disabled:opacity-50"
             >
               Send
             </button>
