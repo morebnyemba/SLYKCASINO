@@ -7,7 +7,7 @@
 
 set -euo pipefail
 
-COMPOSE="docker compose -f docker-compose.prod.yml"
+COMPOSE="docker compose -f docker-compose.yml -f docker-compose.prod.yml"
 
 echo "==> [1/6] Building / pulling latest images..."
 $COMPOSE build
