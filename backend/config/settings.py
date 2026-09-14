@@ -82,10 +82,20 @@ TEMPLATES = [
 WSGI_APPLICATION = 'config.wsgi.application'
 ASGI_APPLICATION = 'config.asgi.application'
 
-# Postgres via DATABASE_URL; falls back to local sqlite for quick scaffolding.
+# Postgres via DATABASE_URL, or auto-derived from POSTGRES_USER/PASSWORD/DB so the
+# two never drift out of sync; falls back to local sqlite for quick scaffolding.
+_database_url = os.environ.get('DATABASE_URL')
+if not _database_url and os.environ.get('POSTGRES_USER') and os.environ.get('POSTGRES_PASSWORD'):
+    _database_url = 'postgres://{user}:{password}@{host}:5432/{db}'.format(
+        user=os.environ['POSTGRES_USER'],
+        password=os.environ['POSTGRES_PASSWORD'],
+        host=os.environ.get('POSTGRES_HOST', 'postgres'),
+        db=os.environ.get('POSTGRES_DB', os.environ['POSTGRES_USER']),
+    )
+
 DATABASES = {
     'default': dj_database_url.config(
-        default=os.environ.get('DATABASE_URL', f'sqlite:///{BASE_DIR / "db.sqlite3"}'),
+        default=_database_url or f'sqlite:///{BASE_DIR / "db.sqlite3"}',
         conn_max_age=600,
     )
 }
