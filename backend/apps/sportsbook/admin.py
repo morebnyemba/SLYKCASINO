@@ -1,7 +1,7 @@
 from django import forms
 from django.contrib import admin
 
-from .models import Bet, BetLeg, BetSlip, Event, ProviderCredential, Team
+from .models import Bet, BetLeg, BetSlip, Event, LeagueSetting, ProviderCredential, Team
 
 
 class ProviderCredentialForm(forms.ModelForm):
@@ -16,6 +16,18 @@ class ProviderCredentialAdmin(admin.ModelAdmin):
     form = ProviderCredentialForm
     list_display = ('provider', 'base_url')
     search_fields = ('provider',)
+
+
+@admin.register(LeagueSetting)
+class LeagueSettingAdmin(admin.ModelAdmin):
+    # Leagues are auto-populated here as import_all_current_leagues discovers
+    # them; toggle `enabled` off (list_editable, no need to open the row) for
+    # any league you don't want synced — saves the API call too, not just
+    # hides it from the sportsbook.
+    list_display = ('name', 'league_id', 'provider', 'enabled')
+    list_editable = ('enabled',)
+    list_filter = ('provider', 'enabled')
+    search_fields = ('name', 'league_id')
 
 
 @admin.register(Team)

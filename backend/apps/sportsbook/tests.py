@@ -391,6 +391,64 @@ class ApiFootballLeagueDiscoveryTests(TestCase):
         self.assertEqual(Event.objects.filter(external_id='L39-2024').count(), 1)
         self.assertEqual(Event.objects.filter(external_id='L140-2025').count(), 1)
 
+    def test_import_all_current_leagues_registers_leagues_enabled_by_default(self):
+        from apps.sportsbook.clients import FixtureUpdate, LeagueInfo
+        from apps.sportsbook.models import LeagueSetting
+
+        leagues = [LeagueInfo(id=39, season=2024, name='EPL')]
+        with patch.object(sportsbook_services.ApiFootballClient, 'fetch_leagues', return_value=leagues), \
+             patch.object(sportsbook_services.ApiFootballClient, 'fetch_fixtures', return_value=[
+                 FixtureUpdate(external_id='L39-2024', name='Fixture', status='NS',
+                               starts_at=None, goals_home=None, goals_away=None),
+             ]):
+            sportsbook_services.import_all_current_leagues(next_count=20)
+
+        setting = LeagueSetting.objects.get(provider='api-football', league_id=39)
+        self.assertEqual(setting.name, 'EPL')
+        self.assertTrue(setting.enabled)
+
+    def test_import_all_current_leagues_skips_disabled_league(self):
+        from apps.sportsbook.clients import FixtureUpdate, LeagueInfo
+        from apps.sportsbook.models import LeagueSetting
+
+        LeagueSetting.objects.create(
+            provider='api-football', league_id=39, name='EPL', enabled=False,
+        )
+
+        def fake_fetch_fixtures(self, *, date=None, live=None, league=None, season=None, next_count=None):
+            # Would create an Event if actually called — proves the disabled
+            # league's /fixtures call is skipped entirely, not just filtered
+            # after the fact.
+            return [FixtureUpdate(
+                external_id=f'L{league}-{season}', name='Fixture', status='NS',
+                starts_at=None, goals_home=None, goals_away=None,
+            )]
+
+        leagues = [LeagueInfo(id=39, season=2024, name='EPL'), LeagueInfo(id=140, season=2025, name='La Liga')]
+        with patch.object(sportsbook_services.ApiFootballClient, 'fetch_leagues', return_value=leagues), \
+             patch.object(sportsbook_services.ApiFootballClient, 'fetch_fixtures', fake_fetch_fixtures):
+            total = sportsbook_services.import_all_current_leagues(next_count=20)
+
+        self.assertEqual(total, 1)  # only La Liga's fixture counted
+        self.assertEqual(Event.objects.filter(external_id='L39-2024').count(), 0)
+        self.assertEqual(Event.objects.filter(external_id='L140-2025').count(), 1)
+
+    def test_import_all_current_leagues_preserves_existing_disable_on_rediscovery(self):
+        from apps.sportsbook.clients import LeagueInfo
+        from apps.sportsbook.models import LeagueSetting
+
+        LeagueSetting.objects.create(
+            provider='api-football', league_id=39, name='EPL', enabled=False,
+        )
+        leagues = [LeagueInfo(id=39, season=2024, name='EPL')]
+        with patch.object(sportsbook_services.ApiFootballClient, 'fetch_leagues', return_value=leagues), \
+             patch.object(sportsbook_services.ApiFootballClient, 'fetch_fixtures', return_value=[]):
+            sportsbook_services.import_all_current_leagues(next_count=20)
+
+        # Re-discovering an already-known league must not silently re-enable it.
+        setting = LeagueSetting.objects.get(provider='api-football', league_id=39)
+        self.assertFalse(setting.enabled)
+
 
 class ApiFootballOddsSyncTests(TestCase):
     def setUp(self):

@@ -17,7 +17,7 @@ from apps.wallet import services as wallet_services
 from . import helpers, utils
 from .clients import ApiFootballClient, FixtureUpdate, OddsSnapshot, TeamInfo
 from .dtos import BetDTO
-from .models import Bet, BetLeg, BetSlip, Event, Selection, Team
+from .models import Bet, BetLeg, BetSlip, Event, LeagueSetting, Selection, Team
 
 
 # -- reads -------------------------------------------------------------------
@@ -370,18 +370,32 @@ def sync_provider_events(
 
 def import_all_current_leagues(*, next_count: Optional[int] = None) -> int:
     """Auto-discover every league api-football currently has an active season
-    for, then import each one's upcoming fixtures as Events — used when no
-    manual API_FOOTBALL_LEAGUES list is configured, so the sportsbook fills up
-    without an operator having to curate league IDs by hand.
+    for, then import each *enabled* one's upcoming fixtures as Events — used
+    when no manual API_FOOTBALL_LEAGUES list is configured, so the sportsbook
+    fills up without an operator having to curate league IDs by hand.
 
-    Costs one /fixtures call per discovered league (plus the /leagues call
-    itself), so this can be API-quota-heavy on lower-tier api-football plans —
-    that trade-off is accepted in exchange for zero-config coverage. Returns
-    the total number of fixtures fetched across all leagues."""
+    Every discovered league is upserted into LeagueSetting (enabled=True by
+    default on first sight, existing rows untouched so a prior disable
+    sticks), then skipped before its /fixtures call if disabled — so turning
+    a league off from Django admin also saves the API call, not just the
+    sportsbook clutter. Costs one /fixtures call per still-enabled league
+    (plus the /leagues call itself), so this can be API-quota-heavy on
+    lower-tier api-football plans with many leagues all enabled — that
+    trade-off is accepted in exchange for zero-config coverage. Returns the
+    total number of fixtures fetched across all enabled leagues."""
     client = ApiFootballClient()
     leagues = client.fetch_leagues()
     total = 0
     for league in leagues:
+        setting, _ = LeagueSetting.objects.get_or_create(
+            provider=ApiFootballClient.provider_name, league_id=league.id,
+            defaults={'name': league.name},
+        )
+        if setting.name != league.name and league.name:
+            setting.name = league.name
+            setting.save(update_fields=['name'])
+        if not setting.enabled:
+            continue
         total += sync_provider_events(league=league.id, season=league.season, next_count=next_count)
     return total
 
