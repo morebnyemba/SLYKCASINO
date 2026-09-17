@@ -159,6 +159,14 @@ STORAGES = {
     'default': {'BACKEND': 'django.core.files.storage.FileSystemStorage'},
     'staticfiles': {'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage'},
 }
+# jazzmin's admin/base.html does `{% static 'vendor/bootswatch' %}` to build a
+# JS-side base path for its theme switcher — that's a directory, not a file,
+# so it can never have a manifest entry and CompressedManifestStaticFilesStorage
+# raises on every admin page render. Non-strict mode falls back to passing the
+# literal path through instead of raising; the actual per-theme CSS files
+# (vendor/bootswatch/<theme>/bootstrap.min.css) are real files and still get
+# proper hashed/manifest URLs.
+WHITENOISE_MANIFEST_STRICT = False
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
