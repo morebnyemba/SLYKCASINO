@@ -103,12 +103,12 @@ export default function CasinoPage() {
         ))}
       </Carousel>
 
-      <div className="mb-4 flex flex-wrap gap-2">
+      <div className="mb-4 flex gap-2 overflow-x-auto scroll-smooth pb-1 [-ms-overflow-style:none] [scrollbar-width:none] sm:flex-wrap sm:overflow-visible [&::-webkit-scrollbar]:hidden">
         {visibleCategories.map((c) => (
           <button
             key={c.value}
             onClick={() => setCategory(c.value)}
-            className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+            className={`shrink-0 rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
               category === c.value
                 ? 'bg-primary text-primary-foreground'
                 : 'bg-muted text-muted-foreground hover:bg-accent/10'
