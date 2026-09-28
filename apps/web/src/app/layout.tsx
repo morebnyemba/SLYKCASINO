@@ -4,6 +4,8 @@ import { Providers } from '@/components/providers';
 import { SiteHeader } from '@/components/site-header';
 import { SiteFooter } from '@/components/site-footer';
 import { BottomNav } from '@/components/bottom-nav';
+import { AppSidebar, MobileMenu } from '@/components/app-sidebar';
+import { BetslipDrawer } from '@/components/betslip-panel';
 import { AgeGate } from '@/components/age-gate';
 import { ServiceWorkerRegistration } from '@/components/service-worker-registration';
 import { fetchSiteThemeCss } from '@/lib/site-theme';
@@ -31,7 +33,7 @@ export async function generateMetadata(): Promise<Metadata> {
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
-  themeColor: '#4ab8e8',
+  themeColor: '#110B2E',
 };
 
 // Applied before paint so switching themes never flashes the previous theme on load.
@@ -54,7 +56,8 @@ const THEME_INIT_SCRIPT = `
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const [themeCss, identity] = await Promise.all([fetchSiteThemeCss(), fetchSiteIdentity()]);
   return (
-    <html lang="en">
+    // data-theme is set by THEME_INIT_SCRIPT before hydration.
+    <html lang="en" suppressHydrationWarning>
       <head>
         {/* Operator-configured brand colors from the admin dashboard, layered
             over the static defaults in @slyk/ui/globals.css. */}
@@ -66,13 +69,19 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           <ServiceWorkerRegistration />
           <AgeGate />
           <Providers>
-            <div className="flex min-h-screen flex-col">
-              <SiteHeader />
-              <main className="mx-auto w-full max-w-6xl flex-1 p-6 pb-24 lg:pb-6">{children}</main>
-              <SiteFooter />
-              <div className="h-20 lg:hidden" />
-              <BottomNav />
+            <div className="flex min-h-screen">
+              <AppSidebar />
+              <div className="flex min-w-0 flex-1 flex-col">
+                <SiteHeader />
+                <main className="mx-auto w-full max-w-[1440px] flex-1 px-3 py-4 sm:px-5 sm:py-6">{children}</main>
+                <SiteFooter />
+                {/* Keeps the footer clear of the fixed mobile tab bar. */}
+                <div className="h-20 lg:hidden" />
+              </div>
             </div>
+            <MobileMenu />
+            <BetslipDrawer />
+            <BottomNav />
           </Providers>
         </IdentityProvider>
       </body>

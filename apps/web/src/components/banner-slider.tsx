@@ -47,7 +47,7 @@ export function BannerSlider({ banners }: { banners: Banner[] }) {
   if (count === 0) return null;
 
   return (
-    <div className="group relative h-44 overflow-hidden rounded-2xl sm:h-56 md:h-72">
+    <div className="group relative h-52 overflow-hidden rounded-2xl sm:h-60 md:h-72">
       {banners.map((b, i) => {
         const href = b.link_url || '';
 
@@ -78,33 +78,33 @@ export function BannerSlider({ banners }: { banners: Banner[] }) {
                 <div className="absolute inset-0 bg-gradient-to-r from-black/[0.86] via-black/50 to-transparent" />
               </>
             )}
-            <div className="absolute inset-0 flex flex-col justify-center gap-2 p-6 sm:p-10">
+            <div className="absolute inset-0 flex flex-col justify-center gap-1.5 p-5 pb-8 sm:gap-2 sm:p-10">
               {b.eyebrow && (
                 <span className="w-fit rounded-md bg-white/15 px-2.5 py-1 text-[11px] font-bold tracking-wider text-white backdrop-blur-sm">
                   {b.eyebrow}
                 </span>
               )}
-              <p className="max-w-xl text-2xl font-extrabold leading-tight text-white drop-shadow sm:text-3xl md:text-4xl">
+              <p className="max-w-xl text-xl font-extrabold leading-tight text-white drop-shadow sm:text-3xl md:text-4xl">
                 {b.title}
               </p>
               {b.subtitle && (
-                <p className="max-w-md text-sm text-white/85 sm:text-base">{b.subtitle}</p>
+                <p className="line-clamp-2 max-w-md text-[13px] text-white/85 sm:text-base">{b.subtitle}</p>
               )}
-              <div className="mt-2 flex w-fit gap-3">
+              <div className="mt-1.5 flex w-fit gap-2 sm:mt-2 sm:gap-3">
                 {b.cta_label && href && (
                   isExternal(href) ? (
                     <a
                       href={href}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex items-center rounded-lg bg-secondary px-5 py-2 text-sm font-bold uppercase tracking-wide text-white shadow-lg transition-transform hover:scale-105"
+                      className="inline-flex items-center rounded-lg bg-win px-4 py-2 text-xs font-extrabold uppercase tracking-wide text-win-foreground shadow-lg transition-transform hover:scale-105 sm:px-5 sm:text-sm"
                     >
                       {b.cta_label}
                     </a>
                   ) : (
                     <Link
                       href={href}
-                      className="inline-flex items-center rounded-lg bg-secondary px-5 py-2 text-sm font-bold uppercase tracking-wide text-white shadow-lg transition-transform hover:scale-105"
+                      className="inline-flex items-center rounded-lg bg-win px-4 py-2 text-xs font-extrabold uppercase tracking-wide text-win-foreground shadow-lg transition-transform hover:scale-105 sm:px-5 sm:text-sm"
                     >
                       {b.cta_label}
                     </Link>
@@ -112,7 +112,7 @@ export function BannerSlider({ banners }: { banners: Banner[] }) {
                 )}
                 <Link
                   href="/casino"
-                  className="inline-flex items-center rounded-lg border border-white/25 bg-white/10 px-5 py-2 text-sm font-semibold text-white backdrop-blur-sm hover:bg-white/20"
+                  className="inline-flex items-center rounded-lg border border-white/25 bg-white/10 px-4 py-2 text-xs font-semibold text-white backdrop-blur-sm hover:bg-white/20 sm:px-5 sm:text-sm"
                 >
                   Try demo
                 </Link>

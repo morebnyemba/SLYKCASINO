@@ -1,225 +1,199 @@
 'use client';
 
-import Link from 'next/link';
 import { useMemo, useState } from 'react';
-import { BsSearch } from 'react-icons/bs';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { BsSearch, BsXCircleFill } from 'react-icons/bs';
+import { GiTrophyCup } from 'react-icons/gi';
 import { LiveFeed } from '@/components/live-feed';
-import { SPORT_CATEGORIES, SportsSidebar } from '@/components/sports-sidebar';
-import { BetslipCard, BetslipDrawer } from '@/components/betslip-panel';
-import { useBetslip, type Selection } from '@/lib/betslip-context';
+import { SPORT_CATEGORIES } from '@/components/sports-sidebar';
+import { BetslipCard } from '@/components/betslip-panel';
+import { Carousel, CarouselItem } from '@/components/carousel';
+import { EventRow, FeaturedMatchCard, MarketHeader, sportMeta } from '@/components/event-row';
+import { useSettings } from '@/lib/settings-context';
+import { isLive, sortEvents, type EventItem } from '@/lib/sports';
 
-interface Team {
-  id: number;
-  name: string;
-  logo_url?: string | null;
-}
+type Tab = 'all' | 'live' | 'upcoming';
 
-interface EventItem {
-  id: string | number;
-  name: string;
-  sport?: string;
-  odds: number | string;
-  odds_draw?: number | string | null;
-  odds_away?: number | string | null;
-  previous_odds?: number | string | null;
-  is_open?: boolean;
-  starts_at?: string | null;
-  home_team?: Team | null;
-  away_team?: Team | null;
-}
-
-const TABS: { id: 'live' | 'upcoming' | 'all'; label: string }[] = [
-  { id: 'live', label: 'Live' },
-  { id: 'upcoming', label: 'Upcoming' },
-  { id: 'all', label: 'All' },
-];
-
-function isLive(ev: EventItem): boolean {
-  if (!ev.starts_at) return false;
-  return new Date(ev.starts_at).getTime() <= Date.now();
-}
-
-function TeamRow({ team, fallback }: { team?: Team | null; fallback: string }) {
-  return (
-    <div className="flex items-center gap-2 overflow-hidden">
-      {team?.logo_url ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={team.logo_url} alt={team.name} className="h-5 w-5 shrink-0 rounded-full object-cover" />
-      ) : (
-        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-chip text-[10px] font-bold text-muted-foreground">
-          {(team?.name ?? fallback).charAt(0).toUpperCase()}
-        </span>
-      )}
-      <span className="truncate text-sm font-semibold">{team?.name ?? fallback}</span>
-    </div>
-  );
-}
-
-/** A tappable price that adds/removes a selection from the shared bet slip. */
-function OddsButton({ ev, selection, label, odds, move }: {
-  ev: EventItem; selection: Selection; label: string; odds: number | string; move?: 'up' | 'down';
-}) {
-  const { isOnSlip, toggleLeg } = useBetslip();
-  const active = isOnSlip(ev.id, selection);
-  const numericOdds = Number(odds);
-  return (
-    <button
-      onClick={() => toggleLeg({ eventId: ev.id, eventName: ev.name, selection, odds: numericOdds })}
-      className={`flex w-[58px] flex-col items-center gap-0.5 rounded-lg border py-1.5 transition-colors ${
-        active ? 'border-secondary bg-secondary text-white' : 'border-border bg-muted/30 text-foreground hover:bg-accent/10'
-      }`}
-    >
-      <span className={`text-[9.5px] font-bold tracking-wide ${active ? 'text-white/80' : 'text-muted-foreground'}`}>{label}</span>
-      <span className="flex items-center gap-0.5 font-mono text-sm font-bold">
-        {numericOdds.toFixed(2)}
-        {move && <span className={`text-[9px] ${move === 'up' ? 'text-win' : 'text-down'}`}>{move === 'up' ? '▲' : '▼'}</span>}
-      </span>
-    </button>
-  );
-}
-
-export function SportsbookBrowser({ events }: { events: EventItem[] }) {
+export function SportsbookBrowser({ events, topMatches = [] }: { events: EventItem[]; topMatches?: EventItem[] }) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const params = useSearchParams();
+  const { showLiveFeed } = useSettings();
   const [search, setSearch] = useState('');
-  const [activeId, setActiveId] = useState<string | null>(null);
-  const [tab, setTab] = useState<'live' | 'upcoming' | 'all'>('all');
 
-  const openEvents = useMemo(() => events.filter((ev) => ev.is_open !== false), [events]);
+  // Sport and tab live in the URL so sidebar links and shared links land on the same view.
+  const sport = params.get('sport');
+  const tabParam = params.get('tab');
+  const tab: Tab = tabParam === 'live' || tabParam === 'upcoming' ? tabParam : 'all';
+
+  function update(next: { sport?: string | null; tab?: Tab }) {
+    const q = new URLSearchParams(params.toString());
+    if (next.sport !== undefined) {
+      if (next.sport) q.set('sport', next.sport); else q.delete('sport');
+    }
+    if (next.tab !== undefined) {
+      if (next.tab !== 'all') q.set('tab', next.tab); else q.delete('tab');
+    }
+    const qs = q.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  }
+
+  const openEvents = useMemo(() => sortEvents(events.filter((ev) => ev.is_open !== false)), [events]);
 
   const counts = useMemo(() => {
     const c: Record<string, number> = {};
-    for (const cat of SPORT_CATEGORIES) {
-      c[cat.id] = openEvents.filter((ev) => ev.sport === cat.id).length;
-    }
+    for (const ev of openEvents) if (ev.sport) c[ev.sport] = (c[ev.sport] ?? 0) + 1;
     return c;
   }, [openEvents]);
+  const liveCount = useMemo(() => openEvents.filter(isLive).length, [openEvents]);
 
   const filtered = useMemo(() => {
     let list = openEvents;
-    if (activeId) list = list.filter((ev) => ev.sport === activeId);
-    if (tab === 'live') list = list.filter((ev) => isLive(ev));
+    if (sport) list = list.filter((ev) => ev.sport === sport);
+    if (tab === 'live') list = list.filter(isLive);
     if (tab === 'upcoming') list = list.filter((ev) => !isLive(ev));
-    if (search) list = list.filter((ev) => ev.name.toLowerCase().includes(search.toLowerCase()));
+    const q = search.trim().toLowerCase();
+    if (q) {
+      list = list.filter((ev) =>
+        [ev.name, ev.home_team?.name, ev.away_team?.name].some((s) => s?.toLowerCase().includes(q)),
+      );
+    }
     return list;
-  }, [openEvents, activeId, tab, search]);
+  }, [openEvents, sport, tab, search]);
+
+  // Group by sport, in sidebar order, so each block gets its own 1/X/2 header.
+  const groups = useMemo(() => {
+    const order = [...SPORT_CATEGORIES.map((c) => c.id), undefined];
+    const bySport = new Map<string | undefined, EventItem[]>();
+    for (const ev of filtered) {
+      const key = SPORT_CATEGORIES.some((c) => c.id === ev.sport) ? ev.sport : undefined;
+      bySport.set(key, [...(bySport.get(key) ?? []), ev]);
+    }
+    return order.filter((k) => bySport.has(k)).map((k) => ({ sport: k, events: bySport.get(k)! }));
+  }, [filtered]);
+
+  const tabs: { id: Tab; label: string; count?: number }[] = [
+    { id: 'all', label: 'All matches' },
+    { id: 'live', label: 'Live', count: liveCount },
+    { id: 'upcoming', label: 'Upcoming' },
+  ];
 
   return (
-    <div className="grid gap-5 lg:grid-cols-[218px_1fr_320px]">
-      <aside className="hidden lg:block">
-        <div className="relative mb-3">
-          <BsSearch className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={13} />
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search events…"
-            className="w-full rounded-lg border border-border bg-card py-2.5 pl-8 pr-3 text-sm outline-none focus:ring-2 focus:ring-primary"
-          />
-        </div>
-        <SportsSidebar activeId={activeId} onSelect={setActiveId} counts={counts} />
-      </aside>
+    <div className="grid gap-5 xl:grid-cols-[1fr_340px]">
+      <section className="min-w-0 space-y-4">
+        {topMatches.length > 0 && !sport && tab === 'all' && (
+          <div>
+            <h2 className="mb-3 text-lg font-extrabold">Top matches</h2>
+            <Carousel>
+              {topMatches.map((ev) => (
+                <CarouselItem key={ev.id}>
+                  <FeaturedMatchCard ev={ev} />
+                </CarouselItem>
+              ))}
+            </Carousel>
+          </div>
+        )}
 
-      <section className="min-w-0">
-        <div className="mb-3 lg:hidden">
-          <div className="relative">
+        {/* Sport chips */}
+        <div className="no-scrollbar -mx-3 flex gap-2 overflow-x-auto px-3 sm:mx-0 sm:px-0">
+          {[{ id: null as string | null, label: 'All sports', icon: GiTrophyCup }, ...SPORT_CATEGORIES].map((cat) => {
+            const Icon = cat.icon;
+            const active = sport === cat.id;
+            const count = cat.id ? counts[cat.id] ?? 0 : openEvents.length;
+            return (
+              <button
+                key={cat.id ?? 'all'}
+                onClick={() => update({ sport: cat.id })}
+                className={`flex min-w-[76px] shrink-0 flex-col items-center gap-1.5 rounded-xl border px-3 py-2.5 text-[11.5px] font-bold transition-colors ${
+                  active
+                    ? 'border-secondary bg-secondary/15 text-foreground'
+                    : 'border-border bg-card text-muted-foreground hover:text-foreground'
+                } ${count === 0 && !active ? 'opacity-50' : ''}`}
+              >
+                <span className="relative">
+                  <Icon size={22} className={active ? 'text-secondary' : ''} />
+                  <span className="absolute -right-3.5 -top-1.5 rounded-full bg-muted px-1 text-[9.5px] font-extrabold text-muted-foreground">
+                    {count}
+                  </span>
+                </span>
+                <span className="whitespace-nowrap">{cat.label}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Tabs + search */}
+        <div className="sticky top-16 z-20 -mx-3 flex flex-col gap-2 bg-background/95 px-3 py-2 backdrop-blur sm:mx-0 sm:flex-row sm:items-center sm:px-0">
+          <div className="flex gap-1 rounded-xl border border-border bg-card p-1">
+            {tabs.map((t) => (
+              <button
+                key={t.id}
+                onClick={() => update({ tab: t.id })}
+                className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3.5 py-1.5 text-xs font-bold transition-colors sm:flex-none ${
+                  tab === t.id ? 'bg-secondary text-white' : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {t.id === 'live' && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-live" />}
+                {t.label}
+                {t.count != null && t.count > 0 && (
+                  <span className={`rounded-full px-1.5 text-[10px] ${tab === t.id ? 'bg-white/20' : 'bg-muted'}`}>{t.count}</span>
+                )}
+              </button>
+            ))}
+          </div>
+          <div className="relative sm:ml-auto sm:w-64">
             <BsSearch className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={13} />
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search events…"
-              className="w-full rounded-lg border border-border bg-card py-2.5 pl-8 pr-3 text-sm outline-none focus:ring-2 focus:ring-primary"
+              placeholder="Search teams or events"
+              aria-label="Search events"
+              className="w-full rounded-xl border border-border bg-card py-2.5 pl-9 pr-9 text-sm outline-none focus:ring-2 focus:ring-ring"
             />
-          </div>
-        </div>
-        <div className="sticky top-20 z-30 -mx-1 mb-4 bg-background px-1 py-2 lg:static lg:mx-0 lg:bg-transparent lg:px-0 lg:py-0">
-          <div className="flex items-center justify-end gap-1 rounded-xl border border-border bg-card p-1">
-            {TABS.map((t) => (
+            {search && (
               <button
-                key={t.id}
-                onClick={() => setTab(t.id)}
-                className={`flex-1 rounded-lg px-3.5 py-1.5 text-xs font-bold transition-colors lg:flex-none ${
-                  tab === t.id ? 'bg-secondary text-white' : 'text-muted-foreground hover:text-foreground'
-                }`}
+                onClick={() => setSearch('')}
+                aria-label="Clear search"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
               >
-                {t.label}
+                <BsXCircleFill size={13} />
               </button>
-            ))}
+            )}
           </div>
         </div>
 
-        <div className="space-y-2.5">
-          {filtered.length === 0 && (
-            <div className="rounded-2xl border border-border bg-card p-12 text-center text-sm text-muted-foreground">
-              No markets match your filters.
+        {groups.length === 0 && (
+          <div className="rounded-2xl border border-border bg-card p-12 text-center">
+            <p className="mb-1 font-bold">No matches found</p>
+            <p className="mb-4 text-sm text-muted-foreground">
+              {tab === 'live' ? 'Nothing is in play right now.' : 'Try another sport or clear your search.'}
+            </p>
+            {(sport || tab !== 'all' || search) && (
+              <button
+                onClick={() => { setSearch(''); update({ sport: null, tab: 'all' }); }}
+                className="rounded-lg bg-secondary px-4 py-2 text-xs font-bold text-white"
+              >
+                Show all matches
+              </button>
+            )}
+          </div>
+        )}
+
+        {groups.map((g) => {
+          const meta = sportMeta(g.sport);
+          return (
+            <div key={g.sport ?? 'other'} className="overflow-hidden rounded-2xl border border-border bg-card">
+              <MarketHeader title={meta.label} icon={meta.icon} count={g.events.length} />
+              {g.events.map((ev) => <EventRow key={ev.id} ev={ev} />)}
             </div>
-          )}
-          {filtered.length > 0 && (
-            <div className="hidden items-center px-4 pb-0.5 lg:flex">
-              <span className="flex-1 text-[10.5px] font-extrabold tracking-widest text-muted-foreground/60">EVENTS</span>
-              <div className="flex gap-2 pr-[72px]">
-                {['1', 'X', '2'].map((l) => (
-                  <span key={l} className="w-[58px] text-center text-[10.5px] font-extrabold tracking-wider text-muted-foreground/60">{l}</span>
-                ))}
-              </div>
-            </div>
-          )}
-          {filtered.map((ev) => {
-            const live = isLive(ev);
-            const prevOdds = ev.previous_odds != null ? Number(ev.previous_odds) : null;
-            const homeMove = prevOdds != null ? (Number(ev.odds) > prevOdds ? 'up' : Number(ev.odds) < prevOdds ? 'down' : undefined) : undefined;
-            const has3Way = ev.odds_draw != null;
-            return (
-              <div key={ev.id} className="overflow-hidden rounded-2xl border border-border bg-card transition-colors hover:bg-accent/5">
-                <div className="flex items-center gap-3.5 px-4 py-3">
-                  <div className="min-w-0 flex-1">
-                    <div className="mb-1.5">
-                      {live ? (
-                        <span className="inline-flex items-center gap-1.5 rounded-md bg-live/10 px-1.5 py-0.5 text-[10px] font-extrabold text-live">
-                          <span className="h-[5px] w-[5px] animate-pulse rounded-full bg-live" /> LIVE
-                        </span>
-                      ) : ev.starts_at ? (
-                        <span className="text-[10.5px] font-bold text-muted-foreground">
-                          {new Date(ev.starts_at).toLocaleString(undefined, { weekday: 'short', hour: '2-digit', minute: '2-digit' })}
-                        </span>
-                      ) : (
-                        <span className="text-[10.5px] font-bold text-muted-foreground">Time TBC</span>
-                      )}
-                    </div>
-                    <div className="max-w-[280px] space-y-1">
-                      <TeamRow team={ev.home_team} fallback={ev.name.split(' v ')[0] ?? ev.name} />
-                      {has3Way && (
-                        <TeamRow team={ev.away_team} fallback={ev.name.split(' v ')[1] ?? ''} />
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-2">
-                    {has3Way ? (
-                      <>
-                        <OddsButton ev={ev} selection="home" label="1" odds={ev.odds} move={homeMove} />
-                        <OddsButton ev={ev} selection="draw" label="X" odds={Number(ev.odds_draw)} />
-                        <OddsButton ev={ev} selection="away" label="2" odds={Number(ev.odds_away)} />
-                      </>
-                    ) : (
-                      <OddsButton ev={ev} selection="home" label="ODDS" odds={ev.odds} move={homeMove} />
-                    )}
-                    <Link
-                      href={`/sportsbook/${ev.id}`}
-                      className="hidden items-center gap-1 rounded-lg border border-border px-2.5 py-2 text-[11px] font-bold text-muted-foreground hover:border-primary hover:text-primary sm:flex"
-                    >
-                      More <span className="text-[9px]">›</span>
-                    </Link>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+          );
+        })}
       </section>
 
-      <aside className="hidden space-y-4 lg:block">
+      <aside className="hidden space-y-4 xl:block">
         <BetslipCard />
-        <LiveFeed channel="odds" title="Live Odds" height={200} />
+        {showLiveFeed && <LiveFeed channel="odds" title="Live Odds" height={200} />}
       </aside>
-
-      <BetslipDrawer />
     </div>
   );
 }

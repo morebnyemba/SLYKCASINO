@@ -153,7 +153,7 @@ export default function GamePage({ params, searchParams }: PageProps) {
           {demoMode && (
             <p className="text-center text-xs text-muted-foreground">
               Practice mode — no real money.{' '}
-              <Link href={`/casino/${slug}?id=${gameId ?? ''}`} className="text-primary underline-offset-2 hover:underline">
+              <Link href={`/casino/${slug}?id=${gameId ?? ''}`} className="text-secondary underline-offset-2 hover:underline">
                 Play for real
               </Link>
             </p>
@@ -166,7 +166,7 @@ export default function GamePage({ params, searchParams }: PageProps) {
             {reels.map((sym, i) => (
               <div
                 key={i}
-                className={`flex h-20 w-20 items-center justify-center rounded-xl border-2 border-border bg-card text-4xl shadow-inner transition-all ${spinning ? 'animate-pulse border-primary' : ''}`}
+                className={`flex h-20 w-20 items-center justify-center rounded-xl border-2 border-border bg-card text-4xl shadow-inner transition-all ${spinning ? 'animate-pulse border-secondary' : ''}`}
               >
                 {sym}
               </div>

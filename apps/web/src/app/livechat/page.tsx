@@ -173,7 +173,7 @@ export default function LiveChatPage() {
                     <p className="mb-0.5 flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
                       {m.sender}
                       {m.is_agent && (
-                        <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">Agent</span>
+                        <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-secondary">Agent</span>
                       )}
                     </p>
                   )}
@@ -209,7 +209,7 @@ export default function LiveChatPage() {
             </form>
           ) : (
             <p className="text-center text-sm text-muted-foreground">
-              <a href="/login" className="text-primary hover:underline">Log in</a> to send messages.
+              <a href="/login" className="text-secondary hover:underline">Log in</a> to send messages.
             </p>
           )}
         </div>

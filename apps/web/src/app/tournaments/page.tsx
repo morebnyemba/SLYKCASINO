@@ -162,7 +162,7 @@ export default function TournamentsPage() {
                   ) : (
                     <a
                       href="/login"
-                      className="block w-full rounded-md border border-primary px-4 py-2 text-center text-sm font-medium text-primary hover:bg-primary/10"
+                      className="block w-full rounded-md border border-secondary px-4 py-2 text-center text-sm font-medium text-secondary hover:bg-primary/10"
                     >
                       Log in to join
                     </a>

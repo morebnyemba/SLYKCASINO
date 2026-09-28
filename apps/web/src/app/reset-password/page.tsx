@@ -69,7 +69,7 @@ function ResetPasswordForm() {
           {success ? (
             <div className="space-y-3">
               <p className="text-green-600">Password reset successfully!</p>
-              <Link href="/login" className="text-primary underline-offset-4 hover:underline">
+              <Link href="/login" className="text-secondary underline-offset-4 hover:underline">
                 Go to login
               </Link>
             </div>

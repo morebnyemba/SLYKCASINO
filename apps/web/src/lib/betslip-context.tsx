@@ -38,6 +38,9 @@ interface BetslipContextValue {
   removeLeg: (eventId: string | number, selection: Selection) => void;
   clear: () => void;
   place: () => Promise<void>;
+  /** Mobile bet-slip sheet visibility, shared so the bottom nav can open it. */
+  slipOpen: boolean;
+  setSlipOpen: (open: boolean) => void;
 }
 
 const BetslipContext = createContext<BetslipContextValue | null>(null);
@@ -50,6 +53,7 @@ export function BetslipProvider({ children }: { children: React.ReactNode }) {
   const [legStakes, setLegStakes] = useState<Record<string, string>>({});
   const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [slipOpen, setSlipOpen] = useState(false);
 
   // Restore a slip the player was building before navigating/refreshing.
   useEffect(() => {
@@ -166,6 +170,7 @@ export function BetslipProvider({ children }: { children: React.ReactNode }) {
     legs, mode, setMode, accaStake, setAccaStake, legStakes, setLegStake,
     combinedOdds, potentialPayout, status, busy,
     isOnSlip, toggleLeg, removeLeg, clear, place,
+    slipOpen, setSlipOpen,
   };
   return <BetslipContext.Provider value={value}>{children}</BetslipContext.Provider>;
 }

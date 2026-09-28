@@ -114,7 +114,7 @@ export default function VerificationPage() {
                 <select
                   value={documentType}
                   onChange={(e) => setDocumentType(e.target.value)}
-                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                 >
                   {DOCUMENT_TYPES.map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}
                 </select>
@@ -126,7 +126,7 @@ export default function VerificationPage() {
                   accept="image/*,.pdf"
                   required
                   onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                 />
               </div>
               {submitError && <p className="col-span-2 text-sm text-destructive">{submitError}</p>}

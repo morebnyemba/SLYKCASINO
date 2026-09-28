@@ -15,14 +15,14 @@ const PAYMENTS = ['EcoCash', 'OneMoney', 'Visa', 'Mastercard', 'USDT', 'Innbucks
 export function SiteFooter() {
   const identity = useSiteIdentity();
   return (
-    <footer className="mt-12 border-t border-border bg-card">
-      <div className="mx-auto max-w-6xl px-6 py-8 text-sm text-muted-foreground">
+    <footer className="mt-12 border-t border-border bg-sidebar">
+      <div className="mx-auto max-w-[1440px] px-5 py-8 text-sm text-muted-foreground">
         <div className="flex flex-wrap items-center gap-x-6 gap-y-3 border-b border-border pb-6">
           {TRUST.map((t) => {
             const Icon = t.icon;
             return (
               <span key={t.label} className="flex items-center gap-2">
-                <Icon size={14} className="text-primary" />
+                <Icon size={14} className="text-secondary" />
                 {t.label}
               </span>
             );
@@ -47,7 +47,7 @@ export function SiteFooter() {
               Gambling can be addictive. Set deposit limits, take breaks, and never bet more than you can
               afford to lose.
             </p>
-            <Link href="/account/settings" className="text-xs text-primary underline-offset-2 hover:underline">
+            <Link href="/account/settings" className="text-xs text-secondary underline-offset-2 hover:underline">
               Responsible gambling controls →
             </Link>
           </div>

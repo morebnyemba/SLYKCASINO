@@ -21,7 +21,7 @@ export function Carousel({ children, className = '' }: CarouselProps) {
     <div className={`group relative ${className}`}>
       <div
         ref={trackRef}
-        className="flex snap-x snap-mandatory gap-4 overflow-x-auto scroll-smooth pb-2 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        className="flex snap-x snap-mandatory gap-3 overflow-x-auto scroll-smooth pb-2 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
         {children}
       </div>
@@ -29,7 +29,7 @@ export function Carousel({ children, className = '' }: CarouselProps) {
         type="button"
         aria-label="Scroll left"
         onClick={() => scrollBy(-1)}
-        className="absolute left-1 top-1/2 hidden h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full bg-foreground/80 text-white opacity-0 shadow-md transition-opacity group-hover:opacity-100 sm:flex"
+        className="absolute left-1 top-1/2 hidden h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-border bg-card text-foreground opacity-0 shadow-lg transition-opacity group-hover:opacity-100 sm:flex"
       >
         <FaChevronLeft size={13} />
       </button>
@@ -37,7 +37,7 @@ export function Carousel({ children, className = '' }: CarouselProps) {
         type="button"
         aria-label="Scroll right"
         onClick={() => scrollBy(1)}
-        className="absolute right-1 top-1/2 hidden h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full bg-foreground/80 text-white opacity-0 shadow-md transition-opacity group-hover:opacity-100 sm:flex"
+        className="absolute right-1 top-1/2 hidden h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-border bg-card text-foreground opacity-0 shadow-lg transition-opacity group-hover:opacity-100 sm:flex"
       >
         <FaChevronRight size={13} />
       </button>
