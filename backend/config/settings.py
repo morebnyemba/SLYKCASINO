@@ -206,10 +206,11 @@ API_FOOTBALL_LEAGUES = [
 API_FOOTBALL_SEASON = int(os.environ.get('API_FOOTBALL_SEASON', str(datetime.now().year)))
 # How many of each configured league's next upcoming fixtures to import per run.
 API_FOOTBALL_IMPORT_NEXT = int(os.environ.get('API_FOOTBALL_IMPORT_NEXT', '20'))
-# Import odds-feed markets that can't be settled from the score (corners, cards,
-# goalscorers…). They're shown and bettable, but an operator must settle each one
-# from the admin Events page. Set to false to only offer score-settled markets.
-SPORTSBOOK_IMPORT_MANUAL_MARKETS = os.environ.get('SPORTSBOOK_IMPORT_MANUAL_MARKETS', 'true').lower() == 'true'
+# Every bet type the importer recognises (goals, handicaps, halves, corners,
+# cards, goalscorers, combos…) settles automatically from the match facts.
+# Set to true to ALSO offer unrecognised bet types; those must be settled by an
+# operator from the admin Events page.
+SPORTSBOOK_IMPORT_MANUAL_MARKETS = os.environ.get('SPORTSBOOK_IMPORT_MANUAL_MARKETS', 'false').lower() == 'true'
 
 # ---------------------------------------------------------------------------
 # Celery — workers run domain recovery; beat schedules reconciliation passes.
@@ -236,6 +237,12 @@ CELERY_BEAT_SCHEDULE = {
     'sportsbook-sync-live-fixtures': {
         'task': 'apps.sportsbook.tasks.sync_live_fixtures',
         'schedule': 60.0,
+    },
+    'sportsbook-settle-finished-fixtures': {
+        'task': 'apps.sportsbook.tasks.settle_finished_fixtures',
+        # Every 5 min: settles finished matches (the live poll loses them at FT)
+        # and retries until corners/cards/scorer stats are published.
+        'schedule': 300.0,
     },
     'sportsbook-sync-fixture-odds': {
         'task': 'apps.sportsbook.tasks.sync_fixture_odds',

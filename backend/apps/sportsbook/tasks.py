@@ -49,3 +49,14 @@ def import_upcoming_fixtures() -> int:
     for league in leagues:
         total += services.sync_provider_events(league=league, season=season, next_count=next_count)
     return total
+
+
+@shared_task(name='apps.sportsbook.tasks.settle_finished_fixtures')
+def settle_finished_fixtures() -> int:
+    """Settle recently finished fixtures end to end: 1X2, score markets, and
+    corners/cards/goalscorer markets once api-football publishes the match
+    statistics and events. The live poll can't do this on its own because a
+    fixture drops out of `live=all` as soon as it finishes. Retries every run
+    until everything on the fixture is settled (bounded to the last few days).
+    No-op if API_FOOTBALL_KEY is unset."""
+    return services.settle_finished_fixtures()

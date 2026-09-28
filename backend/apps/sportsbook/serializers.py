@@ -23,7 +23,10 @@ class MarketSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Market
-        fields = ['id', 'key', 'name', 'group', 'kind', 'period', 'line', 'is_open', 'settled', 'outcomes']
+        fields = [
+            'id', 'key', 'name', 'group', 'kind', 'metric', 'period', 'line', 'is_open', 'settled',
+            'needs_review', 'outcomes',
+        ]
 
 
 class EventSerializer(serializers.ModelSerializer):
@@ -48,7 +51,8 @@ class EventDetailSerializer(EventSerializer):
     markets = MarketSerializer(many=True, read_only=True)
 
     class Meta(EventSerializer.Meta):
-        fields = EventSerializer.Meta.fields + ['markets']
+        fields = EventSerializer.Meta.fields + ['markets', 'match_facts']
+        read_only_fields = EventSerializer.Meta.read_only_fields + ['match_facts']
 
 
 class _OutcomeLabelsMixin(serializers.Serializer):

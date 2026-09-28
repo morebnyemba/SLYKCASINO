@@ -60,8 +60,8 @@ class MarketAdmin(admin.ModelAdmin):
     # Markets are imported from the odds feed; operators suspend (is_open) or
     # fix prices here. Settle through the API (settle-score / markets/<id>/settle)
     # so bets are paid out — editing `result` here does not move money.
-    list_display = ('name', 'event', 'group', 'kind', 'period', 'line', 'is_open', 'settled')
-    list_filter = ('group', 'kind', 'is_open', 'settled')
+    list_display = ('name', 'event', 'group', 'kind', 'metric', 'period', 'line', 'is_open', 'settled', 'needs_review')
+    list_filter = ('needs_review', 'settled', 'group', 'kind', 'metric', 'is_open')
     search_fields = ('name', 'event__name', 'key')
     raw_id_fields = ('event',)
     inlines = [MarketOutcomeInline]

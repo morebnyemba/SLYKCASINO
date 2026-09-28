@@ -30,6 +30,7 @@ export interface EventItem {
   markets_count?: number;
   /** Every market (detail endpoint). */
   markets?: Market[];
+  match_facts?: MatchFacts | null;
 }
 
 export interface MarketOutcome {
@@ -42,7 +43,8 @@ export interface MarketOutcome {
   result: 'pending' | 'won' | 'lost' | 'void';
 }
 
-export type MarketGroup = 'main' | 'goals' | 'halves' | 'handicap' | 'score' | 'teams' | 'specials';
+export type MarketGroup =
+  | 'main' | 'goals' | 'halves' | 'handicap' | 'score' | 'teams' | 'corners' | 'cards' | 'scorers' | 'specials';
 
 export interface Market {
   id: number;
@@ -50,6 +52,8 @@ export interface Market {
   name: string;
   group: MarketGroup;
   kind: string;
+  /** What count-based markets count. */
+  metric?: 'goals' | 'corners' | 'cards';
   period: 'ft' | '1h' | '2h';
   line?: string | null;
   is_open: boolean;
@@ -63,9 +67,20 @@ export const MARKET_GROUPS: { id: MarketGroup; label: string }[] = [
   { id: 'handicap', label: 'Handicaps' },
   { id: 'halves', label: 'Halves' },
   { id: 'teams', label: 'Team' },
+  { id: 'scorers', label: 'Goalscorers' },
   { id: 'score', label: 'Correct score' },
+  { id: 'corners', label: 'Corners' },
+  { id: 'cards', label: 'Cards' },
   { id: 'specials', label: 'Specials' },
 ];
+
+/** Post-match facts used for settlement (event detail). */
+export interface MatchFacts {
+  corners?: [number, number];
+  yellow?: [number, number];
+  red?: [number, number];
+  goals?: { minute: number; extra?: number; side: 'home' | 'away'; player: string; own_goal?: boolean; penalty?: boolean }[];
+}
 
 const IN_PLAY = new Set(['1H', 'HT', '2H', 'ET', 'BT', 'P', 'SUSP', 'INT', 'LIVE']);
 const FINISHED = new Set(['FT', 'AET', 'PEN']);

@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useMemo, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import { BsChevronLeft, BsChevronDown, BsCheckCircleFill, BsLockFill } from 'react-icons/bs';
 import { OddsButton } from '@/components/odds-button';
 import { LiveBadge, TeamBadge, sportMeta } from '@/components/event-row';
@@ -29,7 +29,7 @@ function buildBlocks(markets: Market[]): Block[] {
       blocks.push({ type: 'single', id: `m${m.id}`, group: m.group, market: m });
       continue;
     }
-    const key = `${m.kind}:${m.period}`;
+    const key = `${m.kind}:${m.metric ?? 'goals'}:${m.period}`;
     let block = lined.get(key);
     if (!block) {
       block = { type: 'lines', id: key, group: m.group, name: m.name.replace(/\s[+-]?\d+(\.\d+)?$/, ''), markets: [] };
@@ -122,6 +122,7 @@ export function EventMarkets({ ev }: { ev: EventItem }) {
   const closed = ev.is_open === false;
   const clock = matchClock(ev);
   const names = (text: string) => withTeamNames(text, home, away);
+  const facts = ev.match_facts;
 
   const hasDraw = live.odds_draw != null;
   const hasAway = live.odds_away != null;
@@ -163,6 +164,7 @@ export function EventMarkets({ ev }: { ev: EventItem }) {
   });
 
   function renderSingle(m: Market) {
+    if (m.group === 'scorers') return renderScorers(m);
     const many = m.outcomes.length > 3;
     const cols = m.outcomes.length === 2 ? 'grid-cols-2' : many ? 'grid-cols-2 sm:grid-cols-3' : 'grid-cols-3';
     return (
@@ -171,6 +173,19 @@ export function EventMarkets({ ev }: { ev: EventItem }) {
           {m.outcomes.map((o) => m.settled
             ? <SettledOutcome key={o.id} outcome={o} label={names(o.label)} stack={m.outcomes.length === 3} />
             : <OddsButton key={o.id} {...outcomeProps(m, o)} label={names(o.label)} size="sm" stackOnMobile={m.outcomes.length === 3} />)}
+        </div>
+      </Collapsible>
+    );
+  }
+
+  /** Goalscorer markets can list dozens of players: two columns of name + price. */
+  function renderScorers(m: Market) {
+    return (
+      <Collapsible key={m.id} title={m.name} badge={<StatusBadge market={m} />}>
+        <div className="grid gap-2 sm:grid-cols-2">
+          {m.outcomes.map((o) => m.settled
+            ? <SettledOutcome key={o.id} outcome={o} label={o.label} />
+            : <OddsButton key={o.id} {...outcomeProps(m, o)} label={o.label} size="sm" />)}
         </div>
       </Collapsible>
     );
@@ -190,7 +205,7 @@ export function EventMarkets({ ev }: { ev: EventItem }) {
         badge={!anyOpen ? <StatusBadge market={block.markets[0]} /> : undefined}
       >
         <div className={`mb-1.5 grid gap-2 px-0.5 text-center text-[11px] font-extrabold text-muted-foreground ${grid}`}>
-          <span className="text-left">{signed ? 'Line' : 'Goals'}</span>
+          <span className="text-left">{signed ? 'Line' : ({ corners: 'Corners', cards: 'Cards' } as Record<string, string>)[block.markets[0].metric ?? ''] ?? 'Goals'}</span>
           {columns.map((c) => <span key={c} className="truncate">{colLabel(c)}</span>)}
         </div>
         <div className="space-y-1.5">
@@ -261,6 +276,37 @@ export function EventMarkets({ ev }: { ev: EventItem }) {
           </div>
         </div>
       </div>
+
+      {facts && (facts.corners || facts.yellow || facts.goals?.length) ? (
+        <div className="grid gap-3 rounded-2xl border border-border bg-card p-4 text-sm sm:grid-cols-2">
+          {facts.goals && facts.goals.length > 0 && (
+            <ul className="space-y-1">
+              {facts.goals.map((g, i) => (
+                <li key={i} className={`flex items-center gap-2 ${g.side === 'away' ? 'sm:justify-start' : ''}`}>
+                  <span className="w-10 shrink-0 text-xs font-bold tabular-nums text-muted-foreground">
+                    {g.minute}{g.extra ? `+${g.extra}` : ''}'
+                  </span>
+                  <span className="font-semibold">{g.player}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {g.own_goal ? '(OG)' : g.penalty ? '(pen)' : ''} · {g.side === 'home' ? home : away}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+          <dl className="grid grid-cols-[1fr_auto_1fr] items-center gap-x-3 gap-y-1 text-center">
+            {([['Corners', facts.corners], ['Yellow cards', facts.yellow], ['Red cards', facts.red]] as const)
+              .filter(([, v]) => v)
+              .map(([label, v]) => (
+                <Fragment key={label}>
+                  <dd className="font-extrabold tabular-nums">{v![0]}</dd>
+                  <dt className="text-xs font-semibold text-muted-foreground">{label}</dt>
+                  <dd className="font-extrabold tabular-nums">{v![1]}</dd>
+                </Fragment>
+              ))}
+          </dl>
+        </div>
+      ) : null}
 
       {(closed || finished) && (
         <p className="rounded-xl border border-border bg-card px-4 py-3 text-sm font-semibold text-muted-foreground">

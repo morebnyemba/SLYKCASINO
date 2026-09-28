@@ -86,6 +86,9 @@ class FixtureUpdate:
     ft_home: Optional[int] = None
     ft_away: Optional[int] = None
     elapsed: Optional[int] = None
+    # Post-match facts (corners, cards, goal events, participants) when the
+    # payload carried them — see normalize_facts. Same shape as Event.match_facts.
+    facts: Optional[dict] = None
 
     @property
     def is_finished(self) -> bool:
@@ -114,6 +117,91 @@ class FixtureUpdate:
         if home < away:
             return 'away'
         return 'draw'
+
+
+def _side_resolver(raw: dict[str, Any]):
+    teams = raw.get('teams') or {}
+    home_id = (teams.get('home') or {}).get('id')
+    away_id = (teams.get('away') or {}).get('id')
+
+    def side(team: Optional[dict[str, Any]]) -> Optional[str]:
+        tid = (team or {}).get('id')
+        if tid is not None and tid == home_id:
+            return 'home'
+        if tid is not None and tid == away_id:
+            return 'away'
+        return None
+    return side
+
+
+def normalize_facts(raw: dict[str, Any]) -> Optional[dict]:
+    """Corners, cards, goal events and participants from an api-football fixture
+    record (present when fetched by id). Returns None if the record has none of
+    them. Goals after 90' (extra time) are dropped — markets settle on 90 minutes.
+    Own goals are credited to the benefiting team; if the feed's attribution
+    doesn't add up to the score, the other convention is tried (see settlement)."""
+    events = raw.get('events')
+    statistics = raw.get('statistics')
+    lineups = raw.get('lineups')
+    if not events and not statistics and not lineups:
+        return None
+    side = _side_resolver(raw)
+    status = str(((raw.get('fixture') or {}).get('status') or {}).get('short', ''))
+    facts: dict[str, Any] = {'extra_time': status in ('AET', 'PEN')}
+
+    if statistics:
+        per_side: dict[str, dict[str, int]] = {}
+        for block in statistics:
+            s = side(block.get('team'))
+            if s is None:
+                continue
+            values = {str(st.get('type')): st.get('value') for st in block.get('statistics') or []}
+            per_side[s] = {
+                'corners': int(values.get('Corner Kicks') or 0),
+                'yellow': int(values.get('Yellow Cards') or 0),
+                'red': int(values.get('Red Cards') or 0),
+            }
+        if 'home' in per_side and 'away' in per_side:
+            for key in ('corners', 'yellow', 'red'):
+                facts[key] = [per_side['home'][key], per_side['away'][key]]
+
+    if events is not None:
+        goals = []
+        for ev in events:
+            if str(ev.get('type')) != 'Goal' or str(ev.get('detail')) == 'Missed Penalty':
+                continue
+            time = ev.get('time') or {}
+            elapsed = int(time.get('elapsed') or 0)
+            if elapsed > 90:
+                continue  # extra time
+            team_side = side(ev.get('team'))
+            if team_side is None:
+                continue
+            goals.append({
+                'minute': elapsed, 'extra': int(time.get('extra') or 0), 'side': team_side,
+                'player': str((ev.get('player') or {}).get('name') or ''),
+                'own_goal': str(ev.get('detail')) == 'Own Goal',
+                'penalty': str(ev.get('detail')) == 'Penalty',
+            })
+        goals.sort(key=lambda g: (g['minute'], g['extra']))
+        facts['goals'] = goals
+
+    if lineups:
+        names: list[str] = []
+        for team in lineups:
+            for entry in team.get('startXI') or []:
+                name = (entry.get('player') or {}).get('name')
+                if name:
+                    names.append(str(name))
+        # Substitutions name both players; whoever came on took part.
+        for ev in events or []:
+            if str(ev.get('type')).lower() == 'subst':
+                for who in (ev.get('player'), ev.get('assist')):
+                    name = (who or {}).get('name')
+                    if name:
+                        names.append(str(name))
+        facts['participants'] = sorted(set(names))
+    return facts
 
 
 class ApiFootballClient:
@@ -182,6 +270,28 @@ class ApiFootballClient:
             return []
         return [self._normalize(raw) for raw in payload.get('response', [])]
 
+    def fetch_fixtures_by_ids(self, ids: list[str]) -> list[FixtureUpdate]:
+        """Full fixture records (score, status, events, statistics, lineups) for
+        specific fixtures — what post-match settlement needs. api-football takes
+        up to 20 ids per call. Returns what it could fetch; errors are logged."""
+        if not self.api_key or not ids:
+            return []
+        fixtures: list[FixtureUpdate] = []
+        for start in range(0, len(ids), 20):
+            chunk = [i for i in ids[start:start + 20] if i]
+            try:
+                resp = requests.get(
+                    f'{self.base_url}/fixtures', params={'ids': '-'.join(chunk)}, timeout=10,
+                    headers={'x-apisports-key': self.api_key},
+                )
+                resp.raise_for_status()
+                payload = resp.json()
+            except (requests.RequestException, ValueError):
+                logger.warning('api-football fetch_fixtures_by_ids failed', exc_info=True)
+                continue
+            fixtures.extend(self._normalize(raw) for raw in payload.get('response', []))
+        return fixtures
+
     def fetch_odds(
         self, *, date: Optional[str] = None, fixture: Optional[str] = None,
         league: Optional[int] = None, season: Optional[int] = None,
@@ -247,6 +357,7 @@ class ApiFootballClient:
             ft_home=fulltime.get('home'),
             ft_away=fulltime.get('away'),
             elapsed=status.get('elapsed'),
+            facts=normalize_facts(raw),
         )
 
     def _normalize_team(self, raw: Optional[dict[str, Any]]) -> Optional[TeamInfo]:
@@ -327,7 +438,7 @@ class ApiFootballClient:
                     continue
         if snapshot is None:
             return None
-        include_manual = getattr(settings, 'SPORTSBOOK_IMPORT_MANUAL_MARKETS', True)
+        include_manual = getattr(settings, 'SPORTSBOOK_IMPORT_MANUAL_MARKETS', False)
         markets = parse_markets(list(bets_by_name.values()), include_manual=include_manual)
         return OddsSnapshot(
             external_id=snapshot.external_id, odds_home=snapshot.odds_home,

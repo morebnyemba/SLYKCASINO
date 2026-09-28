@@ -129,8 +129,8 @@ class FeedParsingTests(SimpleTestCase):
         self.assertEqual([o.key for o in by_key['double_chance:ft'].outcomes], ['1x', '12', 'x2'])
 
     def test_unknown_bets_become_manual_unless_disabled(self):
-        bet = {'name': 'Corners Over Under', 'values': [
-            {'value': 'Over 9.5', 'odd': '1.8'}, {'value': 'Under 9.5', 'odd': '1.9'},
+        bet = {'name': 'Player Shots On Target', 'values': [
+            {'value': 'Over 1.5', 'odd': '1.8'}, {'value': 'Under 1.5', 'odd': '1.9'},
         ]}
         self.assertEqual(parse_markets([bet])[0].kind, 'manual')
         self.assertEqual(parse_markets([bet], include_manual=False), [])

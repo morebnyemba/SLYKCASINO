@@ -5,7 +5,8 @@ Each api-football bet type maps to a settlement kind (settlement.py), a display
 group, and a period. Bet types that carry several lines in one list ("Over 2.5",
 "Under 2.5", "Over 3.5"…) are split into one market per line. Bet types we can't
 settle from the score (corners, cards, scorers…) come through as MANUAL markets
-for an operator to settle, when `include_manual` is set.
+for an operator to settle, only when `include_manual` is set — every bet type
+listed in SPECS settles automatically from the match facts (see settlement.py).
 """
 from __future__ import annotations
 
@@ -33,6 +34,7 @@ class FeedMarketData:
     line: Optional[Decimal]
     sort_order: int
     outcomes: tuple[FeedOutcome, ...]
+    metric: str = 'goals'
 
 
 # -- value parsers: raw api-football value -> (outcome key, label, line | None) ----
@@ -79,8 +81,8 @@ def _over_under(value: str) -> Parsed:
     if not m:
         return None
     line = _dec(m.group(2))
-    if line is None:
-        return None
+    if line is None or (line * 2) % 1 != 0:
+        return None  # quarter lines split the stake — not offered
     side = m.group(1).lower()
     return side, f'{side.title()} {format(line.normalize(), "f")}', line
 
@@ -138,6 +140,43 @@ def _ht_ft(value: str) -> Parsed:
     return f'{parts[0]}/{parts[1]}', f'{names[parts[0]]} / {names[parts[1]]}', None
 
 
+_team_first = _one_of({
+    'home': ('home', 'Home'), 'away': ('away', 'Away'),
+    # api-football prices "no goal" as the Draw outcome of this market.
+    'draw': ('none', 'No goal'), 'no goal': ('none', 'No goal'), 'none': ('none', 'No goal'),
+})
+
+
+def _result_btts(value: str) -> Parsed:
+    m = re.fullmatch(r'(home|draw|away)\s*/\s*(yes|no)', value.strip(), re.I)
+    if not m:
+        return None
+    res, btts = m.group(1).lower(), m.group(2).lower()
+    return f'{res}/{btts}', f'{res.title()} & {"Yes" if btts == "yes" else "No"}', None
+
+
+def _result_total(value: str) -> Parsed:
+    m = re.fullmatch(rf'(home|draw|away)\s*/\s*(over|under)\s+{_NUM}', value.strip(), re.I)
+    if not m:
+        return None
+    line = _dec(m.group(3))
+    if line is None or (line * 2) % 1 != 0:
+        return None
+    res, side = m.group(1).lower(), m.group(2).lower()
+    return f'{res}/{side}', f'{res.title()} & {side.title()} {format(line.normalize(), "f")}', line
+
+
+def _scorer(value: str) -> Parsed:
+    """Goalscorer markets: the value is a player's name (or "No goal")."""
+    name = value.strip()
+    if not name:
+        return None
+    if name.lower() in ('no goal', 'no goalscorer', 'no goal scorer', 'none'):
+        return 'none', 'No goalscorer', None
+    key = re.sub(r'[^a-z0-9]+', '_', name.lower()).strip('_')[:40]
+    return (key, name[:80], None) if key else None
+
+
 def _generic(value: str) -> Parsed:
     """Manual markets: keep the provider's wording, derive a stable key from it."""
     label = value.strip()[:60]
@@ -153,6 +192,7 @@ class _Spec:
     name: str
     parse: Callable[[str], Parsed]
     split_lines: bool = False
+    metric: str = 'goals'
 
 
 # Order here is display order (sort_order) within the event page.
@@ -180,7 +220,67 @@ SPECS: dict[str, _Spec] = {
     'Highest Scoring half': _Spec('highest_scoring_half', 'halves', 'ft', 'Highest scoring half', _highest_half),
     'Exact Score': _Spec('correct_score', 'score', 'ft', 'Correct score', _correct_score),
     'Correct Score - First Half': _Spec('correct_score', 'score', '1h', '1st half correct score', _correct_score),
+    'Correct Score - Second Half': _Spec('correct_score', 'score', '2h', '2nd half correct score', _correct_score),
+    # Result combos and first/last goal
+    'Results/Both Teams Score': _Spec('result_btts', 'main', 'ft', 'Result & both teams to score', _result_btts),
+    'Result/Total Goals': _Spec('result_total', 'main', 'ft', 'Result & total goals', _result_total, True),
+    'Team To Score First': _Spec('first_team_to_score', 'goals', 'ft', 'Team to score first', _team_first),
+    'Team To Score Last': _Spec('last_team_to_score', 'goals', 'ft', 'Team to score last', _team_first),
+    'Own Goal': _Spec('own_goal', 'goals', 'ft', 'Own goal in the match', _yes_no),
+    'Win To Nil': _Spec('win_to_nil', 'teams', 'ft', 'To win to nil', _two_way),
+    'Home Team Score a Goal': _Spec('team_to_score_home', 'teams', 'ft', 'Home team to score', _yes_no),
+    'Away Team Score a Goal': _Spec('team_to_score_away', 'teams', 'ft', 'Away team to score', _yes_no),
+    'Home Team Exact Goals Number': _Spec('home_exact_goals', 'teams', 'ft', 'Home team exact goals', _exact_goals),
+    'Away Team Exact Goals Number': _Spec('away_exact_goals', 'teams', 'ft', 'Away team exact goals', _exact_goals),
+    # Half variants
+    'Win Both Halves': _Spec('win_both_halves', 'halves', 'ft', 'To win both halves', _two_way),
+    'To Win Either Half': _Spec('win_either_half', 'halves', 'ft', 'To win either half', _two_way),
+    'To Score In Both Halves By Teams': _Spec('score_both_halves', 'halves', 'ft', 'To score in both halves', _two_way),
+    'Double Chance - First Half': _Spec('double_chance', 'halves', '1h', '1st half double chance', _double_chance),
+    'Double Chance - Second Half': _Spec('double_chance', 'halves', '2h', '2nd half double chance', _double_chance),
+    'Odd/Even - First Half': _Spec('odd_even', 'halves', '1h', '1st half goals odd/even', _odd_even),
+    'Odd/Even - Second Half': _Spec('odd_even', 'halves', '2h', '2nd half goals odd/even', _odd_even),
+    'Exact Goals Number - First Half': _Spec('exact_goals', 'halves', '1h', '1st half exact goals', _exact_goals),
+    'Second Half Exact Goals Number': _Spec('exact_goals', 'halves', '2h', '2nd half exact goals', _exact_goals),
+    'Both Teams To Score - Second Half': _Spec('btts', 'halves', '2h', '2nd half both teams to score', _yes_no),
+    'Handicap Result - First Half': _Spec('handicap_result', 'halves', '1h', '1st half handicap result', _handicap_result, True),
+    'Asian Handicap First Half': _Spec('asian_handicap', 'halves', '1h', '1st half Asian handicap', _asian_handicap, True),
+    # Corners (settled from match statistics)
+    'Corners 1x2': _Spec('match_result', 'corners', 'ft', 'Corners match result', _three_way, metric='corners'),
+    'Corners Over Under': _Spec('over_under', 'corners', 'ft', 'Total corners', _over_under, True, 'corners'),
+    'Home Corners Over/Under': _Spec('home_over_under', 'corners', 'ft', 'Home team corners', _over_under, True, 'corners'),
+    'Away Corners Over/Under': _Spec('away_over_under', 'corners', 'ft', 'Away team corners', _over_under, True, 'corners'),
+    'Corners Asian Handicap': _Spec('asian_handicap', 'corners', 'ft', 'Corners handicap', _asian_handicap, True, 'corners'),
+    'Corners Odd/Even': _Spec('odd_even', 'corners', 'ft', 'Total corners odd/even', _odd_even, metric='corners'),
+    # Cards (yellow + red per team, from match statistics)
+    'Cards 1x2': _Spec('match_result', 'cards', 'ft', 'Most cards', _three_way, metric='cards'),
+    'Cards Over/Under': _Spec('over_under', 'cards', 'ft', 'Total cards', _over_under, True, 'cards'),
+    'Home Team Total Cards': _Spec('home_over_under', 'cards', 'ft', 'Home team cards', _over_under, True, 'cards'),
+    'Away Team Total Cards': _Spec('away_over_under', 'cards', 'ft', 'Away team cards', _over_under, True, 'cards'),
+    'Cards Asian Handicap': _Spec('asian_handicap', 'cards', 'ft', 'Cards handicap', _asian_handicap, True, 'cards'),
+    'RCARD': _Spec('red_card', 'cards', 'ft', 'Red card in the match', _yes_no),
+    # Goalscorers (settled from goal events + lineups)
+    'Anytime Goal Scorer': _Spec('anytime_scorer', 'scorers', 'ft', 'Anytime goalscorer', _scorer),
+    'First Goal Scorer': _Spec('first_scorer', 'scorers', 'ft', 'First goalscorer', _scorer),
+    'Last Goal Scorer': _Spec('last_scorer', 'scorers', 'ft', 'Last goalscorer', _scorer),
 }
+
+# Alternate spellings seen across bookmakers in the same feed.
+ALIASES = {
+    'Both Teams Score - Second Half': 'Both Teams To Score - Second Half',
+    'Result/Both Teams Score': 'Results/Both Teams Score',
+    'Red Card': 'RCARD',
+    'Total Cards': 'Cards Over/Under',
+    'Total Corners': 'Corners Over Under',
+    'Corners Over/Under': 'Corners Over Under',
+    'Goalscorer': 'Anytime Goal Scorer',
+    'Anytime Goalscorer': 'Anytime Goal Scorer',
+    'First Goalscorer': 'First Goal Scorer',
+    'Last Goalscorer': 'Last Goal Scorer',
+}
+
+_SPEC_BY_LOWER = {name.lower(): name for name in SPECS}
+_SPEC_BY_LOWER.update({alias.lower(): target for alias, target in ALIASES.items()})
 
 # The headline 1X2 lives on Event.odds/odds_draw/odds_away, not as a Market.
 SKIP = {'Match Winner'}
@@ -199,12 +299,13 @@ def parse_markets(bets: list[dict[str, Any]], *, include_manual: bool = True) ->
         name = str(bet.get('name') or '').strip()
         if not name or name in SKIP:
             continue
-        spec = SPECS.get(name)
+        canonical = _SPEC_BY_LOWER.get(name.lower())
+        spec = SPECS.get(canonical) if canonical else None
         if spec is None:
             if not include_manual:
                 continue
             spec = _Spec('manual', 'specials', 'ft', name[:120], _generic)
-        base_order = (_SPEC_ORDER.get(name, len(SPECS)) + 1) * 100
+        base_order = (_SPEC_ORDER.get(canonical or name, len(SPECS)) + 1) * 100
 
         # line -> {outcome key -> FeedOutcome}; None groups line-less markets.
         by_line: dict[Optional[Decimal], dict[str, FeedOutcome]] = {}
@@ -220,18 +321,20 @@ def parse_markets(bets: list[dict[str, Any]], *, include_manual: bool = True) ->
         lines = sorted(by_line, key=lambda ln: (ln is None, ln if ln is not None else 0))
         for line_index, line in enumerate(lines):
             outcomes = tuple(by_line[line].values())
-            if len(outcomes) < 2 and spec.kind != 'manual':
+            if len(outcomes) < 2 and spec.kind not in ('manual', 'anytime_scorer', 'first_scorer', 'last_scorer'):
                 continue  # a one-sided line can't be offered sensibly
             if spec.split_lines and line is not None:
-                shown = format(line.normalize(), 'f') if spec.kind.endswith('over_under') else _fmt_line(line)
+                shown = _fmt_line(line) if 'handicap' in spec.kind else format(line.normalize(), 'f')
                 display = f'{spec.name} {shown}'
             else:
                 display = spec.name
             base_key = spec.kind if spec.kind != 'manual' else f'manual:{_slug(name)}'
+            if spec.metric != 'goals':
+                base_key = f'{base_key}:{spec.metric}'
             key = f'{base_key}:{spec.period}' + (f':{line}' if line is not None else '')
             markets.append(FeedMarketData(
                 key=key[:80], name=display[:120], group=spec.group, kind=spec.kind,
                 period=spec.period, line=line, sort_order=base_order + line_index,
-                outcomes=outcomes,
+                outcomes=outcomes, metric=spec.metric,
             ))
     return markets

@@ -47,8 +47,9 @@ class EventViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'], url_path='settle-score')
     def settle_score(self, request, pk=None):
-        """Record the final (90-minute) score and settle the 1X2 plus every
-        score-settleable market. Takes {home, away, ht_home?, ht_away?}."""
+        """Record the final (90-minute) score and settle the 1X2 plus every market
+        those facts decide. Takes {home, away, ht_home?, ht_away?} and optional
+        corners_home/away, yellow_home/away, red_home/away for stats markets."""
         try:
             home, away = int(request.data['home']), int(request.data['away'])
             ht_home = request.data.get('ht_home')
@@ -59,8 +60,16 @@ class EventViewSet(viewsets.ModelViewSet):
                 raise ValueError('scores must be non-negative')
             if (ht_home is None) != (ht_away is None):
                 raise ValueError('give both half-time scores or neither')
+            def pair(prefix):
+                h, a = request.data.get(f'{prefix}_home'), request.data.get(f'{prefix}_away')
+                if h in (None, '') and a in (None, ''):
+                    return None
+                if h in (None, '') or a in (None, '') or int(h) < 0 or int(a) < 0:
+                    raise ValueError(f'give both {prefix} counts (non-negative) or neither')
+                return int(h), int(a)
             count = services.settle_event_from_score(
                 int(pk), home=home, away=away, ht_home=ht_home, ht_away=ht_away,
+                corners=pair('corners'), yellow=pair('yellow'), red=pair('red'),
             )
         except (KeyError, TypeError, ValueError) as exc:
             return Response({'detail': str(exc) or 'home and away are required'}, status=status.HTTP_400_BAD_REQUEST)

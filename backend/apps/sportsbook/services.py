@@ -20,7 +20,7 @@ from .dtos import BetDTO
 from .models import (
     Bet, BetLeg, BetSlip, Event, LeagueSetting, Market, MarketOutcome, Selection, Team,
 )
-from .settlement import Score, settle_outcome
+from .settlement import GoalEvent, Score, settle_outcome
 
 
 class OddsChanged(ValueError):
@@ -370,26 +370,82 @@ def _settle_market(market: Market, results: dict[int, str]) -> int:
     if not market.outcomes.filter(result=MarketOutcome.Result.PENDING).exists():
         market.settled = True
         market.is_open = False
-        market.save(update_fields=['settled', 'is_open'])
+        market.needs_review = False
+        market.save(update_fields=['settled', 'is_open', 'needs_review'])
     return settled
 
 
-def settle_event_markets(event_id: int, score: Score) -> int:
-    """Settle every auto-settleable market on an event from its final score.
-    Manual markets (and half-based ones when the half-time score is unknown)
-    are left for an operator. Returns the number of bets settled."""
+def score_for_event(event: Event) -> Optional[Score]:
+    """Everything known about a finished event's outcome, for settlement: the
+    90-minute score plus any stored match facts (corners, cards, goal events,
+    participants). None until the score is known."""
+    if event.score_home is None or event.score_away is None:
+        return None
+    facts = event.match_facts or {}
+
+    def pair(key):
+        value = facts.get(key)
+        return (int(value[0]), int(value[1])) if isinstance(value, list) and len(value) == 2 else None
+
+    goals = None
+    if isinstance(facts.get('goals'), list):
+        events = [
+            GoalEvent(
+                minute=int(g.get('minute') or 0), side=str(g.get('side')), player=str(g.get('player') or ''),
+                own_goal=bool(g.get('own_goal')), penalty=bool(g.get('penalty')),
+            )
+            for g in facts['goals']
+        ]
+        goals = tuple(events)
+        tally = (sum(g.side == 'home' for g in goals), sum(g.side == 'away' for g in goals))
+        if tally != (event.score_home, event.score_away):
+            # Feeds differ on which team an own goal is listed under; try the other way.
+            flip = {'home': 'away', 'away': 'home'}
+            flipped = tuple(
+                GoalEvent(g.minute, flip.get(g.side, g.side), g.player, g.own_goal, g.penalty) if g.own_goal else g
+                for g in goals
+            )
+            if (sum(g.side == 'home' for g in flipped), sum(g.side == 'away' for g in flipped)) == (
+                event.score_home, event.score_away,
+            ):
+                goals = flipped
+
+    yellow, red = pair('yellow'), pair('red')
+    participants = facts.get('participants')
+    return Score(
+        home=event.score_home, away=event.score_away,
+        ht_home=event.ht_score_home, ht_away=event.ht_score_away,
+        corners=pair('corners'),
+        cards=(yellow[0] + red[0], yellow[1] + red[1]) if yellow and red else None,
+        reds=red,
+        goals=goals,
+        participants=tuple(participants) if isinstance(participants, list) else None,
+        extra_time=bool(facts.get('extra_time')),
+    )
+
+
+def settle_event_markets(event_id: int, score: Score, *, final: bool = True) -> int:
+    """Settle every market on an event that the match facts decide. Anything
+    still undecided (stats not published yet, ambiguous player name, unknown bet
+    type) stays pending and — when `final` — is flagged `needs_review` so it
+    surfaces for an operator if a later retry can't settle it either.
+    Returns the number of bets settled."""
     settled = 0
     for market in list_markets(event_id).filter(settled=False):
         results = {}
         for outcome in market.outcomes.all():
             result = settle_outcome(
-                kind=market.kind, period=market.period, line=market.line,
-                key=outcome.key, score=score,
+                kind=market.kind, period=market.period, line=market.line, metric=market.metric,
+                key=outcome.key, label=outcome.label, score=score,
             )
             if result is not None:
                 results[outcome.id] = result
         if results:
             settled += _settle_market(market, results)
+        market.refresh_from_db(fields=['settled'])
+        if final and not market.settled and not market.needs_review:
+            market.needs_review = True
+            market.save(update_fields=['needs_review'])
     return settled
 
 
@@ -414,20 +470,28 @@ def settle_market_manually(market_id: int, *, winners: list[int], void: bool = F
 def settle_event_from_score(
     event_id: int, *, home: int, away: int,
     ht_home: Optional[int] = None, ht_away: Optional[int] = None,
+    corners: Optional[tuple[int, int]] = None, yellow: Optional[tuple[int, int]] = None,
+    red: Optional[tuple[int, int]] = None,
 ) -> int:
-    """Record a final (90-minute) score and settle the event from it: the 1X2
-    bets by result, then every score-settleable market. Returns bets settled."""
+    """Operator settlement: record the final (90-minute) score — plus corner and
+    card counts when given — and settle the 1X2 and every market those facts
+    decide. Returns bets settled."""
     event = Event.objects.select_for_update().get(pk=event_id)
     event.score_home, event.score_away = home, away
     event.ht_score_home, event.ht_score_away = ht_home, ht_away
     event.status = 'FT'
     event.is_open = False
+    facts = dict(event.match_facts or {})
+    for key, value in (('corners', corners), ('yellow', yellow), ('red', red)):
+        if value is not None:
+            facts[key] = [int(value[0]), int(value[1])]
+    event.match_facts = facts or None
     event.save(update_fields=[
-        'score_home', 'score_away', 'ht_score_home', 'ht_score_away', 'status', 'is_open',
+        'score_home', 'score_away', 'ht_score_home', 'ht_score_away', 'status', 'is_open', 'match_facts',
     ])
     result = 'home' if home > away else 'away' if away > home else 'draw'
     settled = settle_event(event_id, result)
-    settled += settle_event_markets(event_id, Score(home, away, ht_home, ht_away))
+    settled += settle_event_markets(event_id, score_for_event(event))
     return settled
 
 
@@ -445,7 +509,7 @@ def apply_feed_markets(event: Event, markets: tuple[FeedMarketData, ...] | list[
         if market is None:
             market = Market.objects.create(
                 event=event, key=data.key, name=data.name, group=data.group, kind=data.kind,
-                period=data.period, line=data.line, sort_order=data.sort_order,
+                period=data.period, line=data.line, sort_order=data.sort_order, metric=data.metric,
             )
             outcomes = {}
         else:
@@ -544,6 +608,8 @@ def sync_fixture(fixture: FixtureUpdate) -> Optional[Event]:
         'score_home': home, 'score_away': away,
         'ht_score_home': fixture.ht_home, 'ht_score_away': fixture.ht_away,
     }
+    if fixture.facts is not None:
+        live_fields['match_facts'] = fixture.facts
     for field, value in live_fields.items():
         if getattr(event, field) != value:
             setattr(event, field, value)
@@ -554,7 +620,9 @@ def sync_fixture(fixture: FixtureUpdate) -> Optional[Event]:
     result = fixture.result
     if result is not None:
         settle_event(event.id, result)
-        settle_event_markets(event.id, Score(home, away, fixture.ht_home, fixture.ht_away))
+        # Stats-based markets (corners, cards, scorers) settle once the facts are
+        # in; until then they stay pending and settle_finished_fixtures retries.
+        settle_event_markets(event.id, score_for_event(event), final=fixture.facts is not None)
 
     return event
 
@@ -566,6 +634,49 @@ def sync_provider_fixtures(*, date: Optional[str] = None, live: Optional[str] = 
     fixtures = client.fetch_fixtures(date=date, live=live)
     for fixture in fixtures:
         sync_fixture(fixture)
+    return len(fixtures)
+
+
+FINISHED_STATUSES = ('FT', 'AET', 'PEN')
+# Void matches the provider says won't be played (cancelled/abandoned/awarded…).
+VOID_STATUSES = ('CANC', 'ABD', 'AWD', 'WO')
+
+
+def events_awaiting_settlement(*, now=None):
+    """Provider-linked events that kicked off long enough ago to be over and
+    still have something to settle: not yet marked finished, or finished with
+    open bets/legs or unsettled markets. Bounded to the last few days so a
+    fixture the feed never finalises doesn't get polled forever."""
+    from datetime import timedelta
+    from django.db.models import Q
+
+    now = now or timezone.now()
+    return Event.objects.filter(
+        provider=ApiFootballClient.provider_name, external_id__isnull=False,
+        starts_at__lte=now - timedelta(minutes=105), starts_at__gte=now - timedelta(days=4),
+    ).filter(
+        ~Q(status__in=FINISHED_STATUSES + VOID_STATUSES)
+        | Q(markets__settled=False)
+        | Q(bets__status__in=(Bet.Status.OPEN, Bet.Status.PENDING))
+        | Q(legs__result=BetLeg.Result.PENDING)
+    ).distinct()
+
+
+def settle_finished_fixtures(*, now=None) -> int:
+    """Poll the provider for recently-started fixtures and settle everything on
+    the ones that have finished — 1X2, score markets, and (once the provider
+    publishes them) corners, cards and goalscorer markets. Matches that end up
+    cancelled/abandoned are voided. Safe to run repeatedly: settlement is
+    idempotent. Returns the number of fixtures fetched."""
+    events = list(events_awaiting_settlement(now=now).values_list('id', 'external_id'))
+    if not events:
+        return 0
+    fixtures = ApiFootballClient().fetch_fixtures_by_ids([ext for _, ext in events])
+    by_ext = {ext: eid for eid, ext in events}
+    for fixture in fixtures:
+        sync_fixture(fixture)
+        if fixture.status in VOID_STATUSES and fixture.external_id in by_ext:
+            settle_event(by_ext[fixture.external_id], 'void')
     return len(fixtures)
 
 

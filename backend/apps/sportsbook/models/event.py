@@ -47,6 +47,10 @@ class Event(models.Model):
     score_away = models.PositiveSmallIntegerField(null=True, blank=True)
     ht_score_home = models.PositiveSmallIntegerField(null=True, blank=True)
     ht_score_away = models.PositiveSmallIntegerField(null=True, blank=True)
+    # Post-match facts from the provider, used to settle corners/cards/scorer
+    # markets: {"corners": [h, a], "yellow": [h, a], "red": [h, a],
+    # "goals": [{"minute", "side", "player", "own_goal", "penalty"}], "extra_time": bool}.
+    match_facts = models.JSONField(null=True, blank=True)
 
     class Meta:
         db_table = 'sportsbook_event'

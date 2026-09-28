@@ -30,7 +30,9 @@ interface Event {
 }
 
 interface Outcome { id: number; label: string; odds: string; result: string }
-interface Market { id: number; name: string; kind: string; settled: boolean; is_open: boolean; outcomes: Outcome[] }
+interface Market {
+  id: number; name: string; kind: string; settled: boolean; is_open: boolean; needs_review: boolean; outcomes: Outcome[];
+}
 interface EventDetail extends Event { markets: Market[] }
 
 interface EventsResponse { results?: Event[] }
@@ -40,22 +42,30 @@ const BLANK = { name: '', sport: 'football', starts_at: '', odds: '', odds_draw:
 /** Settle one event: final score (settles 1X2 + every score-based market) and manual markets. */
 function SettlePanel({ event, token, onDone }: { event: Event; token: string; onDone: () => void }) {
   const { data: detail, refetch } = useApi<EventDetail>(`/events/${event.id}/`);
-  const [score, setScore] = useState({ home: '', away: '', ht_home: '', ht_away: '' });
+  const [score, setScore] = useState({
+    home: '', away: '', ht_home: '', ht_away: '',
+    corners_home: '', corners_away: '', yellow_home: '', yellow_away: '', red_home: '', red_away: '',
+  });
   const [winners, setWinners] = useState<Record<number, number[]>>({});
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
 
   const pending = (detail?.markets ?? []).filter((m) => !m.settled);
-  const manual = pending.filter((m) => m.kind === 'manual');
+  // Everything else settles automatically; these need a person.
+  const manual = pending.filter((m) => m.kind === 'manual' || m.needs_review);
 
   async function settleScore(e: React.FormEvent) {
     e.preventDefault();
     if (!confirm(`Settle ${event.name} at ${score.home}-${score.away}? This pays out bets and can't be undone.`)) return;
     setBusy(true);
     const body: Record<string, number> = { home: Number(score.home), away: Number(score.away) };
-    if (score.ht_home !== '' && score.ht_away !== '') {
-      body.ht_home = Number(score.ht_home);
-      body.ht_away = Number(score.ht_away);
+    for (const prefix of ['ht', 'corners', 'yellow', 'red'] as const) {
+      const h = score[`${prefix}_home`];
+      const a = score[`${prefix}_away`];
+      if (h !== '' && a !== '') {
+        body[`${prefix}_home`] = Number(h);
+        body[`${prefix}_away`] = Number(a);
+      }
     }
     const res = await authedPost<{ bets_settled: number }>(`/events/${event.id}/settle-score/`, body, token);
     setBusy(false);
@@ -103,11 +113,27 @@ function SettlePanel({ event, token, onDone }: { event: Event; token: string; on
             <Input type="number" min={0} className="w-16" value={score.ht_away} onChange={(e) => setScore({ ...score, ht_away: e.target.value })} />
           </div>
         </div>
+        {([['corners', 'Corners'], ['yellow', 'Yellow cards'], ['red', 'Red cards']] as const).map(([prefix, label]) => (
+          <div key={prefix}>
+            <p className="mb-1 text-xs font-semibold text-muted-foreground">{label} (optional)</p>
+            <div className="flex items-center gap-1.5">
+              <Input type="number" min={0} className="w-16" value={score[`${prefix}_home`]}
+                onChange={(e) => setScore({ ...score, [`${prefix}_home`]: e.target.value })} />
+              <span>–</span>
+              <Input type="number" min={0} className="w-16" value={score[`${prefix}_away`]}
+                onChange={(e) => setScore({ ...score, [`${prefix}_away`]: e.target.value })} />
+            </div>
+          </div>
+        ))}
         <Button type="submit" disabled={busy}>Settle from score</Button>
       </form>
+      <p className="text-xs text-muted-foreground">
+        Finished matches settle automatically from the provider feed (score, corners, cards, goal events).
+        Use this only if the feed is unavailable or wrong.
+      </p>
 
       <p className="text-xs text-muted-foreground">
-        {pending.length} unsettled market(s){manual.length > 0 && `, ${manual.length} need manual settlement (not decidable from the score)`}.
+        {pending.length} unsettled market(s){manual.length > 0 && `, ${manual.length} need review (automatic settlement couldn't decide them)`}.
       </p>
 
       {manual.map((m) => (
