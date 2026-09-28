@@ -145,3 +145,23 @@ class ClosedEventBettingTests(TestCase):
         with self.assertRaises(sb.SelectionUnavailable):
             sb.place_bet(event='x', stake=Decimal('5'), odds=Decimal('2'), player_id=player.id,
                          event_id=event.id, selection='home')
+
+
+class KickoffTests(TestCase):
+    def test_bets_close_at_scheduled_kickoff_even_if_still_marked_open(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        from apps.sportsbook.models import Market, MarketOutcome
+        player = account_services.register_player(
+            username='kickoff', email='kickoff@example.com', password='Passw0rd!', currency='USD',
+        )
+        wallet_services.credit(player_id=player.id, amount=Decimal('50'), kind='deposit', idempotency_key='k:dep')
+        event = Event.objects.create(name='Started v Match', odds=Decimal('2'), is_open=True,
+                                     starts_at=timezone.now() - timedelta(minutes=5))
+        market = Market.objects.create(event=event, key='btts:ft', name='BTTS', kind='btts')
+        yes = MarketOutcome.objects.create(market=market, key='yes', label='Yes', odds=Decimal('1.8'))
+        with self.assertRaises(sb.SelectionUnavailable):
+            sb.place_bet(event='x', stake=Decimal('5'), odds=Decimal('2'), player_id=player.id,
+                         event_id=event.id, selection='home')
+        with self.assertRaises(sb.SelectionUnavailable):
+            sb.place_bet(event='x', stake=Decimal('5'), odds=Decimal('1.8'), player_id=player.id, outcome_id=yes.id)

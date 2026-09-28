@@ -8,7 +8,7 @@ export const metadata: Metadata = { title: 'Sportsbook — SLÝKBETS' };
 
 export default async function SportsbookPage() {
   // Every upcoming/live match, soonest first — the API pages at 25 by default.
-  const all = await apiGetAll<EventItem>('/events/?upcoming=true&page_size=200');
+  const { rows: all, complete } = await apiGetAll<EventItem>('/events/?upcoming=true&page_size=200');
   // Fixtures the bookmaker hasn't priced yet aren't bettable, so they stay off the board.
   const events = all.filter(isPriced);
   const awaitingOdds = all.length - events.length;
@@ -18,6 +18,11 @@ export default async function SportsbookPage() {
 
   return (
     <div>
+      {!complete && (
+        <p className="mb-3 rounded-xl border border-border bg-card px-4 py-2.5 text-xs font-semibold text-muted-foreground">
+          Some matches couldn’t be loaded right now — refresh in a moment to see the full list.
+        </p>
+      )}
       {events.length === 0 ? (
         <div className="rounded-2xl border border-border bg-card p-12 text-center">
           <p className="mb-1 font-bold">No markets available yet</p>

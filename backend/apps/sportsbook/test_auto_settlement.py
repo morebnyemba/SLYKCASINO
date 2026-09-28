@@ -167,19 +167,25 @@ class FinishedFixturePollTests(TestCase):
         ]
         sb.apply_feed_markets(self.event, parse_markets(bets))
 
+    def _before_kickoff(self, place):
+        """Bets close at kick-off, so place them as if the match hadn't started yet."""
+        with patch('apps.sportsbook.services.timezone.now', return_value=timezone.now() - timedelta(hours=4)):
+            return place()
+
     def _bet(self, market_key, outcome_key):
         outcome = MarketOutcome.objects.get(market__key=market_key, key=outcome_key)
-        return sb.place_bet(
+        return self._before_kickoff(lambda: sb.place_bet(
             event='x', stake=D('10'), odds=outcome.odds, player_id=self.player.id, outcome_id=outcome.id,
-        )
+        ))
 
     def _fixture(self, raw):
         from apps.sportsbook.clients import ApiFootballClient
         return ApiFootballClient.__new__(ApiFootballClient)._normalize(raw)
 
     def test_poll_settles_everything_including_stats_markets(self):
-        home = sb.place_bet(event='x', stake=D('10'), odds=D('2.00'), player_id=self.player.id,
-                            event_id=self.event.id, selection='home')
+        home = self._before_kickoff(lambda: sb.place_bet(
+            event='x', stake=D('10'), odds=D('2.00'), player_id=self.player.id,
+            event_id=self.event.id, selection='home'))
         corners = self._bet('over_under:corners:ft:9.5', 'over')
         fernandes = self._bet('anytime_scorer:ft', 'bruno_fernandes')
         saka = self._bet('anytime_scorer:ft', 'bukayo_saka')

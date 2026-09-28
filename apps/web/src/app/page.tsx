@@ -53,15 +53,18 @@ function ProductCard({ href, title, subtitle, icon: Icon, hue, stat }: {
 }
 
 export default async function LobbyPage() {
-  const [eventsData, bannersData, gamesData] = await Promise.all([
-    apiGet<EventItem>('/events/?upcoming=true&priced=true&page_size=40'),
+  const [featuredData, eventsData, bannersData, gamesData] = await Promise.all([
+    // Featured matches are fetched on their own so one far down the kick-off
+    // order is never missed; the soonest priced matches are the fallback.
+    apiGet<EventItem>('/events/?upcoming=true&priced=true&featured=true&page_size=8'),
+    apiGet<EventItem>('/events/?upcoming=true&priced=true&page_size=8'),
     apiGet<Banner>('/promotions/banners/'),
     apiGet<Game>('/casino/games/'),
   ]);
-  const upcoming = ((eventsData.results ?? []) as EventItem[]).filter((ev) => ev.is_open !== false && isPriced(ev));
-  // Operator-featured matches first; otherwise the soonest priced fixtures.
-  const featured = upcoming.filter((ev) => ev.featured);
-  const events = sortEvents(featured.length > 0 ? featured : upcoming);
+  const bettable = (data: typeof eventsData) =>
+    ((data.results ?? []) as EventItem[]).filter((ev) => ev.is_open !== false && isPriced(ev));
+  const featured = bettable(featuredData);
+  const events = sortEvents(featured.length > 0 ? featured : bettable(eventsData));
   const banners = (bannersData.results ?? []) as Banner[];
   const games = (gamesData.results ?? []) as Game[];
   const liveCount = events.filter(isLive).length;
