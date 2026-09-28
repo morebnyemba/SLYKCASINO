@@ -14,7 +14,12 @@ import { isLive, sortEvents, type EventItem } from '@/lib/sports';
 
 type Tab = 'all' | 'live' | 'upcoming';
 
-export function SportsbookBrowser({ events, topMatches = [] }: { events: EventItem[]; topMatches?: EventItem[] }) {
+export function SportsbookBrowser({ events, topMatches = [], awaitingOdds = 0 }: {
+  events: EventItem[];
+  topMatches?: EventItem[];
+  /** Upcoming fixtures hidden because the bookmaker hasn't priced them yet. */
+  awaitingOdds?: number;
+}) {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
@@ -39,7 +44,8 @@ export function SportsbookBrowser({ events, topMatches = [] }: { events: EventIt
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
   }
 
-  const openEvents = useMemo(() => sortEvents(events.filter((ev) => ev.is_open !== false)), [events]);
+  // Open matches plus those in play (betting closed, prices locked).
+  const openEvents = useMemo(() => sortEvents(events.filter((ev) => ev.is_open !== false || isLive(ev))), [events]);
 
   const counts = useMemo(() => {
     const c: Record<string, number> = {};
@@ -189,6 +195,12 @@ export function SportsbookBrowser({ events, topMatches = [] }: { events: EventIt
               </button>
             )}
           </div>
+        )}
+
+        {awaitingOdds > 0 && groups.length > 0 && !search && (
+          <p className="px-1 text-xs text-muted-foreground">
+            {awaitingOdds} more upcoming match{awaitingOdds === 1 ? '' : 'es'} will appear once odds are published.
+          </p>
         )}
 
         {groups.map((g) => {

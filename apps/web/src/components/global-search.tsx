@@ -44,7 +44,7 @@ export function GlobalSearch() {
   useEffect(() => {
     if (!searchOpen || games) return;
     void getList<Game>('/casino/games/').then((g) => setGames(g.length > 0 ? g : DEMO_GAMES));
-    void getList<EventItem>('/events/').then((e) => setEvents(e.filter((ev) => ev.is_open !== false)));
+    void getList<EventItem>('/events/?upcoming=true&priced=true&page_size=500').then((e) => setEvents(e));
   }, [searchOpen, games]);
 
   useEffect(() => {

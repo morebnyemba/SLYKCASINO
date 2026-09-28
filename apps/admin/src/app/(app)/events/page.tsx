@@ -165,7 +165,7 @@ function SettlePanel({ event, token, onDone }: { event: Event; token: string; on
 
 export default function EventsPage() {
   const { accessToken } = useAuth();
-  const { data, loading, refetch } = useApi<EventsResponse>('/events/');
+  const { data, loading, refetch } = useApi<EventsResponse>('/events/?page_size=500');
   const events = data?.results ?? [];
 
   const [showForm, setShowForm] = useState(false);

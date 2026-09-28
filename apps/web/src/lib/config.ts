@@ -23,3 +23,18 @@ export async function apiGet<T = unknown>(path: string, init?: RequestInit): Pro
     return { error: String(err), results: [] };
   }
 }
+
+/**
+ * Like apiGet, but follows DRF pagination (`next`) so listings get every row,
+ * not just the first page. Stops after `maxPages` as a safety net.
+ */
+export async function apiGetAll<T = unknown>(path: string, maxPages = 10): Promise<T[]> {
+  const rows: T[] = [];
+  const sep = path.includes('?') ? '&' : '?';
+  for (let page = 1; page <= maxPages; page++) {
+    const data = await apiGet<T>(`${path}${sep}page=${page}`);
+    rows.push(...((data.results ?? []) as T[]));
+    if (!data.next || data.error) break;
+  }
+  return rows;
+}

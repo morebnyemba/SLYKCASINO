@@ -54,11 +54,14 @@ function ProductCard({ href, title, subtitle, icon: Icon, hue, stat }: {
 
 export default async function LobbyPage() {
   const [eventsData, bannersData, gamesData] = await Promise.all([
-    apiGet<EventItem>('/events/?featured=true'),
+    apiGet<EventItem>('/events/?upcoming=true&priced=true&page_size=40'),
     apiGet<Banner>('/promotions/banners/'),
     apiGet<Game>('/casino/games/'),
   ]);
-  const events = sortEvents(((eventsData.results ?? []) as EventItem[]).filter((ev) => ev.is_open !== false && isPriced(ev)));
+  const upcoming = ((eventsData.results ?? []) as EventItem[]).filter((ev) => ev.is_open !== false && isPriced(ev));
+  // Operator-featured matches first; otherwise the soonest priced fixtures.
+  const featured = upcoming.filter((ev) => ev.featured);
+  const events = sortEvents(featured.length > 0 ? featured : upcoming);
   const banners = (bannersData.results ?? []) as Banner[];
   const games = (gamesData.results ?? []) as Game[];
   const liveCount = events.filter(isLive).length;
