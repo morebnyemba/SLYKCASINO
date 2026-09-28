@@ -48,6 +48,12 @@ class BetLeg(models.Model):
         'Event', null=True, blank=True, on_delete=models.SET_NULL, related_name='legs',
     )
     selection = models.CharField(max_length=10, choices=Selection.choices, default=Selection.HOME)
+    # Set for bets on a secondary market (goals, handicaps, correct score…). When
+    # set, the outcome decides settlement and `selection` is ignored; 1X2 bets
+    # leave it null and settle from the event result via `selection`.
+    outcome_ref = models.ForeignKey(
+        'MarketOutcome', null=True, blank=True, on_delete=models.SET_NULL, related_name='legs',
+    )
     odds = models.DecimalField(max_digits=6, decimal_places=2)
     result = models.CharField(max_length=10, choices=Result.choices, default=Result.PENDING)
 

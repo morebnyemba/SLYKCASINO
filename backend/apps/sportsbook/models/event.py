@@ -38,6 +38,15 @@ class Event(models.Model):
     featured = models.BooleanField(default=False)
     is_open = models.BooleanField(default=True)
     starts_at = models.DateTimeField(null=True, blank=True)
+    # Live/final score and provider match status (e.g. 'NS', '1H', 'HT', 'FT'),
+    # kept in sync from the fixtures feed. Scores are regulation time (90'), which
+    # is what match-result and goal markets settle on.
+    status = models.CharField(max_length=8, blank=True, default='')
+    elapsed = models.PositiveSmallIntegerField(null=True, blank=True)
+    score_home = models.PositiveSmallIntegerField(null=True, blank=True)
+    score_away = models.PositiveSmallIntegerField(null=True, blank=True)
+    ht_score_home = models.PositiveSmallIntegerField(null=True, blank=True)
+    ht_score_away = models.PositiveSmallIntegerField(null=True, blank=True)
 
     class Meta:
         db_table = 'sportsbook_event'

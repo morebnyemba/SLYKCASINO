@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { FaCalendarAlt } from 'react-icons/fa';
 import { Card, CardContent, CardHeader, CardTitle } from '@slyk/ui/components/card';
 import { Badge } from '@slyk/ui/components/badge';
@@ -10,28 +10,132 @@ import { useAuth } from '@/lib/auth-context';
 import { useApi, authedPost } from '@/lib/use-api';
 import { config } from '@/lib/config';
 
+interface Team { id: number; name: string }
+
 interface Event {
   id: number;
   name: string;
   sport: string;
-  home_team: string;
-  away_team: string;
-  starts_at: string;
+  home_team: Team | null;
+  away_team: Team | null;
+  starts_at: string | null;
+  is_open: boolean;
   status: string;
-  odds_home: string;
-  odds_draw: string;
-  odds_away: string;
+  score_home: number | null;
+  score_away: number | null;
+  odds: string;
+  odds_draw: string | null;
+  odds_away: string | null;
+  markets_count: number;
 }
+
+interface Outcome { id: number; label: string; odds: string; result: string }
+interface Market { id: number; name: string; kind: string; settled: boolean; is_open: boolean; outcomes: Outcome[] }
+interface EventDetail extends Event { markets: Market[] }
 
 interface EventsResponse { results?: Event[] }
 
-const STATUS_VARIANT: Record<string, 'default' | 'secondary' | 'destructive'> = {
-  open: 'default',
-  suspended: 'secondary',
-  resulted: 'destructive',
-};
+const BLANK = { name: '', sport: 'football', starts_at: '', odds: '', odds_draw: '', odds_away: '' };
 
-const BLANK = { name: '', sport: '', home_team: '', away_team: '', starts_at: '', odds_home: '', odds_draw: '', odds_away: '' };
+/** Settle one event: final score (settles 1X2 + every score-based market) and manual markets. */
+function SettlePanel({ event, token, onDone }: { event: Event; token: string; onDone: () => void }) {
+  const { data: detail, refetch } = useApi<EventDetail>(`/events/${event.id}/`);
+  const [score, setScore] = useState({ home: '', away: '', ht_home: '', ht_away: '' });
+  const [winners, setWinners] = useState<Record<number, number[]>>({});
+  const [msg, setMsg] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const pending = (detail?.markets ?? []).filter((m) => !m.settled);
+  const manual = pending.filter((m) => m.kind === 'manual');
+
+  async function settleScore(e: React.FormEvent) {
+    e.preventDefault();
+    if (!confirm(`Settle ${event.name} at ${score.home}-${score.away}? This pays out bets and can't be undone.`)) return;
+    setBusy(true);
+    const body: Record<string, number> = { home: Number(score.home), away: Number(score.away) };
+    if (score.ht_home !== '' && score.ht_away !== '') {
+      body.ht_home = Number(score.ht_home);
+      body.ht_away = Number(score.ht_away);
+    }
+    const res = await authedPost<{ bets_settled: number }>(`/events/${event.id}/settle-score/`, body, token);
+    setBusy(false);
+    setMsg(res.error ? `Error: ${res.error}` : `Settled ${res.data?.bets_settled ?? 0} bet(s).`);
+    refetch();
+    onDone();
+  }
+
+  async function settleMarket(market: Market, voidIt: boolean) {
+    const picked = winners[market.id] ?? [];
+    if (!voidIt && picked.length === 0) { setMsg('Pick the winning outcome(s) first.'); return; }
+    setBusy(true);
+    const res = await authedPost<{ bets_settled: number }>(
+      `/events/${event.id}/markets/${market.id}/settle/`, voidIt ? { void: true } : { winners: picked }, token,
+    );
+    setBusy(false);
+    setMsg(res.error ? `Error: ${res.error}` : `${market.name}: settled ${res.data?.bets_settled ?? 0} bet(s).`);
+    refetch();
+  }
+
+  function toggleWinner(marketId: number, outcomeId: number) {
+    setWinners((w) => {
+      const cur = new Set(w[marketId] ?? []);
+      if (cur.has(outcomeId)) cur.delete(outcomeId); else cur.add(outcomeId);
+      return { ...w, [marketId]: Array.from(cur) };
+    });
+  }
+
+  return (
+    <div className="space-y-4 bg-muted/30 p-4">
+      <form onSubmit={settleScore} className="flex flex-wrap items-end gap-3">
+        <div>
+          <p className="mb-1 text-xs font-semibold text-muted-foreground">Final score (90&apos;)</p>
+          <div className="flex items-center gap-1.5">
+            <Input required type="number" min={0} className="w-16" value={score.home} onChange={(e) => setScore({ ...score, home: e.target.value })} />
+            <span>–</span>
+            <Input required type="number" min={0} className="w-16" value={score.away} onChange={(e) => setScore({ ...score, away: e.target.value })} />
+          </div>
+        </div>
+        <div>
+          <p className="mb-1 text-xs font-semibold text-muted-foreground">Half-time (optional, settles half markets)</p>
+          <div className="flex items-center gap-1.5">
+            <Input type="number" min={0} className="w-16" value={score.ht_home} onChange={(e) => setScore({ ...score, ht_home: e.target.value })} />
+            <span>–</span>
+            <Input type="number" min={0} className="w-16" value={score.ht_away} onChange={(e) => setScore({ ...score, ht_away: e.target.value })} />
+          </div>
+        </div>
+        <Button type="submit" disabled={busy}>Settle from score</Button>
+      </form>
+
+      <p className="text-xs text-muted-foreground">
+        {pending.length} unsettled market(s){manual.length > 0 && `, ${manual.length} need manual settlement (not decidable from the score)`}.
+      </p>
+
+      {manual.map((m) => (
+        <div key={m.id} className="rounded-lg border border-border bg-card p-3">
+          <p className="mb-2 text-sm font-semibold">{m.name}</p>
+          <div className="mb-2 flex flex-wrap gap-2">
+            {m.outcomes.map((o) => (
+              <label key={o.id} className="flex cursor-pointer items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs">
+                <input
+                  type="checkbox"
+                  checked={(winners[m.id] ?? []).includes(o.id)}
+                  onChange={() => toggleWinner(m.id, o.id)}
+                />
+                {o.label} <span className="font-mono text-muted-foreground">@{o.odds}</span>
+              </label>
+            ))}
+          </div>
+          <div className="flex gap-2">
+            <Button size="sm" disabled={busy} onClick={() => settleMarket(m, false)}>Settle winners</Button>
+            <Button size="sm" variant="outline" disabled={busy} onClick={() => settleMarket(m, true)}>Void market</Button>
+          </div>
+        </div>
+      ))}
+
+      {msg && <p className="text-sm font-medium">{msg}</p>}
+    </div>
+  );
+}
 
 export default function EventsPage() {
   const { accessToken } = useAuth();
@@ -42,6 +146,7 @@ export default function EventsPage() {
   const [form, setForm] = useState({ ...BLANK });
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
+  const [settling, setSettling] = useState<number | null>(null);
 
   const set = (k: string, v: string) => setForm((f) => ({ ...f, [k]: v }));
 
@@ -50,7 +155,12 @@ export default function EventsPage() {
     if (!accessToken) return;
     setSaving(true);
     setFormError('');
-    const { error } = await authedPost('/events/', form, accessToken);
+    const body = {
+      name: form.name, sport: form.sport, odds: form.odds,
+      odds_draw: form.odds_draw || null, odds_away: form.odds_away || null,
+      starts_at: form.starts_at ? new Date(form.starts_at).toISOString() : null,
+    };
+    const { error } = await authedPost('/events/', body, accessToken);
     setSaving(false);
     if (error) { setFormError(error); return; }
     setShowForm(false);
@@ -60,11 +170,10 @@ export default function EventsPage() {
 
   async function handleSuspend(event: Event) {
     if (!accessToken) return;
-    const newStatus = event.status === 'suspended' ? 'open' : 'suspended';
     await fetch(`${config.apiUrl}/events/${event.id}/`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
-      body: JSON.stringify({ status: newStatus }),
+      body: JSON.stringify({ is_open: !event.is_open }),
     });
     refetch();
   }
@@ -87,7 +196,7 @@ export default function EventsPage() {
           </span>
           <div>
             <h1 className="text-2xl font-bold">Events</h1>
-            <p className="text-muted-foreground text-sm">Manage sportsbook events and odds.</p>
+            <p className="text-muted-foreground text-sm">Manage sportsbook events, odds and settlement.</p>
           </div>
         </div>
         <Button
@@ -104,20 +213,18 @@ export default function EventsPage() {
           <CardContent>
             <form onSubmit={handleCreate} className="grid gap-3 sm:grid-cols-2">
               {[
-                { label: 'Name', key: 'name', type: 'text', placeholder: 'Man Utd vs Arsenal' },
-                { label: 'Sport', key: 'sport', type: 'text', placeholder: 'football' },
-                { label: 'Home team', key: 'home_team', type: 'text', placeholder: 'Man Utd' },
-                { label: 'Away team', key: 'away_team', type: 'text', placeholder: 'Arsenal' },
-                { label: 'Starts at', key: 'starts_at', type: 'datetime-local', placeholder: '' },
-                { label: 'Odds home', key: 'odds_home', type: 'number', placeholder: '1.90' },
-                { label: 'Odds draw', key: 'odds_draw', type: 'number', placeholder: '3.50' },
-                { label: 'Odds away', key: 'odds_away', type: 'number', placeholder: '4.20' },
-              ].map(({ label, key, type, placeholder }) => (
+                { label: 'Name', key: 'name', type: 'text', placeholder: 'Man Utd vs Arsenal', required: true },
+                { label: 'Sport', key: 'sport', type: 'text', placeholder: 'football', required: true },
+                { label: 'Starts at', key: 'starts_at', type: 'datetime-local', placeholder: '', required: false },
+                { label: 'Odds home (1)', key: 'odds', type: 'number', placeholder: '1.90', required: true },
+                { label: 'Odds draw (X)', key: 'odds_draw', type: 'number', placeholder: '3.50', required: false },
+                { label: 'Odds away (2)', key: 'odds_away', type: 'number', placeholder: '4.20', required: false },
+              ].map(({ label, key, type, placeholder, required }) => (
                 <div key={key} className="space-y-1">
                   <label className="text-sm font-medium">{label}</label>
                   <Input
                     type={type}
-                    required
+                    required={required}
                     value={form[key as keyof typeof form]}
                     onChange={(e) => set(key, e.target.value)}
                     placeholder={placeholder}
@@ -137,7 +244,7 @@ export default function EventsPage() {
       )}
 
       <Card className="rounded-2xl border-gold/15">
-        <CardContent className="p-0">
+        <CardContent className="overflow-x-auto p-0">
           {loading && <p className="p-4 text-sm text-muted-foreground">Loading events…</p>}
           {!loading && events.length === 0 && (
             <p className="p-4 text-sm text-muted-foreground">No events. Create one above.</p>
@@ -149,36 +256,57 @@ export default function EventsPage() {
                   <th className="px-4 py-3 font-medium">Event</th>
                   <th className="px-4 py-3 font-medium">Sport</th>
                   <th className="px-4 py-3 font-medium">Starts</th>
-                  <th className="px-4 py-3 font-medium">Odds H/D/A</th>
+                  <th className="px-4 py-3 font-medium">1 / X / 2</th>
+                  <th className="px-4 py-3 font-medium">Markets</th>
                   <th className="px-4 py-3 font-medium">Status</th>
                   <th className="px-4 py-3 font-medium">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {events.map((ev) => (
-                  <tr key={ev.id} className="border-b border-border last:border-0">
-                    <td className="px-4 py-3 font-medium">{ev.home_team} vs {ev.away_team}</td>
-                    <td className="px-4 py-3 text-muted-foreground">{ev.sport}</td>
-                    <td className="px-4 py-3 text-muted-foreground">
-                      {new Date(ev.starts_at).toLocaleString()}
-                    </td>
-                    <td className="px-4 py-3 font-mono text-xs">
-                      {ev.odds_home} / {ev.odds_draw} / {ev.odds_away}
-                    </td>
-                    <td className="px-4 py-3">
-                      <Badge variant={STATUS_VARIANT[ev.status] ?? 'secondary'}>{ev.status}</Badge>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex gap-2">
-                        <Button size="sm" variant="outline" onClick={() => handleSuspend(ev)}>
-                          {ev.status === 'suspended' ? 'Reopen' : 'Suspend'}
-                        </Button>
-                        <Button size="sm" variant="destructive" onClick={() => handleDelete(ev.id)}>
-                          Delete
-                        </Button>
-                      </div>
-                    </td>
-                  </tr>
+                  <Fragment key={ev.id}>
+                    <tr className="border-b border-border last:border-0">
+                      <td className="px-4 py-3 font-medium">
+                        {ev.name}
+                        {ev.score_home != null && ev.score_away != null && (
+                          <span className="ml-2 font-mono text-xs text-muted-foreground">{ev.score_home}–{ev.score_away}</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground">{ev.sport}</td>
+                      <td className="px-4 py-3 text-muted-foreground">
+                        {ev.starts_at ? new Date(ev.starts_at).toLocaleString() : '—'}
+                      </td>
+                      <td className="px-4 py-3 font-mono text-xs">
+                        {ev.odds} / {ev.odds_draw ?? '—'} / {ev.odds_away ?? '—'}
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground">{ev.markets_count}</td>
+                      <td className="px-4 py-3">
+                        <Badge variant={ev.is_open ? 'default' : 'secondary'}>
+                          {ev.status || (ev.is_open ? 'open' : 'closed')}
+                        </Badge>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex gap-2">
+                          <Button size="sm" variant="outline" onClick={() => setSettling(settling === ev.id ? null : ev.id)}>
+                            {settling === ev.id ? 'Close' : 'Settle'}
+                          </Button>
+                          <Button size="sm" variant="outline" onClick={() => handleSuspend(ev)}>
+                            {ev.is_open ? 'Suspend' : 'Reopen'}
+                          </Button>
+                          <Button size="sm" variant="destructive" onClick={() => handleDelete(ev.id)}>
+                            Delete
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                    {settling === ev.id && accessToken && (
+                      <tr className="border-b border-border">
+                        <td colSpan={7} className="p-0">
+                          <SettlePanel event={ev} token={accessToken} onDone={refetch} />
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
                 ))}
               </tbody>
             </table>

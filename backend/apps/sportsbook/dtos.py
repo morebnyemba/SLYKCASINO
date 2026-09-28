@@ -14,6 +14,7 @@ class BetRequestDTO(BaseDTO):
     event: str
     event_id: Optional[int] = None
     selection: str = 'home'
+    outcome_id: Optional[int] = None
     stake: Decimal
     odds: Decimal
 
@@ -36,6 +37,7 @@ class AccumulatorLegDTO(BaseDTO):
     event: str
     event_id: Optional[int] = None
     selection: str = 'home'
+    outcome_id: Optional[int] = None
     odds: Decimal
 
 

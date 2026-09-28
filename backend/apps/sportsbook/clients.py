@@ -10,6 +10,8 @@ from typing import Any, Optional
 import requests
 from django.conf import settings
 
+from .market_feed import FeedMarketData, parse_markets
+
 logger = logging.getLogger(__name__)
 
 
@@ -79,6 +81,11 @@ class FixtureUpdate:
     goals_away: Optional[int]
     home_team: Optional[TeamInfo] = None
     away_team: Optional[TeamInfo] = None
+    ht_home: Optional[int] = None
+    ht_away: Optional[int] = None
+    ft_home: Optional[int] = None
+    ft_away: Optional[int] = None
+    elapsed: Optional[int] = None
 
     @property
     def is_finished(self) -> bool:
@@ -89,13 +96,22 @@ class FixtureUpdate:
         return self.status in LIVE_STATUSES
 
     @property
+    def regulation_score(self) -> tuple[Optional[int], Optional[int]]:
+        """90-minute score: api-football's `score.fulltime` when present (it
+        excludes extra time), else the running `goals` total."""
+        if self.ft_home is not None and self.ft_away is not None:
+            return self.ft_home, self.ft_away
+        return self.goals_home, self.goals_away
+
+    @property
     def result(self) -> Optional[str]:
-        """'home'|'draw'|'away' once finished, else None."""
-        if not self.is_finished or self.goals_home is None or self.goals_away is None:
+        """'home'|'draw'|'away' once finished (on the 90-minute score), else None."""
+        home, away = self.regulation_score
+        if not self.is_finished or home is None or away is None:
             return None
-        if self.goals_home > self.goals_away:
+        if home > away:
             return 'home'
-        if self.goals_home < self.goals_away:
+        if home < away:
             return 'away'
         return 'draw'
 
@@ -213,15 +229,24 @@ class ApiFootballClient:
                 starts_at = datetime.fromisoformat(date_str)
             except ValueError:
                 starts_at = None
+        score = raw.get('score') or {}
+        halftime = score.get('halftime') or {}
+        fulltime = score.get('fulltime') or {}
+        status = fixture.get('status') or {}
         return FixtureUpdate(
             external_id=str(fixture.get('id', '')),
             name=f'{home} vs {away}',
-            status=str((fixture.get('status') or {}).get('short', 'NS')),
+            status=str(status.get('short', 'NS')),
             starts_at=starts_at,
             goals_home=goals.get('home'),
             goals_away=goals.get('away'),
             home_team=self._normalize_team(teams.get('home')),
             away_team=self._normalize_team(teams.get('away')),
+            ht_home=halftime.get('home'),
+            ht_away=halftime.get('away'),
+            ft_home=fulltime.get('home'),
+            ft_away=fulltime.get('away'),
+            elapsed=status.get('elapsed'),
         )
 
     def _normalize_team(self, raw: Optional[dict[str, Any]]) -> Optional[TeamInfo]:
@@ -272,19 +297,27 @@ class ApiFootballClient:
         return LeagueInfo(id=int(league_id), season=int(season_year), name=str(league.get('name', '')))
 
     def _normalize_odds(self, raw: dict[str, Any]) -> Optional['OddsSnapshot']:
+        """1X2 prices from the first bookmaker offering "Match Winner", plus every
+        other bet type (each taken from the first bookmaker that offers it) parsed
+        into markets — see parse_markets."""
         fixture_id = str((raw.get('fixture') or {}).get('id', ''))
         if not fixture_id:
             return None
+        snapshot: Optional[OddsSnapshot] = None
+        bets_by_name: dict[str, dict[str, Any]] = {}
         for bookmaker in raw.get('bookmakers', []):
             for bet in bookmaker.get('bets', []):
-                if bet.get('name') != 'Match Winner':
+                name = bet.get('name')
+                if name and name not in bets_by_name:
+                    bets_by_name[name] = bet
+                if snapshot is not None or name != 'Match Winner':
                     continue
                 prices = {v.get('value'): v.get('odd') for v in bet.get('values', [])}
                 home, draw, away = prices.get('Home'), prices.get('Draw'), prices.get('Away')
                 if home is None or away is None:
                     continue
                 try:
-                    return OddsSnapshot(
+                    snapshot = OddsSnapshot(
                         external_id=fixture_id,
                         odds_home=Decimal(str(home)),
                         odds_draw=Decimal(str(draw)) if draw is not None else None,
@@ -292,18 +325,27 @@ class ApiFootballClient:
                     )
                 except (ValueError, ArithmeticError):
                     continue
-        return None
+        if snapshot is None:
+            return None
+        include_manual = getattr(settings, 'SPORTSBOOK_IMPORT_MANUAL_MARKETS', True)
+        markets = parse_markets(list(bets_by_name.values()), include_manual=include_manual)
+        return OddsSnapshot(
+            external_id=snapshot.external_id, odds_home=snapshot.odds_home,
+            odds_draw=snapshot.odds_draw, odds_away=snapshot.odds_away, markets=tuple(markets),
+        )
 
 
 @dataclass(frozen=True)
 class OddsSnapshot:
     """Normalized 1X2 ("Match Winner") prices for one fixture, from the first
-    bookmaker offering that market in the response."""
+    bookmaker offering that market in the response, plus its other markets."""
 
     external_id: str
     odds_home: Decimal
     odds_draw: Optional[Decimal]
     odds_away: Decimal
+    # Every other market the feed offers for this fixture (goals, handicaps…).
+    markets: tuple['FeedMarketData', ...] = ()
 
 
 @dataclass(frozen=True)

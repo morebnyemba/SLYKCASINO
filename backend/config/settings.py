@@ -206,6 +206,10 @@ API_FOOTBALL_LEAGUES = [
 API_FOOTBALL_SEASON = int(os.environ.get('API_FOOTBALL_SEASON', str(datetime.now().year)))
 # How many of each configured league's next upcoming fixtures to import per run.
 API_FOOTBALL_IMPORT_NEXT = int(os.environ.get('API_FOOTBALL_IMPORT_NEXT', '20'))
+# Import odds-feed markets that can't be settled from the score (corners, cards,
+# goalscorers…). They're shown and bettable, but an operator must settle each one
+# from the admin Events page. Set to false to only offer score-settled markets.
+SPORTSBOOK_IMPORT_MANUAL_MARKETS = os.environ.get('SPORTSBOOK_IMPORT_MANUAL_MARKETS', 'true').lower() == 'true'
 
 # ---------------------------------------------------------------------------
 # Celery — workers run domain recovery; beat schedules reconciliation passes.

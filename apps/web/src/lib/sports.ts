@@ -19,9 +19,83 @@ export interface EventItem {
   starts_at?: string | null;
   home_team?: Team | null;
   away_team?: Team | null;
+  /** Provider match status, e.g. 'NS', '1H', 'HT', '2H', 'FT'. */
+  status?: string;
+  elapsed?: number | null;
+  score_home?: number | null;
+  score_away?: number | null;
+  ht_score_home?: number | null;
+  ht_score_away?: number | null;
+  /** Open secondary markets (list endpoint). */
+  markets_count?: number;
+  /** Every market (detail endpoint). */
+  markets?: Market[];
 }
 
-export function isLive(ev: Pick<EventItem, 'starts_at'>): boolean {
+export interface MarketOutcome {
+  id: number;
+  key: string;
+  label: string;
+  odds: string | number;
+  previous_odds?: string | number | null;
+  is_open: boolean;
+  result: 'pending' | 'won' | 'lost' | 'void';
+}
+
+export type MarketGroup = 'main' | 'goals' | 'halves' | 'handicap' | 'score' | 'teams' | 'specials';
+
+export interface Market {
+  id: number;
+  key: string;
+  name: string;
+  group: MarketGroup;
+  kind: string;
+  period: 'ft' | '1h' | '2h';
+  line?: string | null;
+  is_open: boolean;
+  settled: boolean;
+  outcomes: MarketOutcome[];
+}
+
+export const MARKET_GROUPS: { id: MarketGroup; label: string }[] = [
+  { id: 'main', label: 'Main' },
+  { id: 'goals', label: 'Goals' },
+  { id: 'handicap', label: 'Handicaps' },
+  { id: 'halves', label: 'Halves' },
+  { id: 'teams', label: 'Team' },
+  { id: 'score', label: 'Correct score' },
+  { id: 'specials', label: 'Specials' },
+];
+
+const IN_PLAY = new Set(['1H', 'HT', '2H', 'ET', 'BT', 'P', 'SUSP', 'INT', 'LIVE']);
+const FINISHED = new Set(['FT', 'AET', 'PEN']);
+
+export function isFinished(ev: Pick<EventItem, 'status'>): boolean {
+  return !!ev.status && FINISHED.has(ev.status);
+}
+
+export function hasScore(ev: EventItem): boolean {
+  return ev.score_home != null && ev.score_away != null;
+}
+
+/** "67'", "HT", "FT" — short live clock for a match with a feed status. */
+export function matchClock(ev: EventItem): string | null {
+  if (!ev.status) return null;
+  if (ev.status === 'HT' || FINISHED.has(ev.status)) return ev.status;
+  if (IN_PLAY.has(ev.status)) return ev.elapsed != null ? `${ev.elapsed}'` : ev.status;
+  return null;
+}
+
+/** Swap generic "Home"/"Away" in provider labels for the actual team names. */
+export function withTeamNames(text: string, home: string, away: string | null): string {
+  return text
+    .replace(/\bHome\b/g, home)
+    .replace(/\bAway\b/g, away ?? 'Away');
+}
+
+export function isLive(ev: Pick<EventItem, 'starts_at' | 'status'>): boolean {
+  // A feed status is authoritative when present (e.g. finished matches aren't live).
+  if (ev.status) return IN_PLAY.has(ev.status);
   if (!ev.starts_at) return false;
   return new Date(ev.starts_at).getTime() <= Date.now();
 }

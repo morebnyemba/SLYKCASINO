@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation';
 import { useEffect } from 'react';
 import { BsXLg, BsReceipt, BsTrash3 } from 'react-icons/bs';
 import { useAuth } from '@/lib/auth-context';
-import { useBetslip, legKey, type BetLeg, type Selection } from '@/lib/betslip-context';
+import { useBetslip, keyOf, type BetLeg, type Selection } from '@/lib/betslip-context';
 import { formatOdds, useSettings } from '@/lib/settings-context';
 
 const SELECTION_CODE: Record<Selection, string> = { home: '1', draw: 'X', away: '2' };
@@ -13,6 +13,7 @@ const QUICK_STAKES = [5, 10, 25, 50, 100];
 
 /** "Arsenal" / "Draw" / "Chelsea" — the pick in plain words, from the "A v B" event name. */
 function pickLabel(leg: BetLeg): string {
+  if (leg.outcomeId != null) return leg.outcomeLabel ?? 'Selection';
   if (leg.selection === 'draw') return 'Draw';
   const [home, away] = leg.eventName.split(/\s+(?:v|vs\.?)\s+/i);
   if (leg.selection === 'away') return away ?? 'Away';
@@ -30,7 +31,7 @@ function SlipBody({ onClose }: { onClose?: () => void }) {
   const {
     legs, mode, setMode, accaStake, setAccaStake, legStakes, setLegStake,
     combinedOdds, potentialPayout, status, busy,
-    removeLeg, clear, place,
+    removeLeg, clear, place, conflictingEvents,
   } = useBetslip();
 
   const hasLegs = legs.length > 0;
@@ -43,12 +44,12 @@ function SlipBody({ onClose }: { onClose?: () => void }) {
   ];
 
   const totalStake = isSingles
-    ? legs.reduce((a, l) => a + (parseFloat(legStakes[legKey(l.eventId, l.selection)] || '0') || 0), 0)
+    ? legs.reduce((a, l) => a + (parseFloat(legStakes[keyOf(l)] || '0') || 0), 0)
     : parseFloat(accaStake || '0') || 0;
   const placeLabel = isSingles
     ? `Place ${legs.length} bet${legs.length === 1 ? '' : 's'} · ${money(totalStake)}`
     : `Place bet · ${money(totalStake)}`;
-  const rejected = status?.startsWith('Rejected') || status?.startsWith('Enter') || status?.startsWith('Please');
+  const rejected = !!status && /^(Rejected|Enter|Please|Odds changed|Multiples|Placed \d)/.test(status);
 
   return (
     <div className="flex max-h-full flex-col overflow-hidden rounded-2xl border border-border bg-card">
@@ -114,22 +115,26 @@ function SlipBody({ onClose }: { onClose?: () => void }) {
         <>
           <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-3 pb-3">
             {legs.map((l) => {
-              const key = legKey(l.eventId, l.selection);
+              const key = keyOf(l);
+              const conflict = !isSingles && conflictingEvents.has(String(l.eventId));
               const stake = legStakes[key] || '';
               const stakeNum = parseFloat(stake) || 0;
               return (
-                <div key={key} className="rounded-xl border border-border bg-background/50 p-3">
+                <div key={key} className={`rounded-xl border bg-background/50 p-3 ${conflict ? 'border-gold' : 'border-border'}`}>
                   <div className="flex items-start gap-2">
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-[13px] font-extrabold leading-tight">{pickLabel(l)}</p>
                       <p className="mt-0.5 text-[11px] font-semibold text-muted-foreground">
-                        Match result · {SELECTION_CODE[l.selection]}
+                        {l.outcomeId != null ? l.marketName : `Match result · ${SELECTION_CODE[l.selection]}`}
                       </p>
                       <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{l.eventName}</p>
+                      {conflict && (
+                        <p className="mt-1 text-[11px] font-semibold text-gold">Same match as another pick — place as Singles</p>
+                      )}
                     </div>
                     <span className="rounded-md bg-odds px-2 py-1 text-sm font-extrabold tabular-nums">{fmt(l.odds)}</span>
                     <button
-                      onClick={() => removeLeg(l.eventId, l.selection)}
+                      onClick={() => removeLeg(key)}
                       aria-label="Remove selection"
                       className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-destructive"
                     >

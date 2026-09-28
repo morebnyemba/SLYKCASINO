@@ -75,7 +75,7 @@ export async function authedPost<T>(
   path: string,
   body: unknown,
   token: string,
-): Promise<{ data?: T; error?: string; status: number }> {
+): Promise<{ data?: T; error?: string; status: number; body?: Record<string, unknown> }> {
   try {
     let res = await fetch(`${config.apiUrl}${path}`, {
       method: 'POST',
@@ -99,7 +99,7 @@ export async function authedPost<T>(
     const json = await res.json().catch(() => ({}));
     if (!res.ok) {
       const msg = (json as { detail?: string }).detail ?? `API ${res.status}`;
-      return { error: msg, status: res.status };
+      return { error: msg, status: res.status, body: json as Record<string, unknown> };
     }
     return { data: json as T, status: res.status };
   } catch (e) {
