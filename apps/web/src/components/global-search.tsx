@@ -80,7 +80,7 @@ export function GlobalSearch() {
       <div
         role="dialog"
         aria-label="Search"
-        className="mx-auto flex h-full w-full max-w-2xl flex-col bg-background sm:mt-20 sm:h-auto sm:max-h-[75vh] sm:rounded-2xl sm:border sm:border-border sm:shadow-2xl"
+        className="mx-auto flex h-full w-full max-w-2xl flex-col bg-background pt-[var(--safe-top)] sm:mt-20 sm:pt-0 sm:h-auto sm:max-h-[75vh] sm:rounded-2xl sm:border sm:border-border sm:shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-2 border-b border-border p-3">

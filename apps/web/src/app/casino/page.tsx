@@ -141,7 +141,7 @@ function CasinoLobby() {
       )}
 
       {/* Category tabs stay pinned; search/filters scroll away to save space on phones. */}
-      <div className="sticky top-16 z-20 -mx-3 bg-background/95 px-3 py-2 backdrop-blur sm:mx-0 sm:px-0">
+      <div className="sticky top-[var(--header-h)] z-20 -mx-3 bg-background/95 px-3 py-2 backdrop-blur sm:mx-0 sm:px-0">
         <div className="no-scrollbar flex gap-1 overflow-x-auto rounded-2xl border border-border bg-card p-1">
           {visibleCategories.map((c) => {
             const Icon = CATEGORY_ICONS[c.value] ?? GiCastle;

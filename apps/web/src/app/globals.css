@@ -61,3 +61,12 @@
 /* Horizontal scrollers (sport chips, game rows) hide their scrollbar. */
 .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 .no-scrollbar::-webkit-scrollbar { display: none; }
+
+/* Header height incl. the iOS notch/status bar (the PWA uses a translucent status bar
+   and viewport-fit=cover). Pinned sub-bars offset themselves by this. */
+@layer base {
+  html {
+    --safe-top: env(safe-area-inset-top);
+    --header-h: calc(4rem + env(safe-area-inset-top));
+  }
+}

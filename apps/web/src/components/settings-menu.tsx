@@ -52,7 +52,7 @@ export function SettingsMenu({ className = '', placement = 'header' }: {
         <div className="fixed inset-0 z-[80]" onClick={() => setOpen(false)}>
           <div
             className={`absolute z-50 w-64 rounded-xl border border-border bg-card p-4 text-card-foreground shadow-xl ${
-              placement === 'sidebar' ? 'bottom-16 left-4' : 'bottom-4 right-4 sm:bottom-auto sm:top-16'
+              placement === 'sidebar' ? 'bottom-16 left-4' : 'bottom-4 right-4 sm:bottom-auto sm:top-[calc(var(--header-h)+0.5rem)]'
             }`}
             onClick={(e) => e.stopPropagation()}
           >

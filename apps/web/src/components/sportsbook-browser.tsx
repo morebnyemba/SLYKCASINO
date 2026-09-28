@@ -124,7 +124,7 @@ export function SportsbookBrowser({ events, topMatches = [] }: { events: EventIt
         </div>
 
         {/* Tabs + search */}
-        <div className="sticky top-16 z-20 -mx-3 flex flex-wrap items-center gap-2 bg-background/95 px-3 py-2 backdrop-blur sm:mx-0 sm:flex-nowrap sm:px-0">
+        <div className="sticky top-[var(--header-h)] z-20 -mx-3 flex flex-wrap items-center gap-2 bg-background/95 px-3 py-2 backdrop-blur sm:mx-0 sm:flex-nowrap sm:px-0">
           <div className="flex flex-1 gap-1 rounded-xl border border-border bg-card p-1 sm:flex-none">
             {tabs.map((t) => (
               <button

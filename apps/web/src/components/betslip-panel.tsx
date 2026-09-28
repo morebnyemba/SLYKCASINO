@@ -246,7 +246,7 @@ function SlipBody({ onClose }: { onClose?: () => void }) {
 /** Desktop: a sticky card for the right rail. */
 export function BetslipCard() {
   return (
-    <div className="sticky top-20 max-h-[calc(100vh-6rem)]">
+    <div className="sticky top-[calc(var(--header-h)+1rem)] max-h-[calc(100dvh-var(--header-h)-2rem)]">
       <SlipBody />
     </div>
   );

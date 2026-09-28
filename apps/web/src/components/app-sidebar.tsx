@@ -232,7 +232,7 @@ export function MobileMenu() {
   return (
     <div className="fixed inset-0 z-[60] bg-black/60 lg:hidden" onClick={() => setMenuOpen(false)}>
       <aside
-        className="animate-slyk-drawer h-full w-[82%] max-w-[300px] bg-sidebar text-sidebar-foreground shadow-2xl"
+        className="animate-slyk-drawer h-full w-[82%] max-w-[300px] bg-sidebar pt-[var(--safe-top)] text-sidebar-foreground shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <SidebarContent variant="drawer" />

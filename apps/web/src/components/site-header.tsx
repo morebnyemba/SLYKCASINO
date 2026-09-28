@@ -136,7 +136,7 @@ function UserMenu({ username, unreadCount, onLogout, onDeposit }: {
         <Portal>
         <div className="fixed inset-0 z-[60] bg-black/50 sm:bg-transparent" onClick={() => setOpen(false)}>
           <div
-            className="animate-slyk-sheet absolute inset-x-0 bottom-0 max-h-[85vh] overflow-y-auto rounded-t-3xl border border-border bg-card pb-[max(env(safe-area-inset-bottom),0.75rem)] text-card-foreground shadow-2xl sm:inset-x-auto sm:bottom-auto sm:right-3 sm:top-[68px] sm:w-72 sm:animate-none sm:rounded-2xl sm:pb-0"
+            className="animate-slyk-sheet absolute inset-x-0 bottom-0 max-h-[85vh] overflow-y-auto rounded-t-3xl border border-border bg-card pb-[max(env(safe-area-inset-bottom),0.75rem)] text-card-foreground shadow-2xl sm:inset-x-auto sm:bottom-auto sm:right-3 sm:top-[calc(var(--header-h)+0.25rem)] sm:w-72 sm:animate-none sm:rounded-2xl sm:pb-0"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex justify-center pt-2 sm:hidden"><span className="h-[5px] w-10 rounded-full bg-border" /></div>
@@ -224,12 +224,16 @@ export function SiteHeader() {
 
   return (
     <>
+      {/* Mobile: truly fixed (sticky is unreliable in some mobile browsers and would let the
+          header slide under the notch in the installed PWA). Desktop: sticky within the
+          content column next to the nav rail. The spacer keeps content clear of it. */}
+      <div aria-hidden className="h-[var(--header-h)] shrink-0 lg:hidden" />
       <header
-        className={`sticky top-0 z-50 h-16 border-b bg-sidebar/85 text-sidebar-foreground backdrop-blur-xl transition-shadow ${
+        className={`fixed inset-x-0 top-0 z-50 border-b bg-sidebar/95 pt-[var(--safe-top)] text-sidebar-foreground backdrop-blur-xl transition-shadow lg:sticky lg:inset-x-auto lg:pt-0 ${
           scrolled ? 'border-border shadow-[0_8px_24px_rgba(0,0,0,0.25)]' : 'border-border/60'
         }`}
       >
-        <div className="flex h-full items-center gap-2 px-3 sm:gap-3 sm:px-4 lg:px-5">
+        <div className="flex h-16 items-center gap-2 px-3 sm:gap-3 sm:px-4 lg:px-5">
           {/* The desktop rail carries the logo; smaller screens show it here. */}
           <div className="lg:hidden">
             <Logo markOnly={!!user} nameClassName="max-[399px]:hidden" />

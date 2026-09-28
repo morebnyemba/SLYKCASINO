@@ -35,6 +35,8 @@ export async function generateMetadata(): Promise<Metadata> {
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
+  // Lets the header pad itself below the notch (env(safe-area-inset-top)).
+  viewportFit: 'cover',
   themeColor: '#110B2E',
 };
 

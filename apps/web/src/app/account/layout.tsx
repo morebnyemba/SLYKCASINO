@@ -65,7 +65,7 @@ export default function AccountLayout({ children }: { children: React.ReactNode 
             <FaSignOutAlt size={15} />
           </button>
         </div>
-        <nav className="sticky top-16 z-20 -mx-3 border-b border-border bg-background/95 px-3 backdrop-blur">
+        <nav className="sticky top-[var(--header-h)] z-20 -mx-3 border-b border-border bg-background/95 px-3 backdrop-blur">
           <div className="no-scrollbar flex gap-1 overflow-x-auto">
             {tabs.map((t) => {
               const Icon = t.icon;
@@ -88,7 +88,7 @@ export default function AccountLayout({ children }: { children: React.ReactNode 
         </nav>
       </div>
 
-      <aside className="hidden h-fit rounded-2xl border border-border bg-card p-3 shadow-sm md:sticky md:top-20 md:block">
+      <aside className="hidden h-fit rounded-2xl border border-border bg-card p-3 shadow-sm md:sticky md:top-[calc(var(--header-h)+1rem)] md:block">
         <div className="mb-2 flex items-center gap-3 rounded-xl px-2 py-2.5">
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-gold to-gold/70 text-base font-bold text-gold-foreground shadow-inner shadow-black/10">
             {user.username?.[0]?.toUpperCase() ?? '?'}
