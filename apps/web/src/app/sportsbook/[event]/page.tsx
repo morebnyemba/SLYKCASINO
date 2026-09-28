@@ -1,7 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { LiveFeed } from '@/components/live-feed';
-import { BetslipCard } from '@/components/betslip-panel';
 import { EventMarkets } from '@/components/event-markets';
 import { apiGet } from '@/lib/config';
 import type { EventItem } from '@/lib/sports';
@@ -40,14 +39,11 @@ export default async function EventPage({ params }: PageProps) {
   }
 
   return (
-    <div className="grid gap-5 xl:grid-cols-[1fr_340px]">
+    <div className="mx-auto max-w-5xl">
       <section className="min-w-0 space-y-4">
         <EventMarkets ev={ev} />
         <LiveFeed channel={`odds:${event}`} title="Price history" height={200} />
       </section>
-      <aside className="hidden xl:block">
-        <BetslipCard />
-      </aside>
     </div>
   );
 }

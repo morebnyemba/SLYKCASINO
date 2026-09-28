@@ -25,7 +25,11 @@ function money(n: number) {
 }
 
 /** The slip body, shared by the desktop rail card and the mobile sheet. */
-function SlipBody({ onClose }: { onClose?: () => void }) {
+export function SlipBody({ onClose, variant = 'card' }: {
+  onClose?: () => void;
+  /** `rail` renders flat and full-height for the desktop right column (which has its own header). */
+  variant?: 'card' | 'rail';
+}) {
   const { user } = useAuth();
   const { oddsFormat } = useSettings();
   const {
@@ -52,11 +56,16 @@ function SlipBody({ onClose }: { onClose?: () => void }) {
   const rejected = !!status && /^(Rejected|Enter|Please|Odds changed|Multiples|Placed \d)/.test(status);
 
   return (
-    <div className="flex max-h-full flex-col overflow-hidden rounded-2xl border border-border bg-card">
-      <div className="flex items-center gap-2.5 px-4 py-3">
-        <BsReceipt size={16} className="text-secondary" />
-        <span className="font-extrabold">Bet slip</span>
-        {hasLegs && (
+    <div className={variant === 'rail'
+      ? 'flex h-full min-h-0 flex-col'
+      : 'flex max-h-full flex-col overflow-hidden rounded-2xl border border-border bg-card'}
+    >
+      <div className={`flex items-center gap-2.5 px-4 py-3 ${variant === 'rail' && !hasLegs ? 'hidden' : ''}`}>
+        <BsReceipt size={16} className={variant === 'rail' ? 'hidden' : 'text-secondary'} />
+        <span className={`font-extrabold ${variant === 'rail' ? 'text-sm text-muted-foreground' : ''}`}>
+          {variant === 'rail' ? `${legs.length} selection${legs.length === 1 ? '' : 's'}` : 'Bet slip'}
+        </span>
+        {hasLegs && variant !== 'rail' && (
           <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-secondary px-1.5 text-[11px] font-extrabold text-white">
             {legs.length}
           </span>
@@ -95,7 +104,7 @@ function SlipBody({ onClose }: { onClose?: () => void }) {
       )}
 
       {!hasLegs && (
-        <div className="px-6 pb-8 pt-4 text-center">
+        <div className={`px-6 pb-8 pt-4 text-center ${variant === 'rail' ? 'my-auto' : ''}`}>
           <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-muted">
             <BsReceipt size={22} className="text-muted-foreground" />
           </div>
@@ -244,15 +253,6 @@ function SlipBody({ onClose }: { onClose?: () => void }) {
       {!hasLegs && status && (
         <p className="mx-4 mb-4 rounded-lg bg-win/10 px-3 py-2 text-center text-xs font-semibold text-win">{status}</p>
       )}
-    </div>
-  );
-}
-
-/** Desktop: a sticky card for the right rail. */
-export function BetslipCard() {
-  return (
-    <div className="sticky top-[calc(var(--header-h)+1rem)] max-h-[calc(100dvh-var(--header-h)-2rem)]">
-      <SlipBody />
     </div>
   );
 }

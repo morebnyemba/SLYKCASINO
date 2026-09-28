@@ -7,13 +7,15 @@ import { GiTrophy, GiRollingDices } from 'react-icons/gi';
 import {
   FaUser, FaSignOutAlt, FaWallet, FaBell, FaIdCard, FaShieldAlt, FaChevronDown, FaHistory, FaPlus, FaGift,
 } from 'react-icons/fa';
-import { BsSearch, BsTicketPerforated } from 'react-icons/bs';
+import { BsReceipt, BsSearch, BsTicketPerforated } from 'react-icons/bs';
 import type { IconType } from 'react-icons';
 import { useAuth } from '@/lib/auth-context';
 import { useApi } from '@/lib/use-api';
 import { useShell } from '@/lib/shell-context';
 import { Logo } from '@/components/logo';
 import { Portal } from '@/components/portal';
+import { useRailOpen } from '@/components/bet-rail';
+import { useBetslip } from '@/lib/betslip-context';
 import { SettingsMenu, ThemeToggle } from '@/components/settings-menu';
 import { DepositModal } from '@/components/deposit-modal';
 
@@ -81,6 +83,31 @@ function SearchTrigger() {
         <BsSearch size={16} />
       </button>
     </>
+  );
+}
+
+/** Desktop bet-slip toggle: shows/hides the right rail on xl, opens the slide-in slip below that. */
+function SlipToggle() {
+  const { legs, setSlipOpen } = useBetslip();
+  const { setRailPref } = useShell();
+  const railOpen = useRailOpen();
+  return (
+    <button
+      onClick={() => {
+        if (window.matchMedia('(min-width: 1280px)').matches) setRailPref(!railOpen);
+        else setSlipOpen(true);
+      }}
+      aria-label="Bet slip"
+      title="Bet slip"
+      className={`${iconBtn} hidden lg:flex ${railOpen ? 'xl:bg-secondary/15 xl:text-foreground' : ''}`}
+    >
+      <BsReceipt size={16} />
+      {legs.length > 0 && (
+        <span className="absolute right-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-win px-1 text-[10px] font-extrabold text-win-foreground">
+          {legs.length}
+        </span>
+      )}
+    </button>
   );
 }
 
@@ -243,6 +270,7 @@ export function SiteHeader() {
           <SearchTrigger />
 
           <div className="ml-auto flex min-w-0 items-center gap-1.5 sm:gap-2">
+            <SlipToggle />
             {isLoading ? (
               <div className="h-10 w-40 animate-pulse rounded-xl bg-muted" />
             ) : user ? (

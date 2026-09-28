@@ -4,12 +4,9 @@ import { useMemo, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { BsSearch, BsXCircleFill } from 'react-icons/bs';
 import { GiTrophyCup } from 'react-icons/gi';
-import { LiveFeed } from '@/components/live-feed';
 import { SPORT_CATEGORIES } from '@/components/sports-sidebar';
-import { BetslipCard } from '@/components/betslip-panel';
 import { Carousel, CarouselItem } from '@/components/carousel';
 import { EventRow, FeaturedMatchCard, MarketHeader, sportMeta } from '@/components/event-row';
-import { useSettings } from '@/lib/settings-context';
 import { isLive, sortEvents, type EventItem } from '@/lib/sports';
 
 type Tab = 'all' | 'live' | 'upcoming';
@@ -23,7 +20,6 @@ export function SportsbookBrowser({ events, topMatches = [], awaitingOdds = 0 }:
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
-  const { showLiveFeed } = useSettings();
   const [search, setSearch] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
 
@@ -86,7 +82,7 @@ export function SportsbookBrowser({ events, topMatches = [], awaitingOdds = 0 }:
   ];
 
   return (
-    <div className="grid gap-5 xl:grid-cols-[1fr_340px]">
+    <div>
       <section className="min-w-0 space-y-4">
         {topMatches.length > 0 && !sport && tab === 'all' && (
           <div>
@@ -214,10 +210,6 @@ export function SportsbookBrowser({ events, topMatches = [], awaitingOdds = 0 }:
         })}
       </section>
 
-      <aside className="hidden space-y-4 xl:block">
-        <BetslipCard />
-        {showLiveFeed && <LiveFeed channel="odds" title="Live Odds" height={200} />}
-      </aside>
     </div>
   );
 }
