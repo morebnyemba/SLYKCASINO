@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { Portal } from '@/components/portal';
 import { BsMoonStarsFill, BsSunFill, BsGearFill, BsCheck } from 'react-icons/bs';
 import { ACCENT_OPTIONS, useSettings, type OddsFormat } from '@/lib/settings-context';
 
@@ -18,7 +19,7 @@ export function ThemeToggle({ className = '' }: { className?: string }) {
       onClick={toggleTheme}
       aria-label="Toggle theme"
       title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-      className={`flex h-9 items-center gap-1.5 rounded-md px-2.5 text-xs font-semibold text-white/80 transition-colors hover:bg-white/10 hover:text-white ${className}`}
+      className={`flex h-9 items-center gap-2 rounded-lg px-2.5 text-xs font-semibold text-muted-foreground transition-colors hover:bg-muted hover:text-foreground ${className}`}
     >
       {theme === 'dark' ? <BsSunFill size={14} /> : <BsMoonStarsFill size={14} />}
       <span>{theme === 'dark' ? 'Light mode' : 'Dark mode'}</span>
@@ -27,7 +28,11 @@ export function ThemeToggle({ className = '' }: { className?: string }) {
 }
 
 /** Gear-icon dropdown: odds format, accent colour, live-feed toggle. */
-export function SettingsMenu({ className = '' }: { className?: string }) {
+export function SettingsMenu({ className = '', placement = 'header' }: {
+  className?: string;
+  /** Where the trigger lives, so the panel opens next to it. */
+  placement?: 'header' | 'sidebar';
+}) {
   const { oddsFormat, setOddsFormat, accent, setAccent, showLiveFeed, setShowLiveFeed } = useSettings();
   const [open, setOpen] = useState(false);
 
@@ -37,15 +42,18 @@ export function SettingsMenu({ className = '' }: { className?: string }) {
         onClick={() => setOpen((v) => !v)}
         aria-label="Preferences"
         title="Preferences"
-        className={`flex h-9 w-9 items-center justify-center rounded-md text-white/80 transition-colors hover:bg-white/10 hover:text-white ${className}`}
+        className={`flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground ${className}`}
       >
         <BsGearFill size={15} />
       </button>
 
       {open && (
-        <div className="fixed inset-0 z-40" onClick={() => setOpen(false)}>
+        <Portal>
+        <div className="fixed inset-0 z-[80]" onClick={() => setOpen(false)}>
           <div
-            className="absolute right-4 top-14 z-50 w-64 rounded-lg border border-border bg-card p-4 text-card-foreground shadow-xl"
+            className={`absolute z-50 w-64 rounded-xl border border-border bg-card p-4 text-card-foreground shadow-xl ${
+              placement === 'sidebar' ? 'bottom-16 left-4' : 'bottom-4 right-4 sm:bottom-auto sm:top-[calc(var(--header-h)+0.5rem)]'
+            }`}
             onClick={(e) => e.stopPropagation()}
           >
             <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Preferences</p>
@@ -105,6 +113,7 @@ export function SettingsMenu({ className = '' }: { className?: string }) {
             </label>
           </div>
         </div>
+        </Portal>
       )}
     </div>
   );

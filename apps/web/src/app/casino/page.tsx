@@ -1,33 +1,47 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { BsSearch, BsStarFill } from 'react-icons/bs';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { BsSearch, BsStarFill, BsXCircleFill } from 'react-icons/bs';
+import {
+  GiCastle, GiRocketFlight, GiCherry, GiPokerHand, GiCardAceSpades, GiSoccerKick, GiLightningFrequency,
+} from 'react-icons/gi';
+import type { IconType } from 'react-icons';
 import { Carousel, CarouselItem } from '@/components/carousel';
 import { GameTile } from '@/components/game-tile';
+import { GameRow } from '@/components/game-row';
 import { useApi } from '@/lib/use-api';
+import { useFavorites } from '@/lib/use-favorites';
 import { CASINO_HERO_IMAGES } from '@/lib/game-images';
-import {
-  CASINO_CATEGORIES as CATEGORIES,
-  DEMO_GAMES,
-  type Game,
-  gameTag,
-  loadFavorites,
-  saveFavorites,
-} from '@/lib/casino';
+import { CASINO_CATEGORIES as CATEGORIES, DEMO_GAMES, type Game, gameHref, gameTag, tileArt } from '@/lib/casino';
 
 interface GamesResponse {
   results?: Game[];
   next?: string | null;
 }
 
-export default function CasinoPage() {
-  const { data, loading } = useApi<GamesResponse>('/casino/games/');
+const CATEGORY_ICONS: Record<string, IconType> = {
+  all: GiCastle,
+  crash: GiRocketFlight,
+  slots: GiCherry,
+  live: GiPokerHand,
+  table: GiCardAceSpades,
+  virtual: GiSoccerKick,
+  instant: GiLightningFrequency,
+};
+
+function CasinoLobby() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const params = useSearchParams();
+  const { data, loading } = useApi<GamesResponse>('/casino/games/', { public: true });
   const [extraGames, setExtraGames] = useState<Game[]>([]);
   const [nextPage, setNextPage] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const apiGames = data?.results ?? [];
-  const games = apiGames.length > 0 ? [...apiGames, ...extraGames] : DEMO_GAMES;
+  const games = useMemo(() => (apiGames.length > 0 ? [...apiGames, ...extraGames] : DEMO_GAMES), [apiGames, extraGames]);
+  const allIds = useMemo(() => games.map((g) => g.id), [games]);
 
   useEffect(() => {
     setNextPage(data?.next ?? null);
@@ -47,12 +61,22 @@ export default function CasinoPage() {
     setLoadingMore(false);
   }
 
+  // Category lives in the URL so sidebar links (/casino?category=slots) land on the right tab.
+  const categoryParam = params.get('category') ?? 'all';
+  const onlyFavorites = categoryParam === 'favorites';
+  const category = onlyFavorites ? 'all' : categoryParam;
+
+  function setCategory(value: string) {
+    const q = new URLSearchParams(params.toString());
+    if (value === 'all') q.delete('category'); else q.set('category', value);
+    const qs = q.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  }
+
   const [search, setSearch] = useState('');
-  const [category, setCategory] = useState('all');
   const [provider, setProvider] = useState('all');
-  const [sort, setSort] = useState<'name' | 'rtp'>('name');
-  const [favorites, setFavorites] = useState<Set<string>>(() => loadFavorites());
-  const [onlyFavorites, setOnlyFavorites] = useState(false);
+  const [sort, setSort] = useState<'popular' | 'name' | 'rtp'>('popular');
+  const { favorites, toggleFavorite } = useFavorites();
 
   const providers = useMemo(() => Array.from(new Set(games.map((g) => g.provider))).sort(), [games]);
   const visibleCategories = useMemo(() => {
@@ -60,130 +84,207 @@ export default function CasinoPage() {
     return CATEGORIES.filter((c) => c.value === 'all' || present.has(c.value));
   }, [games]);
 
-  function toggleFavorite(slug: string) {
-    setFavorites((prev) => {
-      const next = new Set(prev);
-      if (next.has(slug)) next.delete(slug); else next.add(slug);
-      saveFavorites(next);
-      return next;
-    });
-  }
-
   const filtered = useMemo(() => {
-    let list = games.filter((g) => g.name.toLowerCase().includes(search.toLowerCase()));
+    const q = search.trim().toLowerCase();
+    let list = games.filter((g) => !q || g.name.toLowerCase().includes(q) || g.provider.toLowerCase().includes(q));
     if (category !== 'all') list = list.filter((g) => g.category === category);
     if (provider !== 'all') list = list.filter((g) => g.provider === provider);
     if (onlyFavorites) list = list.filter((g) => favorites.has(g.slug));
-    list = [...list].sort((a, b) => (
-      sort === 'rtp' ? parseFloat(b.rtp) - parseFloat(a.rtp) : a.name.localeCompare(b.name)
-    ));
+    if (sort !== 'popular') {
+      list = [...list].sort((a, b) => (
+        sort === 'rtp' ? parseFloat(b.rtp) - parseFloat(a.rtp) : a.name.localeCompare(b.name)
+      ));
+    }
     return list;
   }, [games, search, category, provider, onlyFavorites, favorites, sort]);
 
+  // Lobby view = shelves per category; any filter switches to a flat grid.
+  const lobbyView = category === 'all' && !onlyFavorites && !search.trim() && provider === 'all' && sort === 'popular';
+  const favoriteGames = games.filter((g) => favorites.has(g.slug));
+  const topRtp = [...games].sort((a, b) => parseFloat(b.rtp) - parseFloat(a.rtp)).slice(0, 12);
+  const heroGames = games.slice(0, CASINO_HERO_IMAGES.length);
+
+  const tabClass = (active: boolean) =>
+    `flex shrink-0 items-center gap-2 rounded-xl px-3.5 py-2 text-[13px] font-bold transition-colors ${
+      active ? 'bg-secondary text-white shadow' : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+    }`;
+
   return (
-    <div>
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold">Casino</h1>
-        <p className="text-muted-foreground">Choose a game and start playing. Bets are settled instantly.</p>
-      </div>
-
-      <Carousel className="mb-6">
-        {CASINO_HERO_IMAGES.map((src, i) => (
-          <CarouselItem key={src} className="w-[280px] sm:w-[360px]">
-            <Link href={`/casino/${games[i % games.length]?.slug ?? ''}?id=${games[i % games.length]?.id ?? ''}`}>
-              <div className="relative h-36 overflow-hidden rounded-xl sm:h-44">
+    <div className="space-y-6">
+      {heroGames.length > 0 && (
+        <Carousel>
+          {heroGames.map((g, i) => (
+            <CarouselItem key={g.slug} className="w-[280px] sm:w-[380px]">
+              <Link
+                href={gameHref(g)}
+                className="group relative block h-36 overflow-hidden rounded-2xl sm:h-44"
+                style={{ background: tileArt(g.slug) }}
+              >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={src} alt="Casino highlight" className="h-full w-full object-cover" />
-                <div className="absolute inset-0 flex items-end bg-gradient-to-t from-black/70 to-transparent p-3">
-                  <p className="font-semibold text-white">{games[i % games.length]?.name ?? 'Featured game'}</p>
+                <img
+                  src={CASINO_HERO_IMAGES[i]}
+                  alt=""
+                  onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                  className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+                />
+                <div className="absolute inset-0 flex flex-col justify-end bg-gradient-to-t from-black/85 via-black/30 to-transparent p-4">
+                  <span className="mb-1 w-fit rounded bg-white/15 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white backdrop-blur">
+                    Featured
+                  </span>
+                  <p className="text-lg font-extrabold text-white">{g.name}</p>
+                  <p className="text-xs font-semibold text-white/70">{g.provider}</p>
                 </div>
-              </div>
-            </Link>
-          </CarouselItem>
-        ))}
-      </Carousel>
+              </Link>
+            </CarouselItem>
+          ))}
+        </Carousel>
+      )}
 
-      <div className="mb-4 flex gap-2 overflow-x-auto scroll-smooth pb-1 [-ms-overflow-style:none] [scrollbar-width:none] sm:flex-wrap sm:overflow-visible [&::-webkit-scrollbar]:hidden">
-        {visibleCategories.map((c) => (
-          <button
-            key={c.value}
-            onClick={() => setCategory(c.value)}
-            className={`shrink-0 rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
-              category === c.value
-                ? 'bg-primary text-primary-foreground'
-                : 'bg-muted text-muted-foreground hover:bg-accent/10'
-            }`}
-          >
-            {c.label}
+      {/* Category tabs stay pinned; search/filters scroll away to save space on phones. */}
+      <div className="sticky top-[var(--header-h)] z-20 -mx-3 bg-background/95 px-3 py-2 backdrop-blur sm:mx-0 sm:px-0">
+        <div className="no-scrollbar flex gap-1 overflow-x-auto rounded-2xl border border-border bg-card p-1">
+          {visibleCategories.map((c) => {
+            const Icon = CATEGORY_ICONS[c.value] ?? GiCastle;
+            return (
+              <button key={c.value} onClick={() => setCategory(c.value)} className={tabClass(!onlyFavorites && category === c.value)}>
+                <Icon size={16} />
+                {c.label}
+              </button>
+            );
+          })}
+          <button onClick={() => setCategory('favorites')} className={tabClass(onlyFavorites)}>
+            <BsStarFill size={13} />
+            Favourites
+            {favorites.size > 0 && (
+              <span className={`rounded-full px-1.5 text-[10px] ${onlyFavorites ? 'bg-white/20' : 'bg-muted'}`}>{favorites.size}</span>
+            )}
           </button>
-        ))}
+        </div>
       </div>
-
-      <div className="mb-6 flex flex-wrap items-center gap-3">
-        <div className="relative flex-1 min-w-[200px]">
-          <BsSearch className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={14} />
+      <div className="-mt-4 grid grid-cols-2 gap-2 sm:flex sm:items-center">
+        <div className="relative col-span-2 sm:flex-1">
+          <BsSearch className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={13} />
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search games…"
-            className="w-full rounded-md border border-border bg-background py-2 pl-9 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+            placeholder="Search games or providers"
+            aria-label="Search games"
+            className="w-full rounded-xl border border-border bg-card py-2.5 pl-9 pr-9 text-sm outline-none focus:ring-2 focus:ring-ring"
           />
+          {search && (
+            <button
+              onClick={() => setSearch('')}
+              aria-label="Clear search"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            >
+              <BsXCircleFill size={13} />
+            </button>
+          )}
         </div>
         <select
           value={provider}
           onChange={(e) => setProvider(e.target.value)}
-          className="rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+          aria-label="Provider"
+          className="min-w-0 rounded-xl border border-border bg-card px-3 py-2.5 text-sm font-semibold outline-none focus:ring-2 focus:ring-ring"
         >
           <option value="all">All providers</option>
           {providers.map((p) => <option key={p} value={p}>{p}</option>)}
         </select>
         <select
           value={sort}
-          onChange={(e) => setSort(e.target.value as 'name' | 'rtp')}
-          className="rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+          onChange={(e) => setSort(e.target.value as 'popular' | 'name' | 'rtp')}
+          aria-label="Sort"
+          className="min-w-0 rounded-xl border border-border bg-card px-3 py-2.5 text-sm font-semibold outline-none focus:ring-2 focus:ring-ring"
         >
-          <option value="name">Sort: A–Z</option>
-          <option value="rtp">Sort: Highest RTP</option>
+          <option value="popular">Popular</option>
+          <option value="name">A–Z</option>
+          <option value="rtp">Highest RTP</option>
         </select>
-        <button
-          onClick={() => setOnlyFavorites((v) => !v)}
-          className={`flex items-center gap-1.5 rounded-md border px-3 py-2 text-sm font-medium transition-colors ${
-            onlyFavorites ? 'border-gold bg-gold/10 text-gold' : 'border-border text-muted-foreground hover:bg-accent/10'
-          }`}
-        >
-          <BsStarFill size={13} />
-          Favorites
-        </button>
       </div>
 
-      {loading && <p className="text-sm text-muted-foreground mb-4">Loading games…</p>}
-      {!loading && filtered.length === 0 && (
-        <p className="text-sm text-muted-foreground">No games match your filters.</p>
+      {loading && (
+        <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5 xl:grid-cols-7">
+          {Array.from({ length: 7 }).map((_, i) => (
+            <div key={i} className="aspect-[3/4] animate-pulse rounded-xl bg-muted" />
+          ))}
+        </div>
       )}
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-        {filtered.map((game) => (
-          <GameTile
-            key={game.slug}
-            game={game}
-            tag={gameTag(game, games.map((g) => g.id))}
-            isFavorite={favorites.has(game.slug)}
-            onToggleFavorite={toggleFavorite}
+      {!loading && lobbyView && (
+        <div className="space-y-8">
+          {favoriteGames.length > 0 && (
+            <GameRow
+              title="Your favourites" icon={BsStarFill} games={favoriteGames} allIds={allIds}
+              favorites={favorites} onToggleFavorite={toggleFavorite} onSeeAll={() => setCategory('favorites')}
+            />
+          )}
+          <GameRow
+            title="Top RTP" icon={GiLightningFrequency} games={topRtp} allIds={allIds}
+            favorites={favorites} onToggleFavorite={toggleFavorite} onSeeAll={() => setSort('rtp')}
           />
-        ))}
-      </div>
+          {visibleCategories.filter((c) => c.value !== 'all').map((c) => (
+            <GameRow
+              key={c.value}
+              title={c.label}
+              icon={CATEGORY_ICONS[c.value]}
+              games={games.filter((g) => g.category === c.value)}
+              allIds={allIds}
+              favorites={favorites}
+              onToggleFavorite={toggleFavorite}
+              onSeeAll={() => setCategory(c.value)}
+            />
+          ))}
+        </div>
+      )}
+
+      {!loading && !lobbyView && (
+        <>
+          <p className="text-sm font-semibold text-muted-foreground">
+            {filtered.length} game{filtered.length === 1 ? '' : 's'}
+          </p>
+          {filtered.length === 0 ? (
+            <div className="rounded-2xl border border-border bg-card p-12 text-center">
+              <p className="mb-1 font-bold">{onlyFavorites ? 'No favourites yet' : 'No games found'}</p>
+              <p className="text-sm text-muted-foreground">
+                {onlyFavorites ? 'Tap the star on any game to save it here.' : 'Try a different search or filter.'}
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5 xl:grid-cols-7">
+              {filtered.map((game) => (
+                <GameTile
+                  key={game.slug}
+                  game={game}
+                  tag={gameTag(game, allIds)}
+                  isFavorite={favorites.has(game.slug)}
+                  onToggleFavorite={toggleFavorite}
+                />
+              ))}
+            </div>
+          )}
+        </>
+      )}
 
       {nextPage && (
-        <div className="mt-6 flex justify-center">
+        <div className="flex justify-center">
           <button
             onClick={loadMore}
             disabled={loadingMore}
-            className="rounded-md border border-border px-4 py-2 text-sm font-medium text-muted-foreground hover:bg-accent/10 disabled:opacity-50"
+            className="rounded-xl border border-border bg-card px-5 py-2.5 text-sm font-bold text-muted-foreground hover:text-foreground disabled:opacity-50"
           >
             {loadingMore ? 'Loading…' : 'Load more games'}
           </button>
         </div>
       )}
     </div>
+  );
+}
+
+export default function CasinoPage() {
+  // useSearchParams (category from the URL) needs a Suspense boundary.
+  return (
+    <Suspense>
+      <CasinoLobby />
+    </Suspense>
   );
 }

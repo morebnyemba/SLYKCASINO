@@ -5,7 +5,7 @@ export default function PrivacyPage() {
       <p className="text-sm leading-relaxed text-muted-foreground">
         SLÝKBETS is a demo platform. A full privacy policy covering data collection, storage, and your
         rights is being finalised ahead of public launch — check back soon, or contact{' '}
-        <a href="/livechat" className="text-primary underline-offset-2 hover:underline">
+        <a href="/livechat" className="text-secondary underline-offset-2 hover:underline">
           live support
         </a>{' '}
         with any questions.

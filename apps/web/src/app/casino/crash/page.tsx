@@ -177,7 +177,7 @@ export default function CrashPage() {
           <div className="relative flex h-44 items-center justify-center overflow-hidden rounded-xl border-2 border-border bg-card">
             {phase === 'running' && (
               <FaPlane
-                className="absolute text-primary transition-none"
+                className="absolute text-secondary transition-none"
                 size={28}
                 style={{
                   left: `${Math.min(85, 8 + multiplier * 6)}%`,

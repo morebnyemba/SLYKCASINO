@@ -21,7 +21,7 @@ export const DEMO_GAMES: Game[] = [
 ];
 
 export const CASINO_CATEGORIES: { value: string; label: string }[] = [
-  { value: 'all', label: 'All games' },
+  { value: 'all', label: 'Lobby' },
   { value: 'crash', label: 'Crash' },
   { value: 'slots', label: 'Slots' },
   { value: 'live', label: 'Live Casino' },

@@ -1,7 +1,9 @@
 from django import forms
 from django.contrib import admin
 
-from .models import Bet, BetLeg, BetSlip, Event, LeagueSetting, ProviderCredential, Team
+from .models import (
+    Bet, BetLeg, BetSlip, Event, LeagueSetting, Market, MarketOutcome, ProviderCredential, Team,
+)
 
 
 class ProviderCredentialForm(forms.ModelForm):
@@ -47,18 +49,36 @@ class EventAdmin(admin.ModelAdmin):
     raw_id_fields = ('home_team', 'away_team')
 
 
+class MarketOutcomeInline(admin.TabularInline):
+    model = MarketOutcome
+    extra = 0
+    fields = ('key', 'label', 'odds', 'previous_odds', 'is_open', 'result', 'sort_order')
+
+
+@admin.register(Market)
+class MarketAdmin(admin.ModelAdmin):
+    # Markets are imported from the odds feed; operators suspend (is_open) or
+    # fix prices here. Settle through the API (settle-score / markets/<id>/settle)
+    # so bets are paid out — editing `result` here does not move money.
+    list_display = ('name', 'event', 'group', 'kind', 'metric', 'period', 'line', 'is_open', 'settled', 'needs_review')
+    list_filter = ('needs_review', 'settled', 'group', 'kind', 'metric', 'is_open')
+    search_fields = ('name', 'event__name', 'key')
+    raw_id_fields = ('event',)
+    inlines = [MarketOutcomeInline]
+
+
 @admin.register(Bet)
 class BetAdmin(admin.ModelAdmin):
     list_display = ('event', 'selection', 'player_id', 'stake', 'odds', 'status', 'payout', 'placed_at')
     list_filter = ('status', 'selection')
     search_fields = ('event', 'player_id')
-    raw_id_fields = ('event_ref',)
+    raw_id_fields = ('event_ref', 'outcome_ref')
 
 
 class BetLegInline(admin.TabularInline):
     model = BetLeg
     extra = 0
-    raw_id_fields = ('event_ref',)
+    raw_id_fields = ('event_ref', 'outcome_ref')
 
 
 @admin.register(BetSlip)

@@ -37,6 +37,10 @@
   --color-down: var(--down);
   --color-chip: var(--chip);
   --color-chip-foreground: var(--chip-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-odds: var(--odds);
+  --color-odds-hover: var(--odds-hover);
   --color-tier-bronze: var(--tier-bronze);
   --color-tier-silver: var(--tier-silver);
   --color-tier-gold: var(--tier-gold);
@@ -101,6 +105,12 @@
   /* Pill/chip surfaces (sport icons, RTP badges, stat tags) */
   --chip:               #ECEDF8;
   --chip-foreground:    #1A1538;
+
+  /* App shell (header + left nav rail) and odds-button surfaces */
+  --sidebar:            #FFFFFF;
+  --sidebar-foreground: #1A1538;
+  --odds:               #EEEFFA;
+  --odds-hover:         #E0E1F6;
 }
 
 /*
@@ -142,6 +152,11 @@
 
   --chip:               #1E1850;
   --chip-foreground:    #F2F1FB;
+
+  --sidebar:            #110B2E;
+  --sidebar-foreground: #F2F1FB;
+  --odds:               #241D5C;
+  --odds-hover:         #2F2772;
 }
 
 /*

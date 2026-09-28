@@ -145,21 +145,21 @@ export default function WalletPage() {
       </Card>
 
       <Card className="rounded-2xl border-gold/15">
-        <CardHeader className="flex-row items-center justify-between space-y-0">
+        <CardHeader className="flex-col gap-3 space-y-0 sm:flex-row sm:items-center sm:justify-between">
           <CardTitle className="text-base">Transaction history</CardTitle>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <input
               type="date"
               value={fromDate}
               onChange={(e) => setFromDate(e.target.value)}
-              className="rounded-md border border-border bg-background px-2 py-1 text-xs"
+              className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1.5 text-xs sm:flex-none"
             />
             <span className="text-xs text-muted-foreground">to</span>
             <input
               type="date"
               value={toDate}
               onChange={(e) => setToDate(e.target.value)}
-              className="rounded-md border border-border bg-background px-2 py-1 text-xs"
+              className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1.5 text-xs sm:flex-none"
             />
             {allEntries.length > 0 && (
               <button
