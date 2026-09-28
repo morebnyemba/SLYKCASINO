@@ -38,12 +38,34 @@ class SelectionUnavailable(ValueError):
 
 # -- reads -------------------------------------------------------------------
 
-def list_events(*, featured: Optional[bool] = None, sport: Optional[str] = None):
+# Provider statuses meaning the match is in play (betting closed, still shown).
+LIVE_STATUSES = ('1H', 'HT', '2H', 'ET', 'BT', 'P', 'SUSP', 'INT', 'LIVE')
+
+
+def list_events(
+    *, featured: Optional[bool] = None, sport: Optional[str] = None,
+    upcoming: bool = False, priced: Optional[bool] = None,
+):
+    """Events for listings. `upcoming` keeps what a player can still bet on or
+    follow — open matches that haven't long kicked off, plus matches in play —
+    ordered by kick-off (soonest first). `priced` filters on whether real odds
+    have arrived."""
+    from datetime import timedelta
+    from django.db.models import F, Q
+
     qs = Event.objects.all()
     if featured:
         qs = qs.filter(featured=True)
     if sport:
         qs = qs.filter(sport=sport)
+    if priced is not None:
+        qs = qs.filter(has_odds=priced)
+    if upcoming:
+        recent = timezone.now() - timedelta(hours=3)
+        qs = qs.filter(
+            Q(is_open=True, starts_at__gte=recent) | Q(is_open=True, starts_at__isnull=True)
+            | Q(status__in=LIVE_STATUSES),
+        ).order_by(F('starts_at').asc(nulls_last=True), 'name', 'id')
     return qs
 
 
@@ -60,6 +82,25 @@ def to_dto(bet: Bet) -> BetDTO:
 
 # -- mutations ---------------------------------------------------------------
 
+def _kicked_off(starts_at) -> bool:
+    """Pre-match betting closes at the scheduled kick-off, even before the live
+    poll has marked the event closed."""
+    return starts_at is not None and starts_at <= timezone.now()
+
+
+def _check_event_bettable(event_id: int) -> None:
+    """A 1X2 pick needs a real price and open betting (closes at kick-off)."""
+    state = Event.objects.filter(pk=event_id).values('has_odds', 'is_open', 'starts_at', 'name').first()
+    if state is None:
+        return  # soft link to a missing event: legacy behaviour, label-only bet
+    if _kicked_off(state['starts_at']):
+        raise SelectionUnavailable(f"Betting on {state['name']} is closed.")
+    if not state['has_odds']:
+        raise SelectionUnavailable(f"{state['name']} has no odds yet.")
+    if not state['is_open']:
+        raise SelectionUnavailable(f"Betting on {state['name']} is closed.")
+
+
 def _lock_bettable_outcome(outcome_id: int, odds: Decimal) -> MarketOutcome:
     """Row-lock an outcome and check it can be backed at `odds` right now."""
     try:
@@ -72,7 +113,8 @@ def _lock_bettable_outcome(outcome_id: int, odds: Decimal) -> MarketOutcome:
         raise SelectionUnavailable('That selection no longer exists.') from exc
     market = outcome.market
     if (
-        not market.event.is_open or not market.is_open or market.settled
+        not market.event.is_open or _kicked_off(market.event.starts_at)
+        or not market.is_open or market.settled
         or not outcome.is_open or outcome.result != MarketOutcome.Result.PENDING
     ):
         raise SelectionUnavailable(f'{market.name} — {outcome.label} is suspended.')
@@ -104,8 +146,8 @@ def place_bet(
         outcome = _lock_bettable_outcome(outcome_id, Decimal(str(odds)))
         event_id = outcome.market.event_id
         selection = Selection.HOME
-    elif event_id is not None and Event.objects.filter(pk=event_id, has_odds=False).exists():
-        raise SelectionUnavailable('This match has no odds yet.')
+    elif event_id is not None:
+        _check_event_bettable(event_id)
 
     if player_id is None:
         # Anonymous compatibility path — no wallet movement (documented).
@@ -262,8 +304,8 @@ def place_accumulator(*, stake: Decimal, legs: list[dict], player_id: Optional[i
             outcome = _lock_bettable_outcome(int(leg['outcome_id']), odds)
             event_id = outcome.market.event_id
             selection = Selection.HOME
-        elif event_id is not None and Event.objects.filter(pk=event_id, has_odds=False).exists():
-            raise SelectionUnavailable('A match in this multiple has no odds yet.')
+        elif event_id is not None:
+            _check_event_bettable(event_id)
         # Selections on the same event are correlated, so a multiple takes one per event.
         if event_id is not None:
             if int(event_id) in seen_events:

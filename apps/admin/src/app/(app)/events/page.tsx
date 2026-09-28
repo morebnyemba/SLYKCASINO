@@ -35,7 +35,12 @@ interface Market {
 }
 interface EventDetail extends Event { markets: Market[] }
 
-interface EventsResponse { results?: Event[] }
+interface EventsResponse {
+  count?: number;
+  next?: string | null;
+  previous?: string | null;
+  results?: Event[];
+}
 
 const BLANK = { name: '', sport: 'football', starts_at: '', odds: '', odds_draw: '', odds_away: '' };
 
@@ -165,7 +170,8 @@ function SettlePanel({ event, token, onDone }: { event: Event; token: string; on
 
 export default function EventsPage() {
   const { accessToken } = useAuth();
-  const { data, loading, refetch } = useApi<EventsResponse>('/events/');
+  const [page, setPage] = useState(1);
+  const { data, loading, refetch } = useApi<EventsResponse>(`/events/?page_size=200&page=${page}`);
   const events = data?.results ?? [];
 
   const [showForm, setShowForm] = useState(false);
@@ -336,6 +342,17 @@ export default function EventsPage() {
                 ))}
               </tbody>
             </table>
+          )}
+          {(data?.previous || data?.next) && (
+            <div className="flex items-center justify-end gap-2 border-t border-border p-4 text-sm text-muted-foreground">
+              <span className="mr-auto">{data?.count ?? 0} events · page {page}</span>
+              <Button size="sm" variant="outline" disabled={!data?.previous} onClick={() => setPage((p) => p - 1)}>
+                Previous
+              </Button>
+              <Button size="sm" variant="outline" disabled={!data?.next} onClick={() => setPage((p) => p + 1)}>
+                Next
+              </Button>
+            </div>
           )}
         </CardContent>
       </Card>

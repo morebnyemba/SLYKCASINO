@@ -20,15 +20,23 @@ const SHORTCUTS: { href: string; label: string; icon: IconType }[] = [
   { href: '/sportsbook?sport=football', label: 'Football', icon: GiSoccerBall },
 ];
 
-async function getList<T>(path: string): Promise<T[]> {
+/** Every row of a list endpoint, following DRF `next` links (capped as a safety net). */
+async function getList<T>(path: string, maxPages = 10): Promise<T[]> {
+  const rows: T[] = [];
+  let url: string | null = `${config.apiUrl}${path}`;
   try {
-    const res = await fetch(`${config.apiUrl}${path}`, { cache: 'no-store' });
-    if (!res.ok) return [];
-    const json = await res.json();
-    return (Array.isArray(json) ? json : json.results ?? []) as T[];
+    for (let page = 0; url && page < maxPages; page++) {
+      const res: Response = await fetch(url, { cache: 'no-store' });
+      if (!res.ok) break;
+      const json: T[] | { results?: T[]; next?: string | null } = await res.json();
+      if (Array.isArray(json)) return json;
+      rows.push(...((json.results ?? []) as T[]));
+      url = json.next ?? null;
+    }
   } catch {
-    return [];
+    /* keep whatever loaded */
   }
+  return rows;
 }
 
 /** Full-screen (mobile) / dropdown-panel (desktop) search across games and matches. */
@@ -44,7 +52,7 @@ export function GlobalSearch() {
   useEffect(() => {
     if (!searchOpen || games) return;
     void getList<Game>('/casino/games/').then((g) => setGames(g.length > 0 ? g : DEMO_GAMES));
-    void getList<EventItem>('/events/').then((e) => setEvents(e.filter((ev) => ev.is_open !== false)));
+    void getList<EventItem>('/events/?upcoming=true&priced=true&page_size=500').then((e) => setEvents(e));
   }, [searchOpen, games]);
 
   useEffect(() => {

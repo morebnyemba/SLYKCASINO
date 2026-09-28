@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from django.db.models import Count, Prefetch, Q
 from rest_framework import mixins, status, viewsets
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny, IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
@@ -16,19 +17,32 @@ from .models import Bet, BetLeg, BetSlip, Event, Market
 from .serializers import BetSerializer, BetSlipSerializer, EventDetailSerializer, EventSerializer
 
 
+class EventPagination(PageNumberPagination):
+    """25 per page by default; listings can ask for a full board with ?page_size=."""
+    page_size = 25
+    page_size_query_param = 'page_size'
+    max_page_size = 500
+
+
 class EventViewSet(viewsets.ModelViewSet):
     serializer_class = EventSerializer
+    pagination_class = EventPagination
     # Events are publicly browsable; mutations require auth.
     permission_classes = [AllowAny]
 
     def get_queryset(self):
-        featured = self.request.query_params.get('featured') == 'true'
-        sport = self.request.query_params.get('sport')
-        qs = services.list_events(featured=featured or None, sport=sport).select_related(
-            'home_team', 'away_team',
-        ).annotate(
+        params = self.request.query_params
+        featured = params.get('featured') == 'true'
+        upcoming = params.get('upcoming') == 'true'
+        priced = {'true': True, 'false': False}.get(params.get('priced', ''))
+        qs = services.list_events(
+            featured=featured or None, sport=params.get('sport'), upcoming=upcoming, priced=priced,
+        )
+        # `id` last so equal kick-off/name rows page deterministically (no repeats/gaps).
+        ordering = qs.query.order_by or [*Event._meta.ordering, 'id']
+        qs = qs.select_related('home_team', 'away_team').annotate(
             markets_count=Count('markets', filter=Q(markets__is_open=True), distinct=True),
-        ).order_by(*Event._meta.ordering)  # aggregation drops Meta.ordering
+        ).order_by(*ordering)  # aggregation drops Meta.ordering, so re-apply it
         if self.action == 'retrieve':
             qs = qs.prefetch_related(Prefetch(
                 'markets', queryset=Market.objects.prefetch_related('outcomes'),

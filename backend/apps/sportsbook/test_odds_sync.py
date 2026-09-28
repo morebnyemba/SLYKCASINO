@@ -94,3 +94,74 @@ class UnpricedEventTests(TestCase):
 
     def test_manual_events_are_priced(self):
         self.assertTrue(Event.objects.create(name='Manual', odds=Decimal('1.80')).has_odds)
+
+
+class EventListingTests(TestCase):
+    """The player sportsbook asks for ?upcoming=true: bettable/live matches only,
+    soonest first, and a whole board in one response via ?page_size=."""
+
+    def setUp(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        now = timezone.now()
+        mk = lambda name, hours, **kw: Event.objects.create(  # noqa: E731
+            name=name, odds=Decimal('2'), starts_at=now + timedelta(hours=hours), **kw,
+        )
+        self.later = mk('Aaa later', 48)
+        self.soon = mk('Zzz soon', 2)
+        self.unpriced = mk('Mmm unpriced', 5, has_odds=False)
+        self.live = mk('Live one', -1, is_open=False, status='2H')
+        self.finished = mk('Finished', -5, is_open=False, status='FT')
+        self.stale = mk('Stale open', -30)
+        for i in range(30):
+            mk(f'Filler {i:02}', 100 + i)
+
+    def _get(self, query):
+        from rest_framework.test import APIClient
+        return APIClient().get(f'/api/events/{query}').data
+
+    def test_upcoming_filters_and_orders_by_kickoff(self):
+        data = self._get('?upcoming=true&page_size=200')
+        names = [e['name'] for e in data['results']]
+        self.assertEqual(names[:4], ['Live one', 'Zzz soon', 'Mmm unpriced', 'Aaa later'])
+        self.assertNotIn('Finished', names)
+        self.assertNotIn('Stale open', names)
+        self.assertEqual(len(names), 34)
+        self.assertIsNone(data['next'])
+
+    def test_priced_filter_and_default_page_size(self):
+        names = [e['name'] for e in self._get('?upcoming=true&priced=true&page_size=200')['results']]
+        self.assertNotIn('Mmm unpriced', names)
+        self.assertEqual(len(self._get('?upcoming=true')['results']), 25)
+
+
+class ClosedEventBettingTests(TestCase):
+    def test_1x2_bets_rejected_once_betting_closes(self):
+        player = account_services.register_player(
+            username='closed', email='closed@example.com', password='Passw0rd!', currency='USD',
+        )
+        wallet_services.credit(player_id=player.id, amount=Decimal('50'), kind='deposit', idempotency_key='c:dep')
+        event = Event.objects.create(name='Closed v Match', odds=Decimal('2'), is_open=False)
+        with self.assertRaises(sb.SelectionUnavailable):
+            sb.place_bet(event='x', stake=Decimal('5'), odds=Decimal('2'), player_id=player.id,
+                         event_id=event.id, selection='home')
+
+
+class KickoffTests(TestCase):
+    def test_bets_close_at_scheduled_kickoff_even_if_still_marked_open(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        from apps.sportsbook.models import Market, MarketOutcome
+        player = account_services.register_player(
+            username='kickoff', email='kickoff@example.com', password='Passw0rd!', currency='USD',
+        )
+        wallet_services.credit(player_id=player.id, amount=Decimal('50'), kind='deposit', idempotency_key='k:dep')
+        event = Event.objects.create(name='Started v Match', odds=Decimal('2'), is_open=True,
+                                     starts_at=timezone.now() - timedelta(minutes=5))
+        market = Market.objects.create(event=event, key='btts:ft', name='BTTS', kind='btts')
+        yes = MarketOutcome.objects.create(market=market, key='yes', label='Yes', odds=Decimal('1.8'))
+        with self.assertRaises(sb.SelectionUnavailable):
+            sb.place_bet(event='x', stake=Decimal('5'), odds=Decimal('2'), player_id=player.id,
+                         event_id=event.id, selection='home')
+        with self.assertRaises(sb.SelectionUnavailable):
+            sb.place_bet(event='x', stake=Decimal('5'), odds=Decimal('1.8'), player_id=player.id, outcome_id=yes.id)

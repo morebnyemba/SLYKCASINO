@@ -86,6 +86,8 @@ export function EventRow({ ev }: { ev: EventItem }) {
   const { home, away } = teamNames(ev);
   const shape = marketShape(ev);
   const priced = isPriced(ev);
+  // Betting closes at kick-off; in-play rows stay visible with locked prices.
+  const closed = ev.is_open === false;
   const href = `/sportsbook/${ev.id}`;
 
   return (
@@ -118,9 +120,9 @@ export function EventRow({ ev }: { ev: EventItem }) {
         </div>
       </Link>
       <div className={ODDS_COLS}>
-        <OddsButton eventId={ev.id} eventName={ev.name} selection="home" odds={priced ? ev.odds : null} move={homeMove(ev)} />
-        <OddsButton eventId={ev.id} eventName={ev.name} selection="draw" odds={priced && shape === '1x2' ? ev.odds_draw : null} />
-        <OddsButton eventId={ev.id} eventName={ev.name} selection="away" odds={priced && shape !== 'single' ? ev.odds_away : null} />
+        <OddsButton eventId={ev.id} eventName={ev.name} selection="home" odds={priced ? ev.odds : null} move={homeMove(ev)} disabled={closed} />
+        <OddsButton eventId={ev.id} eventName={ev.name} selection="draw" odds={priced && shape === '1x2' ? ev.odds_draw : null} disabled={closed} />
+        <OddsButton eventId={ev.id} eventName={ev.name} selection="away" odds={priced && shape !== 'single' ? ev.odds_away : null} disabled={closed} />
       </div>
       <Link
         href={href}
