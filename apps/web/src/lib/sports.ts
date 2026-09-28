@@ -14,6 +14,8 @@ export interface EventItem {
   odds_draw?: number | string | null;
   odds_away?: number | string | null;
   previous_odds?: number | string | null;
+  /** False for feed-imported fixtures until real prices arrive. */
+  has_odds?: boolean;
   featured?: boolean;
   is_open?: boolean;
   starts_at?: string | null;
@@ -106,6 +108,11 @@ export function withTeamNames(text: string, home: string, away: string | null): 
   return text
     .replace(/\bHome\b/g, home)
     .replace(/\bAway\b/g, away ?? 'Away');
+}
+
+/** Whether the 1X2 prices are real (imported fixtures carry a placeholder until priced). */
+export function isPriced(ev: Pick<EventItem, 'has_odds'>): boolean {
+  return ev.has_odds !== false;
 }
 
 export function isLive(ev: Pick<EventItem, 'starts_at' | 'status'>): boolean {

@@ -206,6 +206,10 @@ API_FOOTBALL_LEAGUES = [
 API_FOOTBALL_SEASON = int(os.environ.get('API_FOOTBALL_SEASON', str(datetime.now().year)))
 # How many of each configured league's next upcoming fixtures to import per run.
 API_FOOTBALL_IMPORT_NEXT = int(os.environ.get('API_FOOTBALL_IMPORT_NEXT', '20'))
+# Odds sync: without API_FOOTBALL_LEAGUES it pulls by date for today + this many
+# days ahead; every page is followed up to the page cap (10 fixtures per page).
+API_FOOTBALL_ODDS_DAYS = int(os.environ.get('API_FOOTBALL_ODDS_DAYS', '2'))
+API_FOOTBALL_ODDS_MAX_PAGES = int(os.environ.get('API_FOOTBALL_ODDS_MAX_PAGES', '20'))
 # Every bet type the importer recognises (goals, handicaps, halves, corners,
 # cards, goalscorers, combos…) settles automatically from the match facts.
 # Set to true to ALSO offer unrecognised bet types; those must be settled by an

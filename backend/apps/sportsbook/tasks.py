@@ -21,10 +21,10 @@ def sync_live_fixtures() -> int:
 
 @shared_task(name='apps.sportsbook.tasks.sync_fixture_odds')
 def sync_fixture_odds() -> int:
-    """Poll api-football for today's 1X2 odds and apply them to linked, still
-    -open events. No-op if API_FOOTBALL_KEY unset."""
-    from datetime import date as date_cls
-    return services.sync_provider_odds(date=date_cls.today().isoformat())
+    """Refresh odds + markets for upcoming fixtures (per configured league, or
+    today and the next API_FOOTBALL_ODDS_DAYS days) and apply them to linked,
+    still-open events. No-op if API_FOOTBALL_KEY unset."""
+    return services.sync_upcoming_odds()
 
 
 @shared_task(name='apps.sportsbook.tasks.import_upcoming_fixtures')

@@ -296,8 +296,12 @@ class ApiFootballClient:
         self, *, date: Optional[str] = None, fixture: Optional[str] = None,
         league: Optional[int] = None, season: Optional[int] = None,
     ) -> list['OddsSnapshot']:
-        """Pull 1X2 ("Match Winner") odds. `date` is 'YYYY-MM-DD'. Returns []
-        (logged) on any missing key, network, or payload error."""
+        """Pull odds (1X2 + every other market). `date` is 'YYYY-MM-DD'.
+
+        api-football pages this endpoint (10 fixtures per page), so every page is
+        followed up to API_FOOTBALL_ODDS_MAX_PAGES — reading only page 1 misses
+        almost every fixture on a busy date. Returns what it could fetch; errors
+        are logged, never raised."""
         if not self.api_key:
             return []
         params: dict[str, Any] = {}
@@ -309,21 +313,31 @@ class ApiFootballClient:
             params['league'] = league
         if season:
             params['season'] = season
-        try:
-            resp = requests.get(
-                f'{self.base_url}/odds', params=params, timeout=5,
-                headers={'x-apisports-key': self.api_key},
-            )
-            resp.raise_for_status()
-            payload = resp.json()
-        except (requests.RequestException, ValueError):
-            logger.warning('api-football fetch_odds failed', exc_info=True)
-            return []
+        max_pages = int(getattr(settings, 'API_FOOTBALL_ODDS_MAX_PAGES', 20))
         snapshots = []
-        for raw in payload.get('response', []):
-            snapshot = self._normalize_odds(raw)
-            if snapshot is not None:
-                snapshots.append(snapshot)
+        page, total = 1, 1
+        while page <= min(total, max_pages):
+            try:
+                resp = requests.get(
+                    f'{self.base_url}/odds', params={**params, 'page': page}, timeout=10,
+                    headers={'x-apisports-key': self.api_key},
+                )
+                resp.raise_for_status()
+                payload = resp.json()
+            except (requests.RequestException, ValueError):
+                logger.warning('api-football fetch_odds failed (page %s)', page, exc_info=True)
+                break
+            if payload.get('errors'):
+                # e.g. quota exhausted or a bad parameter — api-football reports
+                # these with HTTP 200, so surface them instead of failing silently.
+                logger.warning('api-football fetch_odds errors: %s', payload.get('errors'))
+                break
+            for raw in payload.get('response', []):
+                snapshot = self._normalize_odds(raw)
+                if snapshot is not None:
+                    snapshots.append(snapshot)
+            total = int((payload.get('paging') or {}).get('total') or 1)
+            page += 1
         return snapshots
 
     def _normalize(self, raw: dict[str, Any]) -> FixtureUpdate:

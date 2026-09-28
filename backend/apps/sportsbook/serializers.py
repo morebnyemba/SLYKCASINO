@@ -38,7 +38,7 @@ class EventSerializer(serializers.ModelSerializer):
     class Meta:
         model = Event
         fields = [
-            'id', 'name', 'sport', 'odds', 'odds_draw', 'odds_away', 'previous_odds',
+            'id', 'name', 'sport', 'odds', 'odds_draw', 'odds_away', 'previous_odds', 'has_odds',
             'featured', 'is_open', 'starts_at', 'home_team', 'away_team',
             'status', 'elapsed', 'score_home', 'score_away', 'ht_score_home', 'ht_score_away',
             'markets_count',
