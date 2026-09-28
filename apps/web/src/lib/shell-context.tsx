@@ -11,6 +11,9 @@ interface ShellContextValue {
   /** Mobile navigation drawer. */
   menuOpen: boolean;
   setMenuOpen: (open: boolean) => void;
+  /** Global search overlay. */
+  searchOpen: boolean;
+  setSearchOpen: (open: boolean) => void;
 }
 
 const ShellContext = createContext<ShellContextValue | null>(null);
@@ -18,6 +21,21 @@ const ShellContext = createContext<ShellContextValue | null>(null);
 export function ShellProvider({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+
+  // "/" or Ctrl/Cmd+K opens search from anywhere (except while typing in a field).
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      const target = e.target as HTMLElement | null;
+      const typing = !!target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
+      if ((e.key === 'k' && (e.metaKey || e.ctrlKey)) || (e.key === '/' && !typing)) {
+        e.preventDefault();
+        setSearchOpen(true);
+      }
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   useEffect(() => {
     try {
@@ -39,7 +57,7 @@ export function ShellProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <ShellContext.Provider value={{ collapsed, toggleCollapsed, menuOpen, setMenuOpen }}>
+    <ShellContext.Provider value={{ collapsed, toggleCollapsed, menuOpen, setMenuOpen, searchOpen, setSearchOpen }}>
       {children}
     </ShellContext.Provider>
   );

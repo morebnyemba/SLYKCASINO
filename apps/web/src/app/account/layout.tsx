@@ -16,7 +16,7 @@ const tabs: { href: string; label: string; icon: IconType }[] = [
   { href: '/account/casino', label: 'Casino History', icon: GiRollingDices },
   { href: '/account/verification', label: 'Verification', icon: FaIdCard },
   { href: '/account/notifications', label: 'Notifications', icon: FaBell },
-  { href: '/account/settings', label: 'Responsible Gambling', icon: FaShieldAlt },
+  { href: '/account/settings', label: 'Responsible gaming', icon: FaShieldAlt },
 ];
 
 export default function AccountLayout({ children }: { children: React.ReactNode }) {
@@ -46,8 +46,49 @@ export default function AccountLayout({ children }: { children: React.ReactNode 
   if (!user) return null;
 
   return (
-    <div className="grid gap-6 md:grid-cols-[220px_1fr]">
-      <aside className="h-fit rounded-2xl border border-gold/20 bg-card/60 p-3 shadow-sm backdrop-blur-sm">
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-4 md:grid-cols-[230px_minmax(0,1fr)] md:gap-6">
+      {/* Mobile: compact player card + swipeable tab strip */}
+      <div className="min-w-0 space-y-3 md:hidden">
+        <div className="flex items-center gap-3 rounded-2xl border border-border bg-card p-3">
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-gold to-gold/70 text-base font-black text-gold-foreground">
+            {user.username?.[0]?.toUpperCase() ?? '?'}
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-extrabold">{user.username}</p>
+            <p className="text-xs text-muted-foreground">My account</p>
+          </div>
+          <button
+            onClick={handleLogout}
+            aria-label="Log out"
+            className="flex h-10 w-10 items-center justify-center rounded-xl text-muted-foreground hover:bg-muted hover:text-destructive"
+          >
+            <FaSignOutAlt size={15} />
+          </button>
+        </div>
+        <nav className="sticky top-16 z-20 -mx-3 border-b border-border bg-background/95 px-3 backdrop-blur">
+          <div className="no-scrollbar flex gap-1 overflow-x-auto">
+            {tabs.map((t) => {
+              const Icon = t.icon;
+              const active = pathname === t.href;
+              return (
+                <Link
+                  key={t.href}
+                  href={t.href}
+                  className={`relative flex shrink-0 items-center gap-1.5 px-3 py-3 text-[13px] font-bold transition-colors ${
+                    active ? 'text-foreground' : 'text-muted-foreground'
+                  }`}
+                >
+                  <Icon size={13} className={active ? 'text-secondary' : ''} />
+                  {t.label}
+                  {active && <span className="absolute inset-x-2 bottom-0 h-[3px] rounded-t-full bg-secondary" />}
+                </Link>
+              );
+            })}
+          </div>
+        </nav>
+      </div>
+
+      <aside className="hidden h-fit rounded-2xl border border-border bg-card p-3 shadow-sm md:sticky md:top-20 md:block">
         <div className="mb-2 flex items-center gap-3 rounded-xl px-2 py-2.5">
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-gold to-gold/70 text-base font-bold text-gold-foreground shadow-inner shadow-black/10">
             {user.username?.[0]?.toUpperCase() ?? '?'}
@@ -87,7 +128,7 @@ export default function AccountLayout({ children }: { children: React.ReactNode 
           </button>
         </nav>
       </aside>
-      <section>{children}</section>
+      <section className="min-w-0">{children}</section>
     </div>
   );
 }

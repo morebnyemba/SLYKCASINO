@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { Portal } from '@/components/portal';
 import { BsMoonStarsFill, BsSunFill, BsGearFill, BsCheck } from 'react-icons/bs';
 import { ACCENT_OPTIONS, useSettings, type OddsFormat } from '@/lib/settings-context';
 
@@ -47,10 +48,11 @@ export function SettingsMenu({ className = '', placement = 'header' }: {
       </button>
 
       {open && (
-        <div className="fixed inset-0 z-40" onClick={() => setOpen(false)}>
+        <Portal>
+        <div className="fixed inset-0 z-[80]" onClick={() => setOpen(false)}>
           <div
             className={`absolute z-50 w-64 rounded-xl border border-border bg-card p-4 text-card-foreground shadow-xl ${
-              placement === 'sidebar' ? 'bottom-16 left-4' : 'right-4 top-16'
+              placement === 'sidebar' ? 'bottom-16 left-4' : 'bottom-4 right-4 sm:bottom-auto sm:top-16'
             }`}
             onClick={(e) => e.stopPropagation()}
           >
@@ -111,6 +113,7 @@ export function SettingsMenu({ className = '', placement = 'header' }: {
             </label>
           </div>
         </div>
+        </Portal>
       )}
     </div>
   );

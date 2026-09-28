@@ -6,6 +6,8 @@ import { SiteFooter } from '@/components/site-footer';
 import { BottomNav } from '@/components/bottom-nav';
 import { AppSidebar, MobileMenu } from '@/components/app-sidebar';
 import { BetslipDrawer } from '@/components/betslip-panel';
+import { GlobalSearch } from '@/components/global-search';
+import { MobileQuickNav } from '@/components/mobile-quick-nav';
 import { AgeGate } from '@/components/age-gate';
 import { ServiceWorkerRegistration } from '@/components/service-worker-registration';
 import { fetchSiteThemeCss } from '@/lib/site-theme';
@@ -73,6 +75,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
               <AppSidebar />
               <div className="flex min-w-0 flex-1 flex-col">
                 <SiteHeader />
+                <MobileQuickNav />
                 <main className="mx-auto w-full max-w-[1440px] flex-1 px-3 py-4 sm:px-5 sm:py-6">{children}</main>
                 <SiteFooter />
                 {/* Keeps the footer clear of the fixed mobile tab bar. */}
@@ -80,6 +83,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
               </div>
             </div>
             <MobileMenu />
+            <GlobalSearch />
             <BetslipDrawer />
             <BottomNav />
           </Providers>

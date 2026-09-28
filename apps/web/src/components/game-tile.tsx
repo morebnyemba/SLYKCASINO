@@ -74,10 +74,10 @@ export function GameTile({
       </div>
 
       <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/60 to-transparent p-2.5 pt-8">
-        <p className="truncate text-[13px] font-extrabold leading-tight text-white">{game.name}</p>
+        <p className="truncate text-xs font-extrabold leading-tight text-white sm:text-[13px]">{game.name}</p>
         <div className="mt-0.5 flex items-center gap-1.5 text-[10.5px] font-semibold text-white/70">
           <span className="truncate">{game.provider}</span>
-          {showRtp && <span className="ml-auto shrink-0 tabular-nums">RTP {parseFloat(game.rtp).toFixed(1)}%</span>}
+          {showRtp && <span className="ml-auto hidden shrink-0 tabular-nums sm:inline">RTP {parseFloat(game.rtp).toFixed(1)}%</span>}
         </div>
         <p className="mt-1 flex items-center gap-1 text-[10px] font-semibold text-white/60">
           <span className="h-1.5 w-1.5 rounded-full bg-win" />

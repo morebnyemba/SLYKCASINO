@@ -20,6 +20,7 @@ export function SportsbookBrowser({ events, topMatches = [] }: { events: EventIt
   const params = useSearchParams();
   const { showLiveFeed } = useSettings();
   const [search, setSearch] = useState('');
+  const [searchOpen, setSearchOpen] = useState(false);
 
   // Sport and tab live in the URL so sidebar links and shared links land on the same view.
   const sport = params.get('sport');
@@ -73,7 +74,7 @@ export function SportsbookBrowser({ events, topMatches = [] }: { events: EventIt
   }, [filtered]);
 
   const tabs: { id: Tab; label: string; count?: number }[] = [
-    { id: 'all', label: 'All matches' },
+    { id: 'all', label: 'All' },
     { id: 'live', label: 'Live', count: liveCount },
     { id: 'upcoming', label: 'Upcoming' },
   ];
@@ -123,8 +124,8 @@ export function SportsbookBrowser({ events, topMatches = [] }: { events: EventIt
         </div>
 
         {/* Tabs + search */}
-        <div className="sticky top-16 z-20 -mx-3 flex flex-col gap-2 bg-background/95 px-3 py-2 backdrop-blur sm:mx-0 sm:flex-row sm:items-center sm:px-0">
-          <div className="flex gap-1 rounded-xl border border-border bg-card p-1">
+        <div className="sticky top-16 z-20 -mx-3 flex flex-wrap items-center gap-2 bg-background/95 px-3 py-2 backdrop-blur sm:mx-0 sm:flex-nowrap sm:px-0">
+          <div className="flex flex-1 gap-1 rounded-xl border border-border bg-card p-1 sm:flex-none">
             {tabs.map((t) => (
               <button
                 key={t.id}
@@ -141,7 +142,18 @@ export function SportsbookBrowser({ events, topMatches = [] }: { events: EventIt
               </button>
             ))}
           </div>
-          <div className="relative sm:ml-auto sm:w-64">
+          {/* Phones: search sits behind an icon so the pinned bar stays one row. */}
+          <button
+            onClick={() => setSearchOpen((v) => !v)}
+            aria-label="Search events"
+            aria-expanded={searchOpen}
+            className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border sm:hidden ${
+              searchOpen || search ? 'border-secondary bg-secondary/15 text-foreground' : 'border-border bg-card text-muted-foreground'
+            }`}
+          >
+            <BsSearch size={14} />
+          </button>
+          <div className={`relative w-full sm:ml-auto sm:block sm:w-64 ${searchOpen || search ? 'block' : 'hidden'}`}>
             <BsSearch className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={13} />
             <input
               value={search}

@@ -35,7 +35,7 @@ function CasinoLobby() {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
-  const { data, loading } = useApi<GamesResponse>('/casino/games/');
+  const { data, loading } = useApi<GamesResponse>('/casino/games/', { public: true });
   const [extraGames, setExtraGames] = useState<Game[]>([]);
   const [nextPage, setNextPage] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -140,8 +140,8 @@ function CasinoLobby() {
         </Carousel>
       )}
 
-      {/* Category tabs + search/filters */}
-      <div className="sticky top-16 z-20 -mx-3 space-y-2 bg-background/95 px-3 py-2 backdrop-blur sm:mx-0 sm:px-0">
+      {/* Category tabs stay pinned; search/filters scroll away to save space on phones. */}
+      <div className="sticky top-16 z-20 -mx-3 bg-background/95 px-3 py-2 backdrop-blur sm:mx-0 sm:px-0">
         <div className="no-scrollbar flex gap-1 overflow-x-auto rounded-2xl border border-border bg-card p-1">
           {visibleCategories.map((c) => {
             const Icon = CATEGORY_ICONS[c.value] ?? GiCastle;
@@ -160,46 +160,46 @@ function CasinoLobby() {
             )}
           </button>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="relative min-w-[200px] flex-1">
-            <BsSearch className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={13} />
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search games or providers"
-              aria-label="Search games"
-              className="w-full rounded-xl border border-border bg-card py-2.5 pl-9 pr-9 text-sm outline-none focus:ring-2 focus:ring-ring"
-            />
-            {search && (
-              <button
-                onClick={() => setSearch('')}
-                aria-label="Clear search"
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-              >
-                <BsXCircleFill size={13} />
-              </button>
-            )}
-          </div>
-          <select
-            value={provider}
-            onChange={(e) => setProvider(e.target.value)}
-            aria-label="Provider"
-            className="rounded-xl border border-border bg-card px-3 py-2.5 text-sm font-semibold outline-none focus:ring-2 focus:ring-ring"
-          >
-            <option value="all">All providers</option>
-            {providers.map((p) => <option key={p} value={p}>{p}</option>)}
-          </select>
-          <select
-            value={sort}
-            onChange={(e) => setSort(e.target.value as 'popular' | 'name' | 'rtp')}
-            aria-label="Sort"
-            className="rounded-xl border border-border bg-card px-3 py-2.5 text-sm font-semibold outline-none focus:ring-2 focus:ring-ring"
-          >
-            <option value="popular">Popular</option>
-            <option value="name">A–Z</option>
-            <option value="rtp">Highest RTP</option>
-          </select>
+      </div>
+      <div className="-mt-4 grid grid-cols-2 gap-2 sm:flex sm:items-center">
+        <div className="relative col-span-2 sm:flex-1">
+          <BsSearch className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={13} />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search games or providers"
+            aria-label="Search games"
+            className="w-full rounded-xl border border-border bg-card py-2.5 pl-9 pr-9 text-sm outline-none focus:ring-2 focus:ring-ring"
+          />
+          {search && (
+            <button
+              onClick={() => setSearch('')}
+              aria-label="Clear search"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            >
+              <BsXCircleFill size={13} />
+            </button>
+          )}
         </div>
+        <select
+          value={provider}
+          onChange={(e) => setProvider(e.target.value)}
+          aria-label="Provider"
+          className="min-w-0 rounded-xl border border-border bg-card px-3 py-2.5 text-sm font-semibold outline-none focus:ring-2 focus:ring-ring"
+        >
+          <option value="all">All providers</option>
+          {providers.map((p) => <option key={p} value={p}>{p}</option>)}
+        </select>
+        <select
+          value={sort}
+          onChange={(e) => setSort(e.target.value as 'popular' | 'name' | 'rtp')}
+          aria-label="Sort"
+          className="min-w-0 rounded-xl border border-border bg-card px-3 py-2.5 text-sm font-semibold outline-none focus:ring-2 focus:ring-ring"
+        >
+          <option value="popular">Popular</option>
+          <option value="name">A–Z</option>
+          <option value="rtp">Highest RTP</option>
+        </select>
       </div>
 
       {loading && (
