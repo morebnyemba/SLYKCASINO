@@ -35,6 +35,9 @@ class Event(models.Model):
     odds_draw = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True)
     odds_away = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True)
     previous_odds = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True)
+    # False for fixtures imported from a feed until their first odds arrive — the
+    # `odds` default above is a placeholder, not a price, and mustn't be shown or bet.
+    has_odds = models.BooleanField(default=True)
     featured = models.BooleanField(default=False)
     is_open = models.BooleanField(default=True)
     starts_at = models.DateTimeField(null=True, blank=True)

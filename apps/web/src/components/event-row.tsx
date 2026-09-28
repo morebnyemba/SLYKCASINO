@@ -6,7 +6,7 @@ import type { IconType } from 'react-icons';
 import { OddsButton } from '@/components/odds-button';
 import { SPORT_CATEGORIES } from '@/components/sports-sidebar';
 import {
-  dayLabel, hasScore, homeMove, isLive, kickoffTime, marketShape, matchClock, teamNames, type EventItem, type Team,
+  dayLabel, hasScore, homeMove, isLive, isPriced, kickoffTime, marketShape, matchClock, teamNames, type EventItem, type Team,
 } from '@/lib/sports';
 
 export function sportMeta(id?: string): { label: string; icon?: IconType } {
@@ -85,6 +85,7 @@ export function MarketHeader({ title, icon: Icon, count }: { title: string; icon
 export function EventRow({ ev }: { ev: EventItem }) {
   const { home, away } = teamNames(ev);
   const shape = marketShape(ev);
+  const priced = isPriced(ev);
   const href = `/sportsbook/${ev.id}`;
 
   return (
@@ -117,9 +118,9 @@ export function EventRow({ ev }: { ev: EventItem }) {
         </div>
       </Link>
       <div className={ODDS_COLS}>
-        <OddsButton eventId={ev.id} eventName={ev.name} selection="home" odds={ev.odds} move={homeMove(ev)} />
-        <OddsButton eventId={ev.id} eventName={ev.name} selection="draw" odds={shape === '1x2' ? ev.odds_draw : null} />
-        <OddsButton eventId={ev.id} eventName={ev.name} selection="away" odds={shape !== 'single' ? ev.odds_away : null} />
+        <OddsButton eventId={ev.id} eventName={ev.name} selection="home" odds={priced ? ev.odds : null} move={homeMove(ev)} />
+        <OddsButton eventId={ev.id} eventName={ev.name} selection="draw" odds={priced && shape === '1x2' ? ev.odds_draw : null} />
+        <OddsButton eventId={ev.id} eventName={ev.name} selection="away" odds={priced && shape !== 'single' ? ev.odds_away : null} />
       </div>
       <Link
         href={href}
@@ -137,6 +138,7 @@ export function EventRow({ ev }: { ev: EventItem }) {
 export function FeaturedMatchCard({ ev }: { ev: EventItem }) {
   const { home, away } = teamNames(ev);
   const shape = marketShape(ev);
+  const priced = isPriced(ev);
   const sport = sportMeta(ev.sport);
   const SportIcon = sport.icon;
 
@@ -167,9 +169,9 @@ export function FeaturedMatchCard({ ev }: { ev: EventItem }) {
         </div>
       </Link>
       <div className="mt-auto grid grid-cols-3 gap-1.5">
-        <OddsButton eventId={ev.id} eventName={ev.name} selection="home" odds={ev.odds} label="1" move={homeMove(ev)} />
-        <OddsButton eventId={ev.id} eventName={ev.name} selection="draw" odds={shape === '1x2' ? ev.odds_draw : null} label="X" />
-        <OddsButton eventId={ev.id} eventName={ev.name} selection="away" odds={shape !== 'single' ? ev.odds_away : null} label="2" />
+        <OddsButton eventId={ev.id} eventName={ev.name} selection="home" odds={priced ? ev.odds : null} label="1" move={homeMove(ev)} />
+        <OddsButton eventId={ev.id} eventName={ev.name} selection="draw" odds={priced && shape === '1x2' ? ev.odds_draw : null} label="X" />
+        <OddsButton eventId={ev.id} eventName={ev.name} selection="away" odds={priced && shape !== 'single' ? ev.odds_away : null} label="2" />
       </div>
       {!!ev.markets_count && (
         <Link

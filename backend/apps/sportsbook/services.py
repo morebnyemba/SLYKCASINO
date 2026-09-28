@@ -104,6 +104,8 @@ def place_bet(
         outcome = _lock_bettable_outcome(outcome_id, Decimal(str(odds)))
         event_id = outcome.market.event_id
         selection = Selection.HOME
+    elif event_id is not None and Event.objects.filter(pk=event_id, has_odds=False).exists():
+        raise SelectionUnavailable('This match has no odds yet.')
 
     if player_id is None:
         # Anonymous compatibility path — no wallet movement (documented).
@@ -260,6 +262,8 @@ def place_accumulator(*, stake: Decimal, legs: list[dict], player_id: Optional[i
             outcome = _lock_bettable_outcome(int(leg['outcome_id']), odds)
             event_id = outcome.market.event_id
             selection = Selection.HOME
+        elif event_id is not None and Event.objects.filter(pk=event_id, has_odds=False).exists():
+            raise SelectionUnavailable('A match in this multiple has no odds yet.')
         # Selections on the same event are correlated, so a multiple takes one per event.
         if event_id is not None:
             if int(event_id) in seen_events:
@@ -708,6 +712,8 @@ def _create_event_from_fixture(fixture: FixtureUpdate) -> Optional[Event]:
                 away_team=away_team,
                 starts_at=fixture.starts_at,
                 is_open=not fixture.is_live,
+                # No real prices until the odds sync reaches this fixture.
+                has_odds=False,
             )
     except IntegrityError:
         return None  # lost a race with a concurrent import — already created
@@ -776,21 +782,43 @@ def sync_fixture_odds(odds: OddsSnapshot) -> Optional[Event]:
     event.odds = odds.odds_home
     event.odds_draw = odds.odds_draw
     event.odds_away = odds.odds_away
-    event.save(update_fields=['odds', 'odds_draw', 'odds_away', 'previous_odds'])
+    event.has_odds = True
+    event.save(update_fields=['odds', 'odds_draw', 'odds_away', 'previous_odds', 'has_odds'])
     if odds.markets:
         apply_feed_markets(event, odds.markets)
         transaction.on_commit(lambda: publish_event_markets(event))
     return event
 
 
-def sync_provider_odds(*, date: Optional[str] = None) -> int:
-    """Pull 1X2 odds from api-football and apply each to its linked Event.
-    Returns the number of odds snapshots fetched."""
+def sync_provider_odds(
+    *, date: Optional[str] = None, league: Optional[int] = None, season: Optional[int] = None,
+) -> int:
+    """Pull odds from api-football (by date, or by league + season) and apply
+    each to its linked Event. Returns the number of odds snapshots fetched."""
     client = ApiFootballClient()
-    snapshots = client.fetch_odds(date=date)
+    snapshots = client.fetch_odds(date=date, league=league, season=season)
     for snapshot in snapshots:
         sync_fixture_odds(snapshot)
     return len(snapshots)
+
+
+def sync_upcoming_odds() -> int:
+    """Refresh odds for the fixtures players can bet on. With API_FOOTBALL_LEAGUES
+    configured, pulls each league's odds (every upcoming fixture api-football
+    prices, a page or two per league); otherwise pulls by date for today and the
+    next API_FOOTBALL_ODDS_DAYS days. Returns the number of snapshots fetched."""
+    from datetime import timedelta
+    from django.conf import settings
+
+    leagues = getattr(settings, 'API_FOOTBALL_LEAGUES', [])
+    if leagues:
+        season = getattr(settings, 'API_FOOTBALL_SEASON', None)
+        return sum(sync_provider_odds(league=league, season=season) for league in leagues)
+    days = int(getattr(settings, 'API_FOOTBALL_ODDS_DAYS', 2))
+    today = timezone.localdate()
+    return sum(
+        sync_provider_odds(date=(today + timedelta(days=d)).isoformat()) for d in range(days + 1)
+    )
 
 
 # -- realtime ----------------------------------------------------------------

@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import { Suspense } from 'react';
 import { SportsbookBrowser } from '@/components/sportsbook-browser';
 import { apiGet } from '@/lib/config';
-import { sortEvents, type EventItem } from '@/lib/sports';
+import { isPriced, sortEvents, type EventItem } from '@/lib/sports';
 
 export const metadata: Metadata = { title: 'Sportsbook — SLÝKBETS' };
 
@@ -10,8 +10,10 @@ export default async function SportsbookPage() {
   const data = await apiGet<EventItem>('/events/');
   const events = (data.results ?? []) as EventItem[];
   const open = events.filter((ev) => ev.is_open !== false);
-  const featured = sortEvents(open.filter((ev) => ev.featured)).slice(0, 8);
-  const topMatches = featured.length > 0 ? featured : sortEvents(open).slice(0, 8);
+  // Top matches only feature fixtures with real prices.
+  const priced = open.filter(isPriced);
+  const featured = sortEvents(priced.filter((ev) => ev.featured)).slice(0, 8);
+  const topMatches = featured.length > 0 ? featured : sortEvents(priced).slice(0, 8);
 
   return (
     <div>

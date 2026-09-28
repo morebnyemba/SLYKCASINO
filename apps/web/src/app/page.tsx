@@ -9,7 +9,7 @@ import { Carousel, CarouselItem } from '@/components/carousel';
 import { FeaturedMatchCard } from '@/components/event-row';
 import { apiGet } from '@/lib/config';
 import { DEMO_GAMES, type Game } from '@/lib/casino';
-import { isLive, sortEvents, type EventItem } from '@/lib/sports';
+import { isLive, isPriced, sortEvents, type EventItem } from '@/lib/sports';
 
 // Brand gradient treatment for a hue (matches the design system's `art()` generator).
 function heroArt(hue: number): string {
@@ -58,7 +58,7 @@ export default async function LobbyPage() {
     apiGet<Banner>('/promotions/banners/'),
     apiGet<Game>('/casino/games/'),
   ]);
-  const events = sortEvents(((eventsData.results ?? []) as EventItem[]).filter((ev) => ev.is_open !== false));
+  const events = sortEvents(((eventsData.results ?? []) as EventItem[]).filter((ev) => ev.is_open !== false && isPriced(ev)));
   const banners = (bannersData.results ?? []) as Banner[];
   const games = (gamesData.results ?? []) as Game[];
   const liveCount = events.filter(isLive).length;

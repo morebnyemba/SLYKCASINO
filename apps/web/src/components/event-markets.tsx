@@ -9,7 +9,7 @@ import { useLiveOdds } from '@/lib/use-live-odds';
 import { useLiveMarkets } from '@/lib/use-live-markets';
 import { formatOdds, useSettings } from '@/lib/settings-context';
 import {
-  MARKET_GROUPS, dayLabel, hasScore, homeMove, isFinished, isLive, kickoffTime, matchClock,
+  MARKET_GROUPS, dayLabel, hasScore, homeMove, isFinished, isLive, isPriced, kickoffTime, matchClock,
   teamNames, withTeamNames, type EventItem, type Market, type MarketGroup, type MarketOutcome,
 } from '@/lib/sports';
 
@@ -124,12 +124,15 @@ export function EventMarkets({ ev }: { ev: EventItem }) {
   const names = (text: string) => withTeamNames(text, home, away);
   const facts = ev.match_facts;
 
-  const hasDraw = live.odds_draw != null;
-  const hasAway = live.odds_away != null;
+  // Until the feed prices an imported fixture, its 1X2 is a placeholder — show no price.
+  const priced = isPriced(ev) || live.live;
+  const hasDraw = live.odds_draw != null || (!priced && ev.sport === 'football');
+  const hasAway = live.odds_away != null || (!priced && !!away);
+  const price = (o: number | null | undefined) => (priced ? o : null);
   const resultOutcomes = [
-    { selection: 'home' as const, label: away ? home : 'Win', odds: live.odds, move: live.live ? undefined : homeMove(ev) },
-    ...(hasDraw ? [{ selection: 'draw' as const, label: 'Draw', odds: live.odds_draw, move: undefined }] : []),
-    ...(hasAway ? [{ selection: 'away' as const, label: away ?? 'Away', odds: live.odds_away, move: undefined }] : []),
+    { selection: 'home' as const, label: away ? home : 'Win', odds: price(live.odds), move: live.live ? undefined : homeMove(ev) },
+    ...(hasDraw ? [{ selection: 'draw' as const, label: 'Draw', odds: price(live.odds_draw), move: undefined }] : []),
+    ...(hasAway ? [{ selection: 'away' as const, label: away ?? 'Away', odds: price(live.odds_away), move: undefined }] : []),
   ];
 
   // Once a match has finished with a score, show the 1X2 outcome instead of dead prices.
@@ -369,7 +372,9 @@ export function EventMarkets({ ev }: { ev: EventItem }) {
         {visible.map((b) => (b.type === 'single' ? renderSingle(b.market) : renderLines(b)))}
         {markets.length === 0 && (
           <p className="rounded-2xl border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">
-            More markets for this match will appear here once the bookmaker opens them.
+            {priced
+              ? 'More markets for this match will appear here once the bookmaker opens them.'
+              : 'Odds for this match aren’t available yet — they’ll appear here as soon as the bookmaker prices it.'}
           </p>
         )}
       </div>
