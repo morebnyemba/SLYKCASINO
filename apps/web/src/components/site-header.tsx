@@ -236,7 +236,7 @@ export function SiteHeader() {
   // Placing a bet debits the wallet — refresh the balance shown here.
   const { status: slipStatus } = useBetslip();
   useEffect(() => {
-    if (slipStatus && /placed/i.test(slipStatus)) refetchWallet();
+    if (slipStatus && /placed|in-play/i.test(slipStatus)) refetchWallet();
   }, [slipStatus, refetchWallet]);
   const { data: notifications } = useApi<Notification[]>(user ? '/notifications/' : null);
   const unreadCount = notifications?.filter((n) => !n.read).length ?? 0;

@@ -1,8 +1,9 @@
 import type { Metadata } from 'next';
 import { Suspense } from 'react';
+import { AutoRefresh } from '@/components/auto-refresh';
 import { SportsbookBrowser } from '@/components/sportsbook-browser';
 import { apiGetAll } from '@/lib/config';
-import { isPriced, sortEvents, type EventItem } from '@/lib/sports';
+import { isLive, isPriced, sortEvents, type EventItem } from '@/lib/sports';
 
 export const metadata: Metadata = { title: 'Sportsbook — SLÝKBETS' };
 
@@ -18,6 +19,7 @@ export default async function SportsbookPage() {
 
   return (
     <div>
+      {events.some(isLive) && <AutoRefresh seconds={15} />}
       {!complete && (
         <p className="mb-3 rounded-xl border border-border bg-card px-4 py-2.5 text-xs font-semibold text-muted-foreground">
           Some matches couldn’t be loaded right now — refresh in a moment to see the full list.

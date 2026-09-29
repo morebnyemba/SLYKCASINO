@@ -159,7 +159,10 @@ class BetViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.Create
             )
         except services.OddsChanged as exc:
             return Response(
-                {'detail': str(exc), 'code': 'odds_changed', 'odds': str(exc.current), 'outcome_id': exc.outcome_id},
+                {
+                    'detail': str(exc), 'code': 'odds_changed', 'odds': str(exc.current),
+                    'outcome_id': exc.outcome_id, 'event_id': exc.event_id, 'selection': exc.selection,
+                },
                 status=status.HTTP_409_CONFLICT,
             )
         except services.SelectionUnavailable as exc:
@@ -204,7 +207,10 @@ class BetSlipViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.Cr
             )
         except services.OddsChanged as exc:
             return Response(
-                {'detail': str(exc), 'code': 'odds_changed', 'odds': str(exc.current), 'outcome_id': exc.outcome_id},
+                {
+                    'detail': str(exc), 'code': 'odds_changed', 'odds': str(exc.current),
+                    'outcome_id': exc.outcome_id, 'event_id': exc.event_id, 'selection': exc.selection,
+                },
                 status=status.HTTP_409_CONFLICT,
             )
         except services.SelectionUnavailable as exc:

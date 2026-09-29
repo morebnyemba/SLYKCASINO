@@ -49,6 +49,8 @@ const STATUS_VARIANT: Record<string, 'default' | 'secondary' | 'destructive'> = 
   lost: 'destructive',
   void: 'secondary',
   pending: 'secondary',
+  accepting: 'secondary',
+  rejected: 'secondary',
 };
 
 export default function MyBetsPage() {

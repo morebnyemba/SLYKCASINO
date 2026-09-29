@@ -32,6 +32,8 @@ interface Slip {
 const STATUS_STYLE: Record<string, string> = {
   open: 'bg-secondary/15 text-secondary',
   pending: 'bg-muted text-muted-foreground',
+  accepting: 'bg-live/10 text-live',
+  rejected: 'bg-muted text-muted-foreground',
   won: 'bg-win/15 text-win',
   lost: 'bg-destructive/10 text-destructive',
   void: 'bg-muted text-muted-foreground',
@@ -59,9 +61,9 @@ function MyBets() {
   const { data: bets, refetch: refetchBets } = useApi<{ results?: Bet[] }>(user ? '/bets/?page_size=15' : null);
   const { data: slips, refetch: refetchSlips } = useApi<{ results?: Slip[] }>(user ? '/betslips/?page_size=10' : null);
 
-  // Refresh after the slip places something.
+  // Refresh after the slip places something (and when in-play bets resolve).
   useEffect(() => {
-    if (status && /placed/i.test(status)) { refetchBets(); refetchSlips(); }
+    if (status && /placed|in-play/i.test(status)) { refetchBets(); refetchSlips(); }
   }, [status, refetchBets, refetchSlips]);
 
   if (!user) {
@@ -116,10 +118,14 @@ function MyBets() {
             </div>
             <div className="mt-2 flex justify-between text-[11.5px]">
               <span className="text-muted-foreground">Stake <b className="text-foreground">{money(r.stake)}</b></span>
-              <span className="text-muted-foreground">
-                {r.status === 'won' ? 'Paid' : 'Returns'}{' '}
-                <b className={r.status === 'lost' ? 'text-muted-foreground line-through' : 'text-win'}>{money(r.returns ?? 0)}</b>
-              </span>
+              {r.status === 'void' || r.status === 'rejected' ? (
+                <span className="text-muted-foreground">Refunded <b className="text-foreground">{money(r.stake)}</b></span>
+              ) : (
+                <span className="text-muted-foreground">
+                  {r.status === 'won' ? 'Paid' : 'Returns'}{' '}
+                  <b className={r.status === 'lost' ? 'text-muted-foreground line-through' : 'text-win'}>{money(r.returns ?? 0)}</b>
+                </span>
+              )}
             </div>
           </li>
         ))}

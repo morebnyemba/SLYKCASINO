@@ -9,13 +9,17 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Optional
 
+import logging
+
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from apps.wallet import services as wallet_services
 
 from . import helpers, utils
-from .clients import ApiFootballClient, FeedMarketData, FixtureUpdate, OddsSnapshot, TeamInfo
+from .clients import (
+    ApiFootballClient, FeedMarketData, FixtureUpdate, LiveOddsSnapshot, OddsSnapshot, TeamInfo,
+)
 from .dtos import BetDTO
 from .models import (
     Bet, BetLeg, BetSlip, Event, LeagueSetting, Market, MarketOutcome, Selection, Team,
@@ -23,12 +27,21 @@ from .models import (
 from .settlement import GoalEvent, Score, settle_outcome
 
 
+logger = logging.getLogger(__name__)
+
+
 class OddsChanged(ValueError):
     """The price a player saw no longer matches the current price."""
 
-    def __init__(self, label: str, expected: Decimal, current: Decimal, outcome_id: Optional[int] = None):
+    def __init__(
+        self, label: str, expected: Decimal, current: Decimal, outcome_id: Optional[int] = None,
+        *, event_id: Optional[int] = None, selection: Optional[str] = None,
+    ):
         self.current = current
         self.outcome_id = outcome_id
+        # Set for a 1X2 pick (no outcome row), so the slip can find the leg.
+        self.event_id = event_id
+        self.selection = selection
         super().__init__(f'Odds for {label} changed from {expected} to {current}.')
 
 
@@ -88,21 +101,92 @@ def _kicked_off(starts_at) -> bool:
     return starts_at is not None and starts_at <= timezone.now()
 
 
-def _check_event_bettable(event_id: int) -> None:
-    """A 1X2 pick needs a real price and open betting (closes at kick-off)."""
-    state = Event.objects.filter(pk=event_id).values('has_odds', 'is_open', 'starts_at', 'name').first()
-    if state is None:
-        return  # soft link to a missing event: legacy behaviour, label-only bet
-    if _kicked_off(state['starts_at']):
-        raise SelectionUnavailable(f"Betting on {state['name']} is closed.")
-    if not state['has_odds']:
-        raise SelectionUnavailable(f"{state['name']} has no odds yet.")
-    if not state['is_open']:
-        raise SelectionUnavailable(f"Betting on {state['name']} is closed.")
+# -- in-play -------------------------------------------------------------------
+
+# Statuses we trade in play. Markets settle on the 90 minutes, so extra time and
+# penalties (ET/BT/P) are not traded, nor interrupted/suspended matches.
+IN_PLAY_STATUSES = ('1H', 'HT', '2H')
 
 
-def _lock_bettable_outcome(outcome_id: int, odds: Decimal) -> MarketOutcome:
-    """Row-lock an outcome and check it can be backed at `odds` right now."""
+def live_betting_enabled() -> bool:
+    from django.conf import settings
+    return bool(getattr(settings, 'SPORTSBOOK_LIVE_BETTING', False))
+
+
+def _live_setting(name: str, default: int) -> int:
+    from django.conf import settings
+    return int(getattr(settings, name, default))
+
+
+def in_play_bettable(event: Event, *, now=None) -> bool:
+    """Whether `event` is trading in play right now: live betting is on, the
+    match is in a traded period, an operator hasn't closed it, and the live feed
+    priced it within the last SPORTSBOOK_LIVE_ODDS_STALE seconds (a feed that
+    goes quiet suspends betting rather than leaving stale prices up)."""
+    from datetime import timedelta
+
+    if not live_betting_enabled() or not event.is_open or event.status not in IN_PLAY_STATUSES:
+        return False
+    if event.live_odds_at is None:
+        return False
+    now = now or timezone.now()
+    return event.live_odds_at >= now - timedelta(seconds=_live_setting('SPORTSBOOK_LIVE_ODDS_STALE', 30))
+
+
+def _started(event: Event) -> bool:
+    return _kicked_off(event.starts_at) or event.status in LIVE_STATUSES
+
+
+def pre_match_bettable(event: Event) -> bool:
+    return event.is_open and event.has_odds and not _started(event)
+
+
+def trading_state(event: Event, *, now=None) -> dict:
+    """What a player can back right now: `in_play` (trading live), `bettable`
+    (the event takes bets at all) and `main_open` (the 1X2 buttons are live)."""
+    live = in_play_bettable(event, now=now)
+    return {
+        'in_play': live,
+        'bettable': live or pre_match_bettable(event),
+        'main_open': (live and event.live_main_open) or pre_match_bettable(event),
+    }
+
+
+def _main_price(event: Event, selection: str) -> Optional[Decimal]:
+    return {
+        Selection.HOME: event.odds, Selection.DRAW: event.odds_draw, Selection.AWAY: event.odds_away,
+    }.get(selection)
+
+
+def _check_event_bettable(event_id: int, selection: str = Selection.HOME, odds: Optional[Decimal] = None) -> bool:
+    """A 1X2 pick needs a real price and open betting. Pre-match closes at
+    kick-off; after that only an in-play event takes bets, at the live price
+    (OddsChanged if it moved). Returns True for an in-play pick."""
+    event = Event.objects.filter(pk=event_id).first()
+    if event is None:
+        return False  # soft link to a missing event: legacy behaviour, label-only bet
+    if _started(event):
+        if not in_play_bettable(event):
+            raise SelectionUnavailable(f'Betting on {event.name} is closed.')
+        current = _main_price(event, selection)
+        if not event.live_main_open or current is None:
+            raise SelectionUnavailable(f'{event.name} — match result is suspended.')
+        if odds is not None and utils.quantize(odds) != utils.quantize(current):
+            raise OddsChanged(
+                f'{event.name} — {selection}', utils.quantize(odds), current,
+                event_id=event.id, selection=selection,
+            )
+        return True
+    if not event.has_odds:
+        raise SelectionUnavailable(f'{event.name} has no odds yet.')
+    if not event.is_open:
+        raise SelectionUnavailable(f'Betting on {event.name} is closed.')
+    return False
+
+
+def _lock_bettable_outcome(outcome_id: int, odds: Decimal) -> tuple[MarketOutcome, bool]:
+    """Row-lock an outcome and check it can be backed at `odds` right now.
+    Returns (outcome, in_play)."""
     try:
         outcome = (
             MarketOutcome.objects.select_for_update()
@@ -111,16 +195,36 @@ def _lock_bettable_outcome(outcome_id: int, odds: Decimal) -> MarketOutcome:
         )
     except MarketOutcome.DoesNotExist as exc:
         raise SelectionUnavailable('That selection no longer exists.') from exc
-    market = outcome.market
+    market, event = outcome.market, outcome.market.event
+    in_play = _started(event)
+    event_ok = in_play_bettable(event) if in_play else event.is_open
     if (
-        not market.event.is_open or _kicked_off(market.event.starts_at)
-        or not market.is_open or market.settled
+        not event_ok or not market.is_open or market.settled
         or not outcome.is_open or outcome.result != MarketOutcome.Result.PENDING
     ):
         raise SelectionUnavailable(f'{market.name} — {outcome.label} is suspended.')
     if utils.quantize(odds) != utils.quantize(outcome.odds):
         raise OddsChanged(f'{market.name} — {outcome.label}', utils.quantize(odds), outcome.odds, outcome.id)
-    return outcome
+    return outcome, in_play
+
+
+def _schedule_confirmation(kind: str, obj_id: int) -> None:
+    """Confirm an in-play bet once the acceptance delay has passed. The live-odds
+    sweep (confirm_accepting_bets) also picks it up, so a lost task only delays it.
+    Sent from a background thread: a slow or unreachable broker must never hold
+    up the player's response."""
+    import threading
+
+    def send():
+        try:
+            from .tasks import confirm_live_bet
+            confirm_live_bet.apply_async(
+                args=(kind, obj_id), countdown=_live_setting('SPORTSBOOK_LIVE_BET_DELAY', 6), retry=False,
+            )
+        except Exception:  # noqa: BLE001 — broker down: the sweep confirms it instead
+            logger.warning('could not schedule in-play confirmation for %s %s', kind, obj_id, exc_info=True)
+
+    transaction.on_commit(lambda: threading.Thread(target=send, daemon=True).start())
 
 
 @transaction.atomic
@@ -142,19 +246,25 @@ def place_bet(
     if selection not in Selection.values:
         selection = Selection.HOME
     outcome = None
+    in_play = False
     if outcome_id is not None:
-        outcome = _lock_bettable_outcome(outcome_id, Decimal(str(odds)))
+        outcome, in_play = _lock_bettable_outcome(outcome_id, Decimal(str(odds)))
         event_id = outcome.market.event_id
         selection = Selection.HOME
     elif event_id is not None:
-        _check_event_bettable(event_id)
+        in_play = _check_event_bettable(event_id, selection, Decimal(str(odds)))
+    # In-play bets hold the stake through an acceptance delay (confirm_live_bet).
+    placed_status = Bet.Status.ACCEPTING if in_play else Bet.Status.OPEN
 
     if player_id is None:
         # Anonymous compatibility path — no wallet movement (documented).
-        return Bet.objects.create(
-            event=event, stake=utils.quantize(stake), odds=odds, status=Bet.Status.OPEN,
+        bet = Bet.objects.create(
+            event=event, stake=utils.quantize(stake), odds=odds, status=placed_status,
             event_ref_id=event_id, selection=selection, outcome_ref=outcome,
         )
+        if in_play:
+            _schedule_confirmation('bet', bet.id)
+        return bet
 
     # Record intent as PENDING, debit the stake, then mark OPEN.
     bet = Bet.objects.create(
@@ -166,8 +276,10 @@ def place_bet(
         player_id=player_id, amount=bet.stake, kind='bet_stake',
         idempotency_key=helpers.stake_idempotency_key(bet.id), reference=f'bet:{bet.id}',
     )
-    bet.status = Bet.Status.OPEN
+    bet.status = placed_status
     bet.save(update_fields=['status'])
+    if in_play:
+        _schedule_confirmation('bet', bet.id)
     return bet
 
 
@@ -288,6 +400,7 @@ def place_accumulator(*, stake: Decimal, legs: list[dict], player_id: Optional[i
     combined = Decimal('1')
     normalised: list[dict] = []
     seen_events: set[int] = set()
+    in_play = False
     for leg in legs:
         errors = helpers.validate_bet_request_structure({
             'event': leg.get('event'), 'stake': stake, 'odds': leg.get('odds'),
@@ -300,12 +413,14 @@ def place_accumulator(*, stake: Decimal, legs: list[dict], player_id: Optional[i
             selection = Selection.HOME
         event_id = leg.get('event_id')
         outcome = None
+        leg_in_play = False
         if leg.get('outcome_id') is not None:
-            outcome = _lock_bettable_outcome(int(leg['outcome_id']), odds)
+            outcome, leg_in_play = _lock_bettable_outcome(int(leg['outcome_id']), odds)
             event_id = outcome.market.event_id
             selection = Selection.HOME
         elif event_id is not None:
-            _check_event_bettable(event_id)
+            leg_in_play = _check_event_bettable(event_id, selection, odds)
+        in_play = in_play or leg_in_play
         # Selections on the same event are correlated, so a multiple takes one per event.
         if event_id is not None:
             if int(event_id) in seen_events:
@@ -318,7 +433,8 @@ def place_accumulator(*, stake: Decimal, legs: list[dict], player_id: Optional[i
         })
     combined_odds = utils.quantize(combined)
 
-    status_ = BetSlip.Status.OPEN if player_id is None else BetSlip.Status.PENDING
+    placed_status = BetSlip.Status.ACCEPTING if in_play else BetSlip.Status.OPEN
+    status_ = placed_status if player_id is None else BetSlip.Status.PENDING
     slip = BetSlip.objects.create(
         player_id=player_id, stake=utils.quantize(stake),
         combined_odds=combined_odds, status=status_,
@@ -334,8 +450,10 @@ def place_accumulator(*, stake: Decimal, legs: list[dict], player_id: Optional[i
             player_id=player_id, amount=slip.stake, kind='bet_stake',
             idempotency_key=helpers.slip_stake_idempotency_key(slip.id), reference=f'slip:{slip.id}',
         )
-        slip.status = BetSlip.Status.OPEN
+        slip.status = placed_status
         slip.save(update_fields=['status'])
+    if in_play:
+        _schedule_confirmation('slip', slip.id)
     return slip
 
 
@@ -372,6 +490,126 @@ def _settle_slip_if_ready(slip_id: int) -> BetSlip:
     slip.settled_at = timezone.now()
     slip.save(update_fields=['status', 'payout', 'settled_at'])
     return slip
+
+
+# -- in-play acceptance ---------------------------------------------------------
+
+_WAIT = 'wait'
+
+
+def _live_recheck(
+    *, event_id: Optional[int], selection: str, outcome_id: Optional[int], odds: Decimal, placed_at, now,
+) -> Optional[str]:
+    """Re-check one in-play pick after the acceptance delay. None = it stands,
+    _WAIT = the feed hasn't refreshed since the bet was struck, else the reason
+    it's rejected: a goal since placement, a suspension, or a price move."""
+    if event_id is None:
+        return None
+    event = Event.objects.filter(pk=event_id).first()
+    if event is None:
+        return 'the match is no longer available'
+    if not _started(event):
+        return None  # a pre-match leg in an in-play multiple — already accepted
+    if event.last_goal_at is not None and event.last_goal_at >= placed_at:
+        return 'the score changed'
+    if not in_play_bettable(event, now=now):
+        return 'betting was suspended'
+    if outcome_id is not None:
+        outcome = MarketOutcome.objects.select_related('market').filter(pk=outcome_id).first()
+        if (
+            outcome is None or not outcome.market.is_open or outcome.market.settled
+            or not outcome.is_open or outcome.result != MarketOutcome.Result.PENDING
+        ):
+            return 'the selection was suspended'
+        current = outcome.odds
+    else:
+        current = _main_price(event, selection) if event.live_main_open else None
+        if current is None:
+            return 'the selection was suspended'
+    if utils.quantize(current) != utils.quantize(odds):
+        return 'the price changed'
+    if event.live_odds_at <= placed_at:
+        return _WAIT
+    return None
+
+
+def _reject_accepting(obj, reason: str, *, now) -> None:
+    """Refund the held stake and mark an in-play bet/slip REJECTED."""
+    is_slip = isinstance(obj, BetSlip)
+    if obj.player_id:
+        key = helpers.slip_payout_idempotency_key(obj.id) if is_slip else helpers.payout_idempotency_key(obj.id)
+        wallet_services.credit(
+            player_id=obj.player_id, amount=obj.stake, kind='bet_payout',
+            idempotency_key=f'{key}:refund', reference=f'{"slip" if is_slip else "bet"}:{obj.id}',
+        )
+    obj.status = obj.Status.REJECTED
+    obj.settled_at = now
+    obj.save(update_fields=['status', 'settled_at'])
+    if obj.player_id:
+        from apps.notifications import services as notif_services
+        notif_services.notify(
+            player_id=obj.player_id, kind='account_alert', title='In-play bet not accepted',
+            body=f'Your {"multiple" if is_slip else "bet"} #{obj.id} was not accepted because {reason}. '
+                 'Your stake has been refunded.',
+        )
+
+
+@transaction.atomic
+def confirm_live_bet(kind: str, obj_id: int, *, now=None) -> str:
+    """Accept or reject an in-play bet ('bet') or multiple ('slip') once the
+    acceptance delay has passed: every in-play pick must still be trading at the
+    price taken, with no goal since placement and a feed update after it.
+    Idempotent; returns the resulting status (still ACCEPTING if it's too early
+    or the feed hasn't refreshed yet)."""
+    from datetime import timedelta
+
+    now = now or timezone.now()
+    model = BetSlip if kind == 'slip' else Bet
+    obj = model.objects.select_for_update().filter(pk=obj_id).first()
+    if obj is None:
+        return ''
+    if obj.status != model.Status.ACCEPTING:
+        return obj.status
+    delay = timedelta(seconds=_live_setting('SPORTSBOOK_LIVE_BET_DELAY', 6))
+    if now - obj.placed_at < delay:
+        return obj.status
+
+    if model is Bet:
+        picks = [(obj.event_ref_id, obj.selection, obj.outcome_ref_id, obj.odds)]
+    else:
+        picks = [(leg.event_ref_id, leg.selection, leg.outcome_ref_id, leg.odds) for leg in obj.legs.all()]
+    reasons = [
+        _live_recheck(event_id=e, selection=sel, outcome_id=o, odds=odds, placed_at=obj.placed_at, now=now)
+        for e, sel, o, odds in picks
+    ]
+    reason = next((r for r in reasons if r not in (None, _WAIT)), None)
+    if reason is None and _WAIT in reasons:
+        stale = timedelta(seconds=_live_setting('SPORTSBOOK_LIVE_ODDS_STALE', 30))
+        if now - obj.placed_at < delay + stale:
+            return obj.status
+        reason = 'the live price could not be confirmed'
+    if reason is not None:
+        _reject_accepting(obj, reason, now=now)
+        return obj.status
+    obj.status = model.Status.OPEN
+    obj.save(update_fields=['status'])
+    return obj.status
+
+
+def confirm_accepting_bets(*, now=None) -> int:
+    """Sweep in-play bets past their acceptance delay (the per-bet task is the
+    fast path; this catches any it missed). Returns how many were resolved."""
+    from datetime import timedelta
+
+    now = now or timezone.now()
+    cutoff = now - timedelta(seconds=_live_setting('SPORTSBOOK_LIVE_BET_DELAY', 6))
+    resolved = 0
+    for kind, model in (('bet', Bet), ('slip', BetSlip)):
+        ids = model.objects.filter(status=model.Status.ACCEPTING, placed_at__lte=cutoff).values_list('id', flat=True)
+        for obj_id in list(ids):
+            if confirm_live_bet(kind, obj_id, now=now) != model.Status.ACCEPTING:
+                resolved += 1
+    return resolved
 
 
 # -- secondary markets ---------------------------------------------------------
@@ -644,7 +882,10 @@ def sync_fixture(fixture: FixtureUpdate) -> Optional[Event]:
     if away_team is not None and event.away_team_id != away_team.id:
         event.away_team = away_team
         update_fields.append('away_team')
-    if (fixture.is_live or fixture.is_finished) and event.is_open:
+    # Pre-match betting ends at kick-off; with live betting on, a match stays open
+    # through the periods we trade in play (in_play_bettable gates the rest).
+    trading_live = live_betting_enabled() and fixture.status in IN_PLAY_STATUSES
+    if (fixture.is_finished or (fixture.is_live and not trading_live)) and event.is_open:
         event.is_open = False
         update_fields.append('is_open')
     # Live score/status for the scoreboard; regulation-time score once finished.
@@ -656,6 +897,7 @@ def sync_fixture(fixture: FixtureUpdate) -> Optional[Event]:
     }
     if fixture.facts is not None:
         live_fields['match_facts'] = fixture.facts
+    update_fields += _note_goal(event, home, away)
     for field, value in live_fields.items():
         if getattr(event, field) != value:
             setattr(event, field, value)
@@ -671,6 +913,17 @@ def sync_fixture(fixture: FixtureUpdate) -> Optional[Event]:
         settle_event_markets(event.id, score_for_event(event), final=fixture.facts is not None)
 
     return event
+
+
+def _note_goal(event: Event, home, away, *, now=None) -> list[str]:
+    """Stamp last_goal_at when a known score changes (a goal, or one ruled out),
+    so in-play bets struck before the feed caught up are rejected."""
+    if event.score_home is None or event.score_away is None or home is None or away is None:
+        return []
+    if (event.score_home, event.score_away) == (home, away):
+        return []
+    event.last_goal_at = now or timezone.now()
+    return ['last_goal_at']
 
 
 def sync_provider_fixtures(*, date: Optional[str] = None, live: Optional[str] = None) -> int:
@@ -817,6 +1070,8 @@ def sync_fixture_odds(odds: OddsSnapshot) -> Optional[Event]:
         .filter(
             external_id=odds.external_id, provider=ApiFootballClient.provider_name, is_open=True,
         )
+        # In play, the live feed owns the prices.
+        .exclude(status__in=LIVE_STATUSES).exclude(live_odds_at__isnull=False)
         .first()
     )
     if event is None:
@@ -863,6 +1118,87 @@ def sync_upcoming_odds() -> int:
     )
 
 
+# Live feed status names -> the fixtures feed's short codes.
+_LIVE_STATUS_CODES = {'first half': '1H', 'halftime': 'HT', 'half time': 'HT', 'second half': '2H'}
+
+
+@transaction.atomic
+def apply_live_odds(snapshot: LiveOddsSnapshot, *, now=None) -> Optional[Event]:
+    """Apply one fixture from the live odds feed: score/clock, the in-play 1X2 and
+    markets, and the trading state. A blocked/stopped feed, or a match outside
+    the traded periods, suspends in-play betting until the feed resumes."""
+    event = (
+        Event.objects.select_for_update()
+        .filter(external_id=snapshot.external_id, provider=ApiFootballClient.provider_name)
+        .first()
+    )
+    if event is None:
+        return None
+    now = now or timezone.now()
+    fields: list[str] = []
+    fields += _note_goal(event, snapshot.goals_home, snapshot.goals_away, now=now)
+    code = _LIVE_STATUS_CODES.get((snapshot.status or '').strip().lower())
+    updates = {
+        'score_home': snapshot.goals_home, 'score_away': snapshot.goals_away,
+        'elapsed': snapshot.elapsed,
+        # The live feed is fresher than the minute-by-minute fixtures poll, but
+        # never overrides a finished/void status.
+        'status': code if code and event.status not in (*FINISHED_STATUSES, *VOID_STATUSES) else None,
+    }
+    for field, value in updates.items():
+        if value is not None and getattr(event, field) != value:
+            setattr(event, field, value)
+            fields.append(field)
+
+    tradable = not snapshot.blocked and event.is_open and event.status in IN_PLAY_STATUSES
+    if not tradable:
+        if event.live_odds_at is not None or event.live_main_open:
+            event.live_odds_at, event.live_main_open = None, False
+            fields += ['live_odds_at', 'live_main_open']
+        if fields:
+            event.save(update_fields=sorted(set(fields)))
+            transaction.on_commit(lambda: publish_event_odds(event))
+        return event
+
+    if snapshot.one_x_two is not None:
+        event.odds, event.odds_draw, event.odds_away = snapshot.one_x_two
+        event.has_odds = True
+        fields += ['odds', 'odds_draw', 'odds_away', 'previous_odds', 'has_odds']
+    event.live_main_open = snapshot.one_x_two is not None
+    event.live_odds_at = now
+    fields += ['live_main_open', 'live_odds_at']
+    event.save(update_fields=sorted(set(fields)))
+    # Everything the live feed doesn't offer right now is suspended.
+    apply_feed_markets(event, snapshot.markets)
+    transaction.on_commit(lambda: (publish_event_odds(event), publish_event_markets(event)))
+    return event
+
+
+def sync_live_odds(*, now=None) -> int:
+    """Poll api-football's in-play odds and apply them. Skips the call (saving
+    quota) unless live betting is on and some linked match could be in play.
+    Returns the number of live fixtures fetched."""
+    from datetime import timedelta
+    from django.db.models import Q
+
+    if not live_betting_enabled():
+        return 0
+    now = now or timezone.now()
+    maybe_live = Event.objects.filter(
+        provider=ApiFootballClient.provider_name, external_id__isnull=False,
+    ).filter(
+        Q(status__in=IN_PLAY_STATUSES)
+        | Q(starts_at__gte=now - timedelta(hours=3), starts_at__lte=now + timedelta(minutes=5))
+        & ~Q(status__in=(*FINISHED_STATUSES, *VOID_STATUSES)),
+    ).exists()
+    if not maybe_live:
+        return 0
+    snapshots = ApiFootballClient().fetch_live_odds()
+    for snapshot in snapshots:
+        apply_live_odds(snapshot, now=now)
+    return len(snapshots)
+
+
 # -- realtime ----------------------------------------------------------------
 
 def publish_event_odds(event: Event) -> None:
@@ -879,6 +1215,9 @@ def publish_event_odds(event: Event) -> None:
         'odds': str(event.odds),
         'odds_draw': str(event.odds_draw) if event.odds_draw is not None else None,
         'odds_away': str(event.odds_away) if event.odds_away is not None else None,
+        **trading_state(event),
+        'score_home': event.score_home, 'score_away': event.score_away,
+        'elapsed': event.elapsed, 'status': event.status,
     })
     client = RealtimePublisherClient()
     try:

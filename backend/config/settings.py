@@ -215,6 +215,15 @@ API_FOOTBALL_ODDS_MAX_PAGES = int(os.environ.get('API_FOOTBALL_ODDS_MAX_PAGES', 
 # Set to true to ALSO offer unrecognised bet types; those must be settled by an
 # operator from the admin Events page.
 SPORTSBOOK_IMPORT_MANUAL_MARKETS = os.environ.get('SPORTSBOOK_IMPORT_MANUAL_MARKETS', 'false').lower() == 'true'
+# In-play betting from api-football's /odds/live. Off by default. The feed is
+# polled every SPORTSBOOK_LIVE_ODDS_INTERVAL seconds while anything could be in
+# play (~10k requests/day at 8s); a match whose prices are older than
+# SPORTSBOOK_LIVE_ODDS_STALE seconds is suspended; in-play bets are confirmed
+# after SPORTSBOOK_LIVE_BET_DELAY seconds, re-checking price, suspension and score.
+SPORTSBOOK_LIVE_BETTING = os.environ.get('SPORTSBOOK_LIVE_BETTING', 'false').lower() == 'true'
+SPORTSBOOK_LIVE_ODDS_INTERVAL = float(os.environ.get('SPORTSBOOK_LIVE_ODDS_INTERVAL', '8'))
+SPORTSBOOK_LIVE_ODDS_STALE = int(os.environ.get('SPORTSBOOK_LIVE_ODDS_STALE', '30'))
+SPORTSBOOK_LIVE_BET_DELAY = int(os.environ.get('SPORTSBOOK_LIVE_BET_DELAY', '6'))
 
 # ---------------------------------------------------------------------------
 # Celery — workers run domain recovery; beat schedules reconciliation passes.
@@ -247,6 +256,12 @@ CELERY_BEAT_SCHEDULE = {
         # Every 5 min: settles finished matches (the live poll loses them at FT)
         # and retries until corners/cards/scorer stats are published.
         'schedule': 300.0,
+    },
+    'sportsbook-sync-live-odds': {
+        'task': 'apps.sportsbook.tasks.sync_live_odds',
+        # No-op (no API call) unless SPORTSBOOK_LIVE_BETTING is on and a match
+        # could be in play.
+        'schedule': SPORTSBOOK_LIVE_ODDS_INTERVAL,
     },
     'sportsbook-sync-fixture-odds': {
         'task': 'apps.sportsbook.tasks.sync_fixture_odds',

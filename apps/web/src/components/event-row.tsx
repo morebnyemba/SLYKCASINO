@@ -6,7 +6,7 @@ import type { IconType } from 'react-icons';
 import { OddsButton } from '@/components/odds-button';
 import { SPORT_CATEGORIES } from '@/components/sports-sidebar';
 import {
-  dayLabel, hasScore, homeMove, isLive, isPriced, kickoffTime, marketShape, matchClock, teamNames, type EventItem, type Team,
+  dayLabel, hasScore, homeMove, isLive, isMainOpen, isPriced, kickoffTime, marketShape, matchClock, teamNames, type EventItem, type Team,
 } from '@/lib/sports';
 
 export function sportMeta(id?: string): { label: string; icon?: IconType } {
@@ -86,8 +86,9 @@ export function EventRow({ ev }: { ev: EventItem }) {
   const { home, away } = teamNames(ev);
   const shape = marketShape(ev);
   const priced = isPriced(ev);
-  // Betting closes at kick-off; in-play rows stay visible with locked prices.
-  const closed = ev.is_open === false;
+  // Pre-match betting closes at kick-off; in play the prices stay locked unless
+  // the match is trading live.
+  const closed = !isMainOpen(ev);
   const href = `/sportsbook/${ev.id}`;
 
   return (
@@ -141,6 +142,7 @@ export function FeaturedMatchCard({ ev }: { ev: EventItem }) {
   const { home, away } = teamNames(ev);
   const shape = marketShape(ev);
   const priced = isPriced(ev);
+  const closed = !isMainOpen(ev);
   const sport = sportMeta(ev.sport);
   const SportIcon = sport.icon;
 
@@ -171,9 +173,9 @@ export function FeaturedMatchCard({ ev }: { ev: EventItem }) {
         </div>
       </Link>
       <div className="mt-auto grid grid-cols-3 gap-1.5">
-        <OddsButton eventId={ev.id} eventName={ev.name} selection="home" odds={priced ? ev.odds : null} label="1" move={homeMove(ev)} />
-        <OddsButton eventId={ev.id} eventName={ev.name} selection="draw" odds={priced && shape === '1x2' ? ev.odds_draw : null} label="X" />
-        <OddsButton eventId={ev.id} eventName={ev.name} selection="away" odds={priced && shape !== 'single' ? ev.odds_away : null} label="2" />
+        <OddsButton eventId={ev.id} eventName={ev.name} selection="home" odds={priced ? ev.odds : null} label="1" move={homeMove(ev)} disabled={closed} />
+        <OddsButton eventId={ev.id} eventName={ev.name} selection="draw" odds={priced && shape === '1x2' ? ev.odds_draw : null} label="X" disabled={closed} />
+        <OddsButton eventId={ev.id} eventName={ev.name} selection="away" odds={priced && shape !== 'single' ? ev.odds_away : null} label="2" disabled={closed} />
       </div>
       {!!ev.markets_count && (
         <Link

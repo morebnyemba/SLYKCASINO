@@ -54,6 +54,13 @@ class Event(models.Model):
     # markets: {"corners": [h, a], "yellow": [h, a], "red": [h, a],
     # "goals": [{"minute", "side", "player", "own_goal", "penalty"}], "extra_time": bool}.
     match_facts = models.JSONField(null=True, blank=True)
+    # In-play: when the live odds feed last priced this match (None = not trading
+    # live / suspended), and when the score last changed — a bet placed before a
+    # goal the feed hadn't caught yet is rejected on confirmation.
+    live_odds_at = models.DateTimeField(null=True, blank=True)
+    last_goal_at = models.DateTimeField(null=True, blank=True)
+    # Whether the live feed is currently offering the headline 1X2.
+    live_main_open = models.BooleanField(default=False)
 
     class Meta:
         db_table = 'sportsbook_event'

@@ -28,6 +28,12 @@ export interface EventItem {
   score_away?: number | null;
   ht_score_home?: number | null;
   ht_score_away?: number | null;
+  /** Trading in play right now (live betting on and the live feed fresh). */
+  in_play?: boolean;
+  /** Takes bets at all right now (pre-match open, or trading in play). */
+  bettable?: boolean;
+  /** The 1X2 buttons are live (in play the feed can suspend them on their own). */
+  main_open?: boolean;
   /** Open secondary markets (list endpoint). */
   markets_count?: number;
   /** Every market (detail endpoint). */
@@ -113,6 +119,16 @@ export function withTeamNames(text: string, home: string, away: string | null): 
 /** Whether the 1X2 prices are real (imported fixtures carry a placeholder until priced). */
 export function isPriced(ev: Pick<EventItem, 'has_odds'>): boolean {
   return ev.has_odds !== false;
+}
+
+/** Whether the event takes bets right now (older APIs: just `is_open`). */
+export function isBettable(ev: Pick<EventItem, 'bettable' | 'is_open'>): boolean {
+  return ev.bettable ?? ev.is_open !== false;
+}
+
+/** Whether the headline 1X2 can be backed right now. */
+export function isMainOpen(ev: Pick<EventItem, 'main_open' | 'bettable' | 'is_open'>): boolean {
+  return ev.main_open ?? isBettable(ev);
 }
 
 export function isLive(ev: Pick<EventItem, 'starts_at' | 'status'>): boolean {

@@ -70,6 +70,10 @@ _odd_even = _one_of({'odd': ('odd', 'Odd'), 'even': ('even', 'Even')})
 _double_chance = _one_of({
     'home/draw': ('1x', 'Home or draw'), 'home/away': ('12', 'Home or away'),
     'draw/away': ('x2', 'Draw or away'),
+    # Live-feed spellings.
+    '1x': ('1x', 'Home or draw'), '12': ('12', 'Home or away'), 'x2': ('x2', 'Draw or away'),
+    'home or draw': ('1x', 'Home or draw'), 'home or away': ('12', 'Home or away'),
+    'draw or away': ('x2', 'Draw or away'),
 })
 _highest_half = _one_of({
     '1st half': ('1h', '1st half'), '2nd half': ('2h', '2nd half'), 'draw': ('draw', 'Equal'),
@@ -338,3 +342,84 @@ def parse_markets(bets: list[dict[str, Any]], *, include_manual: bool = True) ->
                 outcomes=outcomes, metric=spec.metric,
             ))
     return markets
+
+
+# -- in-play (api-football /odds/live) -----------------------------------------
+
+# Live bet types we trade in play, mapped onto the pre-match spec that shares
+# their settlement (so a live price updates the same Market row). Only markets
+# settled on the whole match (or the half in progress) regardless of when the
+# bet was struck: handicaps, "next goal" and rest-of-match markets are left out
+# because their in-play rules vary by bookmaker.
+LIVE_BETS = {
+    'fulltime result': 'Match Winner',
+    'match winner': 'Match Winner',
+    '1x2': 'Match Winner',
+    'double chance': 'Double Chance',
+    'draw no bet': 'Home/Away',
+    'both teams to score': 'Both Teams Score',
+    'both teams score': 'Both Teams Score',
+    'over/under line': 'Goals Over/Under',
+    'match goals': 'Goals Over/Under',
+    'goals over/under': 'Goals Over/Under',
+    'total goals': 'Goals Over/Under',
+    'goals odd/even': 'Odd/Even',
+    'odd/even': 'Odd/Even',
+    'final score': 'Exact Score',
+    'correct score': 'Exact Score',
+    'exact score': 'Exact Score',
+    '1x2 - 1st half': 'First Half Winner',
+    'half time result': 'First Half Winner',
+    'first half winner': 'First Half Winner',
+}
+
+# Markets on the first half stop trading once it's over.
+FIRST_HALF_ONLY = {'First Half Winner'}
+
+
+def _live_value(raw: dict[str, Any]) -> Optional[dict[str, Any]]:
+    """One live price -> the pre-match value shape ({value, odd}), folding the
+    separate `handicap` field into the value ("Over" + 2.5 -> "Over 2.5").
+    Suspended prices are dropped, which suspends that outcome."""
+    if raw.get('suspended'):
+        return None
+    value = str(raw.get('value', '')).strip()
+    handicap = raw.get('handicap')
+    if handicap not in (None, ''):
+        value = f'{value} {handicap}'
+    return {'value': value, 'odd': raw.get('odd')}
+
+
+def parse_live_odds(
+    odds: list[dict[str, Any]], *, first_half: bool = True,
+) -> tuple[Optional[tuple[Decimal, Optional[Decimal], Decimal]], list[FeedMarketData]]:
+    """Normalise a live fixture's `odds` list into (1X2 prices or None, markets).
+    `first_half=False` drops first-half markets (the half is over)."""
+    merged: dict[str, list[dict[str, Any]]] = {}
+    winner: list[dict[str, Any]] = []
+    for bet in odds or []:
+        canonical = LIVE_BETS.get(str(bet.get('name') or '').strip().lower())
+        if canonical is None or (canonical in FIRST_HALF_ONLY and not first_half):
+            continue
+        if canonical == 'Match Winner':
+            winner = winner or list(bet.get('values') or [])
+            continue
+        values = merged.setdefault(canonical, [])
+        for raw in bet.get('values') or []:
+            value = _live_value(raw)
+            if value is not None:
+                values.append(value)
+
+    # The headline 1X2 trades as a whole: any leg suspended suspends all three.
+    one_x_two = None
+    if winner and not any(v.get('suspended') for v in winner):
+        prices = {str(v.get('value', '')).strip().lower(): _dec(str(v.get('odd', ''))) for v in winner}
+        home = prices.get('home') or prices.get('1')
+        draw = prices.get('draw') or prices.get('x')
+        away = prices.get('away') or prices.get('2')
+        if home and away and draw and min(home, draw, away) > 1:
+            one_x_two = (home, draw, away)
+    markets = parse_markets(
+        [{'name': name, 'values': values} for name, values in merged.items()], include_manual=False,
+    )
+    return one_x_two, markets

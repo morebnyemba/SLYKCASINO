@@ -34,6 +34,27 @@ class EventSerializer(serializers.ModelSerializer):
     away_team = TeamSerializer(read_only=True)
     # Open secondary markets, for the "+N" link in listings (annotated in the view).
     markets_count = serializers.IntegerField(read_only=True, default=0)
+    # Trading state (see services.trading_state): whether the match is trading in
+    # play, takes bets at all, and whether its 1X2 is open.
+    in_play = serializers.SerializerMethodField()
+    bettable = serializers.SerializerMethodField()
+    main_open = serializers.SerializerMethodField()
+
+    def _state(self, obj):
+        from .services import trading_state
+        cache = self.context.setdefault('_trading_state', {})
+        if obj.pk not in cache:
+            cache[obj.pk] = trading_state(obj)
+        return cache[obj.pk]
+
+    def get_in_play(self, obj) -> bool:
+        return self._state(obj)['in_play']
+
+    def get_bettable(self, obj) -> bool:
+        return self._state(obj)['bettable']
+
+    def get_main_open(self, obj) -> bool:
+        return self._state(obj)['main_open']
 
     class Meta:
         model = Event
@@ -41,7 +62,7 @@ class EventSerializer(serializers.ModelSerializer):
             'id', 'name', 'sport', 'odds', 'odds_draw', 'odds_away', 'previous_odds', 'has_odds',
             'featured', 'is_open', 'starts_at', 'home_team', 'away_team',
             'status', 'elapsed', 'score_home', 'score_away', 'ht_score_home', 'ht_score_away',
-            'markets_count',
+            'markets_count', 'in_play', 'bettable', 'main_open',
         ]
         read_only_fields = ['status', 'elapsed', 'score_home', 'score_away', 'ht_score_home', 'ht_score_away']
 
