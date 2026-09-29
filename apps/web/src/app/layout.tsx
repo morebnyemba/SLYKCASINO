@@ -6,6 +6,7 @@ import { SiteFooter } from '@/components/site-footer';
 import { BottomNav } from '@/components/bottom-nav';
 import { AppSidebar, MobileMenu } from '@/components/app-sidebar';
 import { BetslipDrawer } from '@/components/betslip-panel';
+import { BetRail } from '@/components/bet-rail';
 import { GlobalSearch } from '@/components/global-search';
 import { MobileQuickNav } from '@/components/mobile-quick-nav';
 import { AgeGate } from '@/components/age-gate';
@@ -78,10 +79,16 @@ export default async function RootLayout({ children }: { children: React.ReactNo
               <div className="flex min-w-0 flex-1 flex-col">
                 <SiteHeader />
                 <MobileQuickNav />
-                <main className="mx-auto w-full max-w-[1440px] flex-1 px-3 py-4 sm:px-5 sm:py-6">{children}</main>
-                <SiteFooter />
-                {/* Keeps the footer clear of the fixed mobile tab bar. */}
-                <div className="h-20 lg:hidden" />
+                {/* Desktop: content column + bet-slip rail, both under the header. */}
+                <div className="flex min-w-0 flex-1">
+                  <div className="flex min-w-0 flex-1 flex-col">
+                    <main className="mx-auto w-full max-w-[1600px] flex-1 px-3 py-4 sm:px-5 sm:py-6 xl:px-6">{children}</main>
+                    <SiteFooter />
+                    {/* Keeps the footer clear of the fixed mobile tab bar. */}
+                    <div className="h-20 lg:hidden" />
+                  </div>
+                  <BetRail />
+                </div>
               </div>
             </div>
             <MobileMenu />

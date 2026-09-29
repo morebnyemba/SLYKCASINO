@@ -9,7 +9,7 @@ import { useLiveOdds } from '@/lib/use-live-odds';
 import { useLiveMarkets } from '@/lib/use-live-markets';
 import { formatOdds, useSettings } from '@/lib/settings-context';
 import {
-  MARKET_GROUPS, dayLabel, hasScore, homeMove, isFinished, isLive, isPriced, kickoffTime, matchClock,
+  MARKET_GROUPS, dayLabel, hasScore, homeMove, isBettable, isFinished, isLive, isMainOpen, isPriced, kickoffTime, matchClock,
   teamNames, withTeamNames, type EventItem, type Market, type MarketGroup, type MarketOutcome,
 } from '@/lib/sports';
 
@@ -109,6 +109,8 @@ export function EventMarkets({ ev }: { ev: EventItem }) {
     odds: Number(ev.odds),
     odds_draw: ev.odds_draw != null ? Number(ev.odds_draw) : null,
     odds_away: ev.odds_away != null ? Number(ev.odds_away) : null,
+    in_play: ev.in_play, bettable: ev.bettable, main_open: ev.main_open,
+    score_home: ev.score_home, score_away: ev.score_away, elapsed: ev.elapsed, status: ev.status,
   });
   const initialMarkets = useMemo(() => ev.markets ?? [], [ev.markets]);
   const markets = useLiveMarkets(ev.id, initialMarkets);
@@ -117,10 +119,20 @@ export function EventMarkets({ ev }: { ev: EventItem }) {
   const { home, away } = teamNames(ev);
   const sport = sportMeta(ev.sport);
   const SportIcon = sport.icon;
-  const inPlay = isLive(ev);
-  const finished = isFinished(ev);
-  const closed = ev.is_open === false;
-  const clock = matchClock(ev);
+  // Score, clock and trading state move with the live feed between renders.
+  const cur: EventItem = {
+    ...ev,
+    ...Object.fromEntries(Object.entries({
+      score_home: live.score_home, score_away: live.score_away, elapsed: live.elapsed, status: live.status,
+      in_play: live.in_play, bettable: live.bettable, main_open: live.main_open,
+    }).filter(([, v]) => v !== undefined)),
+  };
+  const inPlay = isLive(cur);
+  const finished = isFinished(cur);
+  const closed = !isBettable(cur);
+  const mainClosed = !isMainOpen(cur);
+  const trading = !!cur.in_play;
+  const clock = matchClock(cur);
   const names = (text: string) => withTeamNames(text, home, away);
   const facts = ev.match_facts;
 
@@ -136,8 +148,8 @@ export function EventMarkets({ ev }: { ev: EventItem }) {
   ];
 
   // Once a match has finished with a score, show the 1X2 outcome instead of dead prices.
-  const finalResult = finished && hasScore(ev)
-    ? (ev.score_home! > ev.score_away! ? 'home' : ev.score_home! < ev.score_away! ? 'away' : 'draw')
+  const finalResult = finished && hasScore(cur)
+    ? (cur.score_home! > cur.score_away! ? 'home' : cur.score_home! < cur.score_away! ? 'away' : 'draw')
     : null;
 
   const blocks = useMemo(() => buildBlocks(markets), [markets]);
@@ -255,9 +267,9 @@ export function EventMarkets({ ev }: { ev: EventItem }) {
             <span className="w-full truncate text-base font-extrabold sm:text-lg">{home}</span>
           </div>
           <div className="flex flex-col items-center gap-1">
-            {hasScore(ev) ? (
+            {hasScore(cur) ? (
               <>
-                <span className="text-4xl font-black tabular-nums tracking-tight">{ev.score_home} – {ev.score_away}</span>
+                <span className="text-4xl font-black tabular-nums tracking-tight">{cur.score_home} – {cur.score_away}</span>
                 {ev.ht_score_home != null && ev.ht_score_away != null && (
                   <span className="text-[11px] font-bold text-white/60">HT {ev.ht_score_home}–{ev.ht_score_away}</span>
                 )}
@@ -313,7 +325,14 @@ export function EventMarkets({ ev }: { ev: EventItem }) {
 
       {(closed || finished) && (
         <p className="rounded-xl border border-border bg-card px-4 py-3 text-sm font-semibold text-muted-foreground">
-          {finished ? 'This match has finished — markets are settled or awaiting settlement.' : 'Betting is closed on this match.'}
+          {finished ? 'This match has finished — markets are settled or awaiting settlement.'
+            : inPlay ? 'In-play betting is suspended on this match right now.'
+            : 'Betting is closed on this match.'}
+        </p>
+      )}
+      {trading && !finished && (
+        <p className="flex items-center gap-2 rounded-xl border border-live/30 bg-live/5 px-4 py-3 text-sm font-semibold">
+          <LiveBadge /> In-play betting is open. Bets are confirmed after a few seconds if the price and score haven’t changed.
         </p>
       )}
 
@@ -343,6 +362,8 @@ export function EventMarkets({ ev }: { ev: EventItem }) {
             <span className="rounded bg-muted px-2 py-0.5 text-[10.5px] font-bold text-muted-foreground">Settled</span>
           ) : closed ? (
             <span className="flex items-center gap-1 rounded bg-muted px-2 py-0.5 text-[10.5px] font-bold text-muted-foreground"><BsLockFill size={9} /> Closed</span>
+          ) : mainClosed ? (
+            <span className="flex items-center gap-1 rounded bg-muted px-2 py-0.5 text-[10.5px] font-bold text-muted-foreground"><BsLockFill size={9} /> Suspended</span>
           ) : undefined}>
             <div className={`grid gap-2 ${resultOutcomes.length === 3 ? 'grid-cols-3' : resultOutcomes.length === 2 ? 'grid-cols-2' : 'grid-cols-1'}`}>
               {finalResult ? resultOutcomes.map((o) => (
@@ -362,7 +383,7 @@ export function EventMarkets({ ev }: { ev: EventItem }) {
                   label={o.label}
                   move={o.move}
                   size="lg"
-                  disabled={closed}
+                  disabled={closed || mainClosed}
                   stackOnMobile={resultOutcomes.length === 3}
                 />
               ))}

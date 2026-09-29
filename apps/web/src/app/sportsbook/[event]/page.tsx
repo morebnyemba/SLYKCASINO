@@ -1,10 +1,10 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { LiveFeed } from '@/components/live-feed';
-import { BetslipCard } from '@/components/betslip-panel';
+import { AutoRefresh } from '@/components/auto-refresh';
 import { EventMarkets } from '@/components/event-markets';
 import { apiGet } from '@/lib/config';
-import type { EventItem } from '@/lib/sports';
+import { isLive, type EventItem } from '@/lib/sports';
 
 // Next 16: route params are async — they must be awaited.
 type PageProps = {
@@ -12,7 +12,8 @@ type PageProps = {
 };
 
 async function fetchEvent(id: string): Promise<EventItem | null> {
-  const data = (await apiGet<EventItem>(`/events/${id}/`)) as Partial<EventItem> & { error?: string };
+  // Uncached: in play the prices and trading state move by the second.
+  const data = (await apiGet<EventItem>(`/events/${id}/`, { next: { revalidate: 0 } })) as Partial<EventItem> & { error?: string };
   if (data.error || data.id == null || !data.name) return null;
   return data as EventItem;
 }
@@ -40,14 +41,12 @@ export default async function EventPage({ params }: PageProps) {
   }
 
   return (
-    <div className="grid gap-5 xl:grid-cols-[1fr_340px]">
+    <div className="mx-auto max-w-5xl">
+      {isLive(ev) && <AutoRefresh seconds={10} />}
       <section className="min-w-0 space-y-4">
         <EventMarkets ev={ev} />
         <LiveFeed channel={`odds:${event}`} title="Price history" height={200} />
       </section>
-      <aside className="hidden xl:block">
-        <BetslipCard />
-      </aside>
     </div>
   );
 }

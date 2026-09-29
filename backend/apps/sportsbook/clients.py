@@ -10,7 +10,7 @@ from typing import Any, Optional
 import requests
 from django.conf import settings
 
-from .market_feed import FeedMarketData, parse_markets
+from .market_feed import FeedMarketData, parse_live_odds, parse_markets
 
 logger = logging.getLogger(__name__)
 
@@ -340,6 +340,59 @@ class ApiFootballClient:
             page += 1
         return snapshots
 
+    def fetch_live_odds(self) -> list['LiveOddsSnapshot']:
+        """In-play odds for every live fixture api-football prices (one call,
+        refreshed by the provider every few seconds). Returns [] (logged) on any
+        missing key, network, or payload error."""
+        if not self.api_key:
+            return []
+        try:
+            resp = requests.get(
+                f'{self.base_url}/odds/live', timeout=5, headers={'x-apisports-key': self.api_key},
+            )
+            resp.raise_for_status()
+            payload = resp.json()
+        except (requests.RequestException, ValueError):
+            logger.warning('api-football fetch_live_odds failed', exc_info=True)
+            return []
+        if payload.get('errors'):
+            logger.warning('api-football fetch_live_odds errors: %s', payload.get('errors'))
+            return []
+        snapshots = []
+        for raw in payload.get('response', []):
+            snapshot = self._normalize_live_odds(raw)
+            if snapshot is not None:
+                snapshots.append(snapshot)
+        return snapshots
+
+    def _normalize_live_odds(self, raw: dict[str, Any]) -> Optional['LiveOddsSnapshot']:
+        fixture = raw.get('fixture') or {}
+        fixture_id = str(fixture.get('id', '') or '')
+        if not fixture_id:
+            return None
+        status = fixture.get('status') or {}
+        long_status = str(status.get('long') or '')
+        teams = raw.get('teams') or {}
+        flags = raw.get('status') or {}
+        first_half = long_status.strip().lower() in ('first half', '1st half')
+        one_x_two, markets = parse_live_odds(raw.get('odds') or [], first_half=first_half)
+
+        def goals(side: str) -> Optional[int]:
+            value = (teams.get(side) or {}).get('goals')
+            return int(value) if isinstance(value, (int, float)) or str(value).isdigit() else None
+
+        elapsed = status.get('elapsed')
+        return LiveOddsSnapshot(
+            external_id=fixture_id,
+            status=long_status,
+            elapsed=int(elapsed) if isinstance(elapsed, (int, float)) else None,
+            goals_home=goals('home'),
+            goals_away=goals('away'),
+            blocked=bool(flags.get('blocked') or flags.get('stopped') or flags.get('finished')),
+            one_x_two=one_x_two,
+            markets=tuple(markets),
+        )
+
     def _normalize(self, raw: dict[str, Any]) -> FixtureUpdate:
         fixture = raw.get('fixture', {})
         teams = raw.get('teams', {})
@@ -470,6 +523,21 @@ class OddsSnapshot:
     odds_draw: Optional[Decimal]
     odds_away: Decimal
     # Every other market the feed offers for this fixture (goals, handicaps…).
+    markets: tuple['FeedMarketData', ...] = ()
+
+
+@dataclass(frozen=True)
+class LiveOddsSnapshot:
+    """One fixture from the in-play odds feed. `blocked` means the provider has
+    stopped trading it (a goal/VAR check, stoppage, or the final whistle)."""
+
+    external_id: str
+    status: str
+    elapsed: Optional[int]
+    goals_home: Optional[int]
+    goals_away: Optional[int]
+    blocked: bool
+    one_x_two: Optional[tuple[Decimal, Optional[Decimal], Decimal]]
     markets: tuple['FeedMarketData', ...] = ()
 
 

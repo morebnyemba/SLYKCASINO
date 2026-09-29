@@ -60,3 +60,21 @@ def settle_finished_fixtures() -> int:
     until everything on the fixture is settled (bounded to the last few days).
     No-op if API_FOOTBALL_KEY is unset."""
     return services.settle_finished_fixtures()
+
+
+@shared_task(name='apps.sportsbook.tasks.sync_live_odds')
+def sync_live_odds() -> int:
+    """In-play: refresh live prices/suspensions every few seconds, then resolve
+    in-play bets whose acceptance delay has passed. No-op unless
+    SPORTSBOOK_LIVE_BETTING is on (and skips the API call when nothing is live)."""
+    fetched = services.sync_live_odds()
+    services.confirm_accepting_bets()
+    return fetched
+
+
+@shared_task(name='apps.sportsbook.tasks.confirm_live_bet')
+def confirm_live_bet(kind: str, obj_id: int) -> str:
+    """Accept or reject one in-play bet ('bet') or multiple ('slip') after the
+    acceptance delay. Still ACCEPTING (feed not refreshed yet) is left for the
+    sync_live_odds sweep."""
+    return services.confirm_live_bet(kind, obj_id)

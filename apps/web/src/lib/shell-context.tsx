@@ -14,6 +14,12 @@ interface ShellContextValue {
   /** Global search overlay. */
   searchOpen: boolean;
   setSearchOpen: (open: boolean) => void;
+  /**
+   * Desktop right rail (bet slip) — the player's explicit choice, or null to use
+   * the page default (open on sports pages or when the slip has picks).
+   */
+  railPref: boolean | null;
+  setRailPref: (open: boolean | null) => void;
 }
 
 const ShellContext = createContext<ShellContextValue | null>(null);
@@ -22,6 +28,7 @@ export function ShellProvider({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [railPref, setRailPref] = useState<boolean | null>(null);
 
   // "/" or Ctrl/Cmd+K opens search from anywhere (except while typing in a field).
   useEffect(() => {
@@ -57,7 +64,9 @@ export function ShellProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <ShellContext.Provider value={{ collapsed, toggleCollapsed, menuOpen, setMenuOpen, searchOpen, setSearchOpen }}>
+    <ShellContext.Provider value={{
+      collapsed, toggleCollapsed, menuOpen, setMenuOpen, searchOpen, setSearchOpen, railPref, setRailPref,
+    }}>
       {children}
     </ShellContext.Provider>
   );

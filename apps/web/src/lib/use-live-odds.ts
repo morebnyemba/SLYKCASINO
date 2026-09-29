@@ -7,7 +7,17 @@ export interface LiveOdds {
   odds?: number;
   odds_draw?: number | null;
   odds_away?: number | null;
+  /** Trading state, pushed with each in-play price update. */
+  in_play?: boolean;
+  bettable?: boolean;
+  main_open?: boolean;
+  score_home?: number | null;
+  score_away?: number | null;
+  elapsed?: number | null;
+  status?: string;
 }
+
+const STATE_KEYS = ['in_play', 'bettable', 'main_open', 'score_home', 'score_away', 'elapsed', 'status'] as const;
 
 /**
  * Subscribes to an event's realtime odds channel (`odds:<id>`) and returns the
@@ -17,6 +27,9 @@ export interface LiveOdds {
  */
 export function useLiveOdds(eventId: string | number, initial: LiveOdds): LiveOdds & { live: boolean } {
   const [odds, setOdds] = useState<LiveOdds>(initial);
+  // A fresh server render (e.g. the in-play auto-refresh) re-seeds the snapshot.
+  const seed = JSON.stringify(initial);
+  useEffect(() => { setOdds(JSON.parse(seed) as LiveOdds); }, [seed]);
   const [live, setLive] = useState(false);
 
   useEffect(() => {
@@ -29,10 +42,17 @@ export function useLiveOdds(eventId: string | number, initial: LiveOdds): LiveOd
         try {
           const data = JSON.parse(String(ev.data));
           if (data && data.odds != null) {
-            setOdds({
-              odds: Number(data.odds),
-              odds_draw: data.odds_draw != null ? Number(data.odds_draw) : null,
-              odds_away: data.odds_away != null ? Number(data.odds_away) : null,
+            setOdds((prev) => {
+              const next: LiveOdds = {
+                ...prev,
+                odds: Number(data.odds),
+                odds_draw: data.odds_draw != null ? Number(data.odds_draw) : null,
+                odds_away: data.odds_away != null ? Number(data.odds_away) : null,
+              };
+              for (const key of STATE_KEYS) {
+                if (key in data) (next as Record<string, unknown>)[key] = data[key];
+              }
+              return next;
             });
             setLive(true);
           }

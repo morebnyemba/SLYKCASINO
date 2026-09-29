@@ -1,7 +1,8 @@
 'use client';
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '@/lib/auth-context';
+import { config } from '@/lib/config';
 import { authedPost } from '@/lib/use-api';
 
 export type Selection = 'home' | 'draw' | 'away';
@@ -55,6 +56,46 @@ function legPayload(l: BetLeg) {
     : { event: betLabel(l), event_id: Number(l.eventId), selection: l.selection, odds: l.odds };
 }
 
+/**
+ * In-play bets come back ACCEPTING: the stake is held while the server re-checks
+ * price, suspension and score after a short delay. Poll each until it resolves
+ * (open = accepted, rejected = refunded). Unresolved after ~45s counts as pending.
+ */
+async function awaitAcceptance(
+  paths: string[], token: string, signal: AbortSignal,
+): Promise<{ accepted: number; rejected: number; pending: number }> {
+  const outcome = { accepted: 0, rejected: 0, pending: 0 };
+  const pause = () => new Promise<void>((resolve) => {
+    const id = setTimeout(resolve, 2000);
+    signal.addEventListener('abort', () => { clearTimeout(id); resolve(); }, { once: true });
+  });
+  await Promise.all(paths.map(async (path) => {
+    for (let i = 0; i < 22 && !signal.aborted; i++) {
+      await pause();
+      if (signal.aborted) return;
+      try {
+        const res = await fetch(`${config.apiUrl}${path}`, { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store', signal });
+        if (!res.ok) continue;
+        const { status } = (await res.json()) as { status?: string };
+        if (status === 'accepting') continue;
+        if (status === 'rejected') outcome.rejected++; else outcome.accepted++;
+        return;
+      } catch { /* retry */ }
+    }
+    outcome.pending++;
+  }));
+  return outcome;
+}
+
+function acceptanceMessage({ accepted, rejected, pending }: { accepted: number; rejected: number; pending: number }) {
+  if (rejected === 0 && pending === 0) return accepted === 1 ? 'In-play bet accepted.' : 'In-play bets accepted.';
+  if (accepted === 0 && pending === 0) {
+    return `In-play bet${rejected === 1 ? '' : 's'} not accepted — the price or score changed. Stake refunded.`;
+  }
+  const parts = [accepted && `${accepted} accepted`, rejected && `${rejected} not accepted (refunded)`, pending && `${pending} still confirming`];
+  return `In-play bets: ${parts.filter(Boolean).join(', ')}.`;
+}
+
 interface BetslipContextValue {
   legs: BetLeg[];
   mode: SlipMode;
@@ -84,6 +125,20 @@ const BetslipContext = createContext<BetslipContextValue | null>(null);
 
 export function BetslipProvider({ children }: { children: React.ReactNode }) {
   const { accessToken } = useAuth();
+  // In-play acceptance polling belongs to the session that placed the bet: stop
+  // it on logout/account switch or unmount so it never reports into another.
+  const pollRef = useRef<AbortController | null>(null);
+  useEffect(() => {
+    const ctrl = new AbortController();
+    pollRef.current = ctrl;
+    return () => ctrl.abort();
+  }, [accessToken]);
+  const confirmInPlay = useCallback(async (paths: string[], token: string) => {
+    const ctrl = pollRef.current;
+    if (!ctrl) return;
+    const result = await awaitAcceptance(paths, token, ctrl.signal);
+    if (!ctrl.signal.aborted) setStatus(acceptanceMessage(result));
+  }, []);
   const [legs, setLegs] = useState<BetLeg[]>([]);
   const [mode, setMode] = useState<SlipMode>('acca');
   const [accaStake, setAccaStake] = useState('10');
@@ -188,10 +243,22 @@ export function BetslipProvider({ children }: { children: React.ReactNode }) {
         setLegs((prev) => prev.filter((l) => !placedKeys.has(keyOf(l))));
         setLegStakes((prev) => Object.fromEntries(Object.entries(prev).filter(([k]) => !placedKeys.has(k))));
       }
-      if (failed.length === 0) setStatus(placeable.length === 1 ? 'Bet placed.' : 'Bets placed.');
-      else if (repriced > 0) setStatus(`Odds changed on ${repriced} selection${repriced === 1 ? '' : 's'} — check the new prices and place again.`);
+      const accepting = results
+        .map((r) => r.data as { id?: number; status?: string } | undefined)
+        .filter((d): d is { id: number; status: string } => d?.status === 'accepting' && d.id != null)
+        .map((d) => `/bets/${d.id}/`);
+      if (failed.length === 0) {
+        setStatus(accepting.length > 0
+          ? 'Bet placed — confirming in-play price…'
+          : placeable.length === 1 ? 'Bet placed.' : 'Bets placed.');
+      } else if (repriced > 0) setStatus(`Odds changed on ${repriced} selection${repriced === 1 ? '' : 's'} — check the new prices and place again.`);
       else if (failed.length === results.length) setStatus(`Rejected: ${failed[0].error}`);
       else setStatus(`Placed ${results.length - failed.length}/${results.length} bets. Rejected: ${failed[0].error}`);
+      if (accepting.length > 0) {
+        setBusy(false);
+        await confirmInPlay(accepting, accessToken);
+        return;
+      }
     } else {
       const stakeNum = Number(accaStake);
       if (!stakeNum || stakeNum <= 0) { setStatus('Enter a valid stake.'); setBusy(false); return; }
@@ -207,17 +274,31 @@ export function BetslipProvider({ children }: { children: React.ReactNode }) {
         // The API names the first stale outcome; move that leg to its new price.
         const staleId = res.body?.outcome_id;
         const stale = res.body?.code === 'odds_changed'
-          ? legs.find((l) => l.outcomeId != null && l.outcomeId === staleId) ?? (legs.length === 1 ? legs[0] : undefined)
+          ? legs.find((l) => (staleId != null
+            ? l.outcomeId === staleId
+            // A 1X2 pick has no outcome row: the API names its event and selection.
+            : l.outcomeId == null && String(l.eventId) === String(res.body?.event_id) && l.selection === res.body?.selection))
+            ?? (legs.length === 1 ? legs[0] : undefined)
           : undefined;
         if (stale && applyPriceChange(stale, res.body)) setStatus('Odds changed — check the new price and place again.');
         else setStatus(`Rejected: ${res.error}`);
       } else {
-        setStatus(legs.length === 1 ? 'Bet placed.' : 'Multiple placed.');
+        const placed = res.data as { id?: number; status?: string } | undefined;
+        const inPlay = placed?.status === 'accepting' && placed.id != null;
+        setStatus(inPlay
+          ? `${legs.length === 1 ? 'Bet' : 'Multiple'} placed — confirming in-play price…`
+          : legs.length === 1 ? 'Bet placed.' : 'Multiple placed.');
         setLegs([]);
+        if (inPlay) {
+          setBusy(false);
+          const path = legs.length === 1 ? `/bets/${placed!.id}/` : `/betslips/${placed!.id}/`;
+          await confirmInPlay([path], accessToken);
+          return;
+        }
       }
     }
     setBusy(false);
-  }, [accessToken, legs, mode, legStakes, accaStake, conflictingEvents, applyPriceChange]);
+  }, [accessToken, legs, mode, legStakes, accaStake, conflictingEvents, applyPriceChange, confirmInPlay]);
 
   const value: BetslipContextValue = {
     legs, mode, setMode, accaStake, setAccaStake, legStakes, setLegStake,

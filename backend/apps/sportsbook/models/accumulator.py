@@ -11,10 +11,14 @@ class BetSlip(models.Model):
 
     class Status(models.TextChoices):
         PENDING = 'pending', 'Pending (stake not confirmed)'
+        # In-play bets wait out the acceptance delay with the stake held, then
+        # become OPEN or REJECTED (stake refunded) — see services.confirm_live_bet.
+        ACCEPTING = 'accepting', 'Accepting (in-play delay)'
         OPEN = 'open', 'Open'
         WON = 'won', 'Won'
         LOST = 'lost', 'Lost'
         VOID = 'void', 'Void'
+        REJECTED = 'rejected', 'Rejected (in-play)'
 
     player_id = models.BigIntegerField(null=True, blank=True, db_index=True)
     stake = models.DecimalField(max_digits=12, decimal_places=2)
