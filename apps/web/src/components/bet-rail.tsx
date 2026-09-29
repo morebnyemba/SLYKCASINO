@@ -58,8 +58,10 @@ function money(v: string | number) {
 function MyBets() {
   const { user } = useAuth();
   const { status } = useBetslip();
-  const { data: bets, refetch: refetchBets } = useApi<{ results?: Bet[] }>(user ? '/bets/?page_size=15' : null);
-  const { data: slips, refetch: refetchSlips } = useApi<{ results?: Slip[] }>(user ? '/betslips/?page_size=10' : null);
+  const { data: bets, error: betsError, loading: betsLoading, refetch: refetchBets } =
+    useApi<{ results?: Bet[] }>(user ? '/bets/?page_size=15' : null);
+  const { data: slips, error: slipsError, loading: slipsLoading, refetch: refetchSlips } =
+    useApi<{ results?: Slip[] }>(user ? '/betslips/?page_size=10' : null);
 
   // Refresh after the slip places something (and when in-play bets resolve).
   useEffect(() => {
@@ -93,7 +95,26 @@ function MyBets() {
     return ao - bo || new Date(b.placed).getTime() - new Date(a.placed).getTime();
   });
 
+  // A failed request must not read as "no bets" (or a partial list as complete).
+  if (betsError || slipsError) {
+    return (
+      <div className="my-auto px-6 text-center">
+        <p className="mb-1 text-sm font-bold">Couldn’t load your bets</p>
+        <p className="mb-4 text-xs text-muted-foreground">Check your connection and try again.</p>
+        <button
+          onClick={() => { if (betsError) refetchBets(); if (slipsError) refetchSlips(); }}
+          className="rounded-lg bg-secondary px-4 py-2 text-xs font-extrabold text-white"
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
+
   if (rows.length === 0) {
+    if (betsLoading || slipsLoading) {
+      return <p className="my-auto text-center text-xs text-muted-foreground">Loading your bets…</p>;
+    }
     return (
       <div className="my-auto px-6 text-center">
         <p className="mb-1 text-sm font-bold">No bets yet</p>
@@ -143,6 +164,7 @@ function MyBets() {
  */
 export function BetRail() {
   const open = useRailOpen();
+  const { user } = useAuth();
   const { legs, status } = useBetslip();
   const { setRailPref } = useShell();
   const [tab, setTab] = useState<'slip' | 'bets'>('slip');
@@ -203,7 +225,8 @@ export function BetRail() {
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col">
-        {tab === 'slip' ? <SlipBody variant="rail" /> : <MyBets />}
+        {/* Keyed by account so a logout/login never shows the previous player's bets. */}
+        {tab === 'slip' ? <SlipBody variant="rail" /> : <MyBets key={user?.userId ?? 'logged-out'} />}
       </div>
 
     </aside>

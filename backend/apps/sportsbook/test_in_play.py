@@ -151,6 +151,23 @@ class LiveFeedTests(InPlayBase):
             self.assertEqual(sb.sync_live_odds(), 1)
         fetch.assert_called_once()
 
+    def test_lagging_fixture_poll_does_not_roll_back_the_live_score(self):
+        self.feed(goals=(1, 0))
+        self.event.refresh_from_db()
+        stamped = self.event.last_goal_at
+        sb.sync_fixture(FixtureUpdate(external_id='555', name='x', status='2H', starts_at=None,
+                                      goals_home=0, goals_away=0))
+        self.event.refresh_from_db()
+        self.assertEqual((self.event.score_home, self.event.score_away, self.event.last_goal_at), (1, 0, stamped))
+
+    def test_bets_awaiting_acceptance_are_rejected_once_the_match_is_over(self):
+        self.feed()
+        bet = sb.place_bet(event='Arsenal', stake=D('10'), odds=D('1.50'), player_id=self.player.id,
+                           event_id=self.event.id, selection='home')
+        Event.objects.filter(pk=self.event.pk).update(status='FT', starts_at=None)
+        later = bet.placed_at + timedelta(seconds=8)
+        self.assertEqual(sb.confirm_live_bet('bet', bet.id, now=later), 'rejected')
+
     def test_fixture_poll_keeps_in_play_matches_open(self):
         fixture = FixtureUpdate(external_id='555', name='Arsenal vs Chelsea', status='1H', starts_at=None,
                                 goals_home=0, goals_away=0)

@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import { config } from '@/lib/config';
 import { authedPost } from '@/lib/use-api';
@@ -61,13 +61,20 @@ function legPayload(l: BetLeg) {
  * price, suspension and score after a short delay. Poll each until it resolves
  * (open = accepted, rejected = refunded). Unresolved after ~45s counts as pending.
  */
-async function awaitAcceptance(paths: string[], token: string): Promise<{ accepted: number; rejected: number; pending: number }> {
+async function awaitAcceptance(
+  paths: string[], token: string, signal: AbortSignal,
+): Promise<{ accepted: number; rejected: number; pending: number }> {
   const outcome = { accepted: 0, rejected: 0, pending: 0 };
+  const pause = () => new Promise<void>((resolve) => {
+    const id = setTimeout(resolve, 2000);
+    signal.addEventListener('abort', () => { clearTimeout(id); resolve(); }, { once: true });
+  });
   await Promise.all(paths.map(async (path) => {
-    for (let i = 0; i < 22; i++) {
-      await new Promise((r) => setTimeout(r, 2000));
+    for (let i = 0; i < 22 && !signal.aborted; i++) {
+      await pause();
+      if (signal.aborted) return;
       try {
-        const res = await fetch(`${config.apiUrl}${path}`, { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' });
+        const res = await fetch(`${config.apiUrl}${path}`, { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store', signal });
         if (!res.ok) continue;
         const { status } = (await res.json()) as { status?: string };
         if (status === 'accepting') continue;
@@ -118,6 +125,20 @@ const BetslipContext = createContext<BetslipContextValue | null>(null);
 
 export function BetslipProvider({ children }: { children: React.ReactNode }) {
   const { accessToken } = useAuth();
+  // In-play acceptance polling belongs to the session that placed the bet: stop
+  // it on logout/account switch or unmount so it never reports into another.
+  const pollRef = useRef<AbortController | null>(null);
+  useEffect(() => {
+    const ctrl = new AbortController();
+    pollRef.current = ctrl;
+    return () => ctrl.abort();
+  }, [accessToken]);
+  const confirmInPlay = useCallback(async (paths: string[], token: string) => {
+    const ctrl = pollRef.current;
+    if (!ctrl) return;
+    const result = await awaitAcceptance(paths, token, ctrl.signal);
+    if (!ctrl.signal.aborted) setStatus(acceptanceMessage(result));
+  }, []);
   const [legs, setLegs] = useState<BetLeg[]>([]);
   const [mode, setMode] = useState<SlipMode>('acca');
   const [accaStake, setAccaStake] = useState('10');
@@ -235,7 +256,7 @@ export function BetslipProvider({ children }: { children: React.ReactNode }) {
       else setStatus(`Placed ${results.length - failed.length}/${results.length} bets. Rejected: ${failed[0].error}`);
       if (accepting.length > 0) {
         setBusy(false);
-        setStatus(acceptanceMessage(await awaitAcceptance(accepting, accessToken)));
+        await confirmInPlay(accepting, accessToken);
         return;
       }
     } else {
@@ -271,13 +292,13 @@ export function BetslipProvider({ children }: { children: React.ReactNode }) {
         if (inPlay) {
           setBusy(false);
           const path = legs.length === 1 ? `/bets/${placed!.id}/` : `/betslips/${placed!.id}/`;
-          setStatus(acceptanceMessage(await awaitAcceptance([path], accessToken)));
+          await confirmInPlay([path], accessToken);
           return;
         }
       }
     }
     setBusy(false);
-  }, [accessToken, legs, mode, legStakes, accaStake, conflictingEvents, applyPriceChange]);
+  }, [accessToken, legs, mode, legStakes, accaStake, conflictingEvents, applyPriceChange, confirmInPlay]);
 
   const value: BetslipContextValue = {
     legs, mode, setMode, accaStake, setAccaStake, legStakes, setLegStake,

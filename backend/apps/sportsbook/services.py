@@ -134,7 +134,12 @@ def in_play_bettable(event: Event, *, now=None) -> bool:
 
 
 def _started(event: Event) -> bool:
-    return _kicked_off(event.starts_at) or event.status in LIVE_STATUSES
+    """Past pre-match: kicked off, in play, or already over (a feed status is
+    authoritative even when the event has no kick-off time)."""
+    return (
+        _kicked_off(event.starts_at)
+        or event.status in (*LIVE_STATUSES, *FINISHED_STATUSES, *VOID_STATUSES)
+    )
 
 
 def pre_match_bettable(event: Event) -> bool:
@@ -897,7 +902,18 @@ def sync_fixture(fixture: FixtureUpdate) -> Optional[Event]:
     }
     if fixture.facts is not None:
         live_fields['match_facts'] = fixture.facts
-    update_fields += _note_goal(event, home, away)
+    # The minute-by-minute fixtures poll lags the live odds feed: while a match is
+    # in play it may only add goals, never roll back a score the live feed has
+    # already moved (which would also restamp last_goal_at and reject fair bets).
+    lagging = (
+        live_betting_enabled() and not fixture.is_finished
+        and None not in (event.score_home, event.score_away, home, away)
+        and home + away < event.score_home + event.score_away
+    )
+    if lagging:
+        del live_fields['score_home'], live_fields['score_away']
+    else:
+        update_fields += _note_goal(event, home, away)
     for field, value in live_fields.items():
         if getattr(event, field) != value:
             setattr(event, field, value)
