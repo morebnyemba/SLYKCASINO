@@ -1,8 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { BsChevronDoubleRight, BsReceipt, BsTicketPerforated } from 'react-icons/bs';
 import { SlipBody } from '@/components/betslip-panel';
 import { useAuth } from '@/lib/auth-context';
@@ -38,17 +37,15 @@ const STATUS_STYLE: Record<string, string> = {
   void: 'bg-muted text-muted-foreground',
 };
 
-/** Pages where the slip is the point, so the rail opens by default. */
-function isSportsRoute(pathname: string) {
-  return pathname === '/' || pathname.startsWith('/sportsbook');
-}
-
-/** Whether the desktop rail is showing: the player's choice, else the page default. */
+/**
+ * Whether the desktop rail is showing: the player's explicit choice (header
+ * button / hide), else only while the slip has picks — it slides in with the
+ * first selection and gets out of the way once the slip is empty.
+ */
 export function useRailOpen() {
-  const pathname = usePathname();
   const { legs } = useBetslip();
   const { railPref } = useShell();
-  return railPref ?? (isSportsRoute(pathname) || legs.length > 0);
+  return railPref ?? legs.length > 0;
 }
 
 function money(v: string | number) {
@@ -140,12 +137,28 @@ function MyBets() {
  */
 export function BetRail() {
   const open = useRailOpen();
-  const { legs } = useBetslip();
+  const { legs, status } = useBetslip();
   const { setRailPref } = useShell();
   const [tab, setTab] = useState<'slip' | 'bets'>('slip');
 
-  // A new pick always brings the slip tab forward.
-  useEffect(() => { if (legs.length > 0) setTab('slip'); }, [legs.length]);
+  // A new pick always brings the slip tab forward, and the first pick re-opens the
+  // rail even if the player hid it earlier. An emptied slip hands control back to
+  // the default (hidden).
+  const prevCount = useRef(legs.length);
+  useEffect(() => {
+    if (legs.length > 0) setTab('slip');
+    if (prevCount.current === 0 && legs.length > 0) setRailPref(null);
+    if (prevCount.current > 0 && legs.length === 0) {
+      if (status && /placed/i.test(status)) {
+        // Emptied by placing a bet: stay open and show it under My bets.
+        setRailPref(true);
+        setTab('bets');
+      } else {
+        setRailPref(null);
+      }
+    }
+    prevCount.current = legs.length;
+  }, [legs.length, status, setRailPref]);
 
   if (!open) return null;
 
