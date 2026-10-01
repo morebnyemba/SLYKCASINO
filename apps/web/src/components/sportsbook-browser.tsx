@@ -1,15 +1,18 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { BsSearch, BsXCircleFill } from 'react-icons/bs';
 import { GiTrophyCup } from 'react-icons/gi';
 import { SPORT_CATEGORIES } from '@/components/sports-sidebar';
 import { Carousel, CarouselItem } from '@/components/carousel';
-import { EventRow, FeaturedMatchCard, MarketHeader, sportMeta } from '@/components/event-row';
-import { isLive, sortEvents, type EventItem } from '@/lib/sports';
+import { FeaturedMatchCard, MarketHeader, sportMeta } from '@/components/event-row';
+import { LeagueSection } from '@/components/league-section';
+import { groupByLeague, isLive, sortEvents, type EventItem } from '@/lib/sports';
 
 type Tab = 'all' | 'live' | 'upcoming';
+
+const COLLAPSED_KEY = 'slyk:collapsed-leagues';
 
 export function SportsbookBrowser({ events, topMatches = [], awaitingOdds = 0 }: {
   events: EventItem[];
@@ -58,7 +61,8 @@ export function SportsbookBrowser({ events, topMatches = [], awaitingOdds = 0 }:
     const q = search.trim().toLowerCase();
     if (q) {
       list = list.filter((ev) =>
-        [ev.name, ev.home_team?.name, ev.away_team?.name].some((s) => s?.toLowerCase().includes(q)),
+        [ev.name, ev.home_team?.name, ev.away_team?.name, ev.league?.name, ev.league?.country]
+          .some((s) => s?.toLowerCase().includes(q)),
       );
     }
     return list;
@@ -72,8 +76,28 @@ export function SportsbookBrowser({ events, topMatches = [], awaitingOdds = 0 }:
       const key = SPORT_CATEGORIES.some((c) => c.id === ev.sport) ? ev.sport : undefined;
       bySport.set(key, [...(bySport.get(key) ?? []), ev]);
     }
-    return order.filter((k) => bySport.has(k)).map((k) => ({ sport: k, events: bySport.get(k)! }));
+    return order.filter((k) => bySport.has(k)).map((k) => {
+      const events = bySport.get(k)!;
+      return { sport: k, events, leagues: groupByLeague(events) };
+    });
   }, [filtered]);
+
+  // Collapsed leagues are remembered per browser.
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(COLLAPSED_KEY) ?? '[]');
+      if (Array.isArray(saved)) setCollapsed(new Set(saved.map(String)));
+    } catch { /* storage unavailable */ }
+  }, []);
+  const toggleLeague = useCallback((key: string) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      try { localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...next])); } catch { /* ignore */ }
+      return next;
+    });
+  }, []);
 
   const tabs: { id: Tab; label: string; count?: number }[] = [
     { id: 'all', label: 'All' },
@@ -204,7 +228,19 @@ export function SportsbookBrowser({ events, topMatches = [], awaitingOdds = 0 }:
           return (
             <div key={g.sport ?? 'other'} className="overflow-hidden rounded-2xl border border-border bg-card">
               <MarketHeader title={meta.label} icon={meta.icon} count={g.events.length} />
-              {g.events.map((ev) => <EventRow key={ev.id} ev={ev} />)}
+              {g.leagues.map((lg) => {
+                const key = `${g.sport ?? 'other'}:${lg.key}`;
+                return (
+                  <LeagueSection
+                    key={key}
+                    group={lg}
+                    // A search shows every match it found, whatever was collapsed.
+                    collapsed={!search.trim() && collapsed.has(key)}
+                    onToggle={() => toggleLeague(key)}
+                    fallbackTitle={`Other ${meta.label.toLowerCase()}`}
+                  />
+                );
+              })}
             </div>
           );
         })}

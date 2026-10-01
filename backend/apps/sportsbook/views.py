@@ -40,7 +40,7 @@ class EventViewSet(viewsets.ModelViewSet):
         )
         # `id` last so equal kick-off/name rows page deterministically (no repeats/gaps).
         ordering = qs.query.order_by or [*Event._meta.ordering, 'id']
-        qs = qs.select_related('home_team', 'away_team').annotate(
+        qs = qs.select_related('home_team', 'away_team', 'league').annotate(
             markets_count=Count('markets', filter=Q(markets__is_open=True), distinct=True),
         ).order_by(*ordering)  # aggregation drops Meta.ordering, so re-apply it
         if self.action == 'retrieve':

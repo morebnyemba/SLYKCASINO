@@ -27,6 +27,10 @@ class Event(models.Model):
     away_team = models.ForeignKey(
         'Team', null=True, blank=True, on_delete=models.SET_NULL, related_name='away_events',
     )
+    # Competition the match belongs to (listings group matches under it).
+    league = models.ForeignKey(
+        'LeagueSetting', null=True, blank=True, on_delete=models.SET_NULL, related_name='events',
+    )
     # `odds` is the "1" (home/outcome-A) price. `odds_draw`/`odds_away` are
     # optional — set for true 1/X/2 markets (e.g. football); left null for
     # two-outcome sports (e.g. tennis, basketball) which only use `odds`

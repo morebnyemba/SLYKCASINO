@@ -6,6 +6,16 @@ export interface Team {
   logo_url?: string | null;
 }
 
+export interface League {
+  id: number;
+  name: string;
+  country?: string;
+  logo_url?: string;
+  flag_url?: string;
+  /** Lower shows first (featured competitions are seeded low). */
+  sort_order?: number;
+}
+
 export interface EventItem {
   id: string | number;
   name: string;
@@ -21,6 +31,8 @@ export interface EventItem {
   starts_at?: string | null;
   home_team?: Team | null;
   away_team?: Team | null;
+  /** Competition the match belongs to; null for manually created events. */
+  league?: League | null;
   /** Provider match status, e.g. 'NS', '1H', 'HT', '2H', 'FT'. */
   status?: string;
   elapsed?: number | null;
@@ -184,6 +196,40 @@ export function kickoffTime(iso: string): string {
 }
 
 /** Live events first, then soonest kickoff; events with no time go last. */
+export interface LeagueGroup {
+  /** Stable key: league id, or 'other' for matches without a league. */
+  key: string;
+  league: League | null;
+  events: EventItem[];
+  liveCount: number;
+}
+
+/**
+ * Cascade matches under their league: featured competitions first (by the
+ * league's sort_order), then the rest by country and name, with matches that
+ * have no league last. Within a league, live matches come first, then by
+ * kick-off (sortEvents).
+ */
+export function groupByLeague(events: EventItem[]): LeagueGroup[] {
+  const groups = new Map<string, LeagueGroup>();
+  for (const ev of events) {
+    const key = ev.league ? String(ev.league.id) : 'other';
+    let g = groups.get(key);
+    if (!g) { g = { key, league: ev.league ?? null, events: [], liveCount: 0 }; groups.set(key, g); }
+    g.events.push(ev);
+    if (isLive(ev)) g.liveCount += 1;
+  }
+  const label = (l: League) => `${l.country ?? ''} ${l.name}`.trim().toLowerCase();
+  return [...groups.values()]
+    .map((g) => ({ ...g, events: sortEvents(g.events) }))
+    .sort((a, b) => {
+      if (!a.league || !b.league) return a.league ? -1 : b.league ? 1 : 0;
+      const oa = a.league.sort_order ?? 1000;
+      const ob = b.league.sort_order ?? 1000;
+      return oa - ob || label(a.league).localeCompare(label(b.league));
+    });
+}
+
 export function sortEvents<T extends EventItem>(list: T[]): T[] {
   return [...list].sort((a, b) => {
     const la = isLive(a) ? 0 : 1;
