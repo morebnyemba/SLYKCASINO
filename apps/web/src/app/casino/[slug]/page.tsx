@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@slyk/ui/components/ca
 import { Badge } from '@slyk/ui/components/badge';
 import { useAuth } from '@/lib/auth-context';
 import { useApi, authedPost } from '@/lib/use-api';
+import { Spinner } from '@slyk/ui/components/spinner';
 
 type PageProps = { params: Promise<{ slug: string }>; searchParams: Promise<{ id?: string; demo?: string }> };
 
@@ -205,7 +206,7 @@ export default function GamePage({ params, searchParams }: PageProps) {
                 disabled={spinning}
                 className="w-full rounded-xl bg-primary py-4 text-lg font-bold text-primary-foreground transition-all hover:opacity-90 active:scale-95 disabled:opacity-50"
               >
-                {spinning ? 'Spinning…' : 'SPIN'}
+                {spinning ? <span className="inline-flex items-center justify-center gap-2"><Spinner size={14} />Spinning…</span> : 'SPIN'}
               </button>
             ) : (
               <Link

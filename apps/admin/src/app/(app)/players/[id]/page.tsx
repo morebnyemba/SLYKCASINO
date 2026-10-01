@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@slyk/ui/components/ca
 import { Badge } from '@slyk/ui/components/badge';
 import { useAuth } from '@/lib/auth-context';
 import { useApi, authedPost } from '@/lib/use-api';
+import { LoadingState } from '@slyk/ui/components/spinner';
 
 type PageProps = { params: Promise<{ id: string }> };
 
@@ -108,7 +109,7 @@ export default function PlayerDetailPage({ params }: PageProps) {
     refetch();
   }
 
-  if (loading) return <p className="p-4 text-sm text-muted-foreground">Loading player…</p>;
+  if (loading) return <LoadingState className="py-6" label="Loading player…" />;
   if (!player) return <p className="p-4 text-sm text-destructive">Player not found.</p>;
 
   return (

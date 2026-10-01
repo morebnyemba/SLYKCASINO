@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { FaExchangeAlt } from 'react-icons/fa';
 import { Card, CardContent } from '@slyk/ui/components/card';
 import { useApi } from '@/lib/use-api';
+import { LoadingState } from '@slyk/ui/components/spinner';
 
 interface LedgerEntry {
   id: number;
@@ -57,7 +58,7 @@ export default function TransactionsPage() {
 
       <Card>
         <CardContent className="p-0">
-          {loading && <p className="p-4 text-sm text-muted-foreground">Loading transactions…</p>}
+          {loading && <LoadingState className="py-6" label="Loading transactions…" />}
           {!loading && entries.length === 0 && (
             <p className="p-4 text-sm text-muted-foreground">No ledger entries.</p>
           )}

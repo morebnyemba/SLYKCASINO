@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@slyk/ui/components/ca
 import { Button } from '@slyk/ui/components/button';
 import { useAuth } from '@/lib/auth-context';
 import { config } from '@/lib/config';
+import { Spinner } from '@slyk/ui/components/spinner';
 
 function VerifyEmailContent() {
   const searchParams = useSearchParams();
@@ -96,7 +97,7 @@ function VerifyEmailContent() {
             <p className={status === 'error' ? 'text-red-500' : 'text-green-600'}>{message}</p>
           )}
           <Button onClick={resend} disabled={status === 'loading'}>
-            {status === 'loading' ? 'Sending…' : 'Resend verification email'}
+            {status === 'loading' ? <span className="inline-flex items-center justify-center gap-2"><Spinner size={14} />Sending…</span> : 'Resend verification email'}
           </Button>
         </CardContent>
       </Card>

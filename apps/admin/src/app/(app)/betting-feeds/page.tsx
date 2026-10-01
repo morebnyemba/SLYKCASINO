@@ -8,6 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@slyk/ui/components/badge';
 import { useApi, authedPost } from '@/lib/use-api';
 import { useAuth } from '@/lib/auth-context';
+import { LoadingState } from '@slyk/ui/components/spinner';
 
 interface Bet {
   id: number;
@@ -80,7 +81,7 @@ export default function BettingFeedsPage() {
             </TableHeader>
             <TableBody>
               {loading && (
-                <TableRow><TableCell colSpan={8} className="text-muted-foreground">Loading…</TableCell></TableRow>
+                <TableRow><TableCell colSpan={8}><LoadingState className="py-6" /></TableCell></TableRow>
               )}
               {!loading && bets.length === 0 && (
                 <TableRow><TableCell colSpan={8} className="text-muted-foreground">No bets placed yet.</TableCell></TableRow>

@@ -4,6 +4,7 @@ import { Card, CardContent } from '@slyk/ui/components/card';
 import { Badge } from '@slyk/ui/components/badge';
 import { useAuth } from '@/lib/auth-context';
 import { useApi, authedPost } from '@/lib/use-api';
+import { LoadingState } from '@slyk/ui/components/spinner';
 
 interface Notification {
   id: number;
@@ -41,7 +42,7 @@ export default function NotificationsPage() {
     refetch();
   }
 
-  if (loading) return <p className="text-sm text-muted-foreground">Loading…</p>;
+  if (loading) return <LoadingState />;
   if (error) return <p className="text-sm text-destructive">{error}</p>;
 
   return (

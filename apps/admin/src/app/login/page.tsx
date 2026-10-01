@@ -6,6 +6,7 @@ import { GiPerspectiveDiceSixFacesRandom } from 'react-icons/gi';
 import { Card, CardContent } from '@slyk/ui/components/card';
 import { useAuth } from '@/lib/auth-context';
 import { useSiteIdentity } from '@/lib/identity-context';
+import { Spinner } from '@slyk/ui/components/spinner';
 
 export default function AdminLoginPage() {
   const { login } = useAuth();
@@ -77,7 +78,7 @@ export default function AdminLoginPage() {
               disabled={loading}
               className="rounded-md bg-gradient-to-br from-gold to-gold/70 px-4 py-2 text-sm font-bold text-gold-foreground shadow transition-transform hover:scale-[1.02] disabled:opacity-50 disabled:hover:scale-100"
             >
-              {loading ? 'Signing in…' : 'Sign in'}
+              {loading ? <span className="inline-flex items-center justify-center gap-2"><Spinner size={14} />Signing in…</span> : 'Sign in'}
             </button>
           </form>
         </CardContent>

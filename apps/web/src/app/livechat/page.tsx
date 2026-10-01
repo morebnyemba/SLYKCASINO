@@ -7,6 +7,7 @@ import { Input } from '@slyk/ui/components/input';
 import { config } from '@/lib/config';
 import { useAuth } from '@/lib/auth-context';
 import { authedPost } from '@/lib/use-api';
+import { Spinner } from '@slyk/ui/components/spinner';
 
 interface Message {
   id: number | string;
@@ -152,7 +153,7 @@ export default function LiveChatPage() {
                 disabled={loadingMore}
                 className="rounded-md border border-border px-3 py-1 text-xs font-medium text-muted-foreground hover:bg-accent/10 disabled:opacity-50"
               >
-                {loadingMore ? 'Loading…' : 'Load older messages'}
+                {loadingMore ? <span className="inline-flex items-center justify-center gap-2"><Spinner size={14} />Loading…</span> : 'Load older messages'}
               </button>
             </div>
           )}

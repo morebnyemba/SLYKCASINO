@@ -58,6 +58,10 @@
   animation: slyk-drawer 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
+/* First-load splash fallback: fade out even if scripts never hydrate. */
+@keyframes slyk-splash-out { to { opacity: 0; visibility: hidden; } }
+.site-splash { animation: slyk-splash-out 0.4s ease 6s forwards; }
+
 /* Horizontal scrollers (sport chips, game rows) hide their scrollbar. */
 .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 .no-scrollbar::-webkit-scrollbar { display: none; }

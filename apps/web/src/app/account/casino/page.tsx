@@ -6,6 +6,7 @@ import { Card } from '@slyk/ui/components/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@slyk/ui/components/table';
 import { Badge } from '@slyk/ui/components/badge';
 import { useApi } from '@/lib/use-api';
+import { LoadingState } from '@slyk/ui/components/spinner';
 
 interface Round {
   id: number;
@@ -45,7 +46,7 @@ export default function CasinoHistoryPage() {
     URL.revokeObjectURL(url);
   }
 
-  if (loading) return <p className="text-sm text-muted-foreground">Loading…</p>;
+  if (loading) return <LoadingState />;
   if (error) return <p className="text-sm text-destructive">{error}</p>;
 
   return (

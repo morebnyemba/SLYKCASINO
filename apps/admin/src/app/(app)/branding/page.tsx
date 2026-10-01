@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@slyk/ui/components/ca
 import { useAuth } from '@/lib/auth-context';
 import { useApi } from '@/lib/use-api';
 import { config } from '@/lib/config';
+import { LoadingState, Spinner } from '@slyk/ui/components/spinner';
 
 type Tokens = Record<string, string>;
 
@@ -222,14 +223,14 @@ function IdentitySection() {
           disabled={saving || loading}
           className="rounded-md bg-gradient-to-br from-gold to-gold/70 px-4 py-1.5 text-xs font-bold text-gold-foreground shadow transition-transform hover:scale-[1.02] disabled:opacity-50"
         >
-          {saving ? 'Saving…' : 'Save identity'}
+          {saving ? <span className="inline-flex items-center justify-center gap-2"><Spinner size={14} />Saving…</span> : 'Save identity'}
         </button>
       </CardHeader>
       <CardContent className="space-y-4">
         <p className="text-xs text-muted-foreground">
           The site name, logo, tagline, and gambling licence text shown across the header, footer, login screen, and age gate.
         </p>
-        {loading && <p className="text-sm text-muted-foreground">Loading…</p>}
+        {loading && <LoadingState />}
         {error && <p className="text-sm text-red-500">Failed to load: {error}</p>}
         {saveError && <p className="text-sm text-red-500">Failed to save: {saveError}</p>}
         {saved && <p className="text-sm font-medium text-win">Saved — live on next page load.</p>}
@@ -346,11 +347,11 @@ export default function BrandingPage() {
           disabled={saving || loading}
           className="rounded-md bg-gradient-to-br from-gold to-gold/70 px-5 py-2 text-sm font-bold text-gold-foreground shadow transition-transform hover:scale-[1.02] disabled:opacity-50"
         >
-          {saving ? 'Saving…' : 'Save theme'}
+          {saving ? <span className="inline-flex items-center justify-center gap-2"><Spinner size={14} />Saving…</span> : 'Save theme'}
         </button>
       </div>
 
-      {loading && <p className="text-sm text-muted-foreground">Loading current theme…</p>}
+      {loading && <LoadingState label="Loading current theme…" />}
       {error && <p className="text-sm text-red-500">Failed to load theme: {error}</p>}
       {saveError && <p className="text-sm text-red-500">Failed to save: {saveError}</p>}
       {saved && <p className="text-sm font-medium text-win">Saved — the player site will reflect this on next load.</p>}

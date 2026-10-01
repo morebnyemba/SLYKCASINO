@@ -11,6 +11,7 @@ import { isAuthRoute } from '@/lib/auth-routes';
 import { useBetslip } from '@/lib/betslip-context';
 import { useApi } from '@/lib/use-api';
 import { useShell } from '@/lib/shell-context';
+import { LoadingState } from '@slyk/ui/components/spinner';
 
 /**
  * Whether the desktop rail is showing: the player's explicit choice (header
@@ -70,7 +71,7 @@ function MyBets() {
 
   if (rows.length === 0) {
     if (betsLoading || slipsLoading) {
-      return <p className="my-auto text-center text-xs text-muted-foreground">Loading your bets…</p>;
+      return <LoadingState className="my-auto" label="Loading your bets…" />;
     }
     return (
       <div className="my-auto px-6 text-center">

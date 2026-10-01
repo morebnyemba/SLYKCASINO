@@ -7,6 +7,7 @@ import { Badge } from '@slyk/ui/components/badge';
 import { useAuth } from '@/lib/auth-context';
 import { useApi, authedPost } from '@/lib/use-api';
 import { config } from '@/lib/config';
+import { LoadingState } from '@slyk/ui/components/spinner';
 
 interface KYCSubmission {
   id: number;
@@ -127,7 +128,7 @@ export default function KYCReviewPage() {
 
       <Card>
         <CardContent className="p-0">
-          {loading && <p className="p-4 text-sm text-muted-foreground">Loading submissions…</p>}
+          {loading && <LoadingState className="py-6" label="Loading submissions…" />}
           {!loading && submissions.length === 0 && (
             <p className="p-4 text-sm text-muted-foreground">No submissions for this filter.</p>
           )}

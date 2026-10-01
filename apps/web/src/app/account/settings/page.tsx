@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@slyk/ui/components/ca
 import { useAuth } from '@/lib/auth-context';
 import { useApi, authedPost } from '@/lib/use-api';
 import { config } from '@/lib/config';
+import { LoadingState, Spinner } from '@slyk/ui/components/spinner';
 
 
 
@@ -127,7 +128,7 @@ export default function SettingsPage() {
     refetch();
   }
 
-  if (loading) return <p className="text-sm text-muted-foreground">Loading…</p>;
+  if (loading) return <LoadingState />;
 
   return (
     <div className="space-y-6">
@@ -187,7 +188,7 @@ export default function SettingsPage() {
               disabled={limitBusy || !limitInput}
               className="rounded-md bg-gradient-to-br from-gold to-gold/70 px-4 py-2 text-sm font-bold text-gold-foreground shadow transition-transform hover:scale-105 disabled:opacity-50 disabled:hover:scale-100"
             >
-              {limitBusy ? 'Saving…' : 'Set limit'}
+              {limitBusy ? <span className="inline-flex items-center justify-center gap-2"><Spinner size={14} />Saving…</span> : 'Set limit'}
             </button>
             {rg?.deposit_limit_daily && (
               <button
@@ -248,7 +249,7 @@ export default function SettingsPage() {
                     disabled={excludeBusy}
                     className="rounded-md bg-destructive px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
                   >
-                    {excludeBusy ? 'Applying…' : 'Yes, exclude me'}
+                    {excludeBusy ? <span className="inline-flex items-center justify-center gap-2"><Spinner size={14} />Applying…</span> : 'Yes, exclude me'}
                   </button>
                   <button
                     onClick={() => setConfirmExclude(false)}
@@ -280,7 +281,7 @@ export default function SettingsPage() {
               className="flex items-center gap-1.5 rounded-md border border-border px-4 py-2 text-sm hover:bg-accent/10 disabled:opacity-50"
             >
               <FaDownload size={11} />
-              {exportLoading ? 'Preparing…' : 'Export my data'}
+              {exportLoading ? <span className="inline-flex items-center justify-center gap-2"><Spinner size={14} />Preparing…</span> : 'Export my data'}
             </button>
           </div>
           <div className="border-t border-border pt-4">
@@ -313,7 +314,7 @@ export default function SettingsPage() {
                     disabled={deleteLoading}
                     className="rounded-md bg-destructive px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
                   >
-                    {deleteLoading ? 'Deleting…' : 'Confirm delete'}
+                    {deleteLoading ? <span className="inline-flex items-center justify-center gap-2"><Spinner size={14} />Deleting…</span> : 'Confirm delete'}
                   </button>
                   <button
                     type="button"

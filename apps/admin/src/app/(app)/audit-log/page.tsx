@@ -6,6 +6,7 @@ import { FaHistory } from 'react-icons/fa';
 import { Card, CardContent } from '@slyk/ui/components/card';
 import { Badge } from '@slyk/ui/components/badge';
 import { useApi } from '@/lib/use-api';
+import { LoadingState } from '@slyk/ui/components/spinner';
 
 interface AuditLogEntry {
   id: number;
@@ -70,7 +71,7 @@ export default function AuditLogPage() {
 
       <Card>
         <CardContent className="p-0">
-          {loading && <p className="p-4 text-sm text-muted-foreground">Loading audit log…</p>}
+          {loading && <LoadingState className="py-6" label="Loading audit log…" />}
           {!loading && entries.length === 0 && (
             <p className="p-4 text-sm text-muted-foreground">No audit entries.</p>
           )}
