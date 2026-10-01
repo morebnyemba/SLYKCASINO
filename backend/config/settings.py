@@ -43,6 +43,7 @@ DOMAIN_APPS = [
     'apps.livechat',
     'apps.notifications',
     'apps.branding',
+    'apps.affiliates',
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + DOMAIN_APPS
@@ -215,6 +216,16 @@ API_FOOTBALL_ODDS_MAX_PAGES = int(os.environ.get('API_FOOTBALL_ODDS_MAX_PAGES', 
 # Set to true to ALSO offer unrecognised bet types; those must be settled by an
 # operator from the admin Events page.
 SPORTSBOOK_IMPORT_MANUAL_MARKETS = os.environ.get('SPORTSBOOK_IMPORT_MANUAL_MARKETS', 'false').lower() == 'true'
+# Affiliate programme defaults (each affiliate's terms can be changed in admin).
+# Revenue share is a % of referred players' monthly net gaming revenue (a losing
+# month pays nothing, no carry-over); CPA is a one-off per referral once their
+# deposits reach the minimum (0 = off).
+AFFILIATE_DEFAULT_REVSHARE = float(os.environ.get('AFFILIATE_DEFAULT_REVSHARE', '25'))
+AFFILIATE_DEFAULT_CPA = float(os.environ.get('AFFILIATE_DEFAULT_CPA', '0'))
+AFFILIATE_DEFAULT_CPA_MIN_DEPOSIT = float(os.environ.get('AFFILIATE_DEFAULT_CPA_MIN_DEPOSIT', '20'))
+# Approve applications / pay commissions without operator review.
+AFFILIATE_AUTO_APPROVE = os.environ.get('AFFILIATE_AUTO_APPROVE', 'false').lower() == 'true'
+AFFILIATE_AUTO_PAY = os.environ.get('AFFILIATE_AUTO_PAY', 'false').lower() == 'true'
 # In-play betting from api-football's /odds/live. Off by default. The feed is
 # polled every SPORTSBOOK_LIVE_ODDS_INTERVAL seconds while anything could be in
 # play (~10k requests/day at 8s); a match whose prices are older than
@@ -262,6 +273,15 @@ CELERY_BEAT_SCHEDULE = {
         # No-op (no API call) unless SPORTSBOOK_LIVE_BETTING is on and a match
         # could be in play.
         'schedule': SPORTSBOOK_LIVE_ODDS_INTERVAL,
+    },
+    'affiliates-run-commissions': {
+        'task': 'apps.affiliates.tasks.run_commissions',
+        # Every 6h (idempotent): closes last month's revenue share once, picks up new CPAs.
+        'schedule': 3600.0 * 6,
+    },
+    'affiliates-reconcile-payouts': {
+        'task': 'apps.affiliates.tasks.reconcile_commission_payouts',
+        'schedule': 900.0,
     },
     'sportsbook-sync-fixture-odds': {
         'task': 'apps.sportsbook.tasks.sync_fixture_odds',

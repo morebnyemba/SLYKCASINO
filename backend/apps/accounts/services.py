@@ -35,6 +35,11 @@ def get_player(player_id: int) -> Optional[Player]:
     return Player.objects.filter(pk=player_id).first()
 
 
+def usernames_for(player_ids: list[int]) -> dict[int, str]:
+    """Read-only bulk lookup of usernames by player id."""
+    return dict(Player.objects.filter(pk__in=player_ids).values_list('id', 'username'))
+
+
 def get_current_player(request) -> Optional[Player]:
     """Resolve the acting player from the authenticated request user."""
     user = getattr(request, 'user', None)

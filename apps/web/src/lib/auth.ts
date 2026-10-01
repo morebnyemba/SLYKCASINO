@@ -1,6 +1,7 @@
 'use client';
 
 import { config } from './config';
+import { clearReferral, getReferral } from './referral';
 
 export interface AuthTokens {
   access: string;
@@ -69,8 +70,10 @@ export async function apiRegister(
   const res = await fetch(`${config.apiUrl}/auth/register/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username, email, password, currency }),
+    // Attribute the signup to the affiliate link the visitor came through, if any.
+    body: JSON.stringify({ username, email, password, currency, ...(getReferral() ?? {}) }),
   });
+  if (res.ok) clearReferral();
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     const detail = (err as Record<string, unknown>).detail

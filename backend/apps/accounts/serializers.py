@@ -86,6 +86,16 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         return token
 
     def validate(self, attrs):
+        # The login form takes "username or email": resolve an email (or a
+        # differently-cased username) to the account's actual username.
+        from django.contrib.auth import get_user_model
+        User = get_user_model()
+        given = (attrs.get(self.username_field) or '').strip()
+        if given and not User.objects.filter(**{self.username_field: given}).exists():
+            lookup = {'email__iexact': given} if '@' in given else {f'{self.username_field}__iexact': given}
+            match = User.objects.filter(**lookup).values_list(self.username_field, flat=True)[:2]
+            if len(match) == 1:
+                attrs[self.username_field] = match[0]
         data = super().validate(attrs)
         player = getattr(self.user, 'player', None)
         if player is not None and player.is_suspended and not self.user.is_staff:

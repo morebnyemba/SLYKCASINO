@@ -119,6 +119,27 @@ def recompute_balance(player_id: int) -> Decimal:
     return utils.sum_entries(amounts)
 
 
+def totals_by_kind(
+    player_ids: list[int], *, start=None, end=None,
+) -> dict[int, dict[str, Decimal]]:
+    """Read-only: the signed sum of each player's ledger entries per kind over
+    [start, end) — e.g. for affiliate revenue reports. Players with no entries in
+    the window are absent from the result."""
+    from django.db.models import Sum
+
+    if not player_ids:
+        return {}
+    qs = LedgerEntry.objects.filter(wallet__player_id__in=player_ids)
+    if start is not None:
+        qs = qs.filter(created_at__gte=start)
+    if end is not None:
+        qs = qs.filter(created_at__lt=end)
+    totals: dict[int, dict[str, Decimal]] = {}
+    for row in qs.values('wallet__player_id', 'kind').annotate(total=Sum('amount')):
+        totals.setdefault(row['wallet__player_id'], {})[row['kind']] = row['total'] or Decimal('0')
+    return totals
+
+
 def list_entries(player_id: int, limit: int = 50) -> list[LedgerEntryDTO]:
     rows = LedgerEntry.objects.filter(wallet__player_id=player_id)[:limit]
     return [LedgerEntryDTO.model_validate(r) for r in rows]

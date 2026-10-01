@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { BsGrid1X2Fill } from 'react-icons/bs';
-import { FaRegCommentDots, FaGift, FaImages, FaUsers, FaCalendarAlt, FaSignOutAlt, FaChartLine, FaIdCard, FaExchangeAlt, FaHistory, FaPalette } from 'react-icons/fa';
+import { FaRegCommentDots, FaGift, FaImages, FaUsers, FaCalendarAlt, FaSignOutAlt, FaChartLine, FaIdCard, FaExchangeAlt, FaHistory, FaPalette, FaHandshake } from 'react-icons/fa';
 import { GiPerspectiveDiceSixFacesRandom } from 'react-icons/gi';
 import type { IconType } from 'react-icons';
 import { useAuth } from '@/lib/auth-context';
@@ -21,6 +21,7 @@ const nav: { href: string; label: string; icon: IconType }[] = [
   { href: '/branding', label: 'Branding', icon: FaPalette },
   { href: '/users', label: 'Players', icon: FaUsers },
   { href: '/kyc', label: 'KYC Review', icon: FaIdCard },
+  { href: '/affiliates', label: 'Affiliates', icon: FaHandshake },
   { href: '/transactions', label: 'Transactions', icon: FaExchangeAlt },
   { href: '/events', label: 'Events', icon: FaCalendarAlt },
   { href: '/audit-log', label: 'Audit Log', icon: FaHistory },
