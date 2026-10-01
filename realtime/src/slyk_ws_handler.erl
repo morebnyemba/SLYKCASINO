@@ -37,6 +37,11 @@ websocket_init(#{channel := Channel} = State) ->
     Welcome = iolist_to_binary([<<"connected:">>, Channel]),
     {[{text, Welcome}], State}.
 
+%% Odds channels are publish-only: prices come from Django via /publish, so a
+%% browser can't push fake prices to other viewers. Text it sends (e.g. a
+%% keepalive) is dropped.
+websocket_handle({text, _Msg}, #{channel := <<"odds", _/binary>>} = State) ->
+    {ok, State};
 %% Inbound message from this client -> broadcast to everyone on the channel.
 websocket_handle({text, Msg}, #{channel := Channel} = State) ->
     broadcast(Channel, Msg),

@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { BsChevronRight } from 'react-icons/bs';
 import type { IconType } from 'react-icons';
 import { OddsButton } from '@/components/odds-button';
+import { useLiveEvent } from '@/lib/live-board';
 import { SPORT_CATEGORIES } from '@/components/sports-sidebar';
 import {
   dayLabel, hasScore, homeMove, isLive, isMainOpen, isPriced, kickoffTime, marketShape, matchClock, teamNames, type EventItem, type Team,
@@ -81,8 +82,10 @@ export function MarketHeader({ title, icon: Icon, count }: { title: string; icon
   );
 }
 
-/** One compact market row: status, teams, and 1/X/2 price buttons. */
-export function EventRow({ ev }: { ev: EventItem }) {
+/** One compact market row: status, teams, and 1/X/2 price buttons — kept live
+ * (prices, score, clock, locks) from the shared board channel. */
+export function EventRow({ ev: snapshot }: { ev: EventItem }) {
+  const { ev, moves } = useLiveEvent(snapshot);
   const { home, away } = teamNames(ev);
   const shape = marketShape(ev);
   const priced = isPriced(ev);
@@ -121,9 +124,9 @@ export function EventRow({ ev }: { ev: EventItem }) {
         </div>
       </Link>
       <div className={ODDS_COLS}>
-        <OddsButton eventId={ev.id} eventName={ev.name} selection="home" odds={priced ? ev.odds : null} move={homeMove(ev)} disabled={closed} />
-        <OddsButton eventId={ev.id} eventName={ev.name} selection="draw" odds={priced && shape === '1x2' ? ev.odds_draw : null} disabled={closed} />
-        <OddsButton eventId={ev.id} eventName={ev.name} selection="away" odds={priced && shape !== 'single' ? ev.odds_away : null} disabled={closed} />
+        <OddsButton eventId={ev.id} eventName={ev.name} selection="home" odds={priced ? ev.odds : null} move={moves.home ?? homeMove(ev)} disabled={closed} />
+        <OddsButton eventId={ev.id} eventName={ev.name} selection="draw" odds={priced && shape === '1x2' ? ev.odds_draw : null} move={moves.draw} disabled={closed} />
+        <OddsButton eventId={ev.id} eventName={ev.name} selection="away" odds={priced && shape !== 'single' ? ev.odds_away : null} move={moves.away} disabled={closed} />
       </div>
       <Link
         href={href}
@@ -138,7 +141,8 @@ export function EventRow({ ev }: { ev: EventItem }) {
 }
 
 /** Card for the "Top matches" strip — teams stacked with the full 1X2 underneath. */
-export function FeaturedMatchCard({ ev }: { ev: EventItem }) {
+export function FeaturedMatchCard({ ev: snapshot }: { ev: EventItem }) {
+  const { ev, moves } = useLiveEvent(snapshot);
   const { home, away } = teamNames(ev);
   const shape = marketShape(ev);
   const priced = isPriced(ev);
@@ -173,9 +177,9 @@ export function FeaturedMatchCard({ ev }: { ev: EventItem }) {
         </div>
       </Link>
       <div className="mt-auto grid grid-cols-3 gap-1.5">
-        <OddsButton eventId={ev.id} eventName={ev.name} selection="home" odds={priced ? ev.odds : null} label="1" move={homeMove(ev)} disabled={closed} />
-        <OddsButton eventId={ev.id} eventName={ev.name} selection="draw" odds={priced && shape === '1x2' ? ev.odds_draw : null} label="X" disabled={closed} />
-        <OddsButton eventId={ev.id} eventName={ev.name} selection="away" odds={priced && shape !== 'single' ? ev.odds_away : null} label="2" disabled={closed} />
+        <OddsButton eventId={ev.id} eventName={ev.name} selection="home" odds={priced ? ev.odds : null} label="1" move={moves.home ?? homeMove(ev)} disabled={closed} />
+        <OddsButton eventId={ev.id} eventName={ev.name} selection="draw" odds={priced && shape === '1x2' ? ev.odds_draw : null} label="X" move={moves.draw} disabled={closed} />
+        <OddsButton eventId={ev.id} eventName={ev.name} selection="away" odds={priced && shape !== 'single' ? ev.odds_away : null} label="2" move={moves.away} disabled={closed} />
       </div>
       {!!ev.markets_count && (
         <Link

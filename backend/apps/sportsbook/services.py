@@ -1172,8 +1172,7 @@ def apply_live_odds(snapshot: LiveOddsSnapshot, *, now=None) -> Optional[Event]:
             event.live_odds_at, event.live_main_open = None, False
             fields += ['live_odds_at', 'live_main_open']
         if fields:
-            event.save(update_fields=sorted(set(fields)))
-            transaction.on_commit(lambda: publish_event_odds(event))
+            event.save(update_fields=sorted(set(fields)))  # post_save publishes the new state
         return event
 
     if snapshot.one_x_two is not None:
@@ -1186,7 +1185,8 @@ def apply_live_odds(snapshot: LiveOddsSnapshot, *, now=None) -> Optional[Event]:
     event.save(update_fields=sorted(set(fields)))
     # Everything the live feed doesn't offer right now is suspended.
     apply_feed_markets(event, snapshot.markets)
-    transaction.on_commit(lambda: (publish_event_odds(event), publish_event_markets(event)))
+    # Event post_save publishes prices/state; markets go out here.
+    transaction.on_commit(lambda: publish_event_markets(event))
     return event
 
 
@@ -1212,32 +1212,77 @@ def sync_live_odds(*, now=None) -> int:
     snapshots = ApiFootballClient().fetch_live_odds()
     for snapshot in snapshots:
         apply_live_odds(snapshot, now=now)
+    # Matches that dropped out of the feed (or a failed poll) stop trading now,
+    # and the save publishes the lock to every open board and slip.
+    priced = {s.external_id for s in snapshots}
+    for event in Event.objects.filter(
+        provider=ApiFootballClient.provider_name, live_odds_at__isnull=False,
+    ).exclude(external_id__in=priced):
+        event.live_odds_at, event.live_main_open = None, False
+        event.save(update_fields=['live_odds_at', 'live_main_open'])
     return len(snapshots)
 
 
 # -- realtime ----------------------------------------------------------------
 
+def current_prices(*, event_ids: list[int], outcome_ids: list[int]) -> dict:
+    """What a bet slip needs to stay current: each event's 1X2 and whether it
+    can be backed, and each outcome's price and whether it's open now."""
+    events = {
+        e.id: {
+            'odds': str(e.odds), 'odds_draw': str(e.odds_draw) if e.odds_draw is not None else None,
+            'odds_away': str(e.odds_away) if e.odds_away is not None else None,
+            **trading_state(e),
+        }
+        for e in Event.objects.filter(pk__in=event_ids)
+    }
+    outcomes = {}
+    for o in MarketOutcome.objects.filter(pk__in=outcome_ids).select_related('market', 'market__event'):
+        event = o.market.event
+        event_ok = in_play_bettable(event) if _started(event) else event.is_open
+        outcomes[o.id] = {
+            'odds': str(o.odds),
+            'open': bool(
+                event_ok and o.market.is_open and not o.market.settled
+                and o.is_open and o.result == MarketOutcome.Result.PENDING
+            ),
+        }
+    return {'events': events, 'outcomes': outcomes}
+
+
+BOARD_CHANNEL = 'odds:board'
+
+
+def board_frame(event: Event) -> dict:
+    """Compact state of one event for listings (one shared channel for every
+    row): prices, score/clock and what can be backed right now."""
+    def dec(v):
+        return str(v) if v is not None else None
+    return {
+        'event_id': event.id,
+        'odds': dec(event.odds), 'odds_draw': dec(event.odds_draw), 'odds_away': dec(event.odds_away),
+        'previous_odds': dec(event.previous_odds), 'has_odds': event.has_odds,
+        'status': event.status, 'elapsed': event.elapsed,
+        'score_home': event.score_home, 'score_away': event.score_away,
+        **trading_state(event),
+    }
+
+
 def publish_event_odds(event: Event) -> None:
-    """Push an event's current prices to its realtime channel so open bet slips
-    update live. Best-effort: the publisher is a no-op unless realtime is
-    enabled, and never raises into the caller."""
+    """Push an event's current prices and state to its own channel (event page)
+    and the shared board channel (listings, bet slips). Best-effort: the
+    publisher is a no-op unless realtime is enabled, and never raises into the
+    caller."""
     import json
 
     from apps.livechat.clients import RealtimePublisherClient
 
-    snapshot = json.dumps({
-        'event_id': event.id,
-        'name': event.name,
-        'odds': str(event.odds),
-        'odds_draw': str(event.odds_draw) if event.odds_draw is not None else None,
-        'odds_away': str(event.odds_away) if event.odds_away is not None else None,
-        **trading_state(event),
-        'score_home': event.score_home, 'score_away': event.score_away,
-        'elapsed': event.elapsed, 'status': event.status,
-    })
+    frame = board_frame(event)
+    snapshot = json.dumps({**frame, 'name': event.name})
     client = RealtimePublisherClient()
     try:
         client.publish(f'odds:{event.id}', snapshot)
+        client.publish(BOARD_CHANNEL, json.dumps({'type': 'event', **frame}))
         # Also feed the global live-odds ticker with a compact human line.
         client.publish('odds', f'{event.name}: {event.odds}')
     except Exception:  # noqa: BLE001 — realtime must never break a save

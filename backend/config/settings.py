@@ -229,12 +229,12 @@ AFFILIATE_DEFAULT_CPA_MIN_DEPOSIT = float(os.environ.get('AFFILIATE_DEFAULT_CPA_
 # Approve applications / pay commissions without operator review.
 AFFILIATE_AUTO_APPROVE = os.environ.get('AFFILIATE_AUTO_APPROVE', 'false').lower() == 'true'
 AFFILIATE_AUTO_PAY = os.environ.get('AFFILIATE_AUTO_PAY', 'false').lower() == 'true'
-# In-play betting from api-football's /odds/live. Off by default. The feed is
-# polled every SPORTSBOOK_LIVE_ODDS_INTERVAL seconds while anything could be in
+# In-play betting from api-football's /odds/live (on by default; set
+# SPORTSBOOK_LIVE_BETTING=false to disable). The feed is polled every SPORTSBOOK_LIVE_ODDS_INTERVAL seconds while anything could be in
 # play (~10k requests/day at 8s); a match whose prices are older than
 # SPORTSBOOK_LIVE_ODDS_STALE seconds is suspended; in-play bets are confirmed
 # after SPORTSBOOK_LIVE_BET_DELAY seconds, re-checking price, suspension and score.
-SPORTSBOOK_LIVE_BETTING = os.environ.get('SPORTSBOOK_LIVE_BETTING', 'false').lower() == 'true'
+SPORTSBOOK_LIVE_BETTING = os.environ.get('SPORTSBOOK_LIVE_BETTING', 'true').lower() == 'true'
 SPORTSBOOK_LIVE_ODDS_INTERVAL = float(os.environ.get('SPORTSBOOK_LIVE_ODDS_INTERVAL', '8'))
 SPORTSBOOK_LIVE_ODDS_STALE = int(os.environ.get('SPORTSBOOK_LIVE_ODDS_STALE', '30'))
 SPORTSBOOK_LIVE_BET_DELAY = int(os.environ.get('SPORTSBOOK_LIVE_BET_DELAY', '6'))

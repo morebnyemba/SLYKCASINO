@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect } from 'react';
-import { BsXLg, BsReceipt, BsTrash3 } from 'react-icons/bs';
+import { BsLockFill, BsXLg, BsReceipt, BsTrash3 } from 'react-icons/bs';
 import { useAuth } from '@/lib/auth-context';
 import { useBetslip, keyOf, type BetLeg, type Selection } from '@/lib/betslip-context';
 import { formatOdds, useSettings } from '@/lib/settings-context';
@@ -35,7 +35,7 @@ export function SlipBody({ onClose, variant = 'card' }: {
   const {
     legs, mode, setMode, accaStake, setAccaStake, legStakes, setLegStake,
     combinedOdds, potentialPayout, status, busy,
-    removeLeg, clear, place, conflictingEvents,
+    removeLeg, clear, place, conflictingEvents, hasPriceChanges, hasSuspended, acceptPriceChanges,
   } = useBetslip();
 
   const hasLegs = legs.length > 0;
@@ -141,7 +141,23 @@ export function SlipBody({ onClose, variant = 'card' }: {
                         <p className="mt-1 text-[11px] font-semibold text-gold">Same match as another pick — place as Singles</p>
                       )}
                     </div>
-                    <span className="rounded-md bg-odds px-2 py-1 text-sm font-extrabold tabular-nums">{fmt(l.odds)}</span>
+                    {l.suspended ? (
+                      <span className="flex items-center gap-1 rounded-md bg-muted px-2 py-1 text-[11px] font-extrabold uppercase text-muted-foreground">
+                        <BsLockFill size={9} /> Suspended
+                      </span>
+                    ) : (
+                      <span className="flex flex-col items-end">
+                        {l.changedFrom != null && (
+                          <span className="text-[10.5px] font-semibold tabular-nums text-muted-foreground line-through">{fmt(l.changedFrom)}</span>
+                        )}
+                        <span className={`rounded-md px-2 py-1 text-sm font-extrabold tabular-nums ${
+                          l.changedFrom == null ? 'bg-odds'
+                            : l.odds > l.changedFrom ? 'bg-win/15 text-win' : 'bg-destructive/10 text-destructive'
+                        }`}>
+                          {l.changedFrom != null && (l.odds > l.changedFrom ? '▲ ' : '▼ ')}{fmt(l.odds)}
+                        </span>
+                      </span>
+                    )}
                     <button
                       onClick={() => removeLeg(key)}
                       aria-label="Remove selection"
@@ -224,13 +240,29 @@ export function SlipBody({ onClose, variant = 'card' }: {
             </dl>
 
             {user ? (
-              <button
-                onClick={place}
-                disabled={busy}
-                className="w-full rounded-xl bg-win px-4 py-3 text-sm font-extrabold text-win-foreground shadow-lg transition-opacity hover:opacity-90 disabled:opacity-50"
-              >
-                {busy ? 'Placing…' : placeLabel}
-              </button>
+              hasSuspended ? (
+                <button
+                  disabled
+                  className="w-full rounded-xl bg-muted px-4 py-3 text-sm font-extrabold text-muted-foreground"
+                >
+                  Remove suspended selections
+                </button>
+              ) : hasPriceChanges ? (
+                <button
+                  onClick={acceptPriceChanges}
+                  className="w-full rounded-xl bg-gold px-4 py-3 text-sm font-extrabold text-gold-foreground shadow-lg transition-opacity hover:opacity-90"
+                >
+                  Accept odds changes
+                </button>
+              ) : (
+                <button
+                  onClick={place}
+                  disabled={busy}
+                  className="w-full rounded-xl bg-win px-4 py-3 text-sm font-extrabold text-win-foreground shadow-lg transition-opacity hover:opacity-90 disabled:opacity-50"
+                >
+                  {busy ? 'Placing…' : placeLabel}
+                </button>
+              )
             ) : (
               <Link
                 href="/login"

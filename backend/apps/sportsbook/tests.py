@@ -4,7 +4,7 @@ from __future__ import annotations
 from decimal import Decimal
 from unittest.mock import patch
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from rest_framework import status
 from rest_framework.test import APIClient
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -257,10 +257,17 @@ class ApiFootballSyncTests(TestCase):
         self.assertEqual(client.api_key, 'admin-key')
         self.assertEqual(client.base_url, 'https://example.test')
 
+    @override_settings(SPORTSBOOK_LIVE_BETTING=False)
     def test_sync_fixture_locks_betting_when_live(self):
         sportsbook_services.sync_fixture(self._fixture('1H'))
         self.event.refresh_from_db()
         self.assertFalse(self.event.is_open)
+
+    def test_in_play_match_is_not_bettable_until_the_live_feed_prices_it(self):
+        # Live betting on (default): the match stays open but only trades on live prices.
+        sportsbook_services.sync_fixture(self._fixture('1H'))
+        self.event.refresh_from_db()
+        self.assertFalse(sportsbook_services.trading_state(self.event)['bettable'])
 
     def test_sync_fixture_settles_linked_bets_on_finish(self):
         bet = sportsbook_services.place_bet(

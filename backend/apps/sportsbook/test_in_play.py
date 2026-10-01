@@ -151,6 +151,39 @@ class LiveFeedTests(InPlayBase):
             self.assertEqual(sb.sync_live_odds(), 1)
         fetch.assert_called_once()
 
+    def test_matches_dropped_from_the_feed_are_suspended(self):
+        self.feed()
+        with patch.object(ApiFootballClient, 'fetch_live_odds', return_value=[]):
+            sb.sync_live_odds()
+        self.event.refresh_from_db()
+        self.assertIsNone(self.event.live_odds_at)
+        self.assertFalse(sb.trading_state(self.event)['bettable'])
+
+    def test_every_change_is_published_to_the_board(self):
+        import json
+        sent = []
+        with patch('apps.livechat.clients.RealtimePublisherClient.publish',
+                   side_effect=lambda channel, body: sent.append((channel, body))), \
+                self.captureOnCommitCallbacks(execute=True):
+            self.feed(goals=(1, 0))
+        frames = [json.loads(body) for channel, body in sent if channel == sb.BOARD_CHANNEL]
+        self.assertTrue(frames)
+        last = frames[-1]
+        self.assertEqual((last['event_id'], last['odds'], last['score_home']), (self.event.id, '1.50', 1))
+        self.assertEqual((last['in_play'], last['main_open']), (True, True))
+
+    def test_prices_endpoint(self):
+        from rest_framework.test import APIClient
+        self.feed()
+        over = self.over_2_5()
+        data = APIClient().get(
+            f'/api/events/prices/?events={self.event.id}&outcomes={over.id},{self.pre_match_only.id}',
+        ).json()
+        self.assertEqual(data['events'][str(self.event.id)]['odds'], '1.50')
+        self.assertTrue(data['events'][str(self.event.id)]['main_open'])
+        self.assertEqual(data['outcomes'][str(over.id)], {'odds': '1.80', 'open': True})
+        self.assertFalse(data['outcomes'][str(self.pre_match_only.id)]['open'])
+
     def test_lagging_fixture_poll_does_not_roll_back_the_live_score(self):
         self.feed(goals=(1, 0))
         self.event.refresh_from_db()
@@ -271,8 +304,9 @@ class InPlayPlacementTests(InPlayBase):
         self.assertEqual((data['in_play'], data['bettable'], data['main_open']), (True, True, True))
 
 
+@override_settings(SPORTSBOOK_LIVE_BETTING=False)
 class LiveBettingOffTests(InPlayBase):
-    def test_disabled_by_default(self):
+    def test_disabled_by_setting(self):
         sb.apply_live_odds(_snapshot(), now=timezone.now())
         with self.assertRaises(sb.SelectionUnavailable):
             sb.place_bet(event='Arsenal', stake=D('5'), odds=D('1.50'), player_id=self.player.id,

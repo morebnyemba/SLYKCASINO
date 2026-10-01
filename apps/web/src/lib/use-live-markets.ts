@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { config } from '@/lib/config';
+import { subscribeChannel } from '@/lib/live-board';
 import type { Market } from '@/lib/sports';
 
 interface MarketsFrame {
@@ -19,43 +19,25 @@ export function useLiveMarkets(eventId: string | number, initial: Market[]): Mar
 
   useEffect(() => { setMarkets(initial); }, [initial]);
 
-  useEffect(() => {
-    let closed = false;
-    let socket: WebSocket | undefined;
-    try {
-      socket = new WebSocket(`${config.wsUrl}/odds:${eventId}`);
-      socket.onmessage = (ev) => {
-        if (closed) return;
-        let frame: MarketsFrame;
-        try {
-          frame = JSON.parse(String(ev.data));
-        } catch {
-          return; // non-JSON control frames
-        }
-        if (!frame || frame.type !== 'markets' || !Array.isArray(frame.markets)) return;
-        const byId = new Map(frame.markets.map((m) => [m.id, m]));
-        setMarkets((prev) => prev.map((m) => {
-          const upd = byId.get(m.id);
-          if (!upd) return m;
-          const outcomes = new Map(upd.outcomes.map((o) => [o.id, o]));
-          return {
-            ...m,
-            is_open: upd.is_open,
-            outcomes: m.outcomes.map((o) => {
-              const u = outcomes.get(o.id);
-              return u ? { ...o, previous_odds: o.odds, odds: u.odds, is_open: u.is_open } : o;
-            }),
-          };
-        }));
+  useEffect(() => subscribeChannel(`odds:${eventId}`, (raw) => {
+    let frame: MarketsFrame;
+    try { frame = JSON.parse(raw); } catch { return; } // non-JSON control frames
+    if (!frame || frame.type !== 'markets' || !Array.isArray(frame.markets)) return;
+    const byId = new Map(frame.markets.map((m) => [m.id, m]));
+    setMarkets((prev) => prev.map((m) => {
+      const upd = byId.get(m.id);
+      if (!upd) return m;
+      const outcomes = new Map(upd.outcomes.map((o) => [o.id, o]));
+      return {
+        ...m,
+        is_open: upd.is_open,
+        outcomes: m.outcomes.map((o) => {
+          const u = outcomes.get(o.id);
+          return u ? { ...o, previous_odds: o.odds, odds: u.odds, is_open: u.is_open } : o;
+        }),
       };
-    } catch {
-      /* realtime unavailable — keep the snapshot */
-    }
-    return () => {
-      closed = true;
-      try { socket?.close(); } catch {}
-    };
-  }, [eventId]);
+    }));
+  }), [eventId]);
 
   return markets;
 }
