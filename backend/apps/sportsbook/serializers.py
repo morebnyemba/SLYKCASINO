@@ -3,13 +3,19 @@ from __future__ import annotations
 
 from rest_framework import serializers
 
-from .models import Bet, BetLeg, BetSlip, Event, Market, MarketOutcome, Team
+from .models import Bet, BetLeg, BetSlip, Event, LeagueSetting, Market, MarketOutcome, Team
 
 
 class TeamSerializer(serializers.ModelSerializer):
     class Meta:
         model = Team
         fields = ['id', 'name', 'logo_url']
+
+
+class LeagueSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = LeagueSetting
+        fields = ['id', 'name', 'country', 'logo_url', 'flag_url', 'sort_order']
 
 
 class MarketOutcomeSerializer(serializers.ModelSerializer):
@@ -32,6 +38,7 @@ class MarketSerializer(serializers.ModelSerializer):
 class EventSerializer(serializers.ModelSerializer):
     home_team = TeamSerializer(read_only=True)
     away_team = TeamSerializer(read_only=True)
+    league = LeagueSerializer(read_only=True)
     # Open secondary markets, for the "+N" link in listings (annotated in the view).
     markets_count = serializers.IntegerField(read_only=True, default=0)
     # Trading state (see services.trading_state): whether the match is trading in
@@ -60,7 +67,7 @@ class EventSerializer(serializers.ModelSerializer):
         model = Event
         fields = [
             'id', 'name', 'sport', 'odds', 'odds_draw', 'odds_away', 'previous_odds', 'has_odds',
-            'featured', 'is_open', 'starts_at', 'home_team', 'away_team',
+            'featured', 'is_open', 'starts_at', 'home_team', 'away_team', 'league',
             'status', 'elapsed', 'score_home', 'score_away', 'ht_score_home', 'ht_score_away',
             'markets_count', 'in_play', 'bettable', 'main_open',
         ]

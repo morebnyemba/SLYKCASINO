@@ -18,7 +18,7 @@ from apps.wallet import services as wallet_services
 
 from . import helpers, utils
 from .clients import (
-    ApiFootballClient, FeedMarketData, FixtureUpdate, LiveOddsSnapshot, OddsSnapshot, TeamInfo,
+    ApiFootballClient, FeedMarketData, FixtureLeague, FixtureUpdate, LiveOddsSnapshot, OddsSnapshot, TeamInfo,
 )
 from .dtos import BetDTO
 from .models import (
@@ -862,6 +862,35 @@ def _upsert_team(info: Optional[TeamInfo]) -> Optional[Team]:
     return team
 
 
+def _upsert_league(info: Optional[FixtureLeague]) -> Optional[LeagueSetting]:
+    """The LeagueSetting row for a fixture's competition, created on first
+    sight (enabled, featured leagues ordered first) and kept up to date with
+    the provider's name, country, logo and flag."""
+    from .models.league import featured_sort_order
+
+    if info is None:
+        return None
+    league, created = LeagueSetting.objects.get_or_create(
+        provider=ApiFootballClient.provider_name, league_id=info.external_id,
+        defaults={
+            'name': info.name, 'country': info.country, 'logo_url': info.logo_url,
+            'flag_url': info.flag_url, 'sort_order': featured_sort_order(info.external_id),
+        },
+    )
+    if not created:
+        changed = [
+            field for field, value in (
+                ('name', info.name), ('country', info.country),
+                ('logo_url', info.logo_url), ('flag_url', info.flag_url),
+            ) if value and getattr(league, field) != value
+        ]
+        for field in changed:
+            setattr(league, field, getattr(info, field))
+        if changed:
+            league.save(update_fields=changed)
+    return league
+
+
 @transaction.atomic
 def sync_fixture(fixture: FixtureUpdate) -> Optional[Event]:
     """Apply one api-football fixture update to its linked Event: upsert the
@@ -887,6 +916,10 @@ def sync_fixture(fixture: FixtureUpdate) -> Optional[Event]:
     if away_team is not None and event.away_team_id != away_team.id:
         event.away_team = away_team
         update_fields.append('away_team')
+    league = _upsert_league(fixture.league)
+    if league is not None and event.league_id != league.id:
+        event.league = league
+        update_fields.append('league')
     # Pre-match betting ends at kick-off; with live betting on, a match stays open
     # through the periods we trade in play (in_play_bettable gates the rest).
     trading_live = live_betting_enabled() and fixture.status in IN_PLAY_STATUSES
@@ -1008,7 +1041,11 @@ def _create_event_from_fixture(fixture: FixtureUpdate) -> Optional[Event]:
     existing = Event.objects.filter(
         external_id=fixture.external_id, provider=ApiFootballClient.provider_name,
     ).first()
+    league = _upsert_league(fixture.league)
     if existing is not None:
+        # Backfill the league on matches imported before leagues were stored.
+        if league is not None and existing.league_id != league.id:
+            Event.objects.filter(pk=existing.pk).update(league=league)
         return None
     home_team = _upsert_team(fixture.home_team)
     away_team = _upsert_team(fixture.away_team)
@@ -1021,6 +1058,7 @@ def _create_event_from_fixture(fixture: FixtureUpdate) -> Optional[Event]:
                 provider=ApiFootballClient.provider_name,
                 home_team=home_team,
                 away_team=away_team,
+                league=league,
                 starts_at=fixture.starts_at,
                 is_open=not fixture.is_live,
                 # No real prices until the odds sync reaches this fixture.
@@ -1063,9 +1101,10 @@ def import_all_current_leagues(*, next_count: Optional[int] = None) -> int:
     leagues = client.fetch_leagues()
     total = 0
     for league in leagues:
+        from .models.league import featured_sort_order
         setting, _ = LeagueSetting.objects.get_or_create(
             provider=ApiFootballClient.provider_name, league_id=league.id,
-            defaults={'name': league.name},
+            defaults={'name': league.name, 'sort_order': featured_sort_order(league.id)},
         )
         if setting.name != league.name and league.name:
             setting.name = league.name

@@ -70,6 +70,17 @@ class TeamInfo:
 
 
 @dataclass(frozen=True)
+class FixtureLeague:
+    """The competition a fixture belongs to (from the fixture payload)."""
+
+    external_id: int
+    name: str
+    country: str = ''
+    logo_url: str = ''
+    flag_url: str = ''
+
+
+@dataclass(frozen=True)
 class FixtureUpdate:
     """A normalized api-football fixture, used to sync/settle a linked Event."""
 
@@ -89,6 +100,7 @@ class FixtureUpdate:
     # Post-match facts (corners, cards, goal events, participants) when the
     # payload carried them — see normalize_facts. Same shape as Event.match_facts.
     facts: Optional[dict] = None
+    league: Optional[FixtureLeague] = None
 
     @property
     def is_finished(self) -> bool:
@@ -425,6 +437,20 @@ class ApiFootballClient:
             ft_away=fulltime.get('away'),
             elapsed=status.get('elapsed'),
             facts=normalize_facts(raw),
+            league=self._normalize_fixture_league(raw.get('league')),
+        )
+
+    def _normalize_fixture_league(self, raw: Optional[dict[str, Any]]) -> Optional[FixtureLeague]:
+        if not raw or raw.get('id') is None:
+            return None
+        try:
+            league_id = int(raw['id'])
+        except (TypeError, ValueError):
+            return None
+        return FixtureLeague(
+            external_id=league_id, name=str(raw.get('name') or ''),
+            country=str(raw.get('country') or ''), logo_url=str(raw.get('logo') or ''),
+            flag_url=str(raw.get('flag') or ''),
         )
 
     def _normalize_team(self, raw: Optional[dict[str, Any]]) -> Optional[TeamInfo]:

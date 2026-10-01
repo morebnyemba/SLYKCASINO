@@ -26,10 +26,11 @@ class LeagueSettingAdmin(admin.ModelAdmin):
     # them; toggle `enabled` off (list_editable, no need to open the row) for
     # any league you don't want synced — saves the API call too, not just
     # hides it from the sportsbook.
-    list_display = ('name', 'league_id', 'provider', 'enabled')
-    list_editable = ('enabled',)
-    list_filter = ('provider', 'enabled')
-    search_fields = ('name', 'league_id')
+    # `sort_order` sets where the league appears in the sportsbook (lower = higher).
+    list_display = ('name', 'country', 'league_id', 'provider', 'enabled', 'sort_order')
+    list_editable = ('enabled', 'sort_order')
+    list_filter = ('provider', 'enabled', 'country')
+    search_fields = ('name', 'country', 'league_id')
 
 
 @admin.register(Team)
