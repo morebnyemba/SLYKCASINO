@@ -1,4 +1,4 @@
-"""Custom middleware for SLYK Casino backend."""
+"""Custom middleware for BetBlits backend."""
 
 BLOCKED_COUNTRIES = {'US', 'FR', 'AU', 'SG', 'HK'}  # example blocked jurisdictions
 

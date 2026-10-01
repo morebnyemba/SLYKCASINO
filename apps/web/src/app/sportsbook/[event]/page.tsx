@@ -21,7 +21,7 @@ async function fetchEvent(id: string): Promise<EventItem | null> {
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { event } = await params;
   const ev = await fetchEvent(event);
-  return { title: `${ev?.name ?? `Event ${event}`} — SLÝKBETS` };
+  return { title: `${ev?.name ?? `Event ${event}`} — BetBlits` };
 }
 
 export default async function EventPage({ params }: PageProps) {

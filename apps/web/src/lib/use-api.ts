@@ -9,8 +9,9 @@ import { apiRefresh, getStoredTokens, storeTokens } from './auth';
  * Fetches `path` with the player's token. Pass `{ public: true }` for endpoints that
  * also work logged out (e.g. the game catalogue) so they load for visitors too.
  */
-export function useApi<T>(path: string | null, opts: { public?: boolean } = {}) {
+export function useApi<T>(path: string | null, opts: { public?: boolean; allPages?: boolean } = {}) {
   const isPublic = !!opts.public;
+  const allPages = !!opts.allPages;
   const { accessToken, logout } = useAuth();
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -48,13 +49,29 @@ export function useApi<T>(path: string | null, opts: { public?: boolean } = {}) 
       }
 
       if (!res.ok) throw new Error(`API ${res.status}`);
-      setData((await res.json()) as T);
+      const first = (await res.json()) as T & { next?: string | null; results?: unknown[] };
+      if (allPages && Array.isArray(first.results)) {
+        // Paginated list: keep requesting ?page=N until the API says there is no next page.
+        const results = [...first.results];
+        const headers = { Authorization: `Bearer ${getStoredTokens()?.access ?? token ?? ''}` };
+        let next = first.next;
+        for (let page = 2; next && page <= 200; page++) {
+          const more = await fetch(`${config.apiUrl}${p}${p.includes('?') ? '&' : '?'}page=${page}`, { headers, cache: 'no-store' });
+          if (!more.ok) throw new Error(`API ${more.status}`);
+          const body = (await more.json()) as { next?: string | null; results?: unknown[] };
+          results.push(...(body.results ?? []));
+          next = body.next;
+        }
+        setData({ ...first, next: null, results } as T);
+      } else {
+        setData(first);
+      }
     } catch (e) {
       setError(String(e));
     } finally {
       setLoading(false);
     }
-  }, [logout]);
+  }, [logout, allPages]);
 
   useEffect(() => {
     if (path && (accessToken || isPublic)) {

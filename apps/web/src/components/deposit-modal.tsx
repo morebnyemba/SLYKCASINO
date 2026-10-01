@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { BsChevronLeft, BsShieldLockFill, BsXLg } from 'react-icons/bs';
-import { GiPerspectiveDiceSixFacesRandom } from 'react-icons/gi';
+import { BoltIcon } from '@/components/logo';
 import { useAuth } from '@/lib/auth-context';
 import { useApi, authedPost } from '@/lib/use-api';
 
@@ -366,8 +366,8 @@ export function DepositModal({ open, onClose }: { open: boolean; onClose: () => 
         >
           <div className="flex items-center gap-3 bg-gradient-to-r from-primary to-secondary px-5.5 py-5">
             <span className="flex items-center rounded-md bg-gradient-to-br from-gold to-gold/70 px-1.5 py-1 text-xs font-extrabold text-gold-foreground">
-              <GiPerspectiveDiceSixFacesRandom size={12} className="mr-0.5" />
-              SLÝK
+              <BoltIcon size={12} className="mr-0.5" />
+              BetBlits
             </span>
             <div className="flex flex-col leading-tight">
               <span className="text-base font-extrabold text-white">Deposit funds</span>

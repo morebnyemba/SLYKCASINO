@@ -14,7 +14,7 @@ interface RecentWin {
 
 // Shown only until the casino win feed has real rounds to report.
 const FALLBACK_WINS: RecentWin[] = [
-  { id: -1, game_name: 'SLÝKBETS Aviator', stake: '5.00', win: '24.80', created_at: '' },
+  { id: -1, game_name: 'BetBlits Aviator', stake: '5.00', win: '24.80', created_at: '' },
   { id: -2, game_name: 'Golden Wheel', stake: '2.00', win: '7.40', created_at: '' },
   { id: -3, game_name: 'Lucky Slots', stake: '10.00', win: '18.60', created_at: '' },
   { id: -4, game_name: 'Blackjack Classic', stake: '15.00', win: '30.00', created_at: '' },

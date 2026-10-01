@@ -14,6 +14,7 @@ import { SPORT_CATEGORIES } from '@/components/sports-sidebar';
 import { ThemeToggle, SettingsMenu } from '@/components/settings-menu';
 import { useShell } from '@/lib/shell-context';
 import { Logo, LogoMark } from '@/components/logo';
+import { isAuthRoute } from '@/lib/auth-routes';
 
 interface NavItem {
   href: string;
@@ -215,6 +216,8 @@ function SidebarContent({ variant }: { variant: 'rail' | 'drawer' }) {
 /** Desktop left navigation rail (collapsible to icons). */
 export function AppSidebar() {
   const { collapsed } = useShell();
+  const pathname = usePathname();
+  if (isAuthRoute(pathname)) return null;
   return (
     <aside
       className={`sticky top-0 hidden h-screen shrink-0 border-r border-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 lg:block ${

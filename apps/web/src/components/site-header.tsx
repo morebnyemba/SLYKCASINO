@@ -10,6 +10,7 @@ import {
 import { BsReceipt, BsSearch, BsTicketPerforated } from 'react-icons/bs';
 import type { IconType } from 'react-icons';
 import { useAuth } from '@/lib/auth-context';
+import { isAuthRoute } from '@/lib/auth-routes';
 import { useApi } from '@/lib/use-api';
 import { useShell } from '@/lib/shell-context';
 import { Logo } from '@/components/logo';
@@ -250,6 +251,8 @@ export function SiteHeader() {
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
 
+  const onAuthPage = isAuthRoute(usePathname());
+
   async function handleLogout() {
     await logout();
     router.push('/login');
@@ -267,8 +270,9 @@ export function SiteHeader() {
         }`}
       >
         <div className="flex h-16 items-center gap-2 px-3 sm:gap-3 sm:px-4 lg:px-5">
-          {/* The desktop rail carries the logo; smaller screens show it here. */}
-          <div className="lg:hidden">
+          {/* The desktop rail carries the logo; smaller screens (and the rail-less
+              sign-in pages) show it here. */}
+          <div className={onAuthPage ? '' : 'lg:hidden'}>
             <Logo markOnly={!!user} nameClassName="max-[399px]:hidden" />
           </div>
 

@@ -37,7 +37,7 @@ export default function SettingsPage() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'my-slyk-data.json';
+      a.download = 'my-betblits-data.json';
       document.body.appendChild(a);
       a.click();
       a.remove();

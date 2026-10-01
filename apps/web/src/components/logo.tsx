@@ -1,7 +1,6 @@
 'use client';
 
 import Link from 'next/link';
-import { GiPerspectiveDiceSixFacesRandom } from 'react-icons/gi';
 import { useSiteIdentity } from '@/lib/identity-context';
 
 /** Brand mark + name. `markOnly` shows just the square mark (collapsed rail, tight mobile header). */
@@ -31,7 +30,16 @@ export function Logo({ markOnly = false, className = '', nameClassName = '' }: {
 export function LogoMark({ className = '' }: { className?: string }) {
   return (
     <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-secondary to-primary text-white shadow-[0_4px_14px_color-mix(in_srgb,var(--secondary)_40%,transparent)] ring-1 ring-white/10 ${className}`}>
-      <GiPerspectiveDiceSixFacesRandom size={19} />
+      <BoltIcon size={20} className="text-gold drop-shadow-[0_1px_2px_rgba(0,0,0,0.35)]" />
     </span>
+  );
+}
+
+/** The BetBlits lightning bolt (same shape as the app icons in /public/icons). */
+export function BoltIcon({ size = 16, className = '' }: { size?: number; className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} aria-hidden className={className} fill="currentColor">
+      <path d="M13.6 1.8 4.4 13.4h6.1l-1.3 8.8 10.4-12.6h-6.3l.3-7.8z" />
+    </svg>
   );
 }
