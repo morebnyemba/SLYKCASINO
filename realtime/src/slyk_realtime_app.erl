@@ -1,9 +1,11 @@
 %%%-------------------------------------------------------------------
 %%% @doc SLYK realtime engine — application entry point.
 %%% Starts a Cowboy listener on :8080 and routes:
-%%%   /ws/[...]   -> slyk_ws_handler  (WebSocket: chat + betting feeds)
-%%%   /health     -> slyk_health_handler
-%%% Nginx proxies /ws/ here with the Upgrade/Connection headers.
+%%%   /ws/[...]       -> slyk_ws_handler       (WebSocket: chat + betting feeds)
+%%%   /publish/[...]  -> slyk_publish_handler  (internal HTTP ingest from Django)
+%%%   /health         -> slyk_health_handler
+%%% Nginx proxies /ws/ here with the Upgrade/Connection headers; /publish is
+%%% left unproxied so it stays internal to the compose network.
 %%%-------------------------------------------------------------------
 -module(slyk_realtime_app).
 -behaviour(application).
@@ -17,6 +19,8 @@ start(_StartType, _StartArgs) ->
     Dispatch = cowboy_router:compile([
         {'_', [
             {"/health", slyk_health_handler, []},
+            %% Internal-only: Django POSTs odds/feed updates here to fan out.
+            {"/publish/[...]", slyk_publish_handler, []},
             %% Everything under /ws/ (e.g. /ws/odds, /ws/chat:lobby) upgrades to WS.
             {"/ws/[...]", slyk_ws_handler, []}
         ]}

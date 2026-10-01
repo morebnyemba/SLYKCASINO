@@ -20,6 +20,14 @@ def payout_idempotency_key(bet_id: int) -> str:
     return make_key('wallet:bet', bet_id, 'payout')
 
 
+def slip_stake_idempotency_key(slip_id: int) -> str:
+    return make_key('wallet:slip', slip_id, 'stake')
+
+
+def slip_payout_idempotency_key(slip_id: int) -> str:
+    return make_key('wallet:slip', slip_id, 'payout')
+
+
 def validate_bet_request_structure(payload: dict[str, Any]) -> list[str]:
     """Pure structural validation of a bet request (no DB)."""
     errors: list[str] = []

@@ -2,15 +2,17 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from unittest.mock import patch
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from rest_framework import status
 from rest_framework.test import APIClient
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from apps.accounts import services as account_services
+from apps.livechat.clients import RealtimePublisherClient
 from apps.sportsbook import services as sportsbook_services
-from apps.sportsbook.models import Bet, Event
+from apps.sportsbook.models import Bet, BetSlip, Event
 from apps.wallet import services as wallet_services
 
 
@@ -93,3 +95,393 @@ class BetPlacementTests(TestCase):
         )
         settled = sportsbook_services.settle_bet(bet.id, 'won')
         self.assertEqual(settled.status, Bet.Status.WON)
+
+
+class SettleEventTests(TestCase):
+    def setUp(self):
+        self.player = _make_player(username='settler', email='settle@example.com')
+        self.event = _make_event('Man Utd vs Arsenal')
+
+    def _bet(self, selection, stake='50.00', odds='2.00'):
+        return sportsbook_services.place_bet(
+            event=f'Man Utd vs Arsenal — {selection}', stake=Decimal(stake), odds=Decimal(odds),
+            player_id=self.player.id, event_id=self.event.id, selection=selection,
+        )
+
+    def test_settle_event_pays_matching_selection_only(self):
+        home = self._bet('home')
+        draw = self._bet('draw')
+        away = self._bet('away')
+        before = wallet_services.get_balance(self.player.id)
+
+        count = sportsbook_services.settle_event(self.event.id, 'draw')
+
+        self.assertEqual(count, 3)
+        home.refresh_from_db(); draw.refresh_from_db(); away.refresh_from_db()
+        self.assertEqual(draw.status, Bet.Status.WON)
+        self.assertEqual(home.status, Bet.Status.LOST)
+        self.assertEqual(away.status, Bet.Status.LOST)
+        after = wallet_services.get_balance(self.player.id)
+        # Only the 50.00 @ 2.00 draw bet pays out 100.00.
+        self.assertEqual(after - before, Decimal('100.00'))
+
+    def test_settle_event_void_refunds_all(self):
+        self._bet('home'); self._bet('away')
+        before = wallet_services.get_balance(self.player.id)
+        sportsbook_services.settle_event(self.event.id, 'void')
+        after = wallet_services.get_balance(self.player.id)
+        # Two 50.00 stakes refunded.
+        self.assertEqual(after - before, Decimal('100.00'))
+
+    def test_settle_event_ignores_unlinked_bets(self):
+        # A free-text bet with no event link must not be touched.
+        sportsbook_services.place_bet(
+            event='Some Other Match', stake=Decimal('20.00'), odds=Decimal('1.50'),
+            player_id=self.player.id,
+        )
+        count = sportsbook_services.settle_event(self.event.id, 'home')
+        self.assertEqual(count, 0)
+
+    def test_settle_event_rejects_bad_result(self):
+        with self.assertRaises(ValueError):
+            sportsbook_services.settle_event(self.event.id, 'nonsense')
+
+
+class AccumulatorTests(TestCase):
+    def setUp(self):
+        self.player = _make_player(username='accaplayer', email='acca@example.com')
+        self.e1 = _make_event('Man Utd vs Arsenal', odds=Decimal('2.00'))
+        self.e2 = _make_event('Lakers vs Warriors', odds=Decimal('3.00'))
+
+    def _legs(self):
+        return [
+            {'event': 'Man Utd vs Arsenal', 'event_id': self.e1.id, 'selection': 'home', 'odds': '2.00'},
+            {'event': 'Lakers vs Warriors', 'event_id': self.e2.id, 'selection': 'away', 'odds': '3.00'},
+        ]
+
+    def test_place_accumulator_debits_once_and_multiplies_odds(self):
+        before = wallet_services.get_balance(self.player.id)
+        slip = sportsbook_services.place_accumulator(
+            stake=Decimal('10.00'), legs=self._legs(), player_id=self.player.id,
+        )
+        after = wallet_services.get_balance(self.player.id)
+        self.assertEqual(before - after, Decimal('10.00'))      # single stake debit
+        self.assertEqual(slip.combined_odds, Decimal('6.00'))   # 2.00 * 3.00
+        self.assertEqual(slip.legs.count(), 2)
+        self.assertEqual(slip.status, BetSlip.Status.OPEN)
+
+    def test_accumulator_needs_two_legs(self):
+        with self.assertRaises(ValueError):
+            sportsbook_services.place_accumulator(
+                stake=Decimal('10.00'), legs=self._legs()[:1], player_id=self.player.id,
+            )
+
+    def test_accumulator_wins_only_when_all_legs_win(self):
+        slip = sportsbook_services.place_accumulator(
+            stake=Decimal('10.00'), legs=self._legs(), player_id=self.player.id,
+        )
+        before = wallet_services.get_balance(self.player.id)
+        sportsbook_services.settle_event(self.e1.id, 'home')   # leg 1 wins
+        slip.refresh_from_db()
+        self.assertEqual(slip.status, BetSlip.Status.OPEN)     # still open, leg 2 pending
+        sportsbook_services.settle_event(self.e2.id, 'away')   # leg 2 wins -> acca wins
+        slip.refresh_from_db()
+        self.assertEqual(slip.status, BetSlip.Status.WON)
+        after = wallet_services.get_balance(self.player.id)
+        # Payout = 10 * 6.00 = 60
+        self.assertEqual(after - before, Decimal('60.00'))
+
+    def test_accumulator_loses_if_any_leg_loses(self):
+        slip = sportsbook_services.place_accumulator(
+            stake=Decimal('10.00'), legs=self._legs(), player_id=self.player.id,
+        )
+        before = wallet_services.get_balance(self.player.id)
+        sportsbook_services.settle_event(self.e1.id, 'away')   # leg 1 loses (backed home)
+        sportsbook_services.settle_event(self.e2.id, 'away')   # leg 2 wins, irrelevant
+        slip.refresh_from_db()
+        self.assertEqual(slip.status, BetSlip.Status.LOST)
+        after = wallet_services.get_balance(self.player.id)
+        self.assertEqual(before, after)                        # no payout
+
+    def test_accumulator_api_create(self):
+        refresh = RefreshToken.for_user(self.player.user)
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f'Bearer {str(refresh.access_token)}')
+        resp = client.post('/api/betslips/', {'stake': '5.00', 'legs': self._legs()}, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(resp.data['combined_odds'], '6.00')
+        self.assertEqual(len(resp.data['legs']), 2)
+
+
+class OddsPublishTests(TestCase):
+    def test_saving_event_publishes_to_realtime(self):
+        with patch('apps.livechat.clients.RealtimePublisherClient.publish') as pub:
+            with self.captureOnCommitCallbacks(execute=True):
+                ev = Event.objects.create(name='Pub Test', odds=Decimal('1.50'))
+        self.assertTrue(pub.called)
+        channels = [call.args[0] for call in pub.call_args_list]
+        self.assertIn(f'odds:{ev.id}', channels)   # event-specific snapshot
+        self.assertIn('odds', channels)             # global ticker line
+
+    def test_publisher_disabled_is_noop(self):
+        # REALTIME_PUBLISH_ENABLED is false in tests -> optimistic success, no network.
+        self.assertTrue(RealtimePublisherClient().publish('odds:1', '{}'))
+
+
+class ApiFootballSyncTests(TestCase):
+    def setUp(self):
+        self.player = _make_player(username='apifb', email='apifb@example.com')
+        self.event = Event.objects.create(
+            name='Chelsea vs Arsenal', odds=Decimal('2.00'),
+            provider='api-football', external_id='12345',
+        )
+
+    def _fixture(self, status, goals_home=None, goals_away=None):
+        from apps.sportsbook.clients import FixtureUpdate
+        return FixtureUpdate(
+            external_id='12345', name='Chelsea vs Arsenal', status=status,
+            starts_at=None, goals_home=goals_home, goals_away=goals_away,
+        )
+
+    def test_client_noop_without_api_key(self):
+        from apps.sportsbook.clients import ApiFootballClient
+        self.assertEqual(ApiFootballClient().fetch_fixtures(live='all'), [])
+
+    def test_client_uses_admin_credential_over_env(self):
+        from apps.sportsbook.clients import ApiFootballClient
+        from apps.sportsbook.models import ProviderCredential
+        ProviderCredential.objects.create(
+            provider='api-football', api_key='admin-key', base_url='https://example.test',
+        )
+        client = ApiFootballClient()
+        self.assertEqual(client.api_key, 'admin-key')
+        self.assertEqual(client.base_url, 'https://example.test')
+
+    @override_settings(SPORTSBOOK_LIVE_BETTING=False)
+    def test_sync_fixture_locks_betting_when_live(self):
+        sportsbook_services.sync_fixture(self._fixture('1H'))
+        self.event.refresh_from_db()
+        self.assertFalse(self.event.is_open)
+
+    def test_in_play_match_is_not_bettable_until_the_live_feed_prices_it(self):
+        # Live betting on (default): the match stays open but only trades on live prices.
+        sportsbook_services.sync_fixture(self._fixture('1H'))
+        self.event.refresh_from_db()
+        self.assertFalse(sportsbook_services.trading_state(self.event)['bettable'])
+
+    def test_sync_fixture_settles_linked_bets_on_finish(self):
+        bet = sportsbook_services.place_bet(
+            event='Chelsea vs Arsenal — home', stake=Decimal('20.00'), odds=Decimal('2.00'),
+            player_id=self.player.id, event_id=self.event.id, selection='home',
+        )
+        sportsbook_services.sync_fixture(self._fixture('FT', goals_home=2, goals_away=1))
+        bet.refresh_from_db()
+        self.event.refresh_from_db()
+        self.assertEqual(bet.status, Bet.Status.WON)
+        self.assertFalse(self.event.is_open)
+
+    def test_sync_fixture_unlinked_external_id_is_noop(self):
+        from apps.sportsbook.clients import FixtureUpdate
+        result = sportsbook_services.sync_fixture(
+            FixtureUpdate(external_id='nope', name='x', status='FT', starts_at=None,
+                           goals_home=1, goals_away=0),
+        )
+        self.assertIsNone(result)
+
+    def test_sync_fixture_upserts_linked_teams(self):
+        from apps.sportsbook.clients import FixtureUpdate, TeamInfo
+        from apps.sportsbook.models import Team
+        fixture = FixtureUpdate(
+            external_id='12345', name='Chelsea vs Arsenal', status='NS', starts_at=None,
+            goals_home=None, goals_away=None,
+            home_team=TeamInfo(external_id='t1', name='Chelsea', logo_url='https://x/c.png'),
+            away_team=TeamInfo(external_id='t2', name='Arsenal', logo_url='https://x/a.png'),
+        )
+        sportsbook_services.sync_fixture(fixture)
+        self.event.refresh_from_db()
+        self.assertEqual(self.event.home_team.name, 'Chelsea')
+        self.assertEqual(self.event.away_team.name, 'Arsenal')
+        self.assertEqual(Team.objects.count(), 2)
+
+        # Re-syncing the same fixture must not create duplicate Team rows.
+        sportsbook_services.sync_fixture(fixture)
+        self.assertEqual(Team.objects.count(), 2)
+
+
+class ApiFootballEventImportTests(TestCase):
+    """sync_provider_events/_create_event_from_fixture: turns fixtures with no
+    linked Event into new, bettable Events — the step that was previously
+    missing (sync_fixture/sync_fixture_odds only ever updated existing
+    Events, so a fixture nobody had manually linked never appeared)."""
+
+    def _fixture(self, external_id='55555', status='NS', name='Liverpool vs City'):
+        from apps.sportsbook.clients import FixtureUpdate, TeamInfo
+        return FixtureUpdate(
+            external_id=external_id, name=name, status=status, starts_at=None,
+            goals_home=None, goals_away=None,
+            home_team=TeamInfo(external_id='h1', name='Liverpool'),
+            away_team=TeamInfo(external_id='a1', name='City'),
+        )
+
+    def test_creates_event_for_new_fixture(self):
+        event = sportsbook_services._create_event_from_fixture(self._fixture())
+        self.assertIsNotNone(event)
+        self.assertEqual(event.external_id, '55555')
+        self.assertEqual(event.provider, 'api-football')
+        self.assertEqual(event.home_team.name, 'Liverpool')
+        self.assertEqual(event.away_team.name, 'City')
+        self.assertTrue(event.is_open)
+
+    def test_skips_fixture_already_linked(self):
+        Event.objects.create(name='Existing', odds=Decimal('2.00'), provider='api-football', external_id='55555')
+        result = sportsbook_services._create_event_from_fixture(self._fixture())
+        self.assertIsNone(result)
+        self.assertEqual(Event.objects.filter(external_id='55555').count(), 1)
+
+    def test_skips_finished_fixture(self):
+        result = sportsbook_services._create_event_from_fixture(self._fixture(status='FT'))
+        self.assertIsNone(result)
+        self.assertEqual(Event.objects.count(), 0)
+
+    def test_sync_provider_events_creates_from_fetched_fixtures(self):
+        with patch.object(sportsbook_services.ApiFootballClient, 'fetch_fixtures', return_value=[self._fixture()]):
+            count = sportsbook_services.sync_provider_events(league=39, season=2024, next_count=20)
+        self.assertEqual(count, 1)
+        self.assertEqual(Event.objects.filter(external_id='55555').count(), 1)
+
+
+class ApiFootballLeagueDiscoveryTests(TestCase):
+    """fetch_leagues/import_all_current_leagues: auto-discover every league
+    api-football currently has an active season for, so the sportsbook fills
+    up without an operator having to curate API_FOOTBALL_LEAGUES by hand."""
+
+    def test_client_fetch_leagues_noop_without_api_key(self):
+        from apps.sportsbook.clients import ApiFootballClient
+        self.assertEqual(ApiFootballClient().fetch_leagues(), [])
+
+    def test_normalize_league_picks_current_season(self):
+        from apps.sportsbook.clients import ApiFootballClient
+        client = ApiFootballClient.__new__(ApiFootballClient)
+        raw = {
+            'league': {'id': 39, 'name': 'Premier League'},
+            'seasons': [
+                {'year': 2023, 'current': False},
+                {'year': 2024, 'current': True},
+            ],
+        }
+        league = client._normalize_league(raw)
+        self.assertEqual(league.id, 39)
+        self.assertEqual(league.season, 2024)
+        self.assertEqual(league.name, 'Premier League')
+
+    def test_normalize_league_skips_entry_without_current_season(self):
+        from apps.sportsbook.clients import ApiFootballClient
+        client = ApiFootballClient.__new__(ApiFootballClient)
+        raw = {'league': {'id': 39}, 'seasons': [{'year': 2023, 'current': False}]}
+        self.assertIsNone(client._normalize_league(raw))
+
+    def test_import_all_current_leagues_imports_each_with_its_own_season(self):
+        from apps.sportsbook.clients import FixtureUpdate, LeagueInfo
+
+        def fake_fetch_fixtures(self, *, date=None, live=None, league=None, season=None, next_count=None):
+            return [FixtureUpdate(
+                external_id=f'L{league}-{season}', name=f'Fixture {league}', status='NS',
+                starts_at=None, goals_home=None, goals_away=None,
+            )]
+
+        leagues = [LeagueInfo(id=39, season=2024, name='EPL'), LeagueInfo(id=140, season=2025, name='La Liga')]
+        with patch.object(sportsbook_services.ApiFootballClient, 'fetch_leagues', return_value=leagues), \
+             patch.object(sportsbook_services.ApiFootballClient, 'fetch_fixtures', fake_fetch_fixtures):
+            total = sportsbook_services.import_all_current_leagues(next_count=20)
+
+        self.assertEqual(total, 2)
+        self.assertEqual(Event.objects.filter(external_id='L39-2024').count(), 1)
+        self.assertEqual(Event.objects.filter(external_id='L140-2025').count(), 1)
+
+    def test_import_all_current_leagues_registers_leagues_enabled_by_default(self):
+        from apps.sportsbook.clients import FixtureUpdate, LeagueInfo
+        from apps.sportsbook.models import LeagueSetting
+
+        leagues = [LeagueInfo(id=39, season=2024, name='EPL')]
+        with patch.object(sportsbook_services.ApiFootballClient, 'fetch_leagues', return_value=leagues), \
+             patch.object(sportsbook_services.ApiFootballClient, 'fetch_fixtures', return_value=[
+                 FixtureUpdate(external_id='L39-2024', name='Fixture', status='NS',
+                               starts_at=None, goals_home=None, goals_away=None),
+             ]):
+            sportsbook_services.import_all_current_leagues(next_count=20)
+
+        setting = LeagueSetting.objects.get(provider='api-football', league_id=39)
+        self.assertEqual(setting.name, 'EPL')
+        self.assertTrue(setting.enabled)
+
+    def test_import_all_current_leagues_skips_disabled_league(self):
+        from apps.sportsbook.clients import FixtureUpdate, LeagueInfo
+        from apps.sportsbook.models import LeagueSetting
+
+        LeagueSetting.objects.create(
+            provider='api-football', league_id=39, name='EPL', enabled=False,
+        )
+
+        def fake_fetch_fixtures(self, *, date=None, live=None, league=None, season=None, next_count=None):
+            # Would create an Event if actually called — proves the disabled
+            # league's /fixtures call is skipped entirely, not just filtered
+            # after the fact.
+            return [FixtureUpdate(
+                external_id=f'L{league}-{season}', name='Fixture', status='NS',
+                starts_at=None, goals_home=None, goals_away=None,
+            )]
+
+        leagues = [LeagueInfo(id=39, season=2024, name='EPL'), LeagueInfo(id=140, season=2025, name='La Liga')]
+        with patch.object(sportsbook_services.ApiFootballClient, 'fetch_leagues', return_value=leagues), \
+             patch.object(sportsbook_services.ApiFootballClient, 'fetch_fixtures', fake_fetch_fixtures):
+            total = sportsbook_services.import_all_current_leagues(next_count=20)
+
+        self.assertEqual(total, 1)  # only La Liga's fixture counted
+        self.assertEqual(Event.objects.filter(external_id='L39-2024').count(), 0)
+        self.assertEqual(Event.objects.filter(external_id='L140-2025').count(), 1)
+
+    def test_import_all_current_leagues_preserves_existing_disable_on_rediscovery(self):
+        from apps.sportsbook.clients import LeagueInfo
+        from apps.sportsbook.models import LeagueSetting
+
+        LeagueSetting.objects.create(
+            provider='api-football', league_id=39, name='EPL', enabled=False,
+        )
+        leagues = [LeagueInfo(id=39, season=2024, name='EPL')]
+        with patch.object(sportsbook_services.ApiFootballClient, 'fetch_leagues', return_value=leagues), \
+             patch.object(sportsbook_services.ApiFootballClient, 'fetch_fixtures', return_value=[]):
+            sportsbook_services.import_all_current_leagues(next_count=20)
+
+        # Re-discovering an already-known league must not silently re-enable it.
+        setting = LeagueSetting.objects.get(provider='api-football', league_id=39)
+        self.assertFalse(setting.enabled)
+
+
+class ApiFootballOddsSyncTests(TestCase):
+    def setUp(self):
+        self.event = Event.objects.create(
+            name='Chelsea vs Arsenal', odds=Decimal('1.50'),
+            provider='api-football', external_id='999',
+        )
+
+    def _odds(self, home='2.10', draw='3.20', away='3.50'):
+        from apps.sportsbook.clients import OddsSnapshot
+        return OddsSnapshot(
+            external_id='999', odds_home=Decimal(home),
+            odds_draw=Decimal(draw) if draw is not None else None, odds_away=Decimal(away),
+        )
+
+    def test_sync_fixture_odds_updates_open_event(self):
+        sportsbook_services.sync_fixture_odds(self._odds())
+        self.event.refresh_from_db()
+        self.assertEqual(self.event.odds, Decimal('2.10'))
+        self.assertEqual(self.event.odds_draw, Decimal('3.20'))
+        self.assertEqual(self.event.odds_away, Decimal('3.50'))
+
+    def test_sync_fixture_odds_ignores_closed_event(self):
+        self.event.is_open = False
+        self.event.save(update_fields=['is_open'])
+        result = sportsbook_services.sync_fixture_odds(self._odds())
+        self.assertIsNone(result)
+        self.event.refresh_from_db()
+        self.assertEqual(self.event.odds, Decimal('1.50'))

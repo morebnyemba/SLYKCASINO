@@ -1,6 +1,6 @@
-"""Django settings for the SLYK Casino backend."""
+"""Django settings for the BetBlits backend."""
 import os
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import dj_database_url
@@ -16,6 +16,7 @@ CSRF_TRUSTED_ORIGINS = [
 ]
 
 DJANGO_APPS = [
+    'jazzmin',  # must precede django.contrib.admin to override its templates
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -29,6 +30,7 @@ THIRD_PARTY_APPS = [
     'rest_framework_simplejwt',
     'rest_framework_simplejwt.token_blacklist',
     'corsheaders',
+    'django_celery_beat',
 ]
 
 # Domain apps (bounded contexts). Order: identity -> ledger -> domains.
@@ -40,6 +42,8 @@ DOMAIN_APPS = [
     'apps.promotions',
     'apps.livechat',
     'apps.notifications',
+    'apps.branding',
+    'apps.affiliates',
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + DOMAIN_APPS
@@ -79,10 +83,20 @@ TEMPLATES = [
 WSGI_APPLICATION = 'config.wsgi.application'
 ASGI_APPLICATION = 'config.asgi.application'
 
-# Postgres via DATABASE_URL; falls back to local sqlite for quick scaffolding.
+# Postgres via DATABASE_URL, or auto-derived from POSTGRES_USER/PASSWORD/DB so the
+# two never drift out of sync; falls back to local sqlite for quick scaffolding.
+_database_url = os.environ.get('DATABASE_URL')
+if not _database_url and os.environ.get('POSTGRES_USER') and os.environ.get('POSTGRES_PASSWORD'):
+    _database_url = 'postgres://{user}:{password}@{host}:5432/{db}'.format(
+        user=os.environ['POSTGRES_USER'],
+        password=os.environ['POSTGRES_PASSWORD'],
+        host=os.environ.get('POSTGRES_HOST', 'postgres'),
+        db=os.environ.get('POSTGRES_DB', os.environ['POSTGRES_USER']),
+    )
+
 DATABASES = {
     'default': dj_database_url.config(
-        default=os.environ.get('DATABASE_URL', f'sqlite:///{BASE_DIR / "db.sqlite3"}'),
+        default=_database_url or f'sqlite:///{BASE_DIR / "db.sqlite3"}',
         conn_max_age=600,
     )
 }
@@ -125,7 +139,10 @@ CORS_ALLOWED_ORIGINS = [
 ]
 
 AUTH_PASSWORD_VALIDATORS = [
+    {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
     {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator'},
+    {'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator'},
+    {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator'},
 ]
 
 LANGUAGE_CODE = 'en-us'
@@ -135,14 +152,92 @@ USE_TZ = True
 
 STATIC_URL = '/django-static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
+
+# KYC documents and other uploads. Never served as static files — access goes
+# through admin-gated API views only (apps.accounts.views.AdminKYCViewSet.document),
+# since nginx only proxies /api/ and /django-admin/ to this service.
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
+
 STORAGES = {
     'default': {'BACKEND': 'django.core.files.storage.FileSystemStorage'},
     'staticfiles': {'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage'},
 }
+# jazzmin's admin/base.html does `{% static 'vendor/bootswatch' %}` to build a
+# JS-side base path for its theme switcher — that's a directory, not a file,
+# so it can never have a manifest entry and CompressedManifestStaticFilesStorage
+# raises on every admin page render. Non-strict mode falls back to passing the
+# literal path through instead of raising; the actual per-theme CSS files
+# (vendor/bootswatch/<theme>/bootstrap.min.css) are real files and still get
+# proper hashed/manifest URLs.
+WHITENOISE_MANIFEST_STRICT = False
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 BLOCKED_COUNTRIES = os.environ.get('BLOCKED_COUNTRIES', 'US,FR,AU,SG,HK').split(',')
+
+# ---------------------------------------------------------------------------
+# Realtime engine (Erlang) — internal HTTP ingest used to fan out live odds and
+# chat. Disabled by default so dev/test never block on the network; enable in
+# production where the engine is reachable on the compose network.
+# ---------------------------------------------------------------------------
+REALTIME_PUBLISH_ENABLED = os.environ.get('REALTIME_PUBLISH_ENABLED', 'false').lower() == 'true'
+REALTIME_PUBLISH_URL = os.environ.get('REALTIME_PUBLISH_URL', 'http://erlang:8080/publish')
+# Calls to the engine (publish + admin WebSocket tickets, see
+# common.realtime_auth) are authenticated with SECRET_KEY — the erlang
+# container is given the same value via REALTIME_SHARED_SECRET in
+# docker-compose*.yml, so no separate credential needs provisioning.
+
+# --- api-football.com (https://www.api-football.com/documentation-v3) ---
+# Unset by default: ApiFootballClient no-ops (returns []) without a key, so
+# dev/test never hits the network.
+API_FOOTBALL_KEY = os.environ.get('API_FOOTBALL_KEY', '')
+API_FOOTBALL_BASE_URL = os.environ.get('API_FOOTBALL_BASE_URL', 'https://v3.football.api-sports.io')
+# League IDs to import upcoming fixtures/events for (see api-football's
+# /leagues endpoint for IDs, e.g. 39 = English Premier League). Comma-
+# separated; empty by default, in which case the import task auto-discovers
+# and imports every league api-football currently has an active season for
+# (see ApiFootballClient.fetch_leagues / services.import_all_current_leagues)
+# — set this to opt back into a curated subset and bound API quota usage.
+API_FOOTBALL_LEAGUES = [
+    int(v) for v in os.environ.get('API_FOOTBALL_LEAGUES', '').split(',') if v.strip()
+]
+# api-football "season" is the year a league's season started (e.g. a
+# 2024-25 European league is season=2024). Defaults to the current year;
+# override per-deployment if your leagues' season numbering differs. Only
+# used for the manually-curated API_FOOTBALL_LEAGUES path — auto-discovery
+# uses each league's own current season year instead.
+API_FOOTBALL_SEASON = int(os.environ.get('API_FOOTBALL_SEASON', str(datetime.now().year)))
+# How many of each configured league's next upcoming fixtures to import per run.
+API_FOOTBALL_IMPORT_NEXT = int(os.environ.get('API_FOOTBALL_IMPORT_NEXT', '20'))
+# Odds sync: without API_FOOTBALL_LEAGUES it pulls by date for today + this many
+# days ahead; every page is followed up to the page cap (10 fixtures per page).
+API_FOOTBALL_ODDS_DAYS = int(os.environ.get('API_FOOTBALL_ODDS_DAYS', '2'))
+API_FOOTBALL_ODDS_MAX_PAGES = int(os.environ.get('API_FOOTBALL_ODDS_MAX_PAGES', '20'))
+# Every bet type the importer recognises (goals, handicaps, halves, corners,
+# cards, goalscorers, combos…) settles automatically from the match facts.
+# Set to true to ALSO offer unrecognised bet types; those must be settled by an
+# operator from the admin Events page.
+SPORTSBOOK_IMPORT_MANUAL_MARKETS = os.environ.get('SPORTSBOOK_IMPORT_MANUAL_MARKETS', 'false').lower() == 'true'
+# Affiliate programme defaults (each affiliate's terms can be changed in admin).
+# Revenue share is a % of referred players' monthly net gaming revenue (a losing
+# month pays nothing, no carry-over); CPA is a one-off per referral once their
+# deposits reach the minimum (0 = off).
+AFFILIATE_DEFAULT_REVSHARE = float(os.environ.get('AFFILIATE_DEFAULT_REVSHARE', '25'))
+AFFILIATE_DEFAULT_CPA = float(os.environ.get('AFFILIATE_DEFAULT_CPA', '0'))
+AFFILIATE_DEFAULT_CPA_MIN_DEPOSIT = float(os.environ.get('AFFILIATE_DEFAULT_CPA_MIN_DEPOSIT', '20'))
+# Approve applications / pay commissions without operator review.
+AFFILIATE_AUTO_APPROVE = os.environ.get('AFFILIATE_AUTO_APPROVE', 'false').lower() == 'true'
+AFFILIATE_AUTO_PAY = os.environ.get('AFFILIATE_AUTO_PAY', 'false').lower() == 'true'
+# In-play betting from api-football's /odds/live (on by default; set
+# SPORTSBOOK_LIVE_BETTING=false to disable). The feed is polled every SPORTSBOOK_LIVE_ODDS_INTERVAL seconds while anything could be in
+# play (~10k requests/day at 8s); a match whose prices are older than
+# SPORTSBOOK_LIVE_ODDS_STALE seconds is suspended; in-play bets are confirmed
+# after SPORTSBOOK_LIVE_BET_DELAY seconds, re-checking price, suspension and score.
+SPORTSBOOK_LIVE_BETTING = os.environ.get('SPORTSBOOK_LIVE_BETTING', 'true').lower() == 'true'
+SPORTSBOOK_LIVE_ODDS_INTERVAL = float(os.environ.get('SPORTSBOOK_LIVE_ODDS_INTERVAL', '8'))
+SPORTSBOOK_LIVE_ODDS_STALE = int(os.environ.get('SPORTSBOOK_LIVE_ODDS_STALE', '30'))
+SPORTSBOOK_LIVE_BET_DELAY = int(os.environ.get('SPORTSBOOK_LIVE_BET_DELAY', '6'))
 
 # ---------------------------------------------------------------------------
 # Celery — workers run domain recovery; beat schedules reconciliation passes.
@@ -165,6 +260,42 @@ CELERY_BEAT_SCHEDULE = {
     'sportsbook-orphaned-bets': {
         'task': 'apps.sportsbook.tasks.reconcile_orphaned_bets',
         'schedule': 600.0,
+    },
+    'sportsbook-sync-live-fixtures': {
+        'task': 'apps.sportsbook.tasks.sync_live_fixtures',
+        'schedule': 60.0,
+    },
+    'sportsbook-settle-finished-fixtures': {
+        'task': 'apps.sportsbook.tasks.settle_finished_fixtures',
+        # Every 5 min: settles finished matches (the live poll loses them at FT)
+        # and retries until corners/cards/scorer stats are published.
+        'schedule': 300.0,
+    },
+    'sportsbook-sync-live-odds': {
+        'task': 'apps.sportsbook.tasks.sync_live_odds',
+        # No-op (no API call) unless SPORTSBOOK_LIVE_BETTING is on and a match
+        # could be in play.
+        'schedule': SPORTSBOOK_LIVE_ODDS_INTERVAL,
+    },
+    'affiliates-run-commissions': {
+        'task': 'apps.affiliates.tasks.run_commissions',
+        # Every 6h (idempotent): closes last month's revenue share once, picks up new CPAs.
+        'schedule': 3600.0 * 6,
+    },
+    'affiliates-reconcile-payouts': {
+        'task': 'apps.affiliates.tasks.reconcile_commission_payouts',
+        'schedule': 900.0,
+    },
+    'sportsbook-sync-fixture-odds': {
+        'task': 'apps.sportsbook.tasks.sync_fixture_odds',
+        'schedule': 300.0,
+    },
+    'sportsbook-import-upcoming-fixtures': {
+        'task': 'apps.sportsbook.tasks.import_upcoming_fixtures',
+        # Every 30 min. Imports API_FOOTBALL_LEAGUES if set, else auto-discovers
+        # every currently-active league — no-op either way if API_FOOTBALL_KEY
+        # is unset.
+        'schedule': 1800.0,
     },
     'casino-retry-debits': {
         'task': 'apps.casino.tasks.reconcile_debit_sequences',
@@ -197,7 +328,9 @@ EMAIL_PORT = int(os.environ.get('EMAIL_PORT', '587'))
 EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', 'true').lower() == 'true'
 EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
 EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
-DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'noreply@slyk.casino')
+DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'noreply@betblits.com')
+# Signup/reset send mail inline: never let a slow SMTP server hang the request.
+EMAIL_TIMEOUT = int(os.environ.get('EMAIL_TIMEOUT', '10'))
 FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://localhost:3000')
 
 # Domain logging (recovery managers log under recovery.<domain>).
@@ -216,3 +349,52 @@ LOGGING = {
 # ---------------------------------------------------------------------------
 PSP_PROVIDER = os.environ.get('PSP_PROVIDER', 'stub')
 KYC_PROVIDER = os.environ.get('KYC_PROVIDER', 'stub')
+
+# ---------------------------------------------------------------------------
+# Django admin theming (django-jazzmin) — matches the SLYK gold/indigo brand
+# used across apps/admin and apps/web, so /django-admin/ doesn't look stock.
+# ---------------------------------------------------------------------------
+JAZZMIN_SETTINGS = {
+    'site_title': 'BetBlits Operator Admin',
+    'site_header': 'BetBlits',
+    'site_brand': 'BetBlits',
+    'welcome_sign': 'BetBlits — Django Admin',
+    'copyright': 'BetBlits',
+    'show_ui_builder': False,
+    'navigation_expanded': True,
+    'order_with_respect_to': [
+        'accounts', 'wallet', 'sportsbook', 'casino', 'promotions', 'livechat', 'notifications',
+    ],
+    'icons': {
+        'auth.user': 'fas fa-user',
+        'auth.group': 'fas fa-users',
+        'accounts.player': 'fas fa-id-card',
+        'accounts.kycsubmission': 'fas fa-file-shield',
+        'accounts.auditlog': 'fas fa-list-check',
+        'wallet.wallet': 'fas fa-wallet',
+        'wallet.ledgerentry': 'fas fa-receipt',
+        'sportsbook.event': 'fas fa-futbol',
+        'sportsbook.bet': 'fas fa-ticket',
+        'promotions.promotion': 'fas fa-gift',
+        'promotions.banner': 'fas fa-image',
+    },
+}
+
+JAZZMIN_UI_TWEAKS = {
+    'theme': 'darkly',
+    'navbar': 'navbar-dark',
+    'navbar_fixed': True,
+    'no_navbar_border': True,
+    'sidebar': 'sidebar-dark-primary',
+    'sidebar_fixed': True,
+    'brand_colour': 'navbar-dark',
+    'accent': 'accent-warning',
+    'button_classes': {
+        'primary': 'btn-warning',
+        'secondary': 'btn-secondary',
+        'info': 'btn-info',
+        'warning': 'btn-warning',
+        'danger': 'btn-danger',
+        'success': 'btn-success',
+    },
+}

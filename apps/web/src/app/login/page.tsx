@@ -2,12 +2,14 @@
 
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useState } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@slyk/ui/components/card';
+import { Suspense, useState } from 'react';
+import { AuthShell, authButtonClass, authInputClass } from '@/components/auth-shell';
 import { useAuth } from '@/lib/auth-context';
+import { useSiteIdentity } from '@/lib/identity-context';
 
-export default function LoginPage() {
+function LoginForm() {
   const { login } = useAuth();
+  const identity = useSiteIdentity();
   const router = useRouter();
   const params = useSearchParams();
   const next = params.get('next') ?? '/';
@@ -32,50 +34,54 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-[60vh] items-center justify-center">
-      <Card className="w-full max-w-sm">
-        <CardHeader>
-          <CardTitle>Log in to SLYK</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-            <div className="flex flex-col gap-1">
-              <label className="text-sm font-medium" htmlFor="email">Username or email</label>
-              <input
-                id="email"
-                type="text"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                className="rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-              />
-            </div>
-            <div className="flex flex-col gap-1">
-              <label className="text-sm font-medium" htmlFor="password">Password</label>
-              <input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                className="rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-              />
-            </div>
-            {error && <p className="text-sm text-destructive">{error}</p>}
-            <button
-              type="submit"
-              disabled={loading}
-              className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
-            >
-              {loading ? 'Logging in…' : 'Log in'}
-            </button>
-          </form>
-          <p className="mt-4 text-center text-sm text-muted-foreground">
-            No account?{' '}
-            <Link href="/register" className="text-primary underline-offset-4 hover:underline">Sign up</Link>
-          </p>
-        </CardContent>
-      </Card>
-    </div>
+    <AuthShell title="Welcome back" subtitle={`Log in to continue to ${identity.site_name}.`}>
+      <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+        <div className="flex flex-col gap-1">
+          <label className="text-xs font-bold text-muted-foreground" htmlFor="email">Username or email</label>
+          <input
+            id="email"
+            type="text"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+            className={authInputClass}
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center justify-between">
+            <label className="text-xs font-bold text-muted-foreground" htmlFor="password">Password</label>
+            <Link href="/forgot-password" className="text-xs font-bold text-secondary hover:underline">Forgot password?</Link>
+          </div>
+          <input
+            id="password"
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+            className={authInputClass}
+          />
+        </div>
+        {error && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm font-semibold text-destructive">{error}</p>}
+        <button
+          type="submit"
+          disabled={loading}
+          className={authButtonClass}
+        >
+          {loading ? 'Logging in…' : 'Log in'}
+        </button>
+      </form>
+      <p className="mt-5 text-center text-sm text-muted-foreground">
+        No account?{' '}
+        <Link href="/register" className="font-bold text-secondary underline-offset-4 hover:underline">Sign up</Link>
+      </p>
+    </AuthShell>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginForm />
+    </Suspense>
   );
 }

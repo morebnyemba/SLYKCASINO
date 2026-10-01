@@ -11,6 +11,11 @@ class Player(models.Model):
         PENDING = 'pending', 'Pending'
         VERIFIED = 'verified', 'Verified'
 
+    class LoyaltyTier(models.TextChoices):
+        BRONZE = 'bronze', 'Bronze'
+        SILVER = 'silver', 'Silver'
+        GOLD = 'gold', 'Gold'
+
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL, null=True, blank=True,
         on_delete=models.SET_NULL, related_name='player',
@@ -20,6 +25,8 @@ class Player(models.Model):
     kyc_status = models.CharField(max_length=20, choices=Kyc.choices, default=Kyc.UNVERIFIED)
     kyc_updated_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    avatar_url = models.CharField(max_length=500, blank=True)
+    loyalty_tier = models.CharField(max_length=20, choices=LoyaltyTier.choices, default=LoyaltyTier.BRONZE)
 
     # --- Responsible gambling ---
     deposit_limit_daily = models.DecimalField(
@@ -31,6 +38,11 @@ class Player(models.Model):
     # --- Email verification ---
     email_verified = models.BooleanField(default=False)
     email_verify_token = models.CharField(max_length=64, blank=True, default='')
+
+    # --- Suspension (admin override, hard freeze) ---
+    is_suspended = models.BooleanField(default=False)
+    suspended_reason = models.CharField(max_length=255, blank=True, default='')
+    suspended_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = 'accounts_player'

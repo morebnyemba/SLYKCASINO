@@ -1,10 +1,12 @@
 'use client';
 
 import { useState } from 'react';
+import { FaDownload, FaWallet, FaArrowDown } from 'react-icons/fa';
 import { Card, CardContent, CardHeader, CardTitle } from '@slyk/ui/components/card';
 import { Badge } from '@slyk/ui/components/badge';
 import { useAuth } from '@/lib/auth-context';
 import { useApi, authedPost } from '@/lib/use-api';
+import { DepositModal } from '@/components/deposit-modal';
 
 interface Wallet {
   balance?: string;
@@ -28,10 +30,11 @@ const KIND_LABEL: Record<string, string> = {
   casino_credit: 'Casino win',
   bonus: 'Bonus',
   adjustment: 'Adjustment',
+  affiliate: 'Affiliate commission',
 };
 
 function kindVariant(kind: string): 'default' | 'secondary' | 'destructive' {
-  if (['deposit', 'bet_payout', 'casino_credit', 'bonus'].includes(kind)) return 'default';
+  if (['deposit', 'bet_payout', 'casino_credit', 'bonus', 'affiliate'].includes(kind)) return 'default';
   if (['withdrawal', 'bet_stake', 'casino_debit'].includes(kind)) return 'destructive';
   return 'secondary';
 }
@@ -41,23 +44,12 @@ export default function WalletPage() {
   const { data: wallet, loading: wLoading, refetch: refetchWallet } = useApi<Wallet>('/wallet/');
   const { data: ledger, loading: lLoading, refetch: refetchLedger } = useApi<LedgerEntry[]>('/wallet/ledger/');
 
-  const [depositAmt, setDepositAmt] = useState('50');
   const [withdrawAmt, setWithdrawAmt] = useState('');
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
-
-  async function handleDeposit() {
-    if (!accessToken) return;
-    setBusy(true); setMsg('');
-    const { error } = await authedPost(
-      '/wallet/deposit/',
-      { amount: depositAmt, currency: wallet?.currency ?? 'USD' },
-      accessToken,
-    );
-    setMsg(error ? `Error: ${error}` : `Deposited ${depositAmt} ${wallet?.currency ?? 'USD'} ✓`);
-    refetchWallet(); refetchLedger();
-    setBusy(false);
-  }
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
+  const [depositOpen, setDepositOpen] = useState(false);
 
   async function handleWithdraw() {
     if (!accessToken || !withdrawAmt) return;
@@ -67,48 +59,63 @@ export default function WalletPage() {
       { amount: withdrawAmt },
       accessToken,
     );
-    setMsg(error ? `Error: ${error}` : `Withdrawal of ${withdrawAmt} submitted ✓`);
+    setMsg(error ? `Error: ${error}` : `Withdrawal of ${withdrawAmt} submitted.`);
     refetchWallet(); refetchLedger();
     setBusy(false);
   }
 
   const balance = wallet?.balance ?? '0.00';
   const currency = wallet?.currency ?? 'USD';
-  const entries = Array.isArray(ledger) ? ledger : [];
+  const allEntries = Array.isArray(ledger) ? ledger : [];
+  const entries = allEntries.filter((e) => {
+    const d = e.created_at.slice(0, 10);
+    if (fromDate && d < fromDate) return false;
+    if (toDate && d > toDate) return false;
+    return true;
+  });
+
+  function exportCsv() {
+    const header = 'Type,Amount,Reference,Date\n';
+    const rows = entries.map((e) =>
+      [KIND_LABEL[e.kind] ?? e.kind, e.amount, e.reference || '', e.created_at].join(','),
+    );
+    const blob = new Blob([header + rows.join('\n')], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'wallet-transactions.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  }
 
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold">Wallet</h1>
 
-      <Card>
-        <CardContent className="pt-6">
+      <Card className="overflow-hidden rounded-2xl border-gold/20">
+        <div className="bg-gradient-to-br from-primary via-primary to-secondary/80 px-6 py-6">
+          <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-white/60">
+            <FaWallet size={11} />
+            Balance
+          </p>
           {wLoading ? (
-            <p className="text-sm text-muted-foreground">Loading…</p>
+            <p className="mt-1 text-sm text-white/70">Loading…</p>
           ) : (
-            <p className="text-3xl font-bold">
-              {balance} <span className="text-base font-normal text-muted-foreground">{currency}</span>
+            <p className="mt-1 text-3xl font-bold text-white">
+              {balance} <span className="text-base font-normal text-white/60">{currency}</span>
             </p>
           )}
-
-          <div className="mt-5 grid gap-4 sm:grid-cols-2">
+        </div>
+        <CardContent className="pt-6">
+          <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <p className="text-sm font-medium">Deposit</p>
-              <div className="flex gap-2">
-                <input
-                  type="number"
-                  value={depositAmt}
-                  onChange={(e) => setDepositAmt(e.target.value)}
-                  min="1"
-                  className="w-24 rounded-md border border-border bg-background px-3 py-1.5 text-sm"
-                />
-                <button
-                  onClick={handleDeposit}
-                  disabled={busy}
-                  className="rounded-md bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
-                >
-                  Deposit
-                </button>
-              </div>
+              <button
+                onClick={() => setDepositOpen(true)}
+                className="rounded-md bg-gradient-to-br from-gold to-gold/70 px-4 py-1.5 text-sm font-bold text-gold-foreground shadow transition-transform hover:scale-105"
+              >
+                Deposit funds
+              </button>
             </div>
 
             <div className="space-y-2">
@@ -120,13 +127,14 @@ export default function WalletPage() {
                   onChange={(e) => setWithdrawAmt(e.target.value)}
                   min="1"
                   placeholder="Amount"
-                  className="w-24 rounded-md border border-border bg-background px-3 py-1.5 text-sm"
+                  className="w-24 rounded-md border border-border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-secondary"
                 />
                 <button
                   onClick={handleWithdraw}
                   disabled={busy || !withdrawAmt}
-                  className="rounded-md border border-border bg-background px-4 py-1.5 text-sm font-medium hover:bg-accent disabled:opacity-50"
+                  className="flex items-center gap-1.5 rounded-md border border-border bg-background px-4 py-1.5 text-sm font-medium hover:bg-accent/10 disabled:opacity-50"
                 >
+                  <FaArrowDown size={11} />
                   Withdraw
                 </button>
               </div>
@@ -137,15 +145,41 @@ export default function WalletPage() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
+      <Card className="rounded-2xl border-gold/15">
+        <CardHeader className="flex-col gap-3 space-y-0 sm:flex-row sm:items-center sm:justify-between">
           <CardTitle className="text-base">Transaction history</CardTitle>
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              type="date"
+              value={fromDate}
+              onChange={(e) => setFromDate(e.target.value)}
+              className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1.5 text-xs sm:flex-none"
+            />
+            <span className="text-xs text-muted-foreground">to</span>
+            <input
+              type="date"
+              value={toDate}
+              onChange={(e) => setToDate(e.target.value)}
+              className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1.5 text-xs sm:flex-none"
+            />
+            {allEntries.length > 0 && (
+              <button
+                onClick={exportCsv}
+                className="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent/10"
+              >
+                <FaDownload size={11} />
+                Export CSV
+              </button>
+            )}
+          </div>
         </CardHeader>
         <CardContent className="p-0">
           {lLoading ? (
             <p className="px-6 py-4 text-sm text-muted-foreground">Loading…</p>
           ) : entries.length === 0 ? (
-            <p className="px-6 py-4 text-sm text-muted-foreground">No transactions yet.</p>
+            <p className="px-6 py-4 text-sm text-muted-foreground">
+              {allEntries.length === 0 ? 'No transactions yet.' : 'No transactions in this date range.'}
+            </p>
           ) : (
             <table className="w-full text-sm">
               <thead>
@@ -162,7 +196,7 @@ export default function WalletPage() {
                     <td className="px-4 py-2">
                       <Badge variant={kindVariant(e.kind)}>{KIND_LABEL[e.kind] ?? e.kind}</Badge>
                     </td>
-                    <td className={`px-4 py-2 font-mono ${parseFloat(e.amount) >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                    <td className={`px-4 py-2 font-mono ${parseFloat(e.amount) >= 0 ? 'text-win' : 'text-down'}`}>
                       {parseFloat(e.amount) >= 0 ? '+' : ''}{e.amount}
                     </td>
                     <td className="px-4 py-2 text-muted-foreground">{e.reference || '—'}</td>
@@ -176,6 +210,11 @@ export default function WalletPage() {
           )}
         </CardContent>
       </Card>
+
+      <DepositModal
+        open={depositOpen}
+        onClose={() => { setDepositOpen(false); refetchWallet(); refetchLedger(); }}
+      />
     </div>
   );
 }

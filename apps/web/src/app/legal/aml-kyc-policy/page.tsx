@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import { LegalLayout } from '@/components/legal-layout';
 
 export const metadata: Metadata = {
-  title: 'AML & KYC Policy — SLYK Casino',
+  title: 'AML & KYC Policy — BetBlits',
   description: 'Our anti-money laundering and identity verification practices.',
 };
 
@@ -10,7 +10,7 @@ export default function AmlKycPolicyPage() {
   return (
     <LegalLayout title="Anti-Money Laundering & Know-Your-Customer Policy" effectiveDate="[INSERT EFFECTIVE DATE]">
       <p>
-        SLYK Casino is committed to preventing the use of its platform for money laundering, terrorist financing,
+        BetBlits is committed to preventing the use of its platform for money laundering, terrorist financing,
         or other financial crime, and to verifying that players are of legal age and using their own legitimate
         funds. This policy outlines our approach to Anti-Money Laundering (AML) and Know-Your-Customer (KYC)
         compliance.
@@ -69,7 +69,7 @@ export default function AmlKycPolicyPage() {
       <p>
         Identity verification and transaction records are retained for the period required by applicable AML and
         gambling regulations (typically <strong>[X years, e.g., 5 years]</strong> after the account is closed or
-        the transaction occurs), as described in our <a href="/legal/privacy-policy">Privacy Policy</a>.
+        the transaction occurs), as described in our <a href="/legal/privacy">Privacy Policy</a>.
       </p>
 
       <h2>7. Your Responsibilities</h2>

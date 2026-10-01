@@ -1,10 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@slyk/ui/components/card';
 import { Badge } from '@slyk/ui/components/badge';
+import { Carousel, CarouselItem } from '@/components/carousel';
 import { useAuth } from '@/lib/auth-context';
 import { useApi, authedPost } from '@/lib/use-api';
+import { gameAvatarUrl, CASINO_HERO_IMAGES } from '@/lib/game-images';
+import { sanitizeHtml } from '@/lib/sanitize';
 interface Promo {
   id: number;
   name: string;
@@ -13,6 +16,9 @@ interface Promo {
   bonus_amount: string;
   wagering_multiplier: string;
   ends_at?: string;
+  code?: string;
+  terms_html?: string;
+  claim_count?: number;
 }
 
 interface PromosResponse { results?: Promo[] }
@@ -29,11 +35,16 @@ interface Claim {
 
 interface ClaimsResponse { results?: Claim[] }
 
-const KIND_ICON: Record<string, string> = {
-  deposit: '💰',
-  freebet: '🎁',
-  cashback: '💸',
-};
+function timeLeft(endsAt: string, now: number): string {
+  const diff = new Date(endsAt).getTime() - now;
+  if (diff <= 0) return 'Expired';
+  const days = Math.floor(diff / 86_400_000);
+  const hours = Math.floor((diff % 86_400_000) / 3_600_000);
+  const minutes = Math.floor((diff % 3_600_000) / 60_000);
+  if (days > 0) return `${days}d ${hours}h left`;
+  if (hours > 0) return `${hours}h ${minutes}m left`;
+  return `${minutes}m left`;
+}
 
 export default function PromotionsPage() {
   const { user, accessToken } = useAuth();
@@ -48,12 +59,18 @@ export default function PromotionsPage() {
 
   const [claiming, setClaiming] = useState<number | null>(null);
   const [messages, setMessages] = useState<Record<number, string>>({});
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const interval = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(interval);
+  }, []);
 
   async function handleClaim(promoId: number) {
     if (!accessToken) return;
     setClaiming(promoId);
     const { error } = await authedPost(`/promotions/${promoId}/claim/`, {}, accessToken);
-    setMessages((m) => ({ ...m, [promoId]: error ? error : 'Bonus claimed! ✓' }));
+    setMessages((m) => ({ ...m, [promoId]: error ? error : 'Bonus claimed.' }));
     setClaiming(null);
     refetchClaims();
   }
@@ -71,6 +88,27 @@ export default function PromotionsPage() {
         <p className="text-muted-foreground">Claim a bonus and start playing.</p>
       </div>
 
+      {promos.length > 0 && (
+        <Carousel>
+          {promos.slice(0, 6).map((p, i) => (
+            <CarouselItem key={p.id} className="w-[260px] sm:w-[320px]">
+              <div className="relative h-32 overflow-hidden rounded-xl sm:h-36">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={CASINO_HERO_IMAGES[i % CASINO_HERO_IMAGES.length]}
+                  alt={p.name}
+                  className="h-full w-full object-cover"
+                />
+                <div className="absolute inset-0 flex flex-col justify-end bg-gradient-to-t from-black/75 to-transparent p-3">
+                  <p className="font-semibold text-white">{p.name}</p>
+                  <p className="text-xs text-white/80">{p.bonus_amount} bonus</p>
+                </div>
+              </div>
+            </CarouselItem>
+          ))}
+        </Carousel>
+      )}
+
       {/* Available promotions */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {promosLoading && <p className="text-sm text-muted-foreground col-span-3">Loading promotions…</p>}
@@ -84,7 +122,12 @@ export default function PromotionsPage() {
             <Card key={p.id} className={claimed ? 'opacity-70' : ''}>
               <CardHeader className="pb-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-2xl">{KIND_ICON[p.kind] ?? '🎁'}</span>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={gameAvatarUrl(`promo-${p.kind}-${p.id}`)}
+                    alt={p.kind}
+                    className="h-9 w-9 rounded-lg bg-secondary/10 object-cover"
+                  />
                   <Badge variant={p.active ? 'default' : 'secondary'}>{p.active ? 'Active' : 'Off'}</Badge>
                 </div>
                 <CardTitle className="text-base">{p.name}</CardTitle>
@@ -95,19 +138,45 @@ export default function PromotionsPage() {
                   <span className="font-medium">{p.bonus_amount}</span>
                   <span className="text-muted-foreground">Wagering</span>
                   <span>{p.wagering_multiplier}×</span>
+                </div>
+
+                <div className="flex items-center gap-2">
                   {p.ends_at && (
-                    <>
-                      <span className="text-muted-foreground">Expires</span>
-                      <span>{new Date(p.ends_at).toLocaleDateString()}</span>
-                    </>
+                    <Badge variant="secondary" className="bg-gold/10 text-gold">
+                      {timeLeft(p.ends_at, now)}
+                    </Badge>
+                  )}
+                  {typeof p.claim_count === 'number' && p.claim_count > 0 && (
+                    <Badge variant="secondary">{p.claim_count} claimed</Badge>
                   )}
                 </div>
+
+                {p.code && (
+                  <button
+                    onClick={() => navigator.clipboard?.writeText(p.code!)}
+                    className="w-full rounded-md border border-dashed border-border px-3 py-1.5 text-center font-mono text-sm tracking-wider hover:bg-accent/10"
+                    title="Click to copy"
+                  >
+                    {p.code}
+                  </button>
+                )}
+
+                {p.terms_html && (
+                  <details className="text-xs text-muted-foreground">
+                    <summary className="cursor-pointer select-none">Terms &amp; conditions</summary>
+                    <div
+                      className="mt-1"
+                      suppressHydrationWarning
+                      dangerouslySetInnerHTML={{ __html: sanitizeHtml(p.terms_html) }}
+                    />
+                  </details>
+                )}
 
                 {msg && <p className="text-sm text-muted-foreground">{msg}</p>}
 
                 {user ? (
                   claimed ? (
-                    <p className="text-sm text-green-600 font-medium">Already claimed ✓</p>
+                    <p className="text-sm text-green-600 font-medium">Already claimed</p>
                   ) : (
                     <button
                       onClick={() => handleClaim(p.id)}
@@ -120,7 +189,7 @@ export default function PromotionsPage() {
                 ) : (
                   <a
                     href="/login"
-                    className="block w-full rounded-md border border-primary px-4 py-2 text-center text-sm font-medium text-primary hover:bg-primary/10"
+                    className="block w-full rounded-md border border-secondary px-4 py-2 text-center text-sm font-medium text-secondary hover:bg-primary/10"
                   >
                     Log in to claim
                   </a>

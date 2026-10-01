@@ -76,11 +76,17 @@ server {
     http2 on;
     server_name ${DOMAIN};
 
-    # Certs + recommended params provisioned into the letsencrypt volume.
+    # Cert issued into the letsencrypt volume by init-letsencrypt.sh.
     ssl_certificate     /etc/letsencrypt/live/${DOMAIN}/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/${DOMAIN}/privkey.pem;
-    include             /etc/letsencrypt/options-ssl-nginx.conf;
     ssl_dhparam         /etc/letsencrypt/ssl-dhparams.pem;
+
+    ssl_protocols             TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers on;
+    ssl_ciphers               ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256;
+    ssl_session_cache         shared:SSL:10m;
+    ssl_session_timeout       1d;
+    ssl_session_tickets       off;
 
     # --- Hardening ---
     add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
@@ -103,6 +109,7 @@ server {
     location /api/ {
         proxy_pass http://django_upstream;
         proxy_http_version 1.1;
+        proxy_set_header Host $host;
         proxy_set_header Connection "";
     }
 
@@ -112,6 +119,7 @@ server {
     location /django-admin/ {
         proxy_pass http://django_upstream;
         proxy_http_version 1.1;
+        proxy_set_header Host $host;
         proxy_set_header Connection "";
     }
 
@@ -119,6 +127,7 @@ server {
     location /django-static/ {
         proxy_pass http://django_upstream;
         proxy_http_version 1.1;
+        proxy_set_header Host $host;
         proxy_set_header Connection "";
     }
 
@@ -130,6 +139,7 @@ server {
         set $erlang_upstream erlang:8080;
         proxy_pass http://$erlang_upstream;
         proxy_http_version 1.1;
+        proxy_set_header Host       $host;
         proxy_set_header Upgrade    $http_upgrade;
         proxy_set_header Connection $connection_upgrade;
 
@@ -147,6 +157,7 @@ server {
     location /admin-portal {
         proxy_pass http://admin_upstream;
         proxy_http_version 1.1;
+        proxy_set_header Host       $host;
         proxy_set_header Upgrade    $http_upgrade;
         proxy_set_header Connection $connection_upgrade;
         proxy_read_timeout 300s;
@@ -158,6 +169,7 @@ server {
     location / {
         proxy_pass http://player_upstream;
         proxy_http_version 1.1;
+        proxy_set_header Host       $host;
         proxy_set_header Upgrade    $http_upgrade;
         proxy_set_header Connection $connection_upgrade;
         proxy_read_timeout 300s;

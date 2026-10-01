@@ -17,6 +17,8 @@ class Promotion(models.Model):
     wagering_multiplier = models.DecimalField(max_digits=5, decimal_places=2, default=1)
     starts_at = models.DateTimeField(null=True, blank=True)
     ends_at = models.DateTimeField(null=True, blank=True)
+    code = models.CharField(max_length=100, blank=True)
+    terms_html = models.TextField(blank=True)
 
     class Meta:
         db_table = 'promotions_promotion'

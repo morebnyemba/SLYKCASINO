@@ -4,15 +4,83 @@ from django.db import models
 class Event(models.Model):
     """A betting market/event."""
 
+    class Sport(models.TextChoices):
+        FOOTBALL = 'football', 'Football'
+        BASKETBALL = 'basketball', 'Basketball'
+        TENNIS = 'tennis', 'Tennis'
+        MMA = 'mma', 'MMA'
+        BOXING = 'boxing', 'Boxing'
+        BASEBALL = 'baseball', 'Baseball'
+        ATHLETICS = 'athletics', 'Athletics'
+        ESPORTS = 'esports', 'Esports'
+
     name = models.CharField(max_length=200)
+    sport = models.CharField(max_length=20, choices=Sport.choices, default=Sport.FOOTBALL, db_index=True)
+    # Maps this event to a fixture in an external provider (e.g. api-football's
+    # fixture id) so scheduled syncs can find and update it. Null for events
+    # created without a provider feed (e.g. seeded/manual markets).
+    external_id = models.CharField(max_length=32, null=True, blank=True, db_index=True)
+    provider = models.CharField(max_length=20, default='', blank=True)
+    home_team = models.ForeignKey(
+        'Team', null=True, blank=True, on_delete=models.SET_NULL, related_name='home_events',
+    )
+    away_team = models.ForeignKey(
+        'Team', null=True, blank=True, on_delete=models.SET_NULL, related_name='away_events',
+    )
+    # `odds` is the "1" (home/outcome-A) price. `odds_draw`/`odds_away` are
+    # optional — set for true 1/X/2 markets (e.g. football); left null for
+    # two-outcome sports (e.g. tennis, basketball) which only use `odds`
+    # as the "favourite" price shown in single-odds listings.
     odds = models.DecimalField(max_digits=6, decimal_places=2, default=1.95)
+    odds_draw = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True)
+    odds_away = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True)
+    previous_odds = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True)
+    # False for fixtures imported from a feed until their first odds arrive — the
+    # `odds` default above is a placeholder, not a price, and mustn't be shown or bet.
+    has_odds = models.BooleanField(default=True)
     featured = models.BooleanField(default=False)
     is_open = models.BooleanField(default=True)
     starts_at = models.DateTimeField(null=True, blank=True)
+    # Live/final score and provider match status (e.g. 'NS', '1H', 'HT', 'FT'),
+    # kept in sync from the fixtures feed. Scores are regulation time (90'), which
+    # is what match-result and goal markets settle on.
+    status = models.CharField(max_length=8, blank=True, default='')
+    elapsed = models.PositiveSmallIntegerField(null=True, blank=True)
+    score_home = models.PositiveSmallIntegerField(null=True, blank=True)
+    score_away = models.PositiveSmallIntegerField(null=True, blank=True)
+    ht_score_home = models.PositiveSmallIntegerField(null=True, blank=True)
+    ht_score_away = models.PositiveSmallIntegerField(null=True, blank=True)
+    # Post-match facts from the provider, used to settle corners/cards/scorer
+    # markets: {"corners": [h, a], "yellow": [h, a], "red": [h, a],
+    # "goals": [{"minute", "side", "player", "own_goal", "penalty"}], "extra_time": bool}.
+    match_facts = models.JSONField(null=True, blank=True)
+    # In-play: when the live odds feed last priced this match (None = not trading
+    # live / suspended), and when the score last changed — a bet placed before a
+    # goal the feed hadn't caught yet is rejected on confirmation.
+    live_odds_at = models.DateTimeField(null=True, blank=True)
+    last_goal_at = models.DateTimeField(null=True, blank=True)
+    # Whether the live feed is currently offering the headline 1X2.
+    live_main_open = models.BooleanField(default=False)
 
     class Meta:
         db_table = 'sportsbook_event'
         ordering = ['-featured', 'name']
+        constraints = [
+            # Only enforced for provider-linked events — manually seeded ones
+            # (provider='', external_id=None) are exempt so multiple can coexist.
+            models.UniqueConstraint(
+                fields=['provider', 'external_id'],
+                condition=models.Q(external_id__isnull=False),
+                name='unique_provider_external_id',
+            ),
+        ]
 
     def __str__(self) -> str:
         return self.name
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            prior = Event.objects.filter(pk=self.pk).values_list('odds', flat=True).first()
+            if prior is not None and prior != self.odds:
+                self.previous_odds = prior
+        super().save(*args, **kwargs)

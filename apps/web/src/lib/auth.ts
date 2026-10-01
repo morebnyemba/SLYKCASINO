@@ -1,6 +1,7 @@
 'use client';
 
 import { config } from './config';
+import { clearReferral, getReferral } from './referral';
 
 export interface AuthTokens {
   access: string;
@@ -53,7 +54,9 @@ export async function apiLogin(email: string, password: string): Promise<AuthTok
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error((err as { detail?: string }).detail ?? 'Login failed');
+    const detail = (err as Record<string, unknown>).detail
+      ?? Object.values(err as Record<string, string[]>).flat().join(' ');
+    throw new Error(String(detail) || 'Login failed');
   }
   return res.json() as Promise<AuthTokens>;
 }
@@ -62,18 +65,34 @@ export async function apiRegister(
   username: string,
   email: string,
   password: string,
+  acceptTerms: boolean,
   currency = 'USD',
 ): Promise<void> {
   const res = await fetch(`${config.apiUrl}/auth/register/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username, email, password, currency }),
+    // Attribute the signup to the affiliate link the visitor came through, if any.
+    body: JSON.stringify({ username, email, password, currency, accept_terms: acceptTerms, ...(getReferral() ?? {}) }),
   });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    const detail = (err as Record<string, unknown>).detail
-      ?? Object.values(err as Record<string, string[]>).flat().join(' ');
-    throw new Error(String(detail) || 'Registration failed');
+  if (res.ok) { clearReferral(); return; }
+  const err = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  // DRF field errors ({"email": ["…"]}) go under their inputs; "detail" is form-wide.
+  const fields: Record<string, string> = {};
+  for (const [key, value] of Object.entries(err)) {
+    if (key !== 'detail') fields[key] = Array.isArray(value) ? value.join(' ') : String(value);
+  }
+  const detail = typeof err.detail === 'string' ? err.detail : '';
+  const fallback = res.status === 429
+    ? 'Too many attempts. Please wait a minute and try again.'
+    : res.status >= 500 ? 'Our server had a problem creating your account. Please try again shortly.' : 'Registration failed';
+  throw new RegisterError(detail || (Object.keys(fields).length ? '' : fallback), fields);
+}
+
+/** A failed signup: a form-wide message and/or per-field messages. */
+export class RegisterError extends Error {
+  constructor(message: string, readonly fields: Record<string, string> = {}) {
+    super(message);
+    this.name = 'RegisterError';
   }
 }
 

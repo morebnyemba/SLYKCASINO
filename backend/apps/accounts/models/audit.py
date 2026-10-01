@@ -10,6 +10,9 @@ class AuditLog(models.Model):
         WITHDRAWAL = 'withdrawal', 'Withdrawal'
         BET_PLACED = 'bet_placed', 'Bet placed'
         BET_SETTLED = 'bet_settled', 'Bet settled'
+        EVENT_SETTLED = 'event_settled', 'Event settled (result)'
+        EVENT_SETTLED_SCORE = 'event_settled_score', 'Event settled (score)'
+        MARKET_SETTLED = 'market_settled', 'Market settled'
         CASINO_SPIN = 'casino_spin', 'Casino spin'
         PROMO_CLAIM = 'promo_claim', 'Promotion claimed'
         SELF_EXCLUDE = 'self_exclude', 'Self-exclusion'
@@ -18,6 +21,18 @@ class AuditLog(models.Model):
         PASSWORD_RESET = 'password_reset', 'Password reset'
         DATA_EXPORT = 'data_export', 'Data export'
         ACCOUNT_DELETED = 'account_deleted', 'Account deleted'
+        KYC_SUBMITTED = 'kyc_submitted', 'KYC document submitted'
+        KYC_APPROVED = 'kyc_approved', 'KYC approved'
+        KYC_REJECTED = 'kyc_rejected', 'KYC rejected'
+        PLAYER_SUSPENDED = 'player_suspended', 'Player suspended'
+        PLAYER_UNSUSPENDED = 'player_unsuspended', 'Player unsuspended'
+        BALANCE_ADJUSTED = 'balance_adjusted', 'Balance adjusted'
+        THEME_UPDATED = 'theme_updated', 'Site theme updated'
+        IDENTITY_UPDATED = 'identity_updated', 'Site identity updated'
+        AFFILIATE_APPLIED = 'affiliate_applied', 'Affiliate applied'
+        AFFILIATE_STATUS = 'affiliate_status', 'Affiliate status changed'
+        AFFILIATE_TERMS = 'affiliate_terms', 'Affiliate terms changed'
+        AFFILIATE_COMMISSION_PAID = 'affiliate_commission_paid', 'Affiliate commission paid'
 
     player_id = models.BigIntegerField(null=True, blank=True, db_index=True)
     event_type = models.CharField(max_length=30, choices=EventType.choices, db_index=True)

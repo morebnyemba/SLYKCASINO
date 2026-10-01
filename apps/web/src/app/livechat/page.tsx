@@ -14,6 +14,7 @@ interface Message {
   body: string;
   created_at: string;
   player_id?: number | null;
+  is_agent?: boolean;
 }
 
 type WsStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
@@ -26,6 +27,8 @@ export default function LiveChatPage() {
   const [wsStatus, setWsStatus] = useState<WsStatus>('connecting');
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const socketRef = useRef<WebSocket | null>(null);
 
@@ -36,11 +39,31 @@ export default function LiveChatPage() {
       .then((data) => {
         if (data?.results) {
           // API returns newest-first; reverse for display
-          setMessages([...(data.results as Message[])].reverse());
+          const results = data.results as Message[];
+          setMessages([...results].reverse());
+          setHasMore(results.length >= 50);
         }
       })
       .catch(() => {});
   }, []);
+
+  async function loadOlder() {
+    if (messages.length === 0 || loadingMore) return;
+    setLoadingMore(true);
+    const oldestId = messages[0].id;
+    try {
+      const res = await fetch(`${config.apiUrl}/chat/?channel=lobby&before=${oldestId}`, { cache: 'no-store' });
+      const data = res.ok ? await res.json() : null;
+      const results = (data?.results ?? []) as Message[];
+      if (results.length > 0) {
+        setMessages((prev) => [...[...results].reverse(), ...prev]);
+      }
+      setHasMore(results.length >= 50);
+    } catch {
+      setHasMore(false);
+    }
+    setLoadingMore(false);
+  }
 
   // WebSocket for live incoming messages
   useEffect(() => {
@@ -122,6 +145,17 @@ export default function LiveChatPage() {
       <Card className="flex flex-1 flex-col overflow-hidden">
         {/* Message list */}
         <CardContent className="flex-1 overflow-y-auto p-4 space-y-3">
+          {hasMore && (
+            <div className="flex justify-center pb-1">
+              <button
+                onClick={loadOlder}
+                disabled={loadingMore}
+                className="rounded-md border border-border px-3 py-1 text-xs font-medium text-muted-foreground hover:bg-accent/10 disabled:opacity-50"
+              >
+                {loadingMore ? 'Loading…' : 'Load older messages'}
+              </button>
+            </div>
+          )}
           {messages.length === 0 && (
             <p className="text-center text-sm text-muted-foreground pt-8">
               No messages yet — be the first to say hello!
@@ -136,7 +170,12 @@ export default function LiveChatPage() {
                 </div>
                 <div className={`max-w-[75%] rounded-2xl px-4 py-2 text-sm ${isMe ? 'rounded-tr-sm bg-primary text-primary-foreground' : 'rounded-tl-sm bg-muted'}`}>
                   {!isMe && (
-                    <p className="mb-0.5 text-xs font-semibold text-muted-foreground">{m.sender}</p>
+                    <p className="mb-0.5 flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
+                      {m.sender}
+                      {m.is_agent && (
+                        <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-secondary">Agent</span>
+                      )}
+                    </p>
                   )}
                   <p>{m.body}</p>
                   <p className={`mt-0.5 text-[10px] ${isMe ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}>
@@ -170,7 +209,7 @@ export default function LiveChatPage() {
             </form>
           ) : (
             <p className="text-center text-sm text-muted-foreground">
-              <a href="/login" className="text-primary hover:underline">Log in</a> to send messages.
+              <a href="/login" className="text-secondary hover:underline">Log in</a> to send messages.
             </p>
           )}
         </div>

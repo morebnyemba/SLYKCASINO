@@ -65,7 +65,11 @@ services:
     <<: *restart
     image: slykcasino/django:latest
     env_file: .env.prod
-    command: gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 4 --timeout 120
+    environment:
+      GUNICORN_WORKERS: "4"
+    # entrypoint.sh applies migrations, runs collectstatic, then execs gunicorn
+    # — all inside this same persistent container, so static files & schema
+    # always match the code actually running (no separate `run --rm` needed).
     expose:
       - "8000"
     depends_on:
@@ -105,6 +109,10 @@ services:
   erlang:
     <<: *restart
     image: slykcasino/erlang-ws:latest
+    environment:
+      # Shared with django's DJANGO_SECRET_KEY (from .env.prod) — authenticates
+      # internal /publish calls and signs admin:* WebSocket join tickets.
+      REALTIME_SHARED_SECRET: ${DJANGO_SECRET_KEY}
     expose:
       - "8080"
     depends_on:
@@ -137,6 +145,11 @@ services:
   nginx:
     <<: *restart
     image: nginx:1.27-alpine
+    # Skip the stock docker-entrypoint.sh: it tries to envsubst its bundled
+    # /etc/nginx/templates/default.conf.template into conf.d, which we mount
+    # read-only with our own static config. That write failure is fatal and
+    # crash-loops the container before nginx ever starts, so exec it directly.
+    entrypoint: ["nginx", "-g", "daemon off;"]
     ports:
       - "80:80"
       - "443:443"

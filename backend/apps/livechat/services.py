@@ -10,10 +10,12 @@ from .clients import RealtimePublisherClient
 from .models import ChatMessage
 
 
-def list_messages(channel: Optional[str] = None, limit: int = 50):
+def list_messages(channel: Optional[str] = None, limit: int = 50, before_id: Optional[int] = None):
     qs = ChatMessage.objects.all()
     if channel:
         qs = qs.filter(channel=channel)
+    if before_id is not None:
+        qs = qs.filter(id__lt=before_id)
     return qs[:limit]
 
 

@@ -2,15 +2,15 @@ import type { Metadata } from 'next';
 import { LegalLayout } from '@/components/legal-layout';
 
 export const metadata: Metadata = {
-  title: 'Privacy Policy — SLYK Casino',
-  description: 'How SLYK Casino collects, uses, and protects your personal data.',
+  title: 'Privacy Policy — BetBlits',
+  description: 'How BetBlits collects, uses, and protects your personal data.',
 };
 
 export default function PrivacyPolicyPage() {
   return (
     <LegalLayout title="Privacy Policy" effectiveDate="[INSERT EFFECTIVE DATE]">
       <p>
-        <strong>[COMPANY LEGAL NAME]</strong> (&quot;SLYK Casino&quot;, &quot;we&quot;, &quot;us&quot;) respects your
+        <strong>[COMPANY LEGAL NAME]</strong> (&quot;BetBlits&quot;, &quot;we&quot;, &quot;us&quot;) respects your
         privacy. This Privacy Policy explains what personal data we collect, why we collect it, how it is used,
         and the rights available to you, in line with the EU/UK General Data Protection Regulation (GDPR), the
         California Consumer Privacy Act (CCPA/CPRA), and other applicable data protection laws.
@@ -18,7 +18,7 @@ export default function PrivacyPolicyPage() {
 
       <h2>1. Who We Are</h2>
       <p>
-        SLYK Casino is operated by <strong>[COMPANY LEGAL NAME]</strong>, registered at{' '}
+        BetBlits is operated by <strong>[COMPANY LEGAL NAME]</strong>, registered at{' '}
         <strong>[REGISTERED ADDRESS]</strong>. For data protection queries, contact our Data Protection Officer /
         privacy team at <strong>[PRIVACY EMAIL]</strong>.
       </p>
@@ -31,7 +31,7 @@ export default function PrivacyPolicyPage() {
         <li><strong>Gameplay data:</strong> bets placed, casino round outcomes, sportsbook activity, promotional activity.</li>
         <li><strong>Responsible gambling data:</strong> deposit limits, self-exclusion status and history.</li>
         <li><strong>Communications:</strong> live chat messages, support tickets, emails.</li>
-        <li><strong>Technical data:</strong> IP address, device/browser information, cookies and similar identifiers (see our <a href="/legal/cookie-policy">Cookie Policy</a>).</li>
+        <li><strong>Technical data:</strong> IP address, device/browser information, cookies and similar identifiers (see our <a href="/legal/cookies">Cookie Policy</a>).</li>
       </ul>
 
       <h2>3. Why We Process Your Data (Legal Basis)</h2>
@@ -110,7 +110,7 @@ export default function PrivacyPolicyPage() {
 
       <h2>11. Cookies</h2>
       <p>
-        We use cookies and similar technologies as described in our <a href="/legal/cookie-policy">Cookie Policy</a>.
+        We use cookies and similar technologies as described in our <a href="/legal/cookies">Cookie Policy</a>.
       </p>
 
       <h2>12. Changes to This Policy</h2>

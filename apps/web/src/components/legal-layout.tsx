@@ -2,8 +2,8 @@ import Link from 'next/link';
 
 const legalLinks = [
   { href: '/legal/terms', label: 'Terms & Conditions' },
-  { href: '/legal/privacy-policy', label: 'Privacy Policy' },
-  { href: '/legal/cookie-policy', label: 'Cookie Policy' },
+  { href: '/legal/privacy', label: 'Privacy Policy' },
+  { href: '/legal/cookies', label: 'Cookie Policy' },
   { href: '/legal/responsible-gambling', label: 'Responsible Gambling' },
   { href: '/legal/aml-kyc-policy', label: 'AML & KYC Policy' },
 ];

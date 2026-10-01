@@ -50,26 +50,43 @@ def get_balance_dto(player_id: int) -> BalanceDTO:
 @transaction.atomic
 def post_entry(
     *, player_id: int, amount: Decimal, kind: str,
-    idempotency_key: str, reference: str = '',
+    idempotency_key: str, reference: str = '', require_non_negative: bool = False,
 ) -> LedgerEntry:
     """Append one signed movement and update the cached balance — idempotently.
 
     If `idempotency_key` already exists, the existing entry is returned and the
     balance is NOT touched (no double-spend / no duplicate ledger row).
+
+    The wallet row is locked with `select_for_update()` for the lifetime of this
+    transaction, so concurrent calls for the same player fully serialize. The
+    funds check (when `require_non_negative`) happens *after* acquiring that
+    lock and *before* writing the entry, which is what makes it race-free: two
+    concurrent debits against the same balance can no longer both pass the
+    check (previously the check ran outside the lock — see InsufficientFunds).
+
+    Checked once before the lock (cheap bail-out for the common idempotent
+    retry) and again after acquiring it (correctness for two requests racing
+    on the same key), so a retry storm doesn't serialize on row locks it
+    doesn't need.
     """
+    existing = LedgerEntry.objects.filter(idempotency_key=idempotency_key).first()
+    if existing is not None:
+        return existing
     wallet = Wallet.objects.select_for_update().get(player_id=player_id)
-    entry, created = LedgerEntry.objects.get_or_create(
-        idempotency_key=idempotency_key,
-        defaults={
-            'wallet': wallet,
-            'amount': utils.quantize(amount),
-            'kind': kind,
-            'reference': reference,
-        },
+    existing = LedgerEntry.objects.filter(idempotency_key=idempotency_key).first()
+    if existing is not None:
+        return existing  # idempotent replay: no balance change, no funds re-check
+    quantized_amount = utils.quantize(amount)
+    if require_non_negative:
+        projected = utils.quantize(Decimal(wallet.balance) + quantized_amount)
+        if projected < 0:
+            raise InsufficientFunds(f'player {player_id} cannot be debited {abs(quantized_amount)}')
+    entry = LedgerEntry.objects.create(
+        wallet=wallet, idempotency_key=idempotency_key,
+        amount=quantized_amount, kind=kind, reference=reference,
     )
-    if created:
-        wallet.balance = utils.quantize(Decimal(wallet.balance) + entry.amount)
-        wallet.save(update_fields=['balance', 'updated_at'])
+    wallet.balance = utils.quantize(Decimal(wallet.balance) + quantized_amount)
+    wallet.save(update_fields=['balance', 'updated_at'])
     return entry
 
 
@@ -79,11 +96,10 @@ def debit(
 ) -> LedgerEntry:
     """Debit a positive magnitude. Funds are checked unless `allow_negative`."""
     magnitude = utils.quantize(abs(amount))
-    if not allow_negative and not utils.has_sufficient_funds(get_balance(player_id), magnitude):
-        raise InsufficientFunds(f'player {player_id} cannot be debited {magnitude}')
     return post_entry(
         player_id=player_id, amount=utils.to_debit(magnitude), kind=kind,
         idempotency_key=idempotency_key, reference=reference,
+        require_non_negative=not allow_negative,
     )
 
 
@@ -101,6 +117,27 @@ def recompute_balance(player_id: int) -> Decimal:
     """Authoritative balance from the ledger (used by recovery & audits)."""
     amounts = LedgerEntry.objects.filter(wallet__player_id=player_id).values_list('amount', flat=True)
     return utils.sum_entries(amounts)
+
+
+def totals_by_kind(
+    player_ids: list[int], *, start=None, end=None,
+) -> dict[int, dict[str, Decimal]]:
+    """Read-only: the signed sum of each player's ledger entries per kind over
+    [start, end) — e.g. for affiliate revenue reports. Players with no entries in
+    the window are absent from the result."""
+    from django.db.models import Sum
+
+    if not player_ids:
+        return {}
+    qs = LedgerEntry.objects.filter(wallet__player_id__in=player_ids)
+    if start is not None:
+        qs = qs.filter(created_at__gte=start)
+    if end is not None:
+        qs = qs.filter(created_at__lt=end)
+    totals: dict[int, dict[str, Decimal]] = {}
+    for row in qs.values('wallet__player_id', 'kind').annotate(total=Sum('amount')):
+        totals.setdefault(row['wallet__player_id'], {})[row['kind']] = row['total'] or Decimal('0')
+    return totals
 
 
 def list_entries(player_id: int, limit: int = 50) -> list[LedgerEntryDTO]:

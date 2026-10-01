@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { LegalLayout } from '@/components/legal-layout';
 
 export const metadata: Metadata = {
-  title: 'Responsible Gambling — SLYK Casino',
+  title: 'Responsible Gambling — BetBlits',
   description: 'Tools, resources, and support for safer, controlled play.',
 };
 
@@ -12,7 +12,7 @@ export default function ResponsibleGamblingPage() {
     <LegalLayout title="Responsible Gambling" effectiveDate="[INSERT EFFECTIVE DATE]">
       <p>
         Gambling should always be entertaining and never a way to make money or escape financial or personal
-        problems. SLYK Casino is committed to promoting safer gambling and providing tools and resources to help
+        problems. BetBlits is committed to promoting safer gambling and providing tools and resources to help
         you stay in control.
       </p>
 

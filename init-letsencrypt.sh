@@ -11,10 +11,16 @@
 # =============================================================================
 set -euo pipefail
 
-# Load DOMAIN / CERTBOT_EMAIL from .env
-if [ -f .env ]; then set -a; . ./.env; set +a; fi
-: "${DOMAIN:?Set DOMAIN in .env}"
-: "${CERTBOT_EMAIL:?Set CERTBOT_EMAIL in .env}"
+# Load DOMAIN / CERTBOT_EMAIL from .env, then .env.prod if present — the prod
+# file wins on any key present in both, since it's the one actually driving a
+# production deploy. (A stale, never-edited .env left over from local dev
+# would otherwise silently override a correct DOMAIN in .env.prod here.)
+set -a
+[ -f .env ] && . ./.env
+[ -f .env.prod ] && . ./.env.prod
+set +a
+: "${DOMAIN:?Set DOMAIN in .env or .env.prod}"
+: "${CERTBOT_EMAIL:?Set CERTBOT_EMAIL in .env or .env.prod}"
 
 STAGING="${STAGING:-0}"   # set STAGING=1 to test against LE staging (avoids rate limits)
 LE_PATH="/etc/letsencrypt/live/$DOMAIN"
@@ -25,10 +31,12 @@ LE_PATH="/etc/letsencrypt/live/$DOMAIN"
 # silently breaking production nginx/cert issuance.
 COMPOSE="docker compose -f docker-compose.yml"
 
-echo "### Fetching recommended TLS params into the letsencrypt volume ..."
+echo "### Generating TLS dhparams into the letsencrypt volume ..."
+# NOTE: this used to also curl the recommended options-ssl-nginx.conf from
+# GitHub, but the certbot/certbot image has no curl (and no network
+# dependency should gate cert issuance anyway) — nginx/templates now inlines
+# the same ssl_protocols/ssl_ciphers directly instead of `include`-ing it.
 $COMPOSE run --rm --entrypoint "/bin/sh -c '\
-  curl -s https://raw.githubusercontent.com/certbot/certbot/master/certbot-nginx/certbot_nginx/_internal/tls_configs/options-ssl-nginx.conf \
-    -o /etc/letsencrypt/options-ssl-nginx.conf; \
   openssl dhparam -out /etc/letsencrypt/ssl-dhparams.pem 2048'" certbot
 
 echo "### Creating a temporary self-signed cert so nginx can boot ..."
@@ -39,7 +47,13 @@ $COMPOSE run --rm --entrypoint "/bin/sh -c '\
     -subj \"/CN=localhost\"'" certbot
 
 echo "### Starting nginx ..."
-$COMPOSE up -d nginx
+# --no-deps: `up -d nginx` otherwise cascades through nginx's depends_on
+# (player_frontend, admin_frontend, django, erlang, which themselves depend
+# on postgres/redis) and replaces an already-running prod stack — started via
+# `-f docker-compose.yml -f docker-compose.prod.yml` — with the plain
+# docker-compose.yml topology (different volumes, different baked domain).
+# We only need nginx itself up to answer the ACME http-01 challenge.
+$COMPOSE up -d --no-deps nginx
 
 echo "### Deleting dummy cert ..."
 $COMPOSE run --rm --entrypoint "/bin/sh -c 'rm -rf $LE_PATH'" certbot

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { FaChartLine } from 'react-icons/fa';
 import { RealtimeFeed } from '@/components/realtime-feed';
 import { Card } from '@slyk/ui/components/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@slyk/ui/components/table';
@@ -44,9 +45,14 @@ export default function BettingFeedsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Live Betting Feeds</h1>
-        <p className="text-muted-foreground">Monitor incoming bets and odds movements across markets.</p>
+      <div className="flex items-center gap-2.5">
+        <span className="flex h-8 w-8 items-center justify-center rounded-full bg-gold/15 text-gold">
+          <FaChartLine size={13} />
+        </span>
+        <div>
+          <h1 className="text-2xl font-bold">Live Betting Feeds</h1>
+          <p className="text-muted-foreground">Monitor incoming bets and odds movements across markets.</p>
+        </div>
       </div>
 
       {/* Live WebSocket streams */}
@@ -58,7 +64,7 @@ export default function BettingFeedsPage() {
       {/* Recent bets from API */}
       <div>
         <h2 className="mb-3 text-lg font-semibold">Recent bets (all players)</h2>
-        <Card className="p-2">
+        <Card className="rounded-2xl border-gold/15 p-2">
           <Table>
             <TableHeader>
               <TableRow>
@@ -102,9 +108,9 @@ export default function BettingFeedsPage() {
                             disabled={settling === b.id}
                             className={`rounded px-2 py-1 text-xs font-medium disabled:opacity-50 ${
                               outcome === 'won'
-                                ? 'bg-green-600 text-white hover:bg-green-700'
+                                ? 'bg-win text-white hover:opacity-90'
                                 : outcome === 'lost'
-                                ? 'bg-red-600 text-white hover:bg-red-700'
+                                ? 'bg-down text-white hover:opacity-90'
                                 : 'bg-muted hover:bg-accent'
                             }`}
                           >

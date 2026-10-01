@@ -2,8 +2,8 @@ import type { Metadata } from 'next';
 import { LegalLayout } from '@/components/legal-layout';
 
 export const metadata: Metadata = {
-  title: 'Terms & Conditions — SLYK Casino',
-  description: 'Terms and conditions governing use of the SLYK Casino platform.',
+  title: 'Terms & Conditions — BetBlits',
+  description: 'Terms and conditions governing use of the BetBlits platform.',
 };
 
 export default function TermsPage() {
@@ -12,17 +12,17 @@ export default function TermsPage() {
       <p>
         These Terms & Conditions (&quot;Terms&quot;) form a binding agreement between you (&quot;Player&quot;,
         &quot;you&quot;) and <strong>[COMPANY LEGAL NAME]</strong>, registered at <strong>[REGISTERED ADDRESS]</strong>
-        (&quot;SLYK Casino&quot;, &quot;we&quot;, &quot;us&quot;), governing your access to and use of the SLYK
+        (&quot;BetBlits&quot;, &quot;we&quot;, &quot;us&quot;), governing your access to and use of the BetBlits
         Casino website, sportsbook, and casino games (the &quot;Service&quot;). By creating an account or using the
         Service you agree to be bound by these Terms, our{' '}
-        <a href="/legal/privacy-policy">Privacy Policy</a>, <a href="/legal/cookie-policy">Cookie Policy</a>,{' '}
+        <a href="/legal/privacy">Privacy Policy</a>, <a href="/legal/cookies">Cookie Policy</a>,{' '}
         <a href="/legal/responsible-gambling">Responsible Gambling Policy</a>, and{' '}
         <a href="/legal/aml-kyc-policy">AML &amp; KYC Policy</a>. If you do not agree, you must not use the Service.
       </p>
 
       <h2>1. Licensing & Eligibility</h2>
       <p>
-        SLYK Casino operates under licence <strong>[LICENCE NUMBER / REGULATOR — INSERT ONCE LICENSED]</strong>.
+        BetBlits operates under licence <strong>[LICENCE NUMBER / REGULATOR — INSERT ONCE LICENSED]</strong>.
         Until a licence is obtained and confirmed here, the Service should be treated as operating in a pre-launch
         or test capacity and is not available to residents of jurisdictions where online gambling is prohibited or
         unlicensed.
@@ -85,13 +85,13 @@ export default function TermsPage() {
       <h2>8. Intellectual Property</h2>
       <p>
         All content on the Service, including software, graphics, trademarks, and game assets, is owned by or
-        licensed to SLYK Casino and protected by applicable intellectual property laws. You may not copy,
+        licensed to BetBlits and protected by applicable intellectual property laws. You may not copy,
         reproduce, distribute, or create derivative works without our prior written consent.
       </p>
 
       <h2>9. Limitation of Liability</h2>
       <p>
-        To the maximum extent permitted by law, SLYK Casino is not liable for indirect, incidental, or
+        To the maximum extent permitted by law, BetBlits is not liable for indirect, incidental, or
         consequential damages arising from your use of the Service, including losses from internet connectivity
         issues, technical faults, or unauthorized account access not caused by our negligence. Nothing in these
         Terms limits liability that cannot be excluded under applicable law.

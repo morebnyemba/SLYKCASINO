@@ -1,0 +1,16 @@
+from django.db import migrations
+
+
+class Migration(migrations.Migration):
+
+    dependencies = [
+        ("notifications", "0001_initial"),
+    ]
+
+    operations = [
+        migrations.RenameIndex(
+            model_name="notification",
+            new_name="notificatio_player__3ede4c_idx",
+            old_name="notif_player_read_idx",
+        ),
+    ]

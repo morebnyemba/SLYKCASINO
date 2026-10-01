@@ -19,6 +19,7 @@ class LedgerEntry(models.Model):
         CASINO_CREDIT = 'casino_credit', 'Casino credit'
         BONUS = 'bonus', 'Bonus credit'
         ADJUSTMENT = 'adjustment', 'Manual adjustment'
+        AFFILIATE = 'affiliate', 'Affiliate commission'
 
     wallet = models.ForeignKey(
         'wallet.Wallet', on_delete=models.CASCADE, related_name='entries',

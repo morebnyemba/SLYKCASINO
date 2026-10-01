@@ -53,6 +53,7 @@ can recompute them without persistence.
 | `casino` | `retry_casino_debit_sequence` | rounds `PENDING`, `debit_confirmed=False` | confirm if debit exists; else drive keyed debit; else VOID |
 | `promotions` | `reconcile_promotion_claims` | uncredited bonuses; expired claims | keyed bonus re-credit (flag-gated); ACTIVE→EXPIRED |
 | `accounts` | `RecoveryManager` (KYC) | players stuck `pending` past SLA | re-drive provider verification (forward-only transitions) |
+| `affiliates` | `RecoveryManager` (payouts) | commissions stuck `APPROVED` | keyed wallet credit `wallet:affiliate:<id>:payout`, then PAID |
 | `livechat` | `reconcile_undelivered_messages` | messages `delivered=False` | re-publish; flag-gated one-way transition |
 
 Each manager subclasses `common.recovery.BaseRecoveryManager`, supports

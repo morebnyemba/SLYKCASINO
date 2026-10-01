@@ -19,6 +19,7 @@ class PaymentResult:
     amount: Decimal
     currency: str
     raw: dict              # raw provider response
+    player_id: int | None = None  # extracted from provider metadata, when available
 
 
 class BasePSP(ABC):

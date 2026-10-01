@@ -2,15 +2,15 @@ import type { Metadata } from 'next';
 import { LegalLayout } from '@/components/legal-layout';
 
 export const metadata: Metadata = {
-  title: 'Cookie Policy — SLYK Casino',
-  description: 'How SLYK Casino uses cookies and similar technologies.',
+  title: 'Cookie Policy — BetBlits',
+  description: 'How BetBlits uses cookies and similar technologies.',
 };
 
 export default function CookiePolicyPage() {
   return (
     <LegalLayout title="Cookie Policy" effectiveDate="[INSERT EFFECTIVE DATE]">
       <p>
-        This Cookie Policy explains how <strong>[COMPANY LEGAL NAME]</strong> (&quot;SLYK Casino&quot;) uses
+        This Cookie Policy explains how <strong>[COMPANY LEGAL NAME]</strong> (&quot;BetBlits&quot;) uses
         cookies and similar tracking technologies on our website, and how you can control them, in line with the
         EU ePrivacy Directive, GDPR, and other applicable laws.
       </p>
