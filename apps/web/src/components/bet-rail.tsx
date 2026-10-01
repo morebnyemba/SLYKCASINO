@@ -1,11 +1,13 @@
 'use client';
 
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { BsChevronDoubleRight, BsReceipt, BsTicketPerforated } from 'react-icons/bs';
 import { SlipBody } from '@/components/betslip-panel';
 import { BetTicket, sortTickets, ticketFromBet, ticketFromSlip, type ApiBet, type ApiSlip } from '@/components/bet-ticket';
 import { useAuth } from '@/lib/auth-context';
+import { isAuthRoute } from '@/lib/auth-routes';
 import { useBetslip } from '@/lib/betslip-context';
 import { useApi } from '@/lib/use-api';
 import { useShell } from '@/lib/shell-context';
@@ -102,6 +104,7 @@ export function BetRail() {
   const { legs, status } = useBetslip();
   const { setRailPref } = useShell();
   const [tab, setTab] = useState<'slip' | 'bets'>('slip');
+  const onAuthPage = isAuthRoute(usePathname());
 
   // A new pick always brings the slip tab forward, and the first pick re-opens the
   // rail even if the player hid it earlier. An emptied slip hands control back to
@@ -122,7 +125,7 @@ export function BetRail() {
     prevCount.current = legs.length;
   }, [legs.length, status, setRailPref]);
 
-  if (!open) return null;
+  if (!open || onAuthPage) return null;
 
   const tabClass = (active: boolean) =>
     `relative flex h-full flex-1 items-center justify-center gap-2 text-sm font-extrabold transition-colors ${
