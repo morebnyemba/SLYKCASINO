@@ -17,8 +17,8 @@ const TABS: { key: Tab; label: string }[] = [
 ];
 
 export default function MyBetsPage() {
-  const { data, loading, error } = useApi<{ results?: ApiBet[] }>('/bets/');
-  const { data: slipsData, loading: slipsLoading, error: slipsError } = useApi<{ results?: ApiSlip[] }>('/betslips/');
+  const { data, loading, error } = useApi<{ results?: ApiBet[] }>('/bets/', { allPages: true });
+  const { data: slipsData, loading: slipsLoading, error: slipsError } = useApi<{ results?: ApiSlip[] }>('/betslips/', { allPages: true });
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   const [tab, setTab] = useState<Tab>('all');
@@ -28,7 +28,9 @@ export default function MyBetsPage() {
     [data, slipsData],
   );
   const inRange = all.filter((t) => {
-    const d = t.placedAt.slice(0, 10);
+    // Local calendar date, matching the date inputs and the ticket header.
+    const p = new Date(t.placedAt);
+    const d = `${p.getFullYear()}-${String(p.getMonth() + 1).padStart(2, '0')}-${String(p.getDate()).padStart(2, '0')}`;
     if (fromDate && d < fromDate) return false;
     if (toDate && d > toDate) return false;
     return true;

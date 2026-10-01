@@ -9,11 +9,28 @@ class Command(BaseCommand):
     help = 'Seed demo casino games, sportsbook events, and promotions (idempotent).'
 
     def handle(self, *args, **options):
+        self._rebrand_legacy_demo()
         self._seed_games()
         self._seed_events()
         self._seed_promotions()
         self._seed_tournaments()
         self._seed_banners()
+
+    def _rebrand_legacy_demo(self):
+        """Rows seeded before the SLYK -> BetBlits rebrand: rename them in place
+        (get_or_create below only applies new values when it creates a row)."""
+        from apps.casino.models import Game
+        from apps.promotions.models import Banner, Tournament
+        old, new = 'SLYK Aviator', 'BetBlits Aviator'
+        renamed = Game.objects.filter(name=old).update(name=new)
+        if not Banner.objects.filter(title=new).exists():
+            renamed += Banner.objects.filter(title=old).update(title=new)
+        for t in Tournament.objects.filter(description__contains=old):
+            t.description = t.description.replace(old, new)
+            t.save(update_fields=['description'])
+            renamed += 1
+        if renamed:
+            self.stdout.write(f'  Renamed {renamed} legacy SLYK demo row(s)')
 
     def _seed_games(self):
         from apps.casino.models import Game

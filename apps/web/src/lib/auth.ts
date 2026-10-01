@@ -65,13 +65,14 @@ export async function apiRegister(
   username: string,
   email: string,
   password: string,
+  acceptTerms: boolean,
   currency = 'USD',
 ): Promise<void> {
   const res = await fetch(`${config.apiUrl}/auth/register/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     // Attribute the signup to the affiliate link the visitor came through, if any.
-    body: JSON.stringify({ username, email, password, currency, ...(getReferral() ?? {}) }),
+    body: JSON.stringify({ username, email, password, currency, accept_terms: acceptTerms, ...(getReferral() ?? {}) }),
   });
   if (res.ok) { clearReferral(); return; }
   const err = (await res.json().catch(() => ({}))) as Record<string, unknown>;

@@ -88,14 +88,14 @@ export default function RegisterPage() {
     setLoading(true);
     if (refCode) setReferral(refCode);
     try {
-      await register(username, email.trim(), password);
+      await register(username, email.trim(), password, terms);
       router.push('/account/profile');
     } catch (err) {
       if (err instanceof AccountCreatedError) {
         setAccountCreated(true);
       } else if (err instanceof RegisterError) {
-        const { username: u, email: em, password: pw, ...rest } = err.fields;
-        setErrors({ username: u, email: em, password: pw });
+        const { username: u, email: em, password: pw, accept_terms: tm, ...rest } = err.fields;
+        setErrors({ username: u, email: em, password: pw, terms: tm });
         setFormError(err.message || Object.values(rest).join(' '));
       } else {
         setFormError('Could not reach the server. Check your connection and try again.');

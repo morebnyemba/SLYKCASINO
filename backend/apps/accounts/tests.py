@@ -4,6 +4,7 @@ from __future__ import annotations
 from decimal import Decimal
 
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.test import TestCase
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -31,11 +32,13 @@ def _make_player(username='testplayer', email='test@example.com', password='Pass
 
 class RegisterTests(TestCase):
     def setUp(self):
+        cache.clear()  # signup is rate limited per IP; start each test with a clean slate
         self.client = APIClient()
 
     def test_register_creates_player_and_wallet(self):
         resp = self.client.post('/api/auth/register/', {
             'username': 'newuser', 'email': 'newuser@example.com', 'password': 'Str0ngPass!',
+            'accept_terms': True,
         }, format='json')
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
         self.assertTrue(Player.objects.filter(username='newuser').exists())
@@ -45,14 +48,14 @@ class RegisterTests(TestCase):
     def test_register_duplicate_username_fails(self):
         _make_player(username='dupuser', email='dup@example.com')
         resp = self.client.post('/api/auth/register/', {
-            'username': 'dupuser', 'email': 'other@example.com', 'password': 'Str0ngPass!',
+            'username': 'dupuser', 'email': 'other@example.com', 'password': 'Str0ngPass!', 'accept_terms': True,
         }, format='json')
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_register_duplicate_email_fails(self):
         _make_player(username='emailuser', email='same@example.com')
         resp = self.client.post('/api/auth/register/', {
-            'username': 'emailuser2', 'email': 'same@example.com', 'password': 'Str0ngPass!',
+            'username': 'emailuser2', 'email': 'same@example.com', 'password': 'Str0ngPass!', 'accept_terms': True,
         }, format='json')
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
 
@@ -60,25 +63,45 @@ class RegisterTests(TestCase):
     def test_register_email_is_case_insensitive(self):
         _make_player(username='caseuser', email='case@example.com')
         resp = self.client.post('/api/auth/register/', {
-            'username': 'caseuser2', 'email': 'CASE@Example.com', 'password': 'Str0ngPass!',
+            'username': 'caseuser2', 'email': 'CASE@Example.com', 'password': 'Str0ngPass!', 'accept_terms': True,
         }, format='json')
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn('email', resp.data)
+
+    def test_register_conflicts_do_not_reveal_which_field(self):
+        _make_player(username='takenuser', email='taken@example.com')
+        by_name = self.client.post('/api/auth/register/', {
+            'username': 'TakenUser', 'email': 'fresh@example.com', 'password': 'Str0ngPass!', 'accept_terms': True,
+        }, format='json')
+        by_email = self.client.post('/api/auth/register/', {
+            'username': 'freshuser', 'email': 'taken@example.com', 'password': 'Str0ngPass!', 'accept_terms': True,
+        }, format='json')
+        self.assertEqual(by_name.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(by_name.data, by_email.data)
+        self.assertEqual(set(by_name.data), {'non_field_errors'})
+
+    def test_register_requires_terms_acceptance(self):
+        base = {'username': 'termsuser', 'email': 'terms@example.com', 'password': 'Str0ngPass!'}
+        for extra in ({}, {'accept_terms': False}):
+            resp = self.client.post('/api/auth/register/', {**base, **extra}, format='json')
+            self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertIn('accept_terms', resp.data)
+        self.assertFalse(Player.objects.filter(username='termsuser').exists())
 
     def test_register_reports_field_errors(self):
         resp = self.client.post('/api/auth/register/', {
-            'username': '!!', 'email': 'f@example.com', 'password': '12345678', 'currency': 'ZZZ',
+            'username': '!!', 'email': 'f@example.com', 'password': '12345678', 'currency': 'ZZZ', 'accept_terms': True,
         }, format='json')
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(set(resp.data), {'username', 'currency'})
         resp = self.client.post('/api/auth/register/', {
-            'username': 'fielduser', 'email': 'f@example.com', 'password': '12345678',
+            'username': 'fielduser', 'email': 'f@example.com', 'password': '12345678', 'accept_terms': True,
         }, format='json')
         self.assertIn('password', resp.data)
 
     def test_register_with_unknown_referral_still_succeeds(self):
         resp = self.client.post('/api/auth/register/', {
             'username': 'refuser', 'email': 'ref@example.com', 'password': 'Str0ngPass!', 'ref': 'NOSUCHCODE',
+            'accept_terms': True,
         }, format='json')
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
         self.assertEqual(resp.data['username'], 'refuser')

@@ -12,7 +12,7 @@ from typing import Optional
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.tokens import default_token_generator
-from django.db import transaction
+from django.db import connection, transaction
 from django.utils import timezone
 from django.utils.encoding import force_bytes
 from django.utils.http import urlsafe_base64_encode
@@ -48,6 +48,19 @@ def get_current_player(request) -> Optional[Player]:
     return None
 
 
+def _lock_signup_identity(username: str, email: str) -> None:
+    """Serialise concurrent signups for the same username/email until this
+    transaction ends, so the exists() checks below can't both pass. auth.User
+    has no unique email constraint (and existing rows may already clash), so
+    this is a Postgres transaction-scoped advisory lock instead."""
+    if connection.vendor != 'postgresql':
+        return
+    with connection.cursor() as cur:
+        keys = [f'signup:user:{username}'] + ([f'signup:email:{email}'] if email else [])
+        for key in sorted(keys):  # fixed order, so two signups can't deadlock
+            cur.execute('SELECT pg_advisory_xact_lock(hashtext(%s))', [key])
+
+
 @transaction.atomic
 def register_player(*, username: str, email: str, password: str, currency: str = 'USD') -> Player:
     """Create a Django User + Player atomically, then provision the wallet."""
@@ -58,6 +71,7 @@ def register_player(*, username: str, email: str, password: str, currency: str =
     if not normalized:
         raise ValueError('username must contain letters or numbers')
     email = email.strip().lower()
+    _lock_signup_identity(normalized, email)
     if User.objects.filter(username__iexact=normalized).exists():
         raise ValueError('username already taken')
     # Case-insensitive: login resolves an email to exactly one account.

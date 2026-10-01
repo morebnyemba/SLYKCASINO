@@ -40,23 +40,34 @@ class RegisterSerializer(serializers.Serializer):
     password = serializers.CharField(min_length=8, max_length=128, write_only=True, trim_whitespace=False)
     # Wallets are single-currency (USD) for now; anything else is rejected.
     currency = serializers.ChoiceField(choices=['USD'], default='USD')
+    # The 18+ / terms attestation: required and must be true (it does not verify age).
+    accept_terms = serializers.BooleanField(required=True)
 
     def validate_username(self, value: str) -> str:
         normalized = utils.normalize_username(value)
         if len(normalized) < 3:
             raise serializers.ValidationError('Use at least 3 letters, numbers or underscores.')
-        if get_user_model().objects.filter(username__iexact=normalized).exists():
-            raise serializers.ValidationError('This username is already taken.')
         return value
 
     def validate_email(self, value: str) -> str:
-        value = value.strip().lower()
-        if get_user_model().objects.filter(email__iexact=value).exists():
-            raise serializers.ValidationError('An account with this email already exists.')
+        return value.strip().lower()
+
+    def validate_accept_terms(self, value: bool) -> bool:
+        if value is not True:
+            raise serializers.ValidationError('You must confirm you are 18 or older and accept the terms.')
         return value
 
     def validate(self, attrs):
-        candidate = get_user_model()(username=utils.normalize_username(attrs['username']), email=attrs['email'])
+        user_model = get_user_model()
+        username = utils.normalize_username(attrs['username'])
+        # One message for either clash, so signup can't be used to probe which
+        # usernames or emails have accounts.
+        if (
+            user_model.objects.filter(username__iexact=username).exists()
+            or user_model.objects.filter(email__iexact=attrs['email']).exists()
+        ):
+            raise serializers.ValidationError('An account with this username or email already exists.')
+        candidate = user_model(username=username, email=attrs['email'])
         try:
             validate_password(attrs['password'], user=candidate)
         except DjangoValidationError as exc:
