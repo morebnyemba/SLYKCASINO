@@ -10,14 +10,14 @@ export interface Game {
 
 // Shown only when an operator hasn't seeded the games table yet.
 export const DEMO_GAMES: Game[] = [
-  { id: 1, slug: 'slyk-aviator', name: 'SLÝKBETS Aviator', provider: 'SLÝKBETS', category: 'crash', rtp: '99.00' },
-  { id: 2, slug: 'lucky-slots', name: 'Lucky Slots', provider: 'SLÝKBETS', category: 'slots', rtp: '96.00' },
-  { id: 3, slug: 'golden-wheel', name: 'Golden Wheel', provider: 'SLÝKBETS', category: 'slots', rtp: '97.50' },
-  { id: 4, slug: 'mega-dice', name: 'Mega Dice', provider: 'SLÝKBETS', category: 'instant', rtp: '98.00' },
-  { id: 5, slug: 'blackjack-classic', name: 'Blackjack Classic', provider: 'SLÝKBETS', category: 'table', rtp: '99.50' },
-  { id: 6, slug: 'roulette-pro', name: 'Roulette Pro', provider: 'SLÝKBETS', category: 'table', rtp: '97.30' },
-  { id: 7, slug: 'live-baccarat', name: 'Live Baccarat', provider: 'SLÝKBETS', category: 'live', rtp: '98.80' },
-  { id: 8, slug: 'virtual-league', name: 'Virtual League', provider: 'SLÝKBETS', category: 'virtual', rtp: '95.00' },
+  { id: 1, slug: 'slyk-aviator', name: 'BetBlits Aviator', provider: 'BetBlits', category: 'crash', rtp: '99.00' },
+  { id: 2, slug: 'lucky-slots', name: 'Lucky Slots', provider: 'BetBlits', category: 'slots', rtp: '96.00' },
+  { id: 3, slug: 'golden-wheel', name: 'Golden Wheel', provider: 'BetBlits', category: 'slots', rtp: '97.50' },
+  { id: 4, slug: 'mega-dice', name: 'Mega Dice', provider: 'BetBlits', category: 'instant', rtp: '98.00' },
+  { id: 5, slug: 'blackjack-classic', name: 'Blackjack Classic', provider: 'BetBlits', category: 'table', rtp: '99.50' },
+  { id: 6, slug: 'roulette-pro', name: 'Roulette Pro', provider: 'BetBlits', category: 'table', rtp: '97.30' },
+  { id: 7, slug: 'live-baccarat', name: 'Live Baccarat', provider: 'BetBlits', category: 'live', rtp: '98.80' },
+  { id: 8, slug: 'virtual-league', name: 'Virtual League', provider: 'BetBlits', category: 'virtual', rtp: '95.00' },
 ];
 
 export const CASINO_CATEGORIES: { value: string; label: string }[] = [

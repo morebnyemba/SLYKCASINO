@@ -39,14 +39,14 @@ class SiteIdentity(models.Model):
     `logo_url` blank means "no logo image configured" — consumers fall back
     to the default text/icon brand mark rather than rendering a broken <img>.
     """
-    site_name = models.CharField(max_length=80, default='SLÝKBETS')
+    site_name = models.CharField(max_length=80, default='BetBlits')
     tagline = models.CharField(max_length=120, blank=True, default='Bet smart. Brag often.')
     logo_url = models.CharField(max_length=500, blank=True)
     license_text = models.TextField(
         blank=True,
         default=(
             'Licensed and regulated by the Lotteries and Gaming Board of Zimbabwe. '
-            'Licence No. LGB/SLYKBETS/2026 (demo).'
+            'Licence No. LGB/BETBLITS/2026 (demo).'
         ),
     )
     updated_at = models.DateTimeField(auto_now=True)

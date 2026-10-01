@@ -5,7 +5,7 @@
 @source "../components";
 
 /*
-  SLYK Casino palette — blue-dominant system:
+  BetBlits palette — blue-dominant system:
     Deep indigo-blue #312783 — dominant brand colour: header, primary actions, ring
     Supporting blue shades   — secondary/accent surfaces, borders, muted backgrounds
     White                    — cards, page background
@@ -115,7 +115,7 @@
 
 /*
   Dark theme — opted into via <html data-theme="dark">. Values lifted from the
-  SLÝKBETS Claude Design prototypes (Casino Lobby / Sportsbook .dc.html).
+  BetBlits Claude Design prototypes (Casino Lobby / Sportsbook .dc.html).
 */
 [data-theme='dark'] {
   --background:         #0C0820;

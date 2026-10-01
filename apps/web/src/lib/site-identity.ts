@@ -8,10 +8,10 @@ export interface SiteIdentity {
 }
 
 export const DEFAULT_IDENTITY: SiteIdentity = {
-  site_name: 'SLÝKBETS',
+  site_name: 'BetBlits',
   tagline: 'Bet smart. Brag often.',
   logo_url: '',
-  license_text: 'Licensed and regulated by the Lotteries and Gaming Board of Zimbabwe. Licence No. LGB/SLYKBETS/2026 (demo).',
+  license_text: 'Licensed and regulated by the Lotteries and Gaming Board of Zimbabwe. Licence No. LGB/BETBLITS/2026 (demo).',
 };
 
 /**

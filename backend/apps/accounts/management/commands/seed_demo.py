@@ -18,7 +18,7 @@ class Command(BaseCommand):
     def _seed_games(self):
         from apps.casino.models import Game
         games = [
-            {'slug': 'slyk-aviator',      'name': 'SLYK Aviator',      'provider': 'slyk', 'category': 'crash',   'rtp': 99.0,  'is_active': True},
+            {'slug': 'slyk-aviator',      'name': 'BetBlits Aviator',      'provider': 'slyk', 'category': 'crash',   'rtp': 99.0,  'is_active': True},
             {'slug': 'lucky-slots',       'name': 'Lucky Slots',       'provider': 'slyk', 'category': 'slots',   'rtp': 96.0,  'is_active': True},
             {'slug': 'golden-wheel',      'name': 'Golden Wheel',      'provider': 'slyk', 'category': 'slots',   'rtp': 97.5,  'is_active': True},
             {'slug': 'mega-dice',         'name': 'Mega Dice',         'provider': 'slyk', 'category': 'instant', 'rtp': 98.0,  'is_active': True},
@@ -131,7 +131,7 @@ class Command(BaseCommand):
         tournaments = [
             {
                 'name': 'Aviator Weekly Race',
-                'description': 'Wager on SLYK Aviator and the casino this week to climb the leaderboard. Top 10 share the prize pool.',
+                'description': 'Wager on BetBlits Aviator and the casino this week to climb the leaderboard. Top 10 share the prize pool.',
                 'metric': 'wagered', 'prize_pool': 500, 'currency': 'USD', 'active': True,
                 'starts_at': timezone.now() - timedelta(days=1),
                 'ends_at': timezone.now() + timedelta(days=6),
@@ -154,7 +154,7 @@ class Command(BaseCommand):
         base = 'https://images.unsplash.com'
         banners = [
             {
-                'title': 'SLYK Aviator', 'subtitle': 'Cash out before the crash — win up to 100×',
+                'title': 'BetBlits Aviator', 'subtitle': 'Cash out before the crash — win up to 100×',
                 'image_url': f'{base}/photo-1606167668584-78701c57f13d?w=1600&q=80&auto=format',
                 'link_url': '/casino/crash', 'cta_label': 'Play now', 'sort_order': 1,
             },

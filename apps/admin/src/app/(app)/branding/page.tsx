@@ -26,10 +26,10 @@ interface IdentityResponse {
 }
 
 const DEFAULT_IDENTITY: IdentityResponse = {
-  site_name: 'SLÝKBETS',
+  site_name: 'BetBlits',
   tagline: 'Bet smart. Brag often.',
   logo_url: '',
-  license_text: 'Licensed and regulated by the Lotteries and Gaming Board of Zimbabwe. Licence No. LGB/SLYKBETS/2026 (demo).',
+  license_text: 'Licensed and regulated by the Lotteries and Gaming Board of Zimbabwe. Licence No. LGB/BETBLITS/2026 (demo).',
 };
 
 // Keep in sync with backend/apps/branding/tokens.py.
@@ -241,7 +241,7 @@ function IdentitySection() {
               <input
                 value={form.site_name}
                 onChange={(e) => set('site_name', e.target.value)}
-                placeholder="SLÝKBETS"
+                placeholder="BetBlits"
                 className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
               />
             </div>

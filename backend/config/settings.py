@@ -1,4 +1,4 @@
-"""Django settings for the SLYK Casino backend."""
+"""Django settings for the BetBlits backend."""
 import os
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -328,7 +328,7 @@ EMAIL_PORT = int(os.environ.get('EMAIL_PORT', '587'))
 EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', 'true').lower() == 'true'
 EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
 EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
-DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'noreply@slyk.casino')
+DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'noreply@betblits.com')
 # Signup/reset send mail inline: never let a slow SMTP server hang the request.
 EMAIL_TIMEOUT = int(os.environ.get('EMAIL_TIMEOUT', '10'))
 FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://localhost:3000')
@@ -355,11 +355,11 @@ KYC_PROVIDER = os.environ.get('KYC_PROVIDER', 'stub')
 # used across apps/admin and apps/web, so /django-admin/ doesn't look stock.
 # ---------------------------------------------------------------------------
 JAZZMIN_SETTINGS = {
-    'site_title': 'SLYK Operator Admin',
-    'site_header': 'SLYK',
-    'site_brand': 'SLYK Casino',
-    'welcome_sign': 'SLYK Casino — Django Admin',
-    'copyright': 'SLYK Casino',
+    'site_title': 'BetBlits Operator Admin',
+    'site_header': 'BetBlits',
+    'site_brand': 'BetBlits',
+    'welcome_sign': 'BetBlits — Django Admin',
+    'copyright': 'BetBlits',
     'show_ui_builder': False,
     'navigation_expanded': True,
     'order_with_respect_to': [

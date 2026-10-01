@@ -18,7 +18,7 @@ function heroArt(hue: number): string {
 
 // Shown only when an operator has not configured any banners yet.
 const FALLBACK_BANNERS: Banner[] = [
-  { id: 'f1', bg: heroArt(12), big: '2.48×', eyebrow: 'FEATURED · CRASH', title: 'SLÝKBETS Aviator', subtitle: 'Watch the multiplier climb — cash out before it crashes. 99% RTP.', link_url: '/casino/crash', cta_label: 'Play now' },
+  { id: 'f1', bg: heroArt(12), big: '2.48×', eyebrow: 'FEATURED · CRASH', title: 'BetBlits Aviator', subtitle: 'Watch the multiplier climb — cash out before it crashes. 99% RTP.', link_url: '/casino/crash', cta_label: 'Play now' },
   { id: 'f2', bg: heroArt(262), big: '+$1K', eyebrow: 'WELCOME OFFER', title: '200% up to $1,000', subtitle: 'Double your first three deposits, plus 50 free spins on the house.', link_url: '/promotions', cta_label: 'Claim bonus' },
   { id: 'f3', bg: heroArt(180), big: '$50K', eyebrow: 'WEEKEND TOURNAMENT', title: 'Drop & Win', subtitle: 'Climb the leaderboard for a share of a $50,000 prize pool.', link_url: '/tournaments', cta_label: 'Join race' },
 ];
