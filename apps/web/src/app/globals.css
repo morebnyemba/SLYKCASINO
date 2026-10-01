@@ -70,3 +70,33 @@
     --header-h: calc(4rem + env(safe-area-inset-top));
   }
 }
+
+/* Long-form legal pages (app/legal/*). */
+.legal-prose h2 {
+  margin-top: 1rem;
+  font-size: 1.125rem;
+  font-weight: 700;
+}
+
+.legal-prose h3 {
+  margin-top: 0.5rem;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.legal-prose ul,
+.legal-prose ol {
+  padding-left: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.legal-prose ul { list-style: disc; }
+.legal-prose ol { list-style: decimal; }
+
+.legal-prose a {
+  color: var(--secondary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}

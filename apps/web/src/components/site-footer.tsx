@@ -91,10 +91,12 @@ export function SiteFooter() {
             </span>
             <p>© {new Date().getFullYear()} {identity.site_name}. Bet with your head, not over it.</p>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
             <Link href="/legal/terms" className="hover:text-foreground">Terms</Link>
             <Link href="/legal/privacy" className="hover:text-foreground">Privacy</Link>
             <Link href="/legal/cookies" className="hover:text-foreground">Cookies</Link>
+            <Link href="/legal/responsible-gambling" className="hover:text-foreground">Responsible gambling</Link>
+            <Link href="/legal/aml-kyc-policy" className="hover:text-foreground">AML &amp; KYC</Link>
           </div>
         </div>
       </div>
