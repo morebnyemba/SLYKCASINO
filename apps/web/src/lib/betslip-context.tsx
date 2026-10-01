@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import { config } from '@/lib/config';
+import { onBoardFrame } from '@/lib/live-board';
 import { authedPost } from '@/lib/use-api';
 
 export type Selection = 'home' | 'draw' | 'away';
@@ -24,6 +25,10 @@ export interface BetLeg {
   outcomeLabel?: string;
   /** Market identity used so a new pick in the same market replaces the old one. */
   marketId?: number;
+  /** Live: the price the player last saw, while a newer price awaits their OK. */
+  changedFrom?: number;
+  /** Live: this pick can't be backed right now (market suspended / betting closed). */
+  suspended?: boolean;
 }
 
 const SELECTION_LABEL: Record<Selection, string> = { home: 'Home', draw: 'Draw', away: 'Away' };
@@ -116,6 +121,11 @@ interface BetslipContextValue {
   removeLeg: (key: string) => void;
   clear: () => void;
   place: () => Promise<void>;
+  /** Some picks moved price since the player saw them (they must accept first). */
+  hasPriceChanges: boolean;
+  /** Some picks are suspended and can't be placed right now. */
+  hasSuspended: boolean;
+  acceptPriceChanges: () => void;
   /** Mobile bet-slip sheet visibility, shared so the bottom nav can open it. */
   slipOpen: boolean;
   setSlipOpen: (open: boolean) => void;
@@ -140,6 +150,8 @@ export function BetslipProvider({ children }: { children: React.ReactNode }) {
     if (!ctrl.signal.aborted) setStatus(acceptanceMessage(result));
   }, []);
   const [legs, setLegs] = useState<BetLeg[]>([]);
+  const legsRef = useRef(legs);
+  legsRef.current = legs;
   const [mode, setMode] = useState<SlipMode>('acca');
   const [accaStake, setAccaStake] = useState('10');
   const [legStakes, setLegStakes] = useState<Record<string, string>>({});
@@ -166,6 +178,84 @@ export function BetslipProvider({ children }: { children: React.ReactNode }) {
   }, [legs]);
 
   const keys = useMemo(() => new Set(legs.map(keyOf)), [legs]);
+
+  // Live prices: re-read every pick's current price and availability every 5s,
+  // and straight away when the board says one of the slip's matches changed.
+  const legSignature = legs.map(keyOf).join('|');
+  useEffect(() => {
+    if (!legSignature) return;
+    const current = legsRef.current;
+    const eventIds = [...new Set(current.filter((l) => l.outcomeId == null).map((l) => String(l.eventId)))];
+    const outcomeIds = current.filter((l) => l.outcomeId != null).map((l) => String(l.outcomeId));
+    const watched = new Set(current.map((l) => String(l.eventId)));
+    const query = `/events/prices/?events=${eventIds.join(',')}&outcomes=${outcomeIds.join(',')}`;
+    let cancelled = false;
+    let pending: ReturnType<typeof setTimeout> | undefined;
+
+    async function refresh() {
+      if (document.visibilityState === 'hidden') return;
+      try {
+        const res = await fetch(`${config.apiUrl}${query}`, { cache: 'no-store' });
+        if (!res.ok || cancelled) return;
+        const data = (await res.json()) as {
+          events: Record<string, { odds: string; odds_draw: string | null; odds_away: string | null; main_open: boolean }>;
+          outcomes: Record<string, { odds: string; open: boolean }>;
+        };
+        if (cancelled) return;
+        setLegs((prev) => {
+          let changed = false;
+          const next = prev.map((l) => {
+            let price: number | null = null;
+            let open = false;
+            if (l.outcomeId != null) {
+              const o = data.outcomes[String(l.outcomeId)];
+              if (o) { price = Number(o.odds); open = o.open; }
+            } else {
+              const e = data.events[String(l.eventId)];
+              if (e) {
+                const raw = l.selection === 'home' ? e.odds : l.selection === 'draw' ? e.odds_draw : e.odds_away;
+                price = raw != null ? Number(raw) : null;
+                open = e.main_open && price != null;
+              }
+            }
+            if (price == null || !Number.isFinite(price)) {
+              if (l.suspended) return l;
+              changed = true;
+              return { ...l, suspended: true };
+            }
+            const seen = l.changedFrom ?? l.odds;
+            const moved = price !== l.odds;
+            if (!moved && l.suspended === !open) return l;
+            changed = true;
+            return {
+              ...l,
+              odds: price,
+              suspended: !open,
+              // Flag a move against what the player last accepted; moving back clears it.
+              changedFrom: price === seen ? undefined : seen,
+            };
+          });
+          return changed ? next : prev;
+        });
+      } catch { /* offline: keep the last prices */ }
+    }
+
+    void refresh();
+    const interval = setInterval(refresh, 5000);
+    const off = onBoardFrame((frame) => {
+      if (!watched.has(String(frame.event_id))) return;
+      clearTimeout(pending);
+      pending = setTimeout(refresh, 250);
+    });
+    return () => { cancelled = true; clearInterval(interval); clearTimeout(pending); off(); };
+  }, [legSignature]);
+
+  const hasPriceChanges = legs.some((l) => l.changedFrom != null);
+  const hasSuspended = legs.some((l) => l.suspended);
+  const acceptPriceChanges = useCallback(() => {
+    setLegs((prev) => prev.map((l) => (l.changedFrom != null ? { ...l, changedFrom: undefined } : l)));
+    setStatus(null);
+  }, []);
 
   const isOnSlip = useCallback(
     (eventId: string | number, selection: Selection) => keys.has(legKey(eventId, selection)),
@@ -220,13 +310,17 @@ export function BetslipProvider({ children }: { children: React.ReactNode }) {
   const applyPriceChange = useCallback((leg: BetLeg, body?: Record<string, unknown>) => {
     const next = body && body.code === 'odds_changed' ? Number(body.odds) : NaN;
     if (!Number.isFinite(next)) return false;
-    setLegs((prev) => prev.map((l) => (keyOf(l) === keyOf(leg) ? { ...l, odds: next } : l)));
+    setLegs((prev) => prev.map((l) => (keyOf(l) === keyOf(leg)
+      ? { ...l, odds: next, changedFrom: next === (l.changedFrom ?? l.odds) ? undefined : (l.changedFrom ?? l.odds) }
+      : l)));
     return true;
   }, []);
 
   const place = useCallback(async () => {
     if (!accessToken) { setStatus('Please log in to place a bet.'); return; }
     if (legs.length === 0) { setStatus('Add a selection first.'); return; }
+    if (legs.some((l) => l.suspended)) { setStatus('Remove suspended selections to place your bet.'); return; }
+    if (legs.some((l) => l.changedFrom != null)) { setStatus('Odds changed — accept the new prices to continue.'); return; }
 
     setBusy(true); setStatus('Placing…');
 
@@ -304,6 +398,7 @@ export function BetslipProvider({ children }: { children: React.ReactNode }) {
     legs, mode, setMode, accaStake, setAccaStake, legStakes, setLegStake,
     combinedOdds, potentialPayout, status, busy, conflictingEvents,
     isOnSlip, isOutcomeOnSlip, toggleLeg, removeLeg, clear, place,
+    hasPriceChanges, hasSuspended, acceptPriceChanges,
     slipOpen, setSlipOpen,
   };
   return <BetslipContext.Provider value={value}>{children}</BetslipContext.Provider>;

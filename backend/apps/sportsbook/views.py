@@ -59,6 +59,14 @@ class EventViewSet(viewsets.ModelViewSet):
             return [IsAdminUser()]
         return [AllowAny()]
 
+    @action(detail=False, methods=['get'], url_path='prices')
+    def prices(self, request):
+        """Current prices for a bet slip: ?events=1,2&outcomes=5,6 (max 50 each)."""
+        def ids(name):
+            raw = request.query_params.get(name, '')
+            return [int(v) for v in raw.split(',') if v.strip().isdigit()][:50]
+        return Response(services.current_prices(event_ids=ids('events'), outcome_ids=ids('outcomes')))
+
     @action(detail=True, methods=['post'], url_path='settle-score')
     def settle_score(self, request, pk=None):
         """Record the final (90-minute) score and settle the 1X2 plus every market

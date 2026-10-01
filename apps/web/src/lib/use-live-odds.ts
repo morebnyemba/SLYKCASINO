@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { config } from '@/lib/config';
+import { subscribeChannel } from '@/lib/live-board';
 
 export interface LiveOdds {
   odds?: number;
@@ -32,42 +32,24 @@ export function useLiveOdds(eventId: string | number, initial: LiveOdds): LiveOd
   useEffect(() => { setOdds(JSON.parse(seed) as LiveOdds); }, [seed]);
   const [live, setLive] = useState(false);
 
-  useEffect(() => {
-    let closed = false;
-    let socket: WebSocket | undefined;
-    try {
-      socket = new WebSocket(`${config.wsUrl}/odds:${eventId}`);
-      socket.onmessage = (ev) => {
-        if (closed) return;
-        try {
-          const data = JSON.parse(String(ev.data));
-          if (data && data.odds != null) {
-            setOdds((prev) => {
-              const next: LiveOdds = {
-                ...prev,
-                odds: Number(data.odds),
-                odds_draw: data.odds_draw != null ? Number(data.odds_draw) : null,
-                odds_away: data.odds_away != null ? Number(data.odds_away) : null,
-              };
-              for (const key of STATE_KEYS) {
-                if (key in data) (next as Record<string, unknown>)[key] = data[key];
-              }
-              return next;
-            });
-            setLive(true);
-          }
-        } catch {
-          /* ignore non-JSON control frames */
-        }
+  useEffect(() => subscribeChannel(`odds:${eventId}`, (raw) => {
+    let data: Record<string, unknown>;
+    try { data = JSON.parse(raw); } catch { return; } // "connected:" welcome
+    if (!data || data.odds == null || data.type === 'markets') return;
+    setOdds((prev) => {
+      const next: LiveOdds = {
+        ...prev,
+        odds: Number(data.odds),
+        odds_draw: data.odds_draw != null ? Number(data.odds_draw) : null,
+        odds_away: data.odds_away != null ? Number(data.odds_away) : null,
       };
-    } catch {
-      /* connection unavailable — keep the seeded snapshot */
-    }
-    return () => {
-      closed = true;
-      try { socket?.close(); } catch {}
-    };
-  }, [eventId]);
+      for (const key of STATE_KEYS) {
+        if (key in data) (next as Record<string, unknown>)[key] = data[key];
+      }
+      return next;
+    });
+    setLive(true);
+  }), [eventId]);
 
   return { ...odds, live };
 }
