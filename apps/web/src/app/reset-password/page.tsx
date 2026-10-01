@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@slyk/ui/components/ca
 import { Button } from '@slyk/ui/components/button';
 import { Input } from '@slyk/ui/components/input';
 import { config } from '@/lib/config';
+import { Spinner } from '@slyk/ui/components/spinner';
 
 function ResetPasswordForm() {
   const searchParams = useSearchParams();
@@ -103,7 +104,7 @@ function ResetPasswordForm() {
                 />
               </div>
               <Button type="submit" disabled={loading} className="w-full">
-                {loading ? 'Resetting…' : 'Reset password'}
+                {loading ? <span className="inline-flex items-center justify-center gap-2"><Spinner size={14} />Resetting…</span> : 'Reset password'}
               </Button>
             </form>
           )}

@@ -5,6 +5,7 @@ import { BsChevronLeft, BsShieldLockFill, BsXLg } from 'react-icons/bs';
 import { BoltIcon } from '@/components/logo';
 import { useAuth } from '@/lib/auth-context';
 import { useApi, authedPost } from '@/lib/use-api';
+import { Spinner } from '@slyk/ui/components/spinner';
 
 interface Wallet {
   balance?: string;
@@ -162,7 +163,7 @@ export function DepositModal({ open, onClose }: { open: boolean; onClose: () => 
     { k: 'Fee', v: 'Free', win: true },
   ];
 
-  let primaryLabel = 'Continue';
+  let primaryLabel: React.ReactNode = 'Continue';
   let primaryDisabled = false;
   let onPrimary = () => {};
   if (step === 'method') {
@@ -173,7 +174,7 @@ export function DepositModal({ open, onClose }: { open: boolean; onClose: () => 
     primaryDisabled = !canContinueAmount;
     onPrimary = () => canContinueAmount && setStep('confirm');
   } else if (step === 'confirm') {
-    primaryLabel = submitting ? 'Confirming…' : `Confirm deposit · $${numAmount.toFixed(2)}`;
+    primaryLabel = submitting ? <span className="inline-flex items-center justify-center gap-2"><Spinner size={14} />Confirming…</span> : `Confirm deposit · $${numAmount.toFixed(2)}`;
     primaryDisabled = submitting;
     onPrimary = handleConfirm;
   } else {

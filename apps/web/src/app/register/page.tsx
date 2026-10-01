@@ -8,6 +8,7 @@ import { AuthShell, authButtonClass, authInputClass } from '@/components/auth-sh
 import { RegisterError } from '@/lib/auth';
 import { AccountCreatedError, useAuth } from '@/lib/auth-context';
 import { getReferral, setReferral } from '@/lib/referral';
+import { Spinner } from '@slyk/ui/components/spinner';
 
 /** Mirrors the backend's normalize_username: lowercase, a-z0-9_ only. */
 function normalizeUsername(raw: string) {
@@ -263,7 +264,7 @@ export default function RegisterPage() {
           <p role="alert" className="rounded-lg bg-destructive/10 px-3 py-2 text-sm font-semibold text-destructive">{formError}</p>
         )}
         <button type="submit" disabled={loading} className={authButtonClass}>
-          {loading ? 'Creating account…' : 'Create account'}
+          {loading ? <span className="inline-flex items-center justify-center gap-2"><Spinner size={14} />Creating account…</span> : 'Create account'}
         </button>
       </form>
       <p className="mt-5 text-center text-sm text-muted-foreground">

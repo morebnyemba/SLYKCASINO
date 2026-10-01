@@ -7,6 +7,7 @@ import { Badge } from '@slyk/ui/components/badge';
 import { useAuth } from '@/lib/auth-context';
 import { authedPost } from '@/lib/use-api';
 import { config } from '@/lib/config';
+import { LoadingState, Spinner } from '@slyk/ui/components/spinner';
 
 interface Tournament {
   id: number;
@@ -59,7 +60,7 @@ function Leaderboard({ tournamentId, refreshKey }: { tournamentId: number; refre
     return () => { cancelled = true; };
   }, [tournamentId, refreshKey]);
 
-  if (loading) return <p className="px-4 py-3 text-sm text-muted-foreground">Loading leaderboard…</p>;
+  if (loading) return <LoadingState label="Loading leaderboard…" />;
   if (entries.length === 0) return <p className="px-4 py-3 text-sm text-muted-foreground">No players yet — be the first to join.</p>;
 
   return (
@@ -116,7 +117,7 @@ export default function TournamentsPage() {
         <p className="text-muted-foreground">Join a race, wager to climb the leaderboard, and win a share of the prize pool.</p>
       </div>
 
-      {loading && <p className="text-sm text-muted-foreground">Loading tournaments…</p>}
+      {loading && <LoadingState label="Loading tournaments…" />}
       {!loading && tournaments.length === 0 && (
         <p className="text-sm text-muted-foreground">No tournaments running right now. Check back soon.</p>
       )}
@@ -157,7 +158,7 @@ export default function TournamentsPage() {
                       disabled={joining === t.id || !t.is_live}
                       className="w-full rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
                     >
-                      {joining === t.id ? 'Joining…' : t.is_live ? 'Join tournament' : 'Closed'}
+                      {joining === t.id ? <span className="inline-flex items-center justify-center gap-2"><Spinner size={14} />Joining…</span> : t.is_live ? 'Join tournament' : 'Closed'}
                     </button>
                   ) : (
                     <a

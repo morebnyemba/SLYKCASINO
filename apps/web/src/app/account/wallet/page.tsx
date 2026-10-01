@@ -7,6 +7,7 @@ import { Badge } from '@slyk/ui/components/badge';
 import { useAuth } from '@/lib/auth-context';
 import { useApi, authedPost } from '@/lib/use-api';
 import { DepositModal } from '@/components/deposit-modal';
+import { LoadingState, Spinner } from '@slyk/ui/components/spinner';
 
 interface Wallet {
   balance?: string;
@@ -99,7 +100,7 @@ export default function WalletPage() {
             Balance
           </p>
           {wLoading ? (
-            <p className="mt-1 text-sm text-white/70">Loading…</p>
+            <Spinner size={22} className="mt-2 text-white/80" label="Loading balance" />
           ) : (
             <p className="mt-1 text-3xl font-bold text-white">
               {balance} <span className="text-base font-normal text-white/60">{currency}</span>
@@ -175,7 +176,7 @@ export default function WalletPage() {
         </CardHeader>
         <CardContent className="p-0">
           {lLoading ? (
-            <p className="px-6 py-4 text-sm text-muted-foreground">Loading…</p>
+            <LoadingState className="py-6" />
           ) : entries.length === 0 ? (
             <p className="px-6 py-4 text-sm text-muted-foreground">
               {allEntries.length === 0 ? 'No transactions yet.' : 'No transactions in this date range.'}

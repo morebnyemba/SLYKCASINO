@@ -5,6 +5,7 @@ import { FaCrown, FaMedal, FaEnvelope, FaCheckCircle, FaWallet, FaTicketAlt, FaD
 import { Card, CardContent } from '@slyk/ui/components/card';
 import { Badge } from '@slyk/ui/components/badge';
 import { useApi } from '@/lib/use-api';
+import { LoadingState } from '@slyk/ui/components/spinner';
 
 interface Me {
   username?: string;
@@ -37,7 +38,7 @@ export default function ProfilePage() {
   const { data: me, loading, error } = useApi<Me>('/players/me/');
   const { data: stats } = useApi<Stats>('/players/me/stats/');
 
-  if (loading) return <p className="text-sm text-muted-foreground">Loading…</p>;
+  if (loading) return <LoadingState />;
   if (error) return <p className="text-sm text-destructive">{error}</p>;
 
   const tier = me?.loyalty_tier ?? 'bronze';

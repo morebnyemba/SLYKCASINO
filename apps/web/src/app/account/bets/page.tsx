@@ -7,6 +7,7 @@ import {
   BetTicket, isSettled, money, sortTickets, ticketFromBet, ticketFromSlip, type ApiBet, type ApiSlip,
 } from '@/components/bet-ticket';
 import { useApi } from '@/lib/use-api';
+import { LoadingState } from '@slyk/ui/components/spinner';
 
 type Tab = 'all' | 'open' | 'settled';
 
@@ -66,7 +67,7 @@ export default function MyBetsPage() {
     URL.revokeObjectURL(url);
   }
 
-  if (loading || slipsLoading) return <p className="text-sm text-muted-foreground">Loading…</p>;
+  if (loading || slipsLoading) return <LoadingState />;
   if (error || slipsError) return <p className="text-sm text-destructive">{error || slipsError}</p>;
 
   return (

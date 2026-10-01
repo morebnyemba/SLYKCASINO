@@ -3,6 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 import { useAuth } from '@/lib/auth-context';
+import { LoadingState } from '@slyk/ui/components/spinner';
 
 export function AuthGuard({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth();
@@ -17,7 +18,7 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
   if (isLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center text-muted-foreground text-sm">
-        Loading…
+        <LoadingState />
       </div>
     );
   }

@@ -6,6 +6,7 @@ import { Card } from '@slyk/ui/components/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@slyk/ui/components/table';
 import { Badge } from '@slyk/ui/components/badge';
 import { useApi } from '@/lib/use-api';
+import { LoadingState } from '@slyk/ui/components/spinner';
 
 interface Player {
   id: string | number;
@@ -51,7 +52,7 @@ export default function UsersPage() {
           </TableHeader>
           <TableBody>
             {loading && (
-              <TableRow><TableCell colSpan={7} className="text-muted-foreground">Loading…</TableCell></TableRow>
+              <TableRow><TableCell colSpan={7}><LoadingState className="py-6" /></TableCell></TableRow>
             )}
             {!loading && players.length === 0 && (
               <TableRow><TableCell colSpan={7} className="text-muted-foreground">No players yet.</TableCell></TableRow>

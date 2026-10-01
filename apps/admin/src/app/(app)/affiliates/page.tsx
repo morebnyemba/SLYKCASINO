@@ -6,6 +6,7 @@ import { Card, CardContent } from '@slyk/ui/components/card';
 import { Badge } from '@slyk/ui/components/badge';
 import { useAuth } from '@/lib/auth-context';
 import { authedPost, useApi } from '@/lib/use-api';
+import { LoadingState, Spinner } from '@slyk/ui/components/spinner';
 
 interface Affiliate {
   id: number;
@@ -104,7 +105,7 @@ function TermsEditor({ a, onSaved }: { a: Affiliate; onSaved: () => void }) {
         {field('cpa_min_deposit', 'CPA min. deposit')}
         {field('note', 'Internal note', 'w-64')}
         <button onClick={save} disabled={busy} className="rounded-md bg-gold px-3 py-1.5 text-xs font-bold text-gold-foreground disabled:opacity-60">
-          {busy ? 'Saving…' : 'Save terms'}
+          {busy ? <span className="inline-flex items-center justify-center gap-2"><Spinner size={14} />Saving…</span> : 'Save terms'}
         </button>
       </div>
       {a.website && <p className="text-xs text-muted-foreground">Promotes on: {a.website}</p>}
@@ -139,7 +140,7 @@ function AffiliatesTab() {
       {error && <p className="text-sm text-red-500">{error}</p>}
       <Card>
         <CardContent className="p-0">
-          {loading && <p className="p-4 text-sm text-muted-foreground">Loading affiliates…</p>}
+          {loading && <LoadingState className="py-6" label="Loading affiliates…" />}
           {!loading && rows.length === 0 && <p className="p-4 text-sm text-muted-foreground">No affiliates for this filter.</p>}
           {rows.length > 0 && (
             <table className="w-full text-sm">
@@ -231,13 +232,13 @@ function CommissionsTab() {
           title="Closes last month's revenue share and picks up new CPAs. Also runs automatically every 6 hours; safe to repeat."
           className="ml-auto rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-muted disabled:opacity-60"
         >
-          {busy === 'run' ? 'Calculating…' : 'Calculate now'}
+          {busy === 'run' ? <span className="inline-flex items-center justify-center gap-2"><Spinner size={14} />Calculating…</span> : 'Calculate now'}
         </button>
       </div>
       {message && <p className={`text-sm ${message.startsWith('Error') ? 'text-red-500' : 'text-muted-foreground'}`}>{message}</p>}
       <Card>
         <CardContent className="p-0">
-          {loading && <p className="p-4 text-sm text-muted-foreground">Loading commissions…</p>}
+          {loading && <LoadingState className="py-6" label="Loading commissions…" />}
           {!loading && rows.length === 0 && <p className="p-4 text-sm text-muted-foreground">No commissions for this filter.</p>}
           {rows.length > 0 && (
             <table className="w-full text-sm">

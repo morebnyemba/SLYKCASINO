@@ -8,6 +8,7 @@ import { GiTrophy, GiRollingDices } from 'react-icons/gi';
 import type { IconType } from 'react-icons';
 import { useAuth } from '@/lib/auth-context';
 import { ThemeToggle, SettingsMenu } from '@/components/settings-menu';
+import { LoadingState } from '@slyk/ui/components/spinner';
 
 const tabs: { href: string; label: string; icon: IconType }[] = [
   { href: '/account/profile', label: 'Profile', icon: FaUser },
@@ -39,7 +40,7 @@ export default function AccountLayout({ children }: { children: React.ReactNode 
   if (isLoading) {
     return (
       <div className="flex min-h-[40vh] items-center justify-center text-muted-foreground text-sm">
-        Loading…
+        <LoadingState />
       </div>
     );
   }

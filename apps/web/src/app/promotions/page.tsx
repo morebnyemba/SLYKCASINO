@@ -8,6 +8,7 @@ import { useAuth } from '@/lib/auth-context';
 import { useApi, authedPost } from '@/lib/use-api';
 import { gameAvatarUrl, CASINO_HERO_IMAGES } from '@/lib/game-images';
 import { sanitizeHtml } from '@/lib/sanitize';
+import { LoadingState, Spinner } from '@slyk/ui/components/spinner';
 interface Promo {
   id: number;
   name: string;
@@ -111,7 +112,7 @@ export default function PromotionsPage() {
 
       {/* Available promotions */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {promosLoading && <p className="text-sm text-muted-foreground col-span-3">Loading promotions…</p>}
+        {promosLoading && <LoadingState label="Loading promotions…" />}
         {!promosLoading && promos.length === 0 && (
           <p className="text-sm text-muted-foreground col-span-3">No active promotions right now. Check back soon.</p>
         )}
@@ -183,7 +184,7 @@ export default function PromotionsPage() {
                       disabled={claiming === p.id}
                       className="w-full rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
                     >
-                      {claiming === p.id ? 'Claiming…' : 'Claim bonus'}
+                      {claiming === p.id ? <span className="inline-flex items-center justify-center gap-2"><Spinner size={14} />Claiming…</span> : 'Claim bonus'}
                     </button>
                   )
                 ) : (

@@ -6,6 +6,7 @@ import { Suspense, useState } from 'react';
 import { AuthShell, authButtonClass, authInputClass } from '@/components/auth-shell';
 import { useAuth } from '@/lib/auth-context';
 import { useSiteIdentity } from '@/lib/identity-context';
+import { Spinner } from '@slyk/ui/components/spinner';
 
 function LoginForm() {
   const { login } = useAuth();
@@ -67,7 +68,7 @@ function LoginForm() {
           disabled={loading}
           className={authButtonClass}
         >
-          {loading ? 'Logging in…' : 'Log in'}
+          {loading ? <span className="inline-flex items-center justify-center gap-2"><Spinner size={14} />Logging in…</span> : 'Log in'}
         </button>
       </form>
       <p className="mt-5 text-center text-sm text-muted-foreground">

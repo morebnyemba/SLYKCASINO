@@ -7,6 +7,7 @@ import { Badge } from '@slyk/ui/components/badge';
 import { useAuth } from '@/lib/auth-context';
 import { useApi, authedPost } from '@/lib/use-api';
 import { config } from '@/lib/config';
+import { LoadingState, Spinner } from '@slyk/ui/components/spinner';
 
 interface Promo {
   id: number;
@@ -241,7 +242,7 @@ export default function PromotionsPage() {
                   disabled={saving}
                   className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
                 >
-                  {saving ? 'Saving…' : editingId == null ? 'Create promotion' : 'Save changes'}
+                  {saving ? <span className="inline-flex items-center justify-center gap-2"><Spinner size={14} />Saving…</span> : editingId == null ? 'Create promotion' : 'Save changes'}
                 </button>
               </div>
             </form>
@@ -251,7 +252,7 @@ export default function PromotionsPage() {
 
       <Card>
         <CardContent className="p-0">
-          {loading && <p className="p-4 text-sm text-muted-foreground">Loading promotions…</p>}
+          {loading && <LoadingState className="py-6" label="Loading promotions…" />}
           {!loading && promos.length === 0 && (
             <p className="p-4 text-sm text-muted-foreground">No promotions yet. Create one above.</p>
           )}

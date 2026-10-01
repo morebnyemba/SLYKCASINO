@@ -15,6 +15,8 @@ import { useApi } from '@/lib/use-api';
 import { useFavorites } from '@/lib/use-favorites';
 import { CASINO_HERO_IMAGES } from '@/lib/game-images';
 import { CASINO_CATEGORIES as CATEGORIES, DEMO_GAMES, type Game, gameHref, gameTag, tileArt } from '@/lib/casino';
+import { Spinner } from '@slyk/ui/components/spinner';
+import { LoadingPill } from '@/components/skeletons';
 
 interface GamesResponse {
   results?: Game[];
@@ -202,6 +204,7 @@ function CasinoLobby() {
         </select>
       </div>
 
+      {loading && <LoadingPill label="Loading games" />}
       {loading && (
         <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5 xl:grid-cols-7">
           {Array.from({ length: 7 }).map((_, i) => (
@@ -272,7 +275,7 @@ function CasinoLobby() {
             disabled={loadingMore}
             className="rounded-xl border border-border bg-card px-5 py-2.5 text-sm font-bold text-muted-foreground hover:text-foreground disabled:opacity-50"
           >
-            {loadingMore ? 'Loading…' : 'Load more games'}
+            {loadingMore ? <span className="inline-flex items-center justify-center gap-2"><Spinner size={14} />Loading…</span> : 'Load more games'}
           </button>
         </div>
       )}

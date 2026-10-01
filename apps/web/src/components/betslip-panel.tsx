@@ -7,6 +7,7 @@ import { BsLockFill, BsXLg, BsReceipt, BsTrash3 } from 'react-icons/bs';
 import { useAuth } from '@/lib/auth-context';
 import { useBetslip, keyOf, type BetLeg, type Selection } from '@/lib/betslip-context';
 import { formatOdds, useSettings } from '@/lib/settings-context';
+import { Spinner } from '@slyk/ui/components/spinner';
 
 const SELECTION_CODE: Record<Selection, string> = { home: '1', draw: 'X', away: '2' };
 const QUICK_STAKES = [5, 10, 25, 50, 100];
@@ -260,7 +261,7 @@ export function SlipBody({ onClose, variant = 'card' }: {
                   disabled={busy}
                   className="w-full rounded-xl bg-win px-4 py-3 text-sm font-extrabold text-win-foreground shadow-lg transition-opacity hover:opacity-90 disabled:opacity-50"
                 >
-                  {busy ? 'Placing…' : placeLabel}
+                  {busy ? <span className="inline-flex items-center justify-center gap-2"><Spinner size={14} />Placing…</span> : placeLabel}
                 </button>
               )
             ) : (

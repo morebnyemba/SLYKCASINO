@@ -1,3 +1,4 @@
+import { Suspense } from 'react';
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import { Providers } from '@/components/providers';
@@ -7,6 +8,7 @@ import { BottomNav } from '@/components/bottom-nav';
 import { AppSidebar, MobileMenu } from '@/components/app-sidebar';
 import { BetslipDrawer } from '@/components/betslip-panel';
 import { ReferralTracker } from '@/components/referral-tracker';
+import { NavProgress } from '@/components/nav-progress';
 import { BetRail } from '@/components/bet-rail';
 import { GlobalSearch } from '@/components/global-search';
 import { MobileQuickNav } from '@/components/mobile-quick-nav';
@@ -96,6 +98,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             <GlobalSearch />
             <BetslipDrawer />
             <ReferralTracker />
+            {/* useSearchParams needs a Suspense boundary. */}
+            <Suspense><NavProgress /></Suspense>
             <BottomNav />
           </Providers>
         </IdentityProvider>

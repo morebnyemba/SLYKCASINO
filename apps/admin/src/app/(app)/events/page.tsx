@@ -9,6 +9,7 @@ import { Input } from '@slyk/ui/components/input';
 import { useAuth } from '@/lib/auth-context';
 import { useApi, authedPost } from '@/lib/use-api';
 import { config } from '@/lib/config';
+import { LoadingState, Spinner } from '@slyk/ui/components/spinner';
 
 interface Team { id: number; name: string }
 
@@ -267,7 +268,7 @@ export default function EventsPage() {
               {formError && <p className="col-span-2 text-sm text-red-500">{formError}</p>}
               <div className="col-span-2">
                 <Button type="submit" disabled={saving}>
-                  {saving ? 'Creating…' : 'Create event'}
+                  {saving ? <span className="inline-flex items-center justify-center gap-2"><Spinner size={14} />Creating…</span> : 'Create event'}
                 </Button>
               </div>
             </form>
@@ -277,7 +278,7 @@ export default function EventsPage() {
 
       <Card className="rounded-2xl border-gold/15">
         <CardContent className="overflow-x-auto p-0">
-          {loading && <p className="p-4 text-sm text-muted-foreground">Loading events…</p>}
+          {loading && <LoadingState className="py-6" label="Loading events…" />}
           {!loading && events.length === 0 && (
             <p className="p-4 text-sm text-muted-foreground">No events. Create one above.</p>
           )}

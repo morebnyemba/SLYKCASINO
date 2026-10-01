@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@slyk/ui/components/ca
 import { Badge } from '@slyk/ui/components/badge';
 import { useAuth } from '@/lib/auth-context';
 import { authedPost, useApi } from '@/lib/use-api';
+import { LoadingState, Spinner } from '@slyk/ui/components/spinner';
 
 interface Commission {
   id: number;
@@ -122,7 +123,7 @@ function Apply({ onDone }: { onDone: () => void }) {
           disabled={busy}
           className="rounded-lg bg-win px-5 py-2.5 text-sm font-extrabold text-win-foreground disabled:opacity-60"
         >
-          {busy ? 'Applying…' : 'Join the affiliate programme'}
+          {busy ? <span className="inline-flex items-center justify-center gap-2"><Spinner size={14} />Applying…</span> : 'Join the affiliate programme'}
         </button>
       </CardContent>
     </Card>
@@ -257,7 +258,7 @@ export default function AffiliatePage() {
     <div className="space-y-6">
       <h1 className="text-2xl font-bold">Refer &amp; earn</h1>
       {loading && !data ? (
-        <p className="text-sm text-muted-foreground">Loading…</p>
+        <LoadingState />
       ) : notJoined ? (
         <Apply onDone={refetch} />
       ) : error ? (
