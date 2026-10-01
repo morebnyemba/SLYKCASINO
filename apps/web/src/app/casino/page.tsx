@@ -16,7 +16,7 @@ import { useFavorites } from '@/lib/use-favorites';
 import { CASINO_HERO_IMAGES } from '@/lib/game-images';
 import { CASINO_CATEGORIES as CATEGORIES, DEMO_GAMES, type Game, gameHref, gameTag, tileArt } from '@/lib/casino';
 import { Spinner } from '@slyk/ui/components/spinner';
-import { LoadingPill } from '@/components/skeletons';
+import { PageLoader } from '@/components/site-loader';
 
 interface GamesResponse {
   results?: Game[];
@@ -204,14 +204,7 @@ function CasinoLobby() {
         </select>
       </div>
 
-      {loading && <LoadingPill label="Loading games" />}
-      {loading && (
-        <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5 xl:grid-cols-7">
-          {Array.from({ length: 7 }).map((_, i) => (
-            <div key={i} className="aspect-[3/4] animate-pulse rounded-xl bg-muted" />
-          ))}
-        </div>
-      )}
+      {loading && <PageLoader caption="Loading games…" />}
 
       {!loading && lobbyView && (
         <div className="space-y-8">

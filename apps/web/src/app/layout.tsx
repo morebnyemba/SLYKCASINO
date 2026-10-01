@@ -8,7 +8,7 @@ import { BottomNav } from '@/components/bottom-nav';
 import { AppSidebar, MobileMenu } from '@/components/app-sidebar';
 import { BetslipDrawer } from '@/components/betslip-panel';
 import { ReferralTracker } from '@/components/referral-tracker';
-import { NavProgress } from '@/components/nav-progress';
+import { NavigationLoader, SiteSplash } from '@/components/site-loader';
 import { BetRail } from '@/components/bet-rail';
 import { GlobalSearch } from '@/components/global-search';
 import { MobileQuickNav } from '@/components/mobile-quick-nav';
@@ -74,6 +74,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       </head>
       <body className="min-h-screen bg-background text-foreground antialiased">
         <IdentityProvider value={identity}>
+          <SiteSplash />
           <ServiceWorkerRegistration />
           <AgeGate />
           <Providers>
@@ -99,7 +100,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             <BetslipDrawer />
             <ReferralTracker />
             {/* useSearchParams needs a Suspense boundary. */}
-            <Suspense><NavProgress /></Suspense>
+            <Suspense><NavigationLoader /></Suspense>
             <BottomNav />
           </Providers>
         </IdentityProvider>

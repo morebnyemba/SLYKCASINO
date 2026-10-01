@@ -58,16 +58,9 @@
   animation: slyk-drawer 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
-/* Top navigation progress bar: eases towards 90% while a page loads. */
-@keyframes slyk-nav-progress {
-  0% { width: 0; }
-  20% { width: 45%; }
-  60% { width: 75%; }
-  100% { width: 92%; }
-}
-.animate-nav-progress {
-  animation: slyk-nav-progress 8s cubic-bezier(0.1, 0.7, 0.3, 1) forwards;
-}
+/* First-load splash fallback: fade out even if scripts never hydrate. */
+@keyframes slyk-splash-out { to { opacity: 0; visibility: hidden; } }
+.site-splash { animation: slyk-splash-out 0.4s ease 6s forwards; }
 
 /* Horizontal scrollers (sport chips, game rows) hide their scrollbar. */
 .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }

@@ -1,5 +1,5 @@
-import { LoadingState } from '@slyk/ui/components/spinner';
+import { PageLoader } from '@/components/site-loader';
 
 export default function GameLoading() {
-  return <LoadingState className="min-h-[60vh]" size={36} label="Loading game" />;
+  return <PageLoader caption="Loading game…" />;
 }
