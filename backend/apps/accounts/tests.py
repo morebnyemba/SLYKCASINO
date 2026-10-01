@@ -57,6 +57,32 @@ class RegisterTests(TestCase):
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
 
 
+    def test_register_email_is_case_insensitive(self):
+        _make_player(username='caseuser', email='case@example.com')
+        resp = self.client.post('/api/auth/register/', {
+            'username': 'caseuser2', 'email': 'CASE@Example.com', 'password': 'Str0ngPass!',
+        }, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('email', resp.data)
+
+    def test_register_reports_field_errors(self):
+        resp = self.client.post('/api/auth/register/', {
+            'username': '!!', 'email': 'f@example.com', 'password': '12345678', 'currency': 'ZZZ',
+        }, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(set(resp.data), {'username', 'currency'})
+        resp = self.client.post('/api/auth/register/', {
+            'username': 'fielduser', 'email': 'f@example.com', 'password': '12345678',
+        }, format='json')
+        self.assertIn('password', resp.data)
+
+    def test_register_with_unknown_referral_still_succeeds(self):
+        resp = self.client.post('/api/auth/register/', {
+            'username': 'refuser', 'email': 'ref@example.com', 'password': 'Str0ngPass!', 'ref': 'NOSUCHCODE',
+        }, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(resp.data['username'], 'refuser')
+
 class LoginLogoutTests(TestCase):
     def setUp(self):
         self.client = APIClient()

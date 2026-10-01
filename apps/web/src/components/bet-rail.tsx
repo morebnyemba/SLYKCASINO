@@ -4,40 +4,11 @@ import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import { BsChevronDoubleRight, BsReceipt, BsTicketPerforated } from 'react-icons/bs';
 import { SlipBody } from '@/components/betslip-panel';
+import { BetTicket, sortTickets, ticketFromBet, ticketFromSlip, type ApiBet, type ApiSlip } from '@/components/bet-ticket';
 import { useAuth } from '@/lib/auth-context';
 import { useBetslip } from '@/lib/betslip-context';
 import { useApi } from '@/lib/use-api';
 import { useShell } from '@/lib/shell-context';
-
-interface Bet {
-  id: number;
-  event: string;
-  stake: string;
-  odds: string;
-  status: string;
-  payout: string | null;
-  placed_at: string;
-}
-
-interface Slip {
-  id: number;
-  stake: string;
-  combined_odds: string;
-  status: string;
-  payout: string | null;
-  placed_at: string;
-  legs: { id: number; event: string }[];
-}
-
-const STATUS_STYLE: Record<string, string> = {
-  open: 'bg-secondary/15 text-secondary',
-  pending: 'bg-muted text-muted-foreground',
-  accepting: 'bg-live/10 text-live',
-  rejected: 'bg-muted text-muted-foreground',
-  won: 'bg-win/15 text-win',
-  lost: 'bg-destructive/10 text-destructive',
-  void: 'bg-muted text-muted-foreground',
-};
 
 /**
  * Whether the desktop rail is showing: the player's explicit choice (header
@@ -50,18 +21,14 @@ export function useRailOpen() {
   return railPref ?? legs.length > 0;
 }
 
-function money(v: string | number) {
-  return `$${Number(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
-
 /** Recent singles and multiples, open ones first. */
 function MyBets() {
   const { user } = useAuth();
   const { status } = useBetslip();
   const { data: bets, error: betsError, loading: betsLoading, refetch: refetchBets } =
-    useApi<{ results?: Bet[] }>(user ? '/bets/?page_size=15' : null);
+    useApi<{ results?: ApiBet[] }>(user ? '/bets/?page_size=15' : null);
   const { data: slips, error: slipsError, loading: slipsLoading, refetch: refetchSlips } =
-    useApi<{ results?: Slip[] }>(user ? '/betslips/?page_size=10' : null);
+    useApi<{ results?: ApiSlip[] }>(user ? '/betslips/?page_size=10' : null);
 
   // Refresh after the slip places something (and when in-play bets resolve).
   useEffect(() => {
@@ -78,22 +45,10 @@ function MyBets() {
     );
   }
 
-  const rows = [
-    ...(bets?.results ?? []).map((b) => ({
-      key: `b${b.id}`, title: b.event, sub: `Single @ ${Number(b.odds).toFixed(2)}`,
-      stake: b.stake, returns: b.status === 'won' ? b.payout : String(Number(b.stake) * Number(b.odds)),
-      status: b.status, placed: b.placed_at,
-    })),
-    ...(slips?.results ?? []).map((s) => ({
-      key: `s${s.id}`, title: `Multiple (${s.legs.length})`, sub: s.legs.map((l) => l.event.split(' — ')[0]).join(' · '),
-      stake: s.stake, returns: s.status === 'won' ? s.payout : String(Number(s.stake) * Number(s.combined_odds)),
-      status: s.status, placed: s.placed_at,
-    })),
-  ].sort((a, b) => {
-    const ao = a.status === 'open' ? 0 : 1;
-    const bo = b.status === 'open' ? 0 : 1;
-    return ao - bo || new Date(b.placed).getTime() - new Date(a.placed).getTime();
-  });
+  const rows = sortTickets([
+    ...(bets?.results ?? []).map(ticketFromBet),
+    ...(slips?.results ?? []).map(ticketFromSlip),
+  ]);
 
   // A failed request must not read as "no bets" (or a partial list as complete).
   if (betsError || slipsError) {
@@ -126,29 +81,8 @@ function MyBets() {
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
       <ul className="space-y-2 p-3">
-        {rows.map((r) => (
-          <li key={r.key} className="rounded-xl border border-border bg-background/50 p-3">
-            <div className="flex items-start gap-2">
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-[13px] font-bold">{r.title}</p>
-                <p className="truncate text-[11px] text-muted-foreground">{r.sub}</p>
-              </div>
-              <span className={`rounded px-1.5 py-0.5 text-[10px] font-extrabold uppercase ${STATUS_STYLE[r.status] ?? STATUS_STYLE.pending}`}>
-                {r.status}
-              </span>
-            </div>
-            <div className="mt-2 flex justify-between text-[11.5px]">
-              <span className="text-muted-foreground">Stake <b className="text-foreground">{money(r.stake)}</b></span>
-              {r.status === 'void' || r.status === 'rejected' ? (
-                <span className="text-muted-foreground">Refunded <b className="text-foreground">{money(r.stake)}</b></span>
-              ) : (
-                <span className="text-muted-foreground">
-                  {r.status === 'won' ? 'Paid' : 'Returns'}{' '}
-                  <b className={r.status === 'lost' ? 'text-muted-foreground line-through' : 'text-win'}>{money(r.returns ?? 0)}</b>
-                </span>
-              )}
-            </div>
-          </li>
+        {rows.map((t) => (
+          <li key={t.key}><BetTicket ticket={t} compact /></li>
         ))}
       </ul>
       <Link href="/account/bets" className="block pb-4 text-center text-xs font-bold text-secondary hover:underline">

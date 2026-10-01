@@ -1,11 +1,15 @@
 """accounts transport (DRF). Read shapes only; mutations go through services."""
 from __future__ import annotations
 
+from django.contrib.auth import get_user_model
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
 from apps.wallet import services as wallet_services
 
+from . import utils
 from .models import AuditLog, KYCSubmission, Player
 
 
@@ -30,10 +34,34 @@ class PlayerSerializer(serializers.ModelSerializer):
 
 
 class RegisterSerializer(serializers.Serializer):
-    username = serializers.CharField(max_length=150)
-    email = serializers.EmailField()
-    password = serializers.CharField(min_length=8, write_only=True)
-    currency = serializers.CharField(max_length=3, default='USD')
+    """Field-level errors so the signup form can show each one under its input."""
+    username = serializers.CharField(max_length=30)
+    email = serializers.EmailField(max_length=254)
+    password = serializers.CharField(min_length=8, max_length=128, write_only=True, trim_whitespace=False)
+    # Wallets are single-currency (USD) for now; anything else is rejected.
+    currency = serializers.ChoiceField(choices=['USD'], default='USD')
+
+    def validate_username(self, value: str) -> str:
+        normalized = utils.normalize_username(value)
+        if len(normalized) < 3:
+            raise serializers.ValidationError('Use at least 3 letters, numbers or underscores.')
+        if get_user_model().objects.filter(username__iexact=normalized).exists():
+            raise serializers.ValidationError('This username is already taken.')
+        return value
+
+    def validate_email(self, value: str) -> str:
+        value = value.strip().lower()
+        if get_user_model().objects.filter(email__iexact=value).exists():
+            raise serializers.ValidationError('An account with this email already exists.')
+        return value
+
+    def validate(self, attrs):
+        candidate = get_user_model()(username=utils.normalize_username(attrs['username']), email=attrs['email'])
+        try:
+            validate_password(attrs['password'], user=candidate)
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError({'password': list(exc.messages)})
+        return attrs
 
 
 class KYCSubmissionSerializer(serializers.ModelSerializer):

@@ -3,83 +3,57 @@
 import { useMemo, useState } from 'react';
 import { FaDownload, FaCoins, FaTrophy, FaPercentage } from 'react-icons/fa';
 import { Card } from '@slyk/ui/components/card';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@slyk/ui/components/table';
-import { Badge } from '@slyk/ui/components/badge';
+import {
+  BetTicket, isSettled, money, sortTickets, ticketFromBet, ticketFromSlip, type ApiBet, type ApiSlip,
+} from '@/components/bet-ticket';
 import { useApi } from '@/lib/use-api';
 
-interface Bet {
-  id: string | number;
-  event: string | number;
-  stake: string;
-  odds: string;
-  status: string;
-  payout: string | null;
-  placed_at: string;
-}
+type Tab = 'all' | 'open' | 'settled';
 
-interface BetsResponse {
-  results?: Bet[];
-}
-
-interface SlipLeg {
-  id: number;
-  event: string;
-  selection: string;
-  odds: string;
-  result: string;
-}
-
-interface BetSlip {
-  id: number;
-  stake: string;
-  combined_odds: string;
-  status: string;
-  payout: string | null;
-  placed_at: string;
-  legs: SlipLeg[];
-}
-
-interface SlipsResponse {
-  results?: BetSlip[];
-}
-
-const STATUS_VARIANT: Record<string, 'default' | 'secondary' | 'destructive'> = {
-  open: 'default',
-  won: 'default',
-  lost: 'destructive',
-  void: 'secondary',
-  pending: 'secondary',
-  accepting: 'secondary',
-  rejected: 'secondary',
-};
+const TABS: { key: Tab; label: string }[] = [
+  { key: 'all', label: 'All' },
+  { key: 'open', label: 'Open' },
+  { key: 'settled', label: 'Settled' },
+];
 
 export default function MyBetsPage() {
-  const { data, loading, error } = useApi<BetsResponse>('/bets/');
-  const { data: slipsData } = useApi<SlipsResponse>('/betslips/');
-  const slips = slipsData?.results ?? [];
-  const allBets = data?.results ?? [];
+  const { data, loading, error } = useApi<{ results?: ApiBet[] }>('/bets/');
+  const { data: slipsData, loading: slipsLoading, error: slipsError } = useApi<{ results?: ApiSlip[] }>('/betslips/');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
-  const bets = allBets.filter((b) => {
-    const d = b.placed_at.slice(0, 10);
+  const [tab, setTab] = useState<Tab>('all');
+
+  const all = useMemo(
+    () => sortTickets([...(data?.results ?? []).map(ticketFromBet), ...(slipsData?.results ?? []).map(ticketFromSlip)]),
+    [data, slipsData],
+  );
+  const inRange = all.filter((t) => {
+    const d = t.placedAt.slice(0, 10);
     if (fromDate && d < fromDate) return false;
     if (toDate && d > toDate) return false;
     return true;
   });
+  const tickets = inRange.filter((t) => tab === 'all' || (tab === 'settled') === isSettled(t.status));
+  const openCount = inRange.filter((t) => !isSettled(t.status)).length;
 
   const stats = useMemo(() => {
-    const totalStaked = bets.reduce((sum, b) => sum + parseFloat(b.stake || '0'), 0);
-    const settled = bets.filter((b) => b.status === 'won' || b.status === 'lost');
-    const won = bets.filter((b) => b.status === 'won');
-    const totalPayout = won.reduce((sum, b) => sum + parseFloat(b.payout || '0'), 0);
-    const winRate = settled.length > 0 ? (won.length / settled.length) * 100 : 0;
-    return { totalStaked, totalPayout, winRate, count: bets.length };
-  }, [bets]);
+    const totalStaked = inRange.reduce((sum, t) => sum + t.stake, 0);
+    const decided = inRange.filter((t) => t.status === 'won' || t.status === 'lost');
+    const won = inRange.filter((t) => t.status === 'won');
+    const totalPayout = won.reduce((sum, t) => sum + (t.payout ?? 0), 0);
+    const winRate = decided.length > 0 ? (won.length / decided.length) * 100 : 0;
+    return { totalStaked, totalPayout, winRate };
+  }, [inRange]);
 
   function exportCsv() {
-    const header = 'Event,Stake,Odds,Payout,Status,Date\n';
-    const rows = bets.map((b) =>
-      [b.event, b.stake, b.odds, b.payout ?? '', b.status, b.placed_at].join(','),
+    const esc = (v: string | number) => `"${String(v).replace(/"/g, '""')}"`;
+    const header = 'Ticket,Type,Selections,Stake,Odds,Payout,Status,Placed\n';
+    const rows = inRange.map((t) =>
+      [
+        `${t.kind === 'single' ? 'S' : 'M'}${t.id}`, t.kind,
+        t.legs.map((l) => `${l.match} - ${l.pick} @ ${l.odds.toFixed(2)}`).join(' | '),
+        t.stake.toFixed(2), t.odds.toFixed(2), t.payout?.toFixed(2) ?? '', t.status, t.placedAt,
+      ].map(esc).join(','),
     );
     const blob = new Blob([header + rows.join('\n')], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
@@ -90,18 +64,19 @@ export default function MyBetsPage() {
     URL.revokeObjectURL(url);
   }
 
-  if (loading) return <p className="text-sm text-muted-foreground">Loading…</p>;
-  if (error) return <p className="text-sm text-destructive">{error}</p>;
+  if (loading || slipsLoading) return <p className="text-sm text-muted-foreground">Loading…</p>;
+  if (error || slipsError) return <p className="text-sm text-destructive">{error || slipsError}</p>;
 
   return (
     <div>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-2xl font-bold">My Bets</h1>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <input
             type="date"
             value={fromDate}
             onChange={(e) => setFromDate(e.target.value)}
+            aria-label="From date"
             className="rounded-md border border-border bg-background px-2 py-1 text-xs"
           />
           <span className="text-xs text-muted-foreground">to</span>
@@ -109,9 +84,10 @@ export default function MyBetsPage() {
             type="date"
             value={toDate}
             onChange={(e) => setToDate(e.target.value)}
+            aria-label="To date"
             className="rounded-md border border-border bg-background px-2 py-1 text-xs"
           />
-          {allBets.length > 0 && (
+          {all.length > 0 && (
             <button
               onClick={exportCsv}
               className="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent/10"
@@ -123,17 +99,17 @@ export default function MyBetsPage() {
         </div>
       </div>
 
-      {bets.length > 0 && (
+      {inRange.length > 0 && (
         <div className="mb-4 grid gap-3 sm:grid-cols-3">
           <Card className="rounded-xl border-gold/10 p-4">
             <FaCoins className="mb-2 text-secondary" size={16} />
             <p className="text-xs text-muted-foreground">Total staked</p>
-            <p className="text-lg font-bold">{stats.totalStaked.toFixed(2)}</p>
+            <p className="text-lg font-bold">{money(stats.totalStaked)}</p>
           </Card>
           <Card className="rounded-xl border-gold/10 p-4">
             <FaTrophy className="mb-2 text-gold" size={16} />
             <p className="text-xs text-muted-foreground">Total returns</p>
-            <p className="text-lg font-bold text-win">{stats.totalPayout.toFixed(2)}</p>
+            <p className="text-lg font-bold text-win">{money(stats.totalPayout)}</p>
           </Card>
           <Card className="rounded-xl border-gold/10 p-4">
             <FaPercentage className="mb-2 text-secondary" size={16} />
@@ -143,71 +119,32 @@ export default function MyBetsPage() {
         </div>
       )}
 
-      <Card className="rounded-xl border-gold/10 p-2">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Event</TableHead>
-              <TableHead>Stake</TableHead>
-              <TableHead>Odds</TableHead>
-              <TableHead>Payout</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Date</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {bets.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={6} className="text-muted-foreground">
-                  {allBets.length === 0 ? 'No bets yet.' : 'No bets in this date range.'}
-                </TableCell>
-              </TableRow>
-            )}
-            {bets.map((b) => (
-              <TableRow key={b.id}>
-                <TableCell>{b.event}</TableCell>
-                <TableCell>{b.stake}</TableCell>
-                <TableCell>{b.odds}</TableCell>
-                <TableCell>{b.payout ?? '—'}</TableCell>
-                <TableCell>
-                  <Badge variant={STATUS_VARIANT[b.status] ?? 'secondary'}>{b.status}</Badge>
-                </TableCell>
-                <TableCell className="text-muted-foreground text-xs">
-                  {new Date(b.placed_at).toLocaleDateString()}
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </Card>
+      <div className="mb-3 inline-flex rounded-lg border border-border bg-card p-0.5" role="tablist">
+        {TABS.map(({ key, label }) => (
+          <button
+            key={key}
+            role="tab"
+            aria-selected={tab === key}
+            onClick={() => setTab(key)}
+            className={`rounded-md px-3 py-1.5 text-xs font-bold transition-colors ${
+              tab === key ? 'bg-secondary text-white' : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            {label}
+            {key === 'open' && openCount > 0 && <span className="ml-1 opacity-80">({openCount})</span>}
+          </button>
+        ))}
+      </div>
 
-      {slips.length > 0 && (
-        <div className="mt-8">
-          <h2 className="mb-3 text-lg font-bold">Accumulators</h2>
-          <div className="grid gap-3 sm:grid-cols-2">
-            {slips.map((s) => (
-              <Card key={s.id} className="rounded-xl border-gold/10 p-4">
-                <div className="mb-2 flex items-center justify-between">
-                  <span className="text-sm font-semibold">{s.legs.length}-leg accumulator</span>
-                  <Badge variant={STATUS_VARIANT[s.status] ?? 'secondary'}>{s.status}</Badge>
-                </div>
-                <ul className="mb-3 space-y-1 border-l-2 border-gold/30 pl-3 text-xs">
-                  {s.legs.map((leg) => (
-                    <li key={leg.id} className="flex items-center justify-between gap-2">
-                      <span className="truncate text-muted-foreground">{leg.event}</span>
-                      <span className="font-mono shrink-0">{leg.odds}</span>
-                    </li>
-                  ))}
-                </ul>
-                <div className="flex items-center justify-between border-t border-border pt-2 text-xs">
-                  <span className="text-muted-foreground">Stake {s.stake} @ {s.combined_odds}</span>
-                  <span className="font-semibold">
-                    {s.status === 'won' ? <span className="text-win">+{s.payout}</span> : `Return ${(parseFloat(s.stake) * parseFloat(s.combined_odds)).toFixed(2)}`}
-                  </span>
-                </div>
-              </Card>
-            ))}
-          </div>
+      {tickets.length === 0 ? (
+        <Card className="rounded-xl border-gold/10 p-6 text-center text-sm text-muted-foreground">
+          {all.length === 0
+            ? 'No bets yet. Bets you place will show up here as tickets.'
+            : inRange.length === 0 ? 'No bets in this date range.' : `No ${tab} bets.`}
+        </Card>
+      ) : (
+        <div className="grid items-start gap-3 md:grid-cols-2">
+          {tickets.map((t) => <BetTicket key={t.key} ticket={t} />)}
         </div>
       )}
     </div>

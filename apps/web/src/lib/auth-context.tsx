@@ -28,6 +28,14 @@ interface AuthContextValue {
   logout: () => Promise<void>;
 }
 
+/** Signup succeeded but the automatic sign-in after it did not. */
+export class AccountCreatedError extends Error {
+  constructor() {
+    super('Your account was created, but we could not sign you in automatically. Please log in.');
+    this.name = 'AccountCreatedError';
+  }
+}
+
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 function userFromDecoded(decoded: DecodedToken): AuthUser {
@@ -64,7 +72,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const register = useCallback(async (username: string, email: string, password: string) => {
     await apiRegister(username, email, password);
-    await login(email, password);
+    try {
+      await login(email, password);
+    } catch {
+      // The account exists now; retrying the signup would only say "already taken".
+      throw new AccountCreatedError();
+    }
   }, [login]);
 
   const logout = useCallback(async () => {

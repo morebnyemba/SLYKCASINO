@@ -133,7 +133,7 @@ class BetViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.Create
             return Bet.objects.none()
         return (
             Bet.objects.filter(player_id=player.id)
-            .select_related('outcome_ref__market').order_by('-placed_at')
+            .select_related('outcome_ref__market', 'event_ref').order_by('-placed_at')
         )
 
     def create(self, request, *args, **kwargs):
@@ -184,7 +184,7 @@ class BetSlipViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.Cr
         if player is None:
             return BetSlip.objects.none()
         return BetSlip.objects.filter(player_id=player.id).prefetch_related(
-            Prefetch('legs', queryset=BetLeg.objects.select_related('outcome_ref__market')),
+            Prefetch('legs', queryset=BetLeg.objects.select_related('outcome_ref__market', 'event_ref')),
         ).order_by('-placed_at')
 
     def create(self, request, *args, **kwargs):

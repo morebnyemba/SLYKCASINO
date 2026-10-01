@@ -55,9 +55,13 @@ def register_player(*, username: str, email: str, password: str, currency: str =
     if errors:
         raise ValueError('; '.join(errors))
     normalized = utils.normalize_username(username)
-    if User.objects.filter(username=normalized).exists():
+    if not normalized:
+        raise ValueError('username must contain letters or numbers')
+    email = email.strip().lower()
+    if User.objects.filter(username__iexact=normalized).exists():
         raise ValueError('username already taken')
-    if User.objects.filter(email=email).exists():
+    # Case-insensitive: login resolves an email to exactly one account.
+    if email and User.objects.filter(email__iexact=email).exists():
         raise ValueError('email already registered')
     user = User.objects.create_user(username=normalized, email=email, password=password)
     player = Player.objects.create(user=user, username=normalized, email=email)
