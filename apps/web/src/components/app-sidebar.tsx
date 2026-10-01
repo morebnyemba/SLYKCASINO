@@ -8,7 +8,7 @@ import {
   GiRollingDices, GiTrophy, GiRocketFlight, GiCherry, GiCardAceSpades,
   GiPokerHand, GiPodiumWinner, GiLightningFrequency, GiSoccerKick, GiCastle,
 } from 'react-icons/gi';
-import { FaGift, FaRegCommentDots, FaShieldAlt } from 'react-icons/fa';
+import { FaGift, FaHandshake, FaRegCommentDots, FaShieldAlt } from 'react-icons/fa';
 import type { IconType } from 'react-icons';
 import { SPORT_CATEGORIES } from '@/components/sports-sidebar';
 import { ThemeToggle, SettingsMenu } from '@/components/settings-menu';
@@ -40,6 +40,7 @@ const SPORTS_ITEMS: NavItem[] = [
 const MORE_ITEMS: NavItem[] = [
   { href: '/promotions', label: 'Promotions', icon: FaGift },
   { href: '/tournaments', label: 'Tournaments', icon: GiPodiumWinner },
+  { href: '/account/affiliate', label: 'Refer & earn', icon: FaHandshake },
   { href: '/livechat', label: 'Live support', icon: FaRegCommentDots },
   { href: '/account/settings', label: 'Responsible gaming', icon: FaShieldAlt },
 ];

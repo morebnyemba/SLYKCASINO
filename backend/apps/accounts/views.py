@@ -58,6 +58,13 @@ class RegisterView(APIView):
             services.audit(player.id, 'register', request)
         except ValueError as exc:
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        ref = request.data.get('ref')
+        if ref:
+            # Signed up through an affiliate link: attribute the player (best-effort).
+            from apps.affiliates import services as affiliate_services
+            affiliate_services.attach_referral(
+                player_id=player.id, code=str(ref), campaign=str(request.data.get('ref_campaign') or ''),
+            )
         token = services.generate_verify_token(player.id)
         send_verification_email(player, token)
         return Response(PlayerSerializer(player).data, status=status.HTTP_201_CREATED)

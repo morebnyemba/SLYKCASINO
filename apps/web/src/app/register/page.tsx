@@ -2,9 +2,10 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { AuthShell, authButtonClass, authInputClass } from '@/components/auth-shell';
 import { useAuth } from '@/lib/auth-context';
+import { getReferral, setReferral } from '@/lib/referral';
 
 export default function RegisterPage() {
   const { register } = useAuth();
@@ -14,14 +15,19 @@ export default function RegisterPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
+  const [refCode, setRefCode] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  // Prefill the code from an affiliate link the visitor arrived through.
+  useEffect(() => { setRefCode(getReferral()?.ref ?? ''); }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError('');
     if (password !== confirm) { setError('Passwords do not match'); return; }
     setLoading(true);
+    if (refCode) setReferral(refCode);
     try {
       await register(username, email, password);
       router.push('/account/profile');
@@ -54,6 +60,17 @@ export default function RegisterPage() {
             />
           </div>
         ))}
+        <div className="flex flex-col gap-1">
+          <label className="text-xs font-bold text-muted-foreground" htmlFor="ref">
+            Referral code <span className="font-normal">(optional)</span>
+          </label>
+          <input
+            id="ref"
+            value={refCode}
+            onChange={(e) => setRefCode(e.target.value.replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 24))}
+            className={authInputClass}
+          />
+        </div>
         {error && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm font-semibold text-destructive">{error}</p>}
         <button
           type="submit"

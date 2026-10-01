@@ -30,10 +30,11 @@ const KIND_LABEL: Record<string, string> = {
   casino_credit: 'Casino win',
   bonus: 'Bonus',
   adjustment: 'Adjustment',
+  affiliate: 'Affiliate commission',
 };
 
 function kindVariant(kind: string): 'default' | 'secondary' | 'destructive' {
-  if (['deposit', 'bet_payout', 'casino_credit', 'bonus'].includes(kind)) return 'default';
+  if (['deposit', 'bet_payout', 'casino_credit', 'bonus', 'affiliate'].includes(kind)) return 'default';
   if (['withdrawal', 'bet_stake', 'casino_debit'].includes(kind)) return 'destructive';
   return 'secondary';
 }

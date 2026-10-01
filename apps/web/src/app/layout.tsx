@@ -6,6 +6,7 @@ import { SiteFooter } from '@/components/site-footer';
 import { BottomNav } from '@/components/bottom-nav';
 import { AppSidebar, MobileMenu } from '@/components/app-sidebar';
 import { BetslipDrawer } from '@/components/betslip-panel';
+import { ReferralTracker } from '@/components/referral-tracker';
 import { BetRail } from '@/components/bet-rail';
 import { GlobalSearch } from '@/components/global-search';
 import { MobileQuickNav } from '@/components/mobile-quick-nav';
@@ -94,6 +95,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             <MobileMenu />
             <GlobalSearch />
             <BetslipDrawer />
+            <ReferralTracker />
             <BottomNav />
           </Providers>
         </IdentityProvider>

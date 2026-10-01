@@ -5,7 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { GiTrophy, GiRollingDices } from 'react-icons/gi';
 import {
-  FaUser, FaSignOutAlt, FaWallet, FaBell, FaIdCard, FaShieldAlt, FaChevronDown, FaHistory, FaPlus, FaGift,
+  FaUser, FaSignOutAlt, FaWallet, FaBell, FaIdCard, FaShieldAlt, FaChevronDown, FaHistory, FaPlus, FaGift, FaHandshake,
 } from 'react-icons/fa';
 import { BsReceipt, BsSearch, BsTicketPerforated } from 'react-icons/bs';
 import type { IconType } from 'react-icons';
@@ -35,6 +35,7 @@ const ACCOUNT_LINKS: { href: string; label: string; icon: IconType }[] = [
   { href: '/account/bets', label: 'My bets', icon: BsTicketPerforated },
   { href: '/account/casino', label: 'Casino history', icon: FaHistory },
   { href: '/promotions', label: 'Promotions', icon: FaGift },
+  { href: '/account/affiliate', label: 'Refer & earn', icon: FaHandshake },
   { href: '/account/verification', label: 'Verification', icon: FaIdCard },
   { href: '/account/settings', label: 'Responsible gaming', icon: FaShieldAlt },
 ];

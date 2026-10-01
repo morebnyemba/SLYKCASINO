@@ -120,3 +120,20 @@ class ResponsibleGamblingTests(TestCase):
         account_services.self_exclude(self.player.id)
         resp = self.client.post('/api/wallet/deposit/', {'amount': '10.00'}, format='json')
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+
+class LoginIdentifierTests(TestCase):
+    """The login form accepts "username or email" (sign-up logs in with the email)."""
+
+    def test_login_with_email_or_any_case_username(self):
+        from rest_framework.test import APIClient
+        import secrets
+        from apps.accounts import services as account_services
+        password = secrets.token_urlsafe(16)  # generated per run; test-only
+        account_services.register_player(username='Mixed_Case', email='mc@example.com', password=password)
+        client = APIClient()
+        for identifier in ('mixed_case', 'MIXED_CASE', 'mc@example.com', 'MC@Example.com'):
+            res = client.post('/api/auth/login/', {'username': identifier, 'password': password}, format='json')
+            self.assertEqual(res.status_code, 200, identifier)
+        res = client.post('/api/auth/login/', {'username': 'mc@example.com', 'password': 'wrong'}, format='json')
+        self.assertEqual(res.status_code, 401)

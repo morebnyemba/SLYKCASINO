@@ -29,6 +29,10 @@ class AuditLog(models.Model):
         BALANCE_ADJUSTED = 'balance_adjusted', 'Balance adjusted'
         THEME_UPDATED = 'theme_updated', 'Site theme updated'
         IDENTITY_UPDATED = 'identity_updated', 'Site identity updated'
+        AFFILIATE_APPLIED = 'affiliate_applied', 'Affiliate applied'
+        AFFILIATE_STATUS = 'affiliate_status', 'Affiliate status changed'
+        AFFILIATE_TERMS = 'affiliate_terms', 'Affiliate terms changed'
+        AFFILIATE_COMMISSION_PAID = 'affiliate_commission_paid', 'Affiliate commission paid'
 
     player_id = models.BigIntegerField(null=True, blank=True, db_index=True)
     event_type = models.CharField(max_length=30, choices=EventType.choices, db_index=True)
