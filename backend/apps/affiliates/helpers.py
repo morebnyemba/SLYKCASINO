@@ -19,7 +19,7 @@ def is_valid_code(code: str) -> bool:
 
 def suggested_code(username: str) -> str:
     """Readable default: up to 6 letters of the username plus 4 random chars."""
-    stem = normalize_code(username)[:6] or 'SLYK'
+    stem = normalize_code(username)[:6] or 'BLITS'
     return f'{stem}{secrets.token_hex(2).upper()}'
 
 

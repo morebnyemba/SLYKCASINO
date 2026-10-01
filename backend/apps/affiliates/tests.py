@@ -7,6 +7,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 from django.contrib.auth.models import User
+from django.core.cache import cache
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
@@ -224,10 +225,12 @@ class ApiTests(Base):
         self.assertEqual(data['stats']['signups'], 0)
 
     def test_signup_through_link_and_click(self):
+        cache.clear()  # signup is rate limited per IP; earlier tests may have used it up
         self.make_affiliate()
         self.assertTrue(APIClient().post('/api/affiliates/click/', {'code': 'PARTNER'}, format='json').json()['tracked'])
         res = APIClient().post('/api/auth/register/', {
             'username': 'newbie', 'email': 'newbie@example.com', 'password': PASSWORD, 'ref': 'partner',
+            'accept_terms': True,
         }, format='json')
         self.assertEqual(res.status_code, 201, res.content)
         self.assertEqual(Referral.objects.get().affiliate.code, 'PARTNER')

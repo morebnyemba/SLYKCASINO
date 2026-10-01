@@ -76,17 +76,27 @@ class EventDetailSerializer(EventSerializer):
         read_only_fields = EventSerializer.Meta.read_only_fields + ['match_facts']
 
 
+class BetMatchSerializer(serializers.ModelSerializer):
+    """The match a bet (or leg) is on, for the bet ticket: kick-off and score."""
+
+    class Meta:
+        model = Event
+        fields = ['id', 'name', 'sport', 'starts_at', 'status', 'score_home', 'score_away']
+
+
 class _OutcomeLabelsMixin(serializers.Serializer):
-    """Market/outcome names for bets on secondary markets (null for 1X2 bets)."""
+    """Market/outcome names for bets on secondary markets (null for 1X2 bets),
+    plus the linked match (null for legacy free-text bets)."""
     market_name = serializers.CharField(source='outcome_ref.market.name', read_only=True, default=None)
     outcome_label = serializers.CharField(source='outcome_ref.label', read_only=True, default=None)
+    match = BetMatchSerializer(source='event_ref', read_only=True, default=None)
 
 
 class BetSerializer(_OutcomeLabelsMixin, serializers.ModelSerializer):
     class Meta:
         model = Bet
         fields = [
-            'id', 'event', 'selection', 'outcome_ref', 'market_name', 'outcome_label',
+            'id', 'event', 'selection', 'outcome_ref', 'market_name', 'outcome_label', 'match',
             'stake', 'odds', 'status', 'payout', 'placed_at',
         ]
         read_only_fields = ['status', 'payout', 'placed_at', 'outcome_ref']
@@ -95,7 +105,7 @@ class BetSerializer(_OutcomeLabelsMixin, serializers.ModelSerializer):
 class BetLegSerializer(_OutcomeLabelsMixin, serializers.ModelSerializer):
     class Meta:
         model = BetLeg
-        fields = ['id', 'event', 'selection', 'outcome_ref', 'market_name', 'outcome_label', 'odds', 'result']
+        fields = ['id', 'event', 'selection', 'outcome_ref', 'market_name', 'outcome_label', 'match', 'odds', 'result']
 
 
 class BetSlipSerializer(serializers.ModelSerializer):

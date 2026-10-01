@@ -9,16 +9,33 @@ class Command(BaseCommand):
     help = 'Seed demo casino games, sportsbook events, and promotions (idempotent).'
 
     def handle(self, *args, **options):
+        self._rebrand_legacy_demo()
         self._seed_games()
         self._seed_events()
         self._seed_promotions()
         self._seed_tournaments()
         self._seed_banners()
 
+    def _rebrand_legacy_demo(self):
+        """Rows seeded before the SLYK -> BetBlits rebrand: rename them in place
+        (get_or_create below only applies new values when it creates a row)."""
+        from apps.casino.models import Game
+        from apps.promotions.models import Banner, Tournament
+        old, new = 'SLYK Aviator', 'BetBlits Aviator'
+        renamed = Game.objects.filter(name=old).update(name=new)
+        if not Banner.objects.filter(title=new).exists():
+            renamed += Banner.objects.filter(title=old).update(title=new)
+        for t in Tournament.objects.filter(description__contains=old):
+            t.description = t.description.replace(old, new)
+            t.save(update_fields=['description'])
+            renamed += 1
+        if renamed:
+            self.stdout.write(f'  Renamed {renamed} legacy SLYK demo row(s)')
+
     def _seed_games(self):
         from apps.casino.models import Game
         games = [
-            {'slug': 'slyk-aviator',      'name': 'SLYK Aviator',      'provider': 'slyk', 'category': 'crash',   'rtp': 99.0,  'is_active': True},
+            {'slug': 'slyk-aviator',      'name': 'BetBlits Aviator',      'provider': 'slyk', 'category': 'crash',   'rtp': 99.0,  'is_active': True},
             {'slug': 'lucky-slots',       'name': 'Lucky Slots',       'provider': 'slyk', 'category': 'slots',   'rtp': 96.0,  'is_active': True},
             {'slug': 'golden-wheel',      'name': 'Golden Wheel',      'provider': 'slyk', 'category': 'slots',   'rtp': 97.5,  'is_active': True},
             {'slug': 'mega-dice',         'name': 'Mega Dice',         'provider': 'slyk', 'category': 'instant', 'rtp': 98.0,  'is_active': True},
@@ -131,7 +148,7 @@ class Command(BaseCommand):
         tournaments = [
             {
                 'name': 'Aviator Weekly Race',
-                'description': 'Wager on SLYK Aviator and the casino this week to climb the leaderboard. Top 10 share the prize pool.',
+                'description': 'Wager on BetBlits Aviator and the casino this week to climb the leaderboard. Top 10 share the prize pool.',
                 'metric': 'wagered', 'prize_pool': 500, 'currency': 'USD', 'active': True,
                 'starts_at': timezone.now() - timedelta(days=1),
                 'ends_at': timezone.now() + timedelta(days=6),
@@ -154,7 +171,7 @@ class Command(BaseCommand):
         base = 'https://images.unsplash.com'
         banners = [
             {
-                'title': 'SLYK Aviator', 'subtitle': 'Cash out before the crash — win up to 100×',
+                'title': 'BetBlits Aviator', 'subtitle': 'Cash out before the crash — win up to 100×',
                 'image_url': f'{base}/photo-1606167668584-78701c57f13d?w=1600&q=80&auto=format',
                 'link_url': '/casino/crash', 'cta_label': 'Play now', 'sort_order': 1,
             },

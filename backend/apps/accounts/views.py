@@ -1,9 +1,14 @@
 """accounts transport — views move data; all logic is in services."""
 from __future__ import annotations
 
+import logging
+
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.tokens import PasswordResetTokenGenerator
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import IntegrityError
 from django.http import FileResponse
 from django.utils.encoding import force_bytes, force_str
 from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
@@ -32,6 +37,7 @@ from .serializers import (
 )
 
 User = get_user_model()
+logger = logging.getLogger(__name__)
 
 
 class AuthRateThrottle(AnonRateThrottle):
@@ -58,13 +64,20 @@ class RegisterView(APIView):
             services.audit(player.id, 'register', request)
         except ValueError as exc:
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except IntegrityError:
+            # Lost a race with a simultaneous signup for the same username/email.
+            return Response({'detail': 'username or email already registered'}, status=status.HTTP_400_BAD_REQUEST)
         ref = request.data.get('ref')
         if ref:
             # Signed up through an affiliate link: attribute the player (best-effort).
-            from apps.affiliates import services as affiliate_services
-            affiliate_services.attach_referral(
-                player_id=player.id, code=str(ref), campaign=str(request.data.get('ref_campaign') or ''),
-            )
+            # The account already exists, so a failure here must never fail the signup.
+            try:
+                from apps.affiliates import services as affiliate_services
+                affiliate_services.attach_referral(
+                    player_id=player.id, code=str(ref), campaign=str(request.data.get('ref_campaign') or ''),
+                )
+            except Exception:
+                logger.exception('referral attribution failed for player %s', player.id)
         token = services.generate_verify_token(player.id)
         send_verification_email(player, token)
         return Response(PlayerSerializer(player).data, status=status.HTTP_201_CREATED)
@@ -214,6 +227,10 @@ class PasswordResetConfirmView(APIView):
         generator = PasswordResetTokenGenerator()
         if not generator.check_token(user, token):
             return Response({'detail': 'Invalid or expired token'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            validate_password(password, user=user)
+        except DjangoValidationError as exc:
+            return Response({'detail': ' '.join(exc.messages)}, status=status.HTTP_400_BAD_REQUEST)
         user.set_password(password)
         user.save()
         try:

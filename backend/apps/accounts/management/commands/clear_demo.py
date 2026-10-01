@@ -42,6 +42,6 @@ class Command(BaseCommand):
 
     def _clear_banners(self):
         from apps.promotions.models import Banner
-        titles = ['SLYK Aviator', 'Welcome Bonus', 'Weekly Tournaments']
+        titles = ['BetBlits Aviator', 'SLYK Aviator', 'Welcome Bonus', 'Weekly Tournaments']
         deleted, _ = Banner.objects.filter(title__in=titles).delete()
         self.stdout.write(f'  Deleted {deleted} demo banner row(s)')

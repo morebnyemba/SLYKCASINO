@@ -5,7 +5,7 @@ import { SportsbookBrowser } from '@/components/sportsbook-browser';
 import { apiGetAll } from '@/lib/config';
 import { isLive, isPriced, sortEvents, type EventItem } from '@/lib/sports';
 
-export const metadata: Metadata = { title: 'Sportsbook — SLÝKBETS' };
+export const metadata: Metadata = { title: 'Sportsbook — BetBlits' };
 
 export default async function SportsbookPage() {
   // Every upcoming/live match, soonest first — the API pages at 25 by default.

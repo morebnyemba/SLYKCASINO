@@ -1,4 +1,4 @@
-const CACHE = 'slyk-shell-v1';
+const CACHE = 'betblits-shell-v2';
 const SHELL_ASSETS = [
   '/manifest.json',
   '/icons/icon-192.png',
