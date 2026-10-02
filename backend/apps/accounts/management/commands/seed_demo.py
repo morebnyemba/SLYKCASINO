@@ -6,7 +6,7 @@ from django.utils import timezone
 
 
 class Command(BaseCommand):
-    help = 'Seed demo casino games, promotions, tournaments and banners (idempotent). Matches come from the live feed only.'
+    help = 'Seed the Aviator catalogue entry, demo promotions, tournaments and banners (idempotent). Matches come from the live feed only.'
 
     def handle(self, *args, **options):
         self._rebrand_legacy_demo()
@@ -33,15 +33,10 @@ class Command(BaseCommand):
 
     def _seed_games(self):
         from apps.casino.models import Game
+        # Only the in-house Aviator crash game; the placeholder demo games
+        # (slots, table, live…) were retired — see casino migration 0004.
         games = [
-            {'slug': 'slyk-aviator',      'name': 'BetBlits Aviator',      'provider': 'slyk', 'category': 'crash',   'rtp': 99.0,  'is_active': True},
-            {'slug': 'lucky-slots',       'name': 'Lucky Slots',       'provider': 'slyk', 'category': 'slots',   'rtp': 96.0,  'is_active': True},
-            {'slug': 'golden-wheel',      'name': 'Golden Wheel',      'provider': 'slyk', 'category': 'slots',   'rtp': 97.5,  'is_active': True},
-            {'slug': 'mega-dice',         'name': 'Mega Dice',         'provider': 'slyk', 'category': 'instant', 'rtp': 98.0,  'is_active': True},
-            {'slug': 'blackjack-classic', 'name': 'Blackjack Classic', 'provider': 'slyk', 'category': 'table',   'rtp': 99.5,  'is_active': True},
-            {'slug': 'roulette-pro',      'name': 'Roulette Pro',      'provider': 'slyk', 'category': 'table',   'rtp': 97.3,  'is_active': True},
-            {'slug': 'live-baccarat',     'name': 'Live Baccarat',     'provider': 'slyk', 'category': 'live',    'rtp': 98.9,  'is_active': True},
-            {'slug': 'virtual-league',    'name': 'Virtual League',    'provider': 'slyk', 'category': 'virtual', 'rtp': 95.0,  'is_active': True},
+            {'slug': 'slyk-aviator', 'name': 'BetBlits Aviator', 'provider': 'slyk', 'category': 'crash', 'rtp': 99.0, 'is_active': True},
         ]
         for data in games:
             obj, created = Game.objects.get_or_create(slug=data['slug'], defaults=data)

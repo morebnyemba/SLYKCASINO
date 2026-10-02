@@ -14,7 +14,7 @@ import { GameRow } from '@/components/game-row';
 import { useApi } from '@/lib/use-api';
 import { useFavorites } from '@/lib/use-favorites';
 import { CASINO_HERO_IMAGES } from '@/lib/game-images';
-import { CASINO_CATEGORIES as CATEGORIES, DEMO_GAMES, type Game, gameHref, gameTag, tileArt } from '@/lib/casino';
+import { CASINO_CATEGORIES as CATEGORIES, type Game, gameHref, gameTag, tileArt } from '@/lib/casino';
 import { Spinner } from '@slyk/ui/components/spinner';
 import { PageLoader } from '@/components/site-loader';
 
@@ -42,7 +42,7 @@ function CasinoLobby() {
   const [nextPage, setNextPage] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const apiGames = data?.results ?? [];
-  const games = useMemo(() => (apiGames.length > 0 ? [...apiGames, ...extraGames] : DEMO_GAMES), [apiGames, extraGames]);
+  const games = useMemo(() => [...apiGames, ...extraGames], [apiGames, extraGames]);
   const allIds = useMemo(() => games.map((g) => g.id), [games]);
 
   useEffect(() => {
@@ -206,7 +206,18 @@ function CasinoLobby() {
 
       {loading && <PageLoader caption="Loading games…" />}
 
-      {!loading && lobbyView && (
+      {!loading && games.length === 0 && (
+        <div className="rounded-2xl border border-border bg-card p-10 text-center">
+          <p className="mb-1 font-bold">New games are on the way</p>
+          <p className="mb-5 text-sm text-muted-foreground">Our casino catalogue is being prepared. In the meantime, try Aviator or bet on sports.</p>
+          <div className="flex justify-center gap-2">
+            <Link href="/casino/crash" className="rounded-lg bg-secondary px-4 py-2 text-sm font-bold text-white">Play Aviator</Link>
+            <Link href="/sportsbook" className="rounded-lg border border-border px-4 py-2 text-sm font-bold">Sportsbook</Link>
+          </div>
+        </div>
+      )}
+
+      {!loading && games.length > 0 && lobbyView && (
         <div className="space-y-8">
           {favoriteGames.length > 0 && (
             <GameRow
@@ -233,7 +244,7 @@ function CasinoLobby() {
         </div>
       )}
 
-      {!loading && !lobbyView && (
+      {!loading && games.length > 0 && !lobbyView && (
         <>
           <p className="text-sm font-semibold text-muted-foreground">
             {filtered.length} game{filtered.length === 1 ? '' : 's'}

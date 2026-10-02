@@ -8,7 +8,7 @@ import { PopularGames } from '@/components/popular-games';
 import { Carousel, CarouselItem } from '@/components/carousel';
 import { FeaturedMatchCard } from '@/components/event-row';
 import { apiGet } from '@/lib/config';
-import { DEMO_GAMES, type Game } from '@/lib/casino';
+import type { Game } from '@/lib/casino';
 import { isLive, isPriced, sortEvents, type EventItem } from '@/lib/sports';
 
 // Brand gradient treatment for a hue (matches the design system's `art()` generator).
@@ -107,7 +107,7 @@ export default async function LobbyPage() {
         </section>
       )}
 
-      <PopularGames games={games.length > 0 ? games : DEMO_GAMES} />
+      {games.length > 0 && <PopularGames games={games} />}
 
       <div className="grid grid-cols-2 gap-3 rounded-2xl border border-border bg-card p-4 text-xs font-semibold text-muted-foreground sm:grid-cols-4">
         {TRUST_BADGES.map((b) => {
