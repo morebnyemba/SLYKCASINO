@@ -8,7 +8,7 @@ import { FaGift } from 'react-icons/fa';
 import type { IconType } from 'react-icons';
 
 const ITEMS: { href: string; label: string; icon?: IconType; live?: boolean }[] = [
-  { href: '/', label: 'Home', icon: BsHouseDoorFill },
+  { href: '/home', label: 'Home', icon: BsHouseDoorFill },
   { href: '/sportsbook?tab=live', label: 'Live', live: true },
   { href: '/casino/crash', label: 'Aviator', icon: GiRocketFlight },
   { href: '/sportsbook?sport=football', label: 'Football', icon: GiSoccerBall },
@@ -35,7 +35,7 @@ export function MobileQuickNav() {
       <div className="no-scrollbar flex gap-1.5 overflow-x-auto px-3 py-2">
         {ITEMS.map((item) => {
           const Icon = item.icon;
-          const active = item.href === '/' ? pathname === '/' : !item.href.includes('?') && pathname.startsWith(item.href);
+          const active = !item.href.includes('?') && pathname.startsWith(item.href);
           return (
             <Link
               key={item.href}

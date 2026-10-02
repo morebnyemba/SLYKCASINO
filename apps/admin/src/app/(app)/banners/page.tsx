@@ -16,6 +16,7 @@ interface Banner {
   image_url: string;
   link_url: string;
   cta_label: string;
+  placement: string;
   sort_order: number;
   active: boolean;
   is_live: boolean;
@@ -25,9 +26,16 @@ interface Banner {
 
 interface BannersResponse { results?: Banner[] }
 
+const PLACEMENTS = [
+  { id: 'home_hero', label: 'Homepage hero' },
+  { id: 'sportsbook', label: 'Sportsbook' },
+] as const;
+
+const PLACEMENT_LABEL: Record<string, string> = Object.fromEntries(PLACEMENTS.map((p) => [p.id, p.label]));
+
 const BLANK = {
   title: '', subtitle: '', image_url: '', link_url: '', cta_label: '', sort_order: '0',
-  starts_at: '', ends_at: '',
+  starts_at: '', ends_at: '', placement: 'home_hero',
 };
 
 type FormState = typeof BLANK;
@@ -37,6 +45,7 @@ function toForm(b: Banner): FormState {
     title: b.title, subtitle: b.subtitle ?? '', image_url: b.image_url,
     link_url: b.link_url ?? '', cta_label: b.cta_label ?? '',
     sort_order: String(b.sort_order ?? 0),
+    placement: b.placement || 'home_hero',
     starts_at: b.starts_at ? b.starts_at.slice(0, 16) : '',
     ends_at: b.ends_at ? b.ends_at.slice(0, 16) : '',
   };
@@ -50,6 +59,7 @@ function toPayload(form: FormState) {
     link_url: form.link_url,
     cta_label: form.cta_label,
     sort_order: Number(form.sort_order) || 0,
+    placement: form.placement,
     starts_at: form.starts_at || null,
     ends_at: form.ends_at || null,
   };
@@ -148,7 +158,7 @@ export default function BannersPage() {
           </span>
           <div>
             <h1 className="text-2xl font-bold">Site Banners</h1>
-            <p className="text-muted-foreground text-sm">Wide promotional banners shown on the player homepage.</p>
+            <p className="text-muted-foreground text-sm">Wide promotional banners for the player homepage and the sportsbook.</p>
           </div>
         </div>
         <button
@@ -182,6 +192,19 @@ export default function BannersPage() {
               </div>
             )}
             <form onSubmit={handleSubmit} className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1 sm:col-span-2">
+                <label className="text-sm font-medium">Show on</label>
+                <select
+                  value={form.placement}
+                  onChange={(e) => set('placement', e.target.value)}
+                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                >
+                  {PLACEMENTS.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+                </select>
+                {form.placement === 'sportsbook' && (
+                  <p className="text-xs text-muted-foreground">Plays first in the sportsbook hero, before the automatic match banners.</p>
+                )}
+              </div>
               {FIELDS.map(({ label, key, type, placeholder, full }) => (
                 <div key={key} className={`space-y-1 ${full ? 'sm:col-span-2' : ''}`}>
                   <label className="text-sm font-medium">{label}</label>
@@ -221,6 +244,7 @@ export default function BannersPage() {
               <thead>
                 <tr className="border-b border-border text-left text-muted-foreground">
                   <th className="px-4 py-3 font-medium">Banner</th>
+                  <th className="px-4 py-3 font-medium">Shown on</th>
                   <th className="px-4 py-3 font-medium">Link</th>
                   <th className="px-4 py-3 font-medium">Order</th>
                   <th className="px-4 py-3 font-medium">Status</th>
@@ -240,6 +264,7 @@ export default function BannersPage() {
                         </div>
                       </div>
                     </td>
+                    <td className="px-4 py-3 text-xs">{PLACEMENT_LABEL[b.placement] ?? b.placement}</td>
                     <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{b.link_url || '—'}</td>
                     <td className="px-4 py-3">{b.sort_order}</td>
                     <td className="px-4 py-3">

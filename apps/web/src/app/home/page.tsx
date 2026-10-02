@@ -58,7 +58,7 @@ export default async function LobbyPage() {
     // order is never missed; the soonest priced matches are the fallback.
     apiGet<EventItem>('/events/?upcoming=true&priced=true&featured=true&page_size=8'),
     apiGet<EventItem>('/events/?upcoming=true&priced=true&page_size=8'),
-    apiGet<Banner>('/promotions/banners/'),
+    apiGet<Banner>('/promotions/banners/?placement=home_hero'),
     apiGet<Game>('/casino/games/'),
   ]);
   const bettable = (data: typeof eventsData) =>
