@@ -332,7 +332,7 @@ export function EventMarkets({ ev }: { ev: EventItem }) {
       )}
       {trading && !finished && (
         <p className="flex items-center gap-2 rounded-xl border border-live/30 bg-live/5 px-4 py-3 text-sm font-semibold">
-          <LiveBadge /> In-play betting is open. Bets are confirmed after a few seconds if the price and score haven’t changed.
+          <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-live" aria-hidden /> In-play betting is open. Bets are confirmed after a few seconds if the price and score haven’t changed.
         </p>
       )}
 

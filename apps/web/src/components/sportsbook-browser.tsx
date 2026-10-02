@@ -123,7 +123,11 @@ export function SportsbookBrowser({ events, topMatches = [], awaitingOdds = 0 }:
 
         {/* Sport chips */}
         <div className="no-scrollbar -mx-3 flex gap-2 overflow-x-auto px-3 sm:mx-0 sm:px-0">
-          {[{ id: null as string | null, label: 'All sports', icon: GiTrophyCup }, ...SPORT_CATEGORIES].map((cat) => {
+          {/* Only sports that have matches (plus the one selected, so a shared link still shows it). */}
+          {[
+            { id: null as string | null, label: 'All sports', icon: GiTrophyCup },
+            ...SPORT_CATEGORIES.filter((c) => (counts[c.id] ?? 0) > 0 || sport === c.id),
+          ].map((cat) => {
             const Icon = cat.icon;
             const active = sport === cat.id;
             const count = cat.id ? counts[cat.id] ?? 0 : openEvents.length;
