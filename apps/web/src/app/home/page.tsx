@@ -16,13 +16,6 @@ function heroArt(hue: number): string {
   return `linear-gradient(150deg, hsl(${hue} 58% 30%), hsl(${hue} 64% 12%))`;
 }
 
-// Shown only when an operator has not configured any banners yet.
-const FALLBACK_BANNERS: Banner[] = [
-  { id: 'f1', bg: heroArt(12), big: '2.48×', eyebrow: 'FEATURED · CRASH', title: 'BetBlits Aviator', subtitle: 'Watch the multiplier climb — cash out before it crashes. 99% RTP.', link_url: '/casino/crash', cta_label: 'Play now' },
-  { id: 'f2', bg: heroArt(262), big: '+$1K', eyebrow: 'WELCOME OFFER', title: '200% up to $1,000', subtitle: 'Double your first three deposits, plus 50 free spins on the house.', link_url: '/promotions', cta_label: 'Claim bonus' },
-  { id: 'f3', bg: heroArt(180), big: '$50K', eyebrow: 'WEEKEND TOURNAMENT', title: 'Drop & Win', subtitle: 'Climb the leaderboard for a share of a $50,000 prize pool.', link_url: '/tournaments', cta_label: 'Join race' },
-];
-
 const TRUST_BADGES: { label: string; icon: IconType }[] = [
   { label: 'Instant payouts', icon: FaBolt },
   { label: 'Secure wallet', icon: FaLock },
@@ -72,7 +65,7 @@ export default async function LobbyPage() {
   return (
     <div className="space-y-8">
       <div className="grid gap-3 xl:grid-cols-[1fr_340px]">
-        <BannerSlider banners={banners.length > 0 ? banners : FALLBACK_BANNERS} />
+        <BannerSlider banners={banners} />
         <div className="flex gap-3 xl:flex-col">
           <ProductCard href="/casino" title="Casino" subtitle="Slots, live tables & crash" icon={GiRollingDices} hue={262} stat="Games live now" />
           <ProductCard
