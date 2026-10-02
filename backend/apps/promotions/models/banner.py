@@ -11,6 +11,7 @@ class Banner(models.Model):
 
     class Placement(models.TextChoices):
         HOME_HERO = 'home_hero', 'Homepage hero'
+        SPORTSBOOK = 'sportsbook', 'Sportsbook'
 
     title = models.CharField(max_length=200)
     subtitle = models.CharField(max_length=300, blank=True)

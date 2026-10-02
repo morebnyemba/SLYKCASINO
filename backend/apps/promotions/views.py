@@ -26,11 +26,15 @@ class BannerViewSet(viewsets.ModelViewSet):
     """Public read of live banners; admin-only create/update/delete.
 
     Pass ?all=true (used by the operator console) to list every banner,
-    including inactive and scheduled ones."""
+    including inactive and scheduled ones, and ?placement= for one surface."""
     serializer_class = BannerSerializer
 
     def get_queryset(self):
         qs = Banner.objects.all().order_by('sort_order', '-created_at')
+        # ?placement=home_hero|sportsbook narrows to one surface.
+        placement = self.request.query_params.get('placement')
+        if placement:
+            qs = qs.filter(placement=placement)
         if self.request.query_params.get('all') == 'true':
             return qs
         now = timezone.now()

@@ -141,3 +141,21 @@ class TournamentTests(TestCase):
         resp = APIClient().get(f'/api/promotions/tournaments/{self.tournament.id}/leaderboard/')
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         self.assertEqual(resp.data[0]['player_name'], 'tplayer2')  # highest score first
+
+
+class BannerPlacementTests(TestCase):
+    """Each surface (homepage, sportsbook) asks for its own live banners."""
+
+    def test_placement_filter(self):
+        from apps.promotions.models import Banner
+        Banner.objects.create(title='Home promo', image_url='https://x/h.jpg', placement='home_hero')
+        Banner.objects.create(title='Acca boost', image_url='https://x/s.jpg', placement='sportsbook')
+        Banner.objects.create(title='Hidden', image_url='https://x/o.jpg', placement='sportsbook', active=False)
+
+        def titles(query):
+            data = APIClient().get(f'/api/promotions/banners/{query}').json()
+            return sorted(b['title'] for b in data.get('results', data))
+
+        self.assertEqual(titles('?placement=sportsbook'), ['Acca boost'])
+        self.assertEqual(titles('?placement=home_hero'), ['Home promo'])
+        self.assertEqual(titles(''), ['Acca boost', 'Home promo'])

@@ -2,24 +2,37 @@ import type { Metadata } from 'next';
 import { Suspense } from 'react';
 import { AutoRefresh } from '@/components/auto-refresh';
 import { SportsbookBrowser } from '@/components/sportsbook-browser';
-import { apiGetAll } from '@/lib/config';
-import { isLive, isPriced, sortEvents, type EventItem } from '@/lib/sports';
+import { SportsbookHero } from '@/components/sportsbook-hero';
+import type { Banner } from '@/components/banner-slider';
+import { apiGet, apiGetAll } from '@/lib/config';
+import { isLive, isPriced, pickBannerMatches, sortEvents, type EventItem } from '@/lib/sports';
 
 export const metadata: Metadata = { title: 'Sportsbook — BetBlits' };
 
 export default async function SportsbookPage() {
   // Every upcoming/live match, soonest first — the API pages at 25 by default.
-  const { rows: all, complete } = await apiGetAll<EventItem>('/events/?upcoming=true&page_size=200');
+  const [{ rows: all, complete }, bannerData] = await Promise.all([
+    apiGetAll<EventItem>('/events/?upcoming=true&page_size=200'),
+    apiGet<Banner>('/promotions/banners/?placement=sportsbook'),
+  ]);
+  // Hero: the operator's sportsbook promos, then banners for the biggest fixtures.
+  const banners = (bannerData.results ?? []) as Banner[];
   // Fixtures the bookmaker hasn't priced yet aren't bettable, so they stay off the board.
   const events = all.filter(isPriced);
   const awaitingOdds = all.length - events.length;
   const open = events.filter((ev) => ev.is_open !== false);
   const featured = sortEvents(open.filter((ev) => ev.featured)).slice(0, 8);
   const topMatches = featured.length > 0 ? featured : sortEvents(open).slice(0, 8);
+  const bannerMatches = pickBannerMatches(events);
 
   return (
     <div>
       {events.some(isLive) && <AutoRefresh seconds={15} />}
+      {(banners.length > 0 || bannerMatches.length > 0) && (
+        <div className="mb-5">
+          <SportsbookHero banners={banners} matches={bannerMatches} />
+        </div>
+      )}
       {!complete && (
         <p className="mb-3 rounded-xl border border-border bg-card px-4 py-2.5 text-xs font-semibold text-muted-foreground">
           Some matches couldn’t be loaded right now — refresh in a moment to see the full list.

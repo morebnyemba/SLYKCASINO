@@ -49,75 +49,13 @@ export function BannerSlider({ banners }: { banners: Banner[] }) {
   return (
     <div className="group relative h-52 overflow-hidden rounded-2xl sm:h-60 md:h-72">
       {banners.map((b, i) => {
-        const href = b.link_url || '';
-
         return (
           <div
             key={b.id}
             className={`absolute inset-0 transition-opacity duration-700 ${i === index ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
             aria-hidden={i === index ? undefined : true}
           >
-            {b.image_url ? (
-              <>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={b.image_url} alt={b.title} className="h-full w-full object-cover" />
-                <div className="absolute inset-0 bg-gradient-to-r from-black/85 via-black/45 to-transparent" />
-              </>
-            ) : (
-              <>
-                <div className="absolute inset-0" style={{ background: b.bg }} />
-                {b.big && (
-                  <div
-                    aria-hidden
-                    className="pointer-events-none absolute -right-2 top-1/2 -translate-y-1/2 select-none font-extrabold leading-[0.8] tracking-tighter text-white/[0.08]"
-                    style={{ fontSize: 'clamp(64px, 14vw, 190px)' }}
-                  >
-                    {b.big}
-                  </div>
-                )}
-                <div className="absolute inset-0 bg-gradient-to-r from-black/[0.86] via-black/50 to-transparent" />
-              </>
-            )}
-            <div className="absolute inset-0 flex flex-col justify-center gap-1.5 p-5 pb-8 sm:gap-2 sm:p-10">
-              {b.eyebrow && (
-                <span className="w-fit rounded-md bg-white/15 px-2.5 py-1 text-[11px] font-bold tracking-wider text-white backdrop-blur-sm">
-                  {b.eyebrow}
-                </span>
-              )}
-              <p className="max-w-xl text-xl font-extrabold leading-tight text-white drop-shadow sm:text-3xl md:text-4xl">
-                {b.title}
-              </p>
-              {b.subtitle && (
-                <p className="line-clamp-2 max-w-md text-[13px] text-white/85 sm:text-base">{b.subtitle}</p>
-              )}
-              <div className="mt-1.5 flex w-fit gap-2 sm:mt-2 sm:gap-3">
-                {b.cta_label && href && (
-                  isExternal(href) ? (
-                    <a
-                      href={href}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center rounded-lg bg-win px-4 py-2 text-xs font-extrabold uppercase tracking-wide text-win-foreground shadow-lg transition-transform hover:scale-105 sm:px-5 sm:text-sm"
-                    >
-                      {b.cta_label}
-                    </a>
-                  ) : (
-                    <Link
-                      href={href}
-                      className="inline-flex items-center rounded-lg bg-win px-4 py-2 text-xs font-extrabold uppercase tracking-wide text-win-foreground shadow-lg transition-transform hover:scale-105 sm:px-5 sm:text-sm"
-                    >
-                      {b.cta_label}
-                    </Link>
-                  )
-                )}
-                <Link
-                  href="/casino"
-                  className="inline-flex items-center rounded-lg border border-white/25 bg-white/10 px-4 py-2 text-xs font-semibold text-white backdrop-blur-sm hover:bg-white/20 sm:px-5 sm:text-sm"
-                >
-                  Try demo
-                </Link>
-              </div>
-            </div>
+            <PromoSlide b={b} secondary={{ href: '/casino', label: 'Try demo' }} />
           </div>
         );
       })}
@@ -155,5 +93,78 @@ export function BannerSlider({ banners }: { banners: Banner[] }) {
         </>
       )}
     </div>
+  );
+}
+
+/** One promo banner's content (photo or gradient art, copy and buttons), filling
+ * its parent. Shared by the homepage slider and the sportsbook hero. */
+export function PromoSlide({ b, secondary }: { b: Banner; secondary?: { href: string; label: string } | null }) {
+  const href = b.link_url || '';
+  return (
+    <>
+      {b.image_url ? (
+        <>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={b.image_url} alt={b.title} className="h-full w-full object-cover" />
+          <div className="absolute inset-0 bg-gradient-to-r from-black/85 via-black/45 to-transparent" />
+        </>
+      ) : (
+        <>
+          <div className="absolute inset-0" style={{ background: b.bg }} />
+          {b.big && (
+            <div
+              aria-hidden
+              className="pointer-events-none absolute -right-2 top-1/2 -translate-y-1/2 select-none font-extrabold leading-[0.8] tracking-tighter text-white/[0.08]"
+              style={{ fontSize: 'clamp(64px, 14vw, 190px)' }}
+            >
+              {b.big}
+            </div>
+          )}
+          <div className="absolute inset-0 bg-gradient-to-r from-black/[0.86] via-black/50 to-transparent" />
+        </>
+      )}
+      <div className="absolute inset-0 flex flex-col justify-center gap-1.5 p-5 pb-8 sm:gap-2 sm:p-10">
+        {b.eyebrow && (
+          <span className="w-fit rounded-md bg-white/15 px-2.5 py-1 text-[11px] font-bold tracking-wider text-white backdrop-blur-sm">
+            {b.eyebrow}
+          </span>
+        )}
+        <p className="max-w-xl text-xl font-extrabold leading-tight text-white drop-shadow sm:text-3xl md:text-4xl">
+          {b.title}
+        </p>
+        {b.subtitle && (
+          <p className="line-clamp-2 max-w-md text-[13px] text-white/85 sm:text-base">{b.subtitle}</p>
+        )}
+        <div className="mt-1.5 flex w-fit gap-2 sm:mt-2 sm:gap-3">
+          {b.cta_label && href && (
+            isExternal(href) ? (
+              <a
+                href={href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center rounded-lg bg-win px-4 py-2 text-xs font-extrabold uppercase tracking-wide text-win-foreground shadow-lg transition-transform hover:scale-105 sm:px-5 sm:text-sm"
+              >
+                {b.cta_label}
+              </a>
+            ) : (
+              <Link
+                href={href}
+                className="inline-flex items-center rounded-lg bg-win px-4 py-2 text-xs font-extrabold uppercase tracking-wide text-win-foreground shadow-lg transition-transform hover:scale-105 sm:px-5 sm:text-sm"
+              >
+                {b.cta_label}
+              </Link>
+            )
+          )}
+          {secondary && (
+            <Link
+              href={secondary.href}
+              className="inline-flex items-center rounded-lg border border-white/25 bg-white/10 px-4 py-2 text-xs font-semibold text-white backdrop-blur-sm hover:bg-white/20 sm:px-5 sm:text-sm"
+            >
+              {secondary.label}
+            </Link>
+          )}
+        </div>
+      </div>
+    </>
   );
 }
