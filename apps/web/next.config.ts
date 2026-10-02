@@ -8,6 +8,11 @@ const nextConfig: NextConfig = {
   outputFileTracingRoot: path.join(__dirname, '../../'),
   // Compile the shared workspace UI package (it ships .tsx source, not built JS).
   transpilePackages: ['@slyk/ui'],
+  // The sportsbook is the landing page; the promo lobby lives at /home.
+  // Temporary (307) so the default page can be changed again later.
+  async redirects() {
+    return [{ source: '/', destination: '/sportsbook', permanent: false }];
+  },
 };
 
 export default nextConfig;

@@ -2,7 +2,7 @@
   "name": "BetBlits",
   "short_name": "BetBlits",
   "description": "Sportsbook, casino games, promotions, and live chat — all in one place.",
-  "start_url": "/",
+  "start_url": "/sportsbook",
   "scope": "/",
   "display": "standalone",
   "background_color": "#0b1220",
