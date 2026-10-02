@@ -38,17 +38,22 @@ export function LiveBadge({ className = '' }: { className?: string }) {
   );
 }
 
-/** Kickoff/LIVE status, stacked for the time column. */
+/** Quiet in-play marker for lists: a small pulsing dot and the match minute
+ * ("● 61'", or "● HT"/"● Live"). The bold LIVE badge is kept for the match page. */
+export function LiveClock({ ev, className = '' }: { ev: EventItem; className?: string }) {
+  const clock = matchClock(ev);
+  return (
+    <span className={`inline-flex items-center gap-1.5 text-[11.5px] font-extrabold tabular-nums text-live ${className}`}>
+      <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-live" aria-hidden />
+      {clock || 'Live'}
+    </span>
+  );
+}
+
+/** Kickoff/live status, stacked for the time column. */
 function EventStatus({ ev, inline = false }: { ev: EventItem; inline?: boolean }) {
   const clock = matchClock(ev);
-  if (isLive(ev)) {
-    return (
-      <span className={`flex gap-1 ${inline ? 'items-center' : 'flex-col items-start'}`}>
-        <LiveBadge />
-        {clock && <span className="text-[11px] font-extrabold tabular-nums text-live">{clock}</span>}
-      </span>
-    );
-  }
+  if (isLive(ev)) return <LiveClock ev={ev} />;
   if (clock) return <span className="text-[11px] font-extrabold text-muted-foreground">{clock}</span>;
   if (!ev.starts_at) return <span className="text-[11px] font-semibold text-muted-foreground">TBC</span>;
   return inline ? (
@@ -156,7 +161,7 @@ export function FeaturedMatchCard({ ev: snapshot }: { ev: EventItem }) {
         {SportIcon && <SportIcon size={13} />}
         <span>{sport.label}</span>
         <span suppressHydrationWarning className="ml-auto">
-          {isLive(ev) ? <LiveBadge /> : ev.starts_at ? `${dayLabel(ev.starts_at)} · ${kickoffTime(ev.starts_at)}` : 'TBC'}
+          {isLive(ev) ? <LiveClock ev={ev} /> : ev.starts_at ? `${dayLabel(ev.starts_at)} · ${kickoffTime(ev.starts_at)}` : 'TBC'}
         </span>
       </div>
       <Link href={`/sportsbook/${ev.id}`} className="mb-3 flex items-center justify-between gap-2">

@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { BsSearch, BsXLg, BsChevronRight } from 'react-icons/bs';
 import { GiRocketFlight, GiCherry, GiPokerHand, GiSoccerBall, GiTrophy } from 'react-icons/gi';
 import type { IconType } from 'react-icons';
-import { LiveBadge, TeamBadge } from '@/components/event-row';
+import { LiveClock, TeamBadge } from '@/components/event-row';
 import { config } from '@/lib/config';
 import { useShell } from '@/lib/shell-context';
 import { DEMO_GAMES, gameHref, tileArt, type Game } from '@/lib/casino';
@@ -166,7 +166,7 @@ export function GlobalSearch() {
                             <span className="min-w-0 flex-1">
                               <span className="block truncate text-sm font-bold">{away ? `${home} v ${away}` : home}</span>
                               <span className="block text-xs text-muted-foreground" suppressHydrationWarning>
-                                {isLive(ev) ? <LiveBadge /> : ev.starts_at ? `${dayLabel(ev.starts_at)} · ${kickoffTime(ev.starts_at)}` : 'Time TBC'}
+                                {isLive(ev) ? <LiveClock ev={ev} /> : ev.starts_at ? `${dayLabel(ev.starts_at)} · ${kickoffTime(ev.starts_at)}` : 'Time TBC'}
                               </span>
                             </span>
                             <BsChevronRight size={12} className="text-muted-foreground" />

@@ -1,9 +1,10 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import { BsList, BsTicketPerforated, BsReceipt } from 'react-icons/bs';
-import { GiTrophy, GiRollingDices } from 'react-icons/gi';
+import { Suspense } from 'react';
+import { usePathname, useSearchParams } from 'next/navigation';
+import { BsBroadcast, BsList, BsTicketPerforated, BsReceipt } from 'react-icons/bs';
+import { GiTrophy } from 'react-icons/gi';
 import type { IconType } from 'react-icons';
 import { useAuth } from '@/lib/auth-context';
 import { useBetslip } from '@/lib/betslip-context';
@@ -22,7 +23,21 @@ function TabLink({ href, label, icon: Icon, active }: { href: string; label: str
   );
 }
 
-/** Mobile-only tab bar: menu drawer, products, bet slip and bets. Desktop uses the sidebar + header. */
+/** Live and Sports both point at the sportsbook; the `tab=live` query decides
+ * which one is highlighted (read in a Suspense boundary, as useSearchParams needs). */
+function SportsTabs({ pathname }: { pathname: string }) {
+  const params = useSearchParams();
+  const onBook = pathname.startsWith('/sportsbook');
+  const live = onBook && params.get('tab') === 'live';
+  return (
+    <>
+      <TabLink href="/sportsbook?tab=live" label="Live" icon={BsBroadcast} active={live} />
+      <TabLink href="/sportsbook" label="Sports" icon={GiTrophy} active={onBook && !live} />
+    </>
+  );
+}
+
+/** Mobile-only tab bar: menu drawer, live, sports, bet slip and bets (casino is in the menu and header). Desktop uses the sidebar + header. */
 export function BottomNav() {
   const pathname = usePathname();
   const { user } = useAuth();
@@ -40,8 +55,14 @@ export function BottomNav() {
         </span>
         <span>Menu</span>
       </button>
-      <TabLink href="/casino" label="Casino" icon={GiRollingDices} active={pathname.startsWith('/casino')} />
-      <TabLink href="/sportsbook" label="Sports" icon={GiTrophy} active={pathname.startsWith('/sportsbook')} />
+      <Suspense fallback={(
+        <>
+          <TabLink href="/sportsbook?tab=live" label="Live" icon={BsBroadcast} active={false} />
+          <TabLink href="/sportsbook" label="Sports" icon={GiTrophy} active={pathname.startsWith('/sportsbook')} />
+        </>
+      )}>
+        <SportsTabs pathname={pathname} />
+      </Suspense>
       <button
         onClick={() => setSlipOpen(!slipOpen)}
         className={`${tabClass} ${slipOpen ? 'text-secondary' : 'text-muted-foreground'}`}

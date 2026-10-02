@@ -2,7 +2,7 @@
 
 import { BsChevronDown } from 'react-icons/bs';
 import { GiTrophyCup } from 'react-icons/gi';
-import { EventRow, LiveBadge } from '@/components/event-row';
+import { EventRow } from '@/components/event-row';
 import type { LeagueGroup } from '@/lib/sports';
 
 /**
@@ -41,8 +41,11 @@ export function LeagueSection({ group, collapsed, onToggle, fallbackTitle }: {
             <span className="font-extrabold">{fallbackTitle}</span>
           )}
         </span>
-        {group.liveCount > 0 && <LiveBadge className="shrink-0" />}
-        <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[11px] font-bold tabular-nums text-muted-foreground">
+        <span
+          title={group.liveCount > 0 ? `${group.liveCount} in play` : undefined}
+          className="flex shrink-0 items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] font-bold tabular-nums text-muted-foreground"
+        >
+          {group.liveCount > 0 && <span className="h-1.5 w-1.5 rounded-full bg-live" aria-label="in play" />}
           {group.events.length}
         </span>
         <BsChevronDown
