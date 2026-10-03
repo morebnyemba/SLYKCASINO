@@ -120,5 +120,8 @@ class BetSlipSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = BetSlip
-        fields = ['id', 'stake', 'combined_odds', 'status', 'payout', 'placed_at', 'settled_at', 'legs']
-        read_only_fields = ['combined_odds', 'status', 'payout', 'placed_at', 'settled_at']
+        fields = [
+            'id', 'stake', 'combined_odds', 'status', 'payout', 'bonus_percent', 'bonus',
+            'placed_at', 'settled_at', 'legs',
+        ]
+        read_only_fields = ['combined_odds', 'status', 'payout', 'bonus_percent', 'bonus', 'placed_at', 'settled_at']

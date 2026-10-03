@@ -45,6 +45,8 @@ export interface ApiSlip {
   combined_odds: string;
   status: string;
   payout: string | null;
+  bonus_percent?: string;
+  bonus?: string;
   placed_at: string;
   legs: ApiSlipLeg[];
 }
@@ -66,6 +68,9 @@ export interface Ticket {
   odds: number;
   status: string;
   payout: number | null;
+  /** Multiples: multi-bet bonus rate promised, and the amount paid on a win. */
+  bonusPercent: number;
+  bonus: number;
   placedAt: string;
   legs: TicketLeg[];
 }
@@ -90,6 +95,7 @@ export function ticketFromBet(b: ApiBet): Ticket {
   return {
     key: `b${b.id}`, kind: 'single', id: b.id, stake: Number(b.stake), odds: Number(b.odds),
     status: b.status, payout: b.payout == null ? null : Number(b.payout), placedAt: b.placed_at,
+    bonusPercent: 0, bonus: 0,
     legs: [toLeg(b, singleResult(b.status))],
   };
 }
@@ -98,6 +104,7 @@ export function ticketFromSlip(s: ApiSlip): Ticket {
   return {
     key: `s${s.id}`, kind: 'multiple', id: s.id, stake: Number(s.stake), odds: Number(s.combined_odds),
     status: s.status, payout: s.payout == null ? null : Number(s.payout), placedAt: s.placed_at,
+    bonusPercent: Number(s.bonus_percent ?? 0), bonus: Number(s.bonus ?? 0),
     legs: s.legs.map((l) => toLeg(l, l.result ?? 'pending')),
   };
 }
@@ -167,13 +174,14 @@ export function BetTicket({ ticket, compact = false }: { ticket: Ticket; compact
   const [expanded, setExpanded] = useState(false);
   const shown = expanded ? t.legs : t.legs.slice(0, foldAt);
   const hidden = t.legs.length - shown.length;
-  const potential = t.stake * t.odds;
+  // Estimate: assumes every leg wins (a void leg can lower the bonus tier).
+  const potential = t.stake * t.odds + Math.max(0, t.stake * t.odds - t.stake) * t.bonusPercent / 100;
   const settledLegs = t.legs.filter((l) => l.result !== 'pending').length;
 
   let returnLabel = 'Potential return';
   let returnValue = money(potential);
   let returnClass = 'text-win';
-  if (t.status === 'won') { returnLabel = 'Paid out'; returnValue = money(t.payout ?? potential); }
+  if (t.status === 'won') { returnLabel = 'Paid out'; returnValue = money(t.payout != null ? t.payout + t.bonus : potential); }
   else if (t.status === 'lost') { returnLabel = 'Return'; returnValue = money(0); returnClass = 'text-muted-foreground'; }
   else if (t.status === 'void' || t.status === 'rejected') { returnLabel = 'Refunded'; returnValue = money(t.payout ?? t.stake); returnClass = 'text-foreground'; }
 
@@ -192,6 +200,11 @@ export function BetTicket({ ticket, compact = false }: { ticket: Ticket; compact
             #{t.kind === 'single' ? 'S' : 'M'}{t.id} · {new Date(t.placedAt).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
             {t.kind === 'multiple' && !isSettled(t.status) && ` · ${settledLegs}/${t.legs.length} settled`}
           </p>
+          {t.bonusPercent > 0 && t.status !== 'lost' && (
+            <p className="text-[11px] font-bold text-gold">
+              +{t.bonusPercent}% multi-bet bonus{t.bonus > 0 ? ` · ${money(t.bonus)} paid` : ''}
+            </p>
+          )}
         </div>
         <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wide ${s.className}`}>
           {s.label}

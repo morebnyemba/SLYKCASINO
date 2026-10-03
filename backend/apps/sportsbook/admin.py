@@ -2,7 +2,8 @@ from django import forms
 from django.contrib import admin
 
 from .models import (
-    Bet, BetLeg, BetSlip, Event, LeagueSetting, Market, MarketOutcome, ProviderCredential, Team,
+    Bet, BetLeg, BetSlip, BookingCode, Event, LeagueSetting, Market, MarketOutcome, MultiBetBonusTier,
+    ProviderCredential, Team,
 )
 
 
@@ -88,3 +89,17 @@ class BetSlipAdmin(admin.ModelAdmin):
     list_filter = ('status',)
     search_fields = ('player_id',)
     inlines = [BetLegInline]
+
+
+@admin.register(MultiBetBonusTier)
+class MultiBetBonusTierAdmin(admin.ModelAdmin):
+    # Legs priced under SPORTSBOOK_ACCA_BONUS_MIN_ODDS don't count towards a tier.
+    list_display = ('min_legs', 'percent', 'is_active')
+    list_editable = ('percent', 'is_active')
+
+
+@admin.register(BookingCode)
+class BookingCodeAdmin(admin.ModelAdmin):
+    list_display = ('code', 'player_id', 'loads', 'created_at')
+    search_fields = ('code',)
+    readonly_fields = ('code', 'selections', 'player_id', 'loads', 'created_at')

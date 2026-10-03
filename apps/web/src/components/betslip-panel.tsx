@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect } from 'react';
 import { BsLockFill, BsXLg, BsReceipt, BsTrash3 } from 'react-icons/bs';
+import { LoadCodeForm, ShareSlip } from '@/components/booking-code';
 import { useAuth } from '@/lib/auth-context';
 import { useBetslip, keyOf, type BetLeg, type Selection } from '@/lib/betslip-context';
 import { formatOdds, useSettings } from '@/lib/settings-context';
@@ -35,7 +36,7 @@ export function SlipBody({ onClose, variant = 'card' }: {
   const { oddsFormat } = useSettings();
   const {
     legs, mode, setMode, accaStake, setAccaStake, legStakes, setLegStake,
-    combinedOdds, potentialPayout, status, busy,
+    combinedOdds, potentialPayout, bonus, status, busy,
     removeLeg, clear, place, conflictingEvents, hasPriceChanges, hasSuspended, acceptPriceChanges,
   } = useBetslip();
 
@@ -113,6 +114,7 @@ export function SlipBody({ onClose, variant = 'card' }: {
           <p className="mb-4 text-xs leading-relaxed text-muted-foreground">
             Tap any price to add a selection. Add two or more for a multiple.
           </p>
+          <LoadCodeForm className="mb-4" />
           {user && (
             <Link href="/account/bets" onClick={onClose} className="text-xs font-bold text-secondary hover:underline">
               View my bets →
@@ -230,6 +232,12 @@ export function SlipBody({ onClose, variant = 'card' }: {
                   <dd className="font-bold tabular-nums">{fmt(combinedOdds)}</dd>
                 </div>
               )}
+              {bonus.percent > 0 && (
+                <div className="flex justify-between">
+                  <dt className="font-semibold text-gold">Multi-bet bonus +{bonus.percent}%</dt>
+                  <dd className="font-bold tabular-nums text-gold">+{money(bonus.amount)}</dd>
+                </div>
+              )}
               <div className="flex justify-between">
                 <dt className="text-muted-foreground">Total stake</dt>
                 <dd className="font-bold tabular-nums">{money(totalStake)}</dd>
@@ -239,6 +247,13 @@ export function SlipBody({ onClose, variant = 'card' }: {
                 <dd className="text-lg font-extrabold tabular-nums text-win">{money(potentialPayout)}</dd>
               </div>
             </dl>
+
+            {!isSingles && bonus.next && (
+              <p className="mb-3 rounded-lg bg-gold/10 px-3 py-2 text-[11.5px] font-semibold text-gold">
+                Add {bonus.next.minLegs - bonus.qualifying} more selection{bonus.next.minLegs - bonus.qualifying === 1 ? '' : 's'}
+                {' '}at {fmt(bonus.minOdds)}+ for a {bonus.next.percent}% multi-bet bonus.
+              </p>
+            )}
 
             {user ? (
               hasSuspended ? (
@@ -273,6 +288,9 @@ export function SlipBody({ onClose, variant = 'card' }: {
                 Log in to place bet
               </Link>
             )}
+            <div className="mt-2.5">
+              <ShareSlip />
+            </div>
             {status && (
               <p className={`mt-2 rounded-lg px-3 py-2 text-xs font-semibold ${
                 rejected ? 'bg-destructive/10 text-destructive' : 'bg-win/10 text-win'

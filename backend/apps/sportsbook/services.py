@@ -22,7 +22,7 @@ from .clients import (
 )
 from .dtos import BetDTO
 from .models import (
-    Bet, BetLeg, BetSlip, Event, LeagueSetting, Market, MarketOutcome, Selection, Team,
+    Bet, BetLeg, BetSlip, Event, LeagueSetting, Market, MarketOutcome, MultiBetBonusTier, Selection, Team,
 )
 from .settlement import GoalEvent, Score, settle_outcome
 
@@ -389,6 +389,57 @@ def settle_bet(bet_id: int, outcome: str) -> Bet:
     return bet
 
 
+# -- multi-bet bonus ----------------------------------------------------------
+
+def multibet_bonus_min_odds() -> Decimal:
+    from django.conf import settings
+    return Decimal(str(getattr(settings, 'SPORTSBOOK_ACCA_BONUS_MIN_ODDS', '1.20')))
+
+
+def multibet_bonus_cap() -> Decimal:
+    from django.conf import settings
+    return Decimal(str(getattr(settings, 'SPORTSBOOK_ACCA_BONUS_CAP', '0') or '0'))
+
+
+def multibet_bonus_percent(leg_odds) -> Decimal:
+    """Bonus rate for a multiple with these leg prices: the highest active tier
+    whose `min_legs` the qualifying legs (priced at or above the minimum)
+    reach, else 0."""
+    floor = multibet_bonus_min_odds()
+    qualifying = sum(1 for o in leg_odds if Decimal(str(o)) >= floor)
+    tier = (
+        MultiBetBonusTier.objects.filter(is_active=True, min_legs__lte=qualifying)
+        .order_by('-min_legs').first()
+    )
+    return tier.percent if tier else Decimal('0')
+
+
+def multibet_bonus_info() -> dict:
+    """The bonus ladder, for the bet slip."""
+    return {
+        'min_odds': str(multibet_bonus_min_odds()),
+        'cap': str(multibet_bonus_cap()),
+        'tiers': [
+            {'min_legs': t.min_legs, 'percent': str(t.percent)}
+            for t in MultiBetBonusTier.objects.filter(is_active=True).order_by('min_legs')
+        ],
+    }
+
+
+def _slip_bonus(slip: BetSlip, won_odds: list[Decimal], payout: Decimal) -> Decimal:
+    """Bonus on a winning slip's winnings. Void legs drop out, so the rate is
+    re-read for the legs that actually won, never above what was promised."""
+    if slip.bonus_percent <= 0:
+        return Decimal('0')
+    rate = min(slip.bonus_percent, multibet_bonus_percent(won_odds))
+    winnings = payout - slip.stake
+    if rate <= 0 or winnings <= 0:
+        return Decimal('0')
+    bonus = utils.quantize(winnings * rate / Decimal('100'))
+    cap = multibet_bonus_cap()
+    return min(bonus, cap) if cap > 0 else bonus
+
+
 # -- accumulators ------------------------------------------------------------
 
 @transaction.atomic
@@ -443,6 +494,7 @@ def place_accumulator(*, stake: Decimal, legs: list[dict], player_id: Optional[i
     slip = BetSlip.objects.create(
         player_id=player_id, stake=utils.quantize(stake),
         combined_odds=combined_odds, status=status_,
+        bonus_percent=multibet_bonus_percent([n['odds'] for n in normalised]),
     )
     BetLeg.objects.bulk_create([
         BetLeg(slip=slip, event=n['event'], odds=n['odds'], selection=n['selection'],
@@ -478,22 +530,30 @@ def _settle_slip_if_ready(slip_id: int) -> BetSlip:
     if any(leg.result == BetLeg.Result.LOST for leg in legs):
         slip.status = BetSlip.Status.LOST
     else:
+        won_odds = [leg.odds for leg in legs if leg.result == BetLeg.Result.WON]
         effective = Decimal('1')
-        for leg in legs:
-            if leg.result == BetLeg.Result.WON:
-                effective *= leg.odds
+        for odds in won_odds:
+            effective *= odds
         payout = utils.calculate_payout(slip.stake, effective)
+        bonus = _slip_bonus(slip, won_odds, payout)
         if slip.player_id:
             wallet_services.credit(
                 player_id=slip.player_id, amount=payout, kind='bet_payout',
                 idempotency_key=helpers.slip_payout_idempotency_key(slip.id),
                 reference=f'slip:{slip.id}',
             )
+            if bonus > 0:
+                wallet_services.credit(
+                    player_id=slip.player_id, amount=bonus, kind='bonus',
+                    idempotency_key=f'{helpers.slip_payout_idempotency_key(slip.id)}:multibet-bonus',
+                    reference=f'slip:{slip.id}:multibet-bonus',
+                )
         slip.payout = payout
+        slip.bonus = bonus
         slip.status = BetSlip.Status.WON
 
     slip.settled_at = timezone.now()
-    slip.save(update_fields=['status', 'payout', 'settled_at'])
+    slip.save(update_fields=['status', 'payout', 'bonus', 'settled_at'])
     return slip
 
 

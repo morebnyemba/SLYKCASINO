@@ -159,3 +159,16 @@ class BannerPlacementTests(TestCase):
         self.assertEqual(titles('?placement=sportsbook'), ['Acca boost'])
         self.assertEqual(titles('?placement=home_hero'), ['Home promo'])
         self.assertEqual(titles(''), ['Acca boost', 'Home promo'])
+
+
+class DemoBannerMigrationTests(TestCase):
+    def test_removes_only_seeded_demo_banners(self):
+        from importlib import import_module
+        from django.apps import apps as django_apps
+        from apps.promotions.models import Banner
+        demo = 'https://images.unsplash.com/photo-1596731498067-93a4b7174c93?w=1600'
+        Banner.objects.create(title='Welcome Bonus', image_url=demo)
+        Banner.objects.create(title='Welcome Bonus', image_url='https://cdn.example/our-own.jpg')
+        module = import_module('apps.promotions.migrations.0006_remove_demo_banners')
+        module.remove_demo_banners(django_apps, None)
+        self.assertEqual(list(Banner.objects.values_list('image_url', flat=True)), ['https://cdn.example/our-own.jpg'])

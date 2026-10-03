@@ -4,12 +4,26 @@ import { useEffect, useRef, useState } from 'react';
 import { BsChevronLeft, BsShieldLockFill, BsXLg } from 'react-icons/bs';
 import { BoltIcon } from '@/components/logo';
 import { useAuth } from '@/lib/auth-context';
+import { config } from '@/lib/config';
 import { useApi, authedPost } from '@/lib/use-api';
 import { Spinner } from '@slyk/ui/components/spinner';
 
 interface Wallet {
   balance?: string;
   currency?: string;
+  /** Methods the configured gateway accepts. */
+  deposit_methods?: string[];
+  /** `paynow`: real payments confirmed on the player's phone; `stub`: instant test credits. */
+  deposit_gateway?: 'paynow' | 'stub';
+}
+
+/** A gateway deposit in flight (Paynow), as the API reports it. */
+interface PendingPayment {
+  reference: string;
+  status: 'pending' | 'paid' | 'failed' | 'cancelled';
+  instructions?: string;
+  redirect_url?: string;
+  balance?: string;
 }
 
 interface Promotion {
@@ -23,7 +37,7 @@ interface Promotion {
 
 type FieldType = 'phone' | 'card' | 'crypto';
 type MethodId = 'ecocash' | 'onemoney' | 'innbucks' | 'card' | 'usdt';
-type Step = 'method' | 'amount' | 'confirm' | 'success';
+type Step = 'method' | 'amount' | 'confirm' | 'waiting' | 'success';
 
 interface MethodDef {
   id: MethodId;
@@ -49,6 +63,7 @@ const STEP_HEADINGS: Record<Step, string> = {
   method: 'Deposit funds',
   amount: 'Enter amount',
   confirm: 'Confirm deposit',
+  waiting: 'Approve payment',
   success: 'All done',
 };
 
@@ -79,6 +94,7 @@ export function DepositModal({ open, onClose }: { open: boolean; onClose: () => 
   const [bonusWarning, setBonusWarning] = useState<string | null>(null);
   const [result, setResult] = useState<{ amount: number; bonus: number; balance: number } | null>(null);
   const idempotencyKeyRef = useRef<string | null>(null);
+  const [payment, setPayment] = useState<PendingPayment | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -89,7 +105,43 @@ export function DepositModal({ open, onClose }: { open: boolean; onClose: () => 
     return () => window.removeEventListener('keydown', onKey);
   }, [open, onClose]);
 
+  // Paynow: poll the deposit until the player approves (or declines) on their phone.
+  useEffect(() => {
+    if (step !== 'waiting' || !payment || !accessToken) return;
+    let cancelled = false;
+    const started = Date.now();
+    async function tick() {
+      if (cancelled || !payment) return;
+      try {
+        const res = await fetch(`${config.apiUrl}/wallet/deposits/${payment.reference}/`, {
+          headers: { Authorization: `Bearer ${accessToken}` }, cache: 'no-store',
+        });
+        if (res.ok) {
+          const p = (await res.json()) as PendingPayment;
+          if (cancelled) return;
+          if (p.status === 'paid') { await finishDeposit(Number(p.balance ?? 0)); return; }
+          if (p.status === 'failed' || p.status === 'cancelled') {
+            setError(p.status === 'cancelled' ? 'The payment was cancelled.' : 'The payment failed. No money was taken.');
+            setPayment(null);
+            idempotencyKeyRef.current = null;
+            setStep('confirm');
+            return;
+          }
+        }
+      } catch { /* network blip: keep polling */ }
+      if (Date.now() - started > 4 * 60_000) {
+        setError('Still waiting for your approval. If you approved it, your balance will update shortly.');
+        return;
+      }
+      timer = setTimeout(tick, 3000);
+    }
+    let timer = setTimeout(tick, 3000);
+    return () => { cancelled = true; clearTimeout(timer); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, payment?.reference, accessToken]);
+
   function resetAndClose() {
+    setPayment(null);
     setStep('method');
     setMethod(null);
     setAmount('50');
@@ -105,7 +157,11 @@ export function DepositModal({ open, onClose }: { open: boolean; onClose: () => 
 
   if (!open) return null;
 
-  const selected = METHODS.find((m) => m.id === method) ?? METHODS[0];
+  const gateway = wallet?.deposit_gateway === 'paynow';
+  const methods = wallet?.deposit_methods
+    ? METHODS.filter((m) => wallet.deposit_methods!.includes(m.id))
+    : METHODS;
+  const selected = methods.find((m) => m.id === method) ?? methods[0] ?? METHODS[0];
   const numAmount = parseFloat(amount) || 0;
   const bonusAmount = applyBonus && depositPromo ? Number(depositPromo.bonus_amount) : 0;
   const totalCredited = numAmount + bonusAmount;
@@ -114,7 +170,7 @@ export function DepositModal({ open, onClose }: { open: boolean; onClose: () => 
 
   const fieldValid =
     selected.field === 'phone' ? phone.trim().length >= 7 :
-    selected.field === 'card' ? card.replace(/\s/g, '').length >= 12 :
+    selected.field === 'card' ? gateway || card.replace(/\s/g, '').length >= 12 :
     true;
   const canContinueAmount = numAmount > 0 && fieldValid;
 
@@ -125,9 +181,9 @@ export function DepositModal({ open, onClose }: { open: boolean; onClose: () => 
     setBonusWarning(null);
     if (!idempotencyKeyRef.current) idempotencyKeyRef.current = `deposit:req:${crypto.randomUUID()}`;
 
-    const { data, error: depErr } = await authedPost<{ balance: string }>(
+    const { data, error: depErr } = await authedPost<{ balance?: string } & Partial<PendingPayment>>(
       '/wallet/deposit/',
-      { amount: numAmount, idempotency_key: idempotencyKeyRef.current },
+      { amount: numAmount, idempotency_key: idempotencyKeyRef.current, method: selected.id, phone },
       accessToken,
     );
     if (depErr || !data) {
@@ -136,6 +192,19 @@ export function DepositModal({ open, onClose }: { open: boolean; onClose: () => 
       return;
     }
 
+    if (data.reference && data.status === 'pending') {
+      // Card: finish on Paynow's page, which returns to /deposit/return.
+      if (data.redirect_url) { window.location.assign(data.redirect_url); return; }
+      setPayment(data as PendingPayment);
+      setStep('waiting');
+      setSubmitting(false);
+      return;
+    }
+    await finishDeposit(Number(data.balance));
+  }
+
+  async function finishDeposit(newBalance: number) {
+    if (!accessToken) return;
     let creditedBonus = 0;
     if (applyBonus && depositPromo) {
       const { error: claimErr } = await authedPost(`/promotions/${depositPromo.id}/claim/`, {}, accessToken);
@@ -146,8 +215,9 @@ export function DepositModal({ open, onClose }: { open: boolean; onClose: () => 
       }
     }
 
-    setResult({ amount: numAmount, bonus: creditedBonus, balance: Number(data.balance) + creditedBonus });
+    setResult({ amount: numAmount, bonus: creditedBonus, balance: newBalance + creditedBonus });
     refetchWallet();
+    setPayment(null);
     setStep('success');
     setSubmitting(false);
   }
@@ -173,6 +243,9 @@ export function DepositModal({ open, onClose }: { open: boolean; onClose: () => 
     primaryLabel = 'Review deposit';
     primaryDisabled = !canContinueAmount;
     onPrimary = () => canContinueAmount && setStep('confirm');
+  } else if (step === 'waiting') {
+    primaryLabel = <span className="inline-flex items-center justify-center gap-2"><Spinner size={14} />Waiting for approval…</span>;
+    primaryDisabled = true;
   } else if (step === 'confirm') {
     primaryLabel = submitting ? <span className="inline-flex items-center justify-center gap-2"><Spinner size={14} />Confirming…</span> : `Confirm deposit · $${numAmount.toFixed(2)}`;
     primaryDisabled = submitting;
@@ -191,7 +264,7 @@ export function DepositModal({ open, onClose }: { open: boolean; onClose: () => 
 
   const methodList = (
     <div className="flex flex-col gap-2.5">
-      {METHODS.map((m) => (
+      {methods.map((m) => (
         <button
           key={m.id}
           onClick={() => { setMethod(m.id); setStep('amount'); }}
@@ -212,9 +285,11 @@ export function DepositModal({ open, onClose }: { open: boolean; onClose: () => 
           </span>
         </button>
       ))}
-      <p className="mt-1 text-center text-[11px] text-muted-foreground">
-        Demo environment — every method credits instantly through our test payment processor.
-      </p>
+      {!gateway && (
+        <p className="mt-1 text-center text-[11px] text-muted-foreground">
+          Demo environment — every method credits instantly through our test payment processor.
+        </p>
+      )}
     </div>
   );
 
@@ -266,7 +341,12 @@ export function DepositModal({ open, onClose }: { open: boolean; onClose: () => 
           />
         </div>
       )}
-      {selected.field === 'card' && (
+      {selected.field === 'card' && gateway && (
+        <p className="mt-4 rounded-xl border border-border bg-card px-3.5 py-3 text-[12.5px] text-muted-foreground">
+          You&apos;ll enter your card details on Paynow&apos;s secure page, then come straight back here.
+        </p>
+      )}
+      {selected.field === 'card' && !gateway && (
         <div className="mt-4">
           <p className="mb-1.5 text-[12.5px] font-bold text-muted-foreground">Card number</p>
           <input
@@ -352,7 +432,25 @@ export function DepositModal({ open, onClose }: { open: boolean; onClose: () => 
     </div>
   );
 
-  const body = step === 'method' ? methodList : step === 'amount' ? amountBody : step === 'confirm' ? confirmBody : successBody;
+  const waitingBody = (
+    <div className="flex flex-col items-center px-0 py-4 text-center">
+      <span className={`mb-4 flex h-14 w-14 items-center justify-center rounded-2xl text-base font-extrabold text-white ${selected.logoClass}`}>
+        {selected.logo}
+      </span>
+      <h2 className="mb-2 text-xl font-extrabold">Check your phone</h2>
+      <p className="mb-3 max-w-[360px] text-sm text-muted-foreground">
+        {payment?.instructions || `Approve the $${numAmount.toFixed(2)} ${selected.name} payment prompt sent to ${phone}.`}
+      </p>
+      <p className="flex items-center gap-2 text-[12.5px] font-semibold text-muted-foreground">
+        <Spinner size={13} /> Waiting for confirmation — keep this window open
+      </p>
+      {error && <p className="mt-3 max-w-[360px] rounded-lg bg-gold/10 px-3 py-2 text-[12.5px] text-gold">{error}</p>}
+      <p className="mt-3 text-[11px] text-muted-foreground">Ref {payment?.reference}</p>
+    </div>
+  );
+
+  const body = step === 'method' ? methodList : step === 'amount' ? amountBody : step === 'confirm' ? confirmBody
+    : step === 'waiting' ? waitingBody : successBody;
 
   const showBack = step === 'amount' || step === 'confirm';
   const showSecure = step !== 'success';
@@ -434,7 +532,7 @@ export function DepositModal({ open, onClose }: { open: boolean; onClose: () => 
           <div className="flex items-center gap-1.5 px-4.5 pb-3">
             {(['method', 'amount', 'confirm'] as const).map((s, i) => {
               const order = ['method', 'amount', 'confirm'];
-              const stepIdx = step === 'success' ? 3 : order.indexOf(step);
+              const stepIdx = step === 'success' || step === 'waiting' ? 3 : order.indexOf(step);
               return <span key={s} className={`h-1 flex-1 rounded-full ${i <= stepIdx ? 'bg-gold' : 'bg-border'}`} />;
             })}
           </div>
@@ -463,7 +561,7 @@ export function DepositModal({ open, onClose }: { open: boolean; onClose: () => 
 
 function StepDots({ step }: { step: Step }) {
   const order = ['method', 'amount', 'confirm'];
-  const stepIdx = step === 'success' ? 3 : order.indexOf(step);
+  const stepIdx = step === 'success' || step === 'waiting' ? 3 : order.indexOf(step);
   const labels = ['Method', 'Amount', 'Confirm'];
   return (
     <div className="flex items-center gap-1.5 px-5.5 pb-1 pt-4">

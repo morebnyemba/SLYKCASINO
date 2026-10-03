@@ -9,7 +9,7 @@ import type { IconType } from 'react-icons';
 import { LiveClock, TeamBadge } from '@/components/event-row';
 import { config } from '@/lib/config';
 import { useShell } from '@/lib/shell-context';
-import { DEMO_GAMES, gameHref, tileArt, type Game } from '@/lib/casino';
+import { gameHref, tileArt, type Game } from '@/lib/casino';
 import { dayLabel, isLive, kickoffTime, teamNames, type EventItem } from '@/lib/sports';
 
 const SHORTCUTS: { href: string; label: string; icon: IconType }[] = [
@@ -51,7 +51,7 @@ export function GlobalSearch() {
   // Load the catalogues once, the first time search opens.
   useEffect(() => {
     if (!searchOpen || games) return;
-    void getList<Game>('/casino/games/').then((g) => setGames(g.length > 0 ? g : DEMO_GAMES));
+    void getList<Game>('/casino/games/').then((g) => setGames(g));
     void getList<EventItem>('/events/?upcoming=true&priced=true&page_size=500').then((e) => setEvents(e));
   }, [searchOpen, games]);
 

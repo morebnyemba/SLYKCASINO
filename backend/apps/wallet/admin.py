@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import LedgerEntry, Wallet
+from .models import LedgerEntry, PaymentTransaction, Wallet
 
 
 @admin.register(Wallet)
@@ -21,4 +21,16 @@ class LedgerEntryAdmin(admin.ModelAdmin):
         return False
 
     def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(PaymentTransaction)
+class PaymentTransactionAdmin(admin.ModelAdmin):
+    # Gateway deposits; the wallet credit is in the ledger (reference psp:paynow:<reference>).
+    list_display = ('reference', 'player_id', 'method', 'amount', 'currency', 'status', 'provider_status', 'created_at')
+    list_filter = ('status', 'method', 'provider')
+    search_fields = ('reference', 'provider_ref', 'phone', 'player_id')
+    readonly_fields = [f.name for f in PaymentTransaction._meta.fields]
+
+    def has_add_permission(self, request):
         return False

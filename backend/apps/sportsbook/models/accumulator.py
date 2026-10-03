@@ -25,6 +25,10 @@ class BetSlip(models.Model):
     combined_odds = models.DecimalField(max_digits=12, decimal_places=2)
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.OPEN)
     payout = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    # Multi-bet bonus rate promised at placement (0 = none) and the amount paid
+    # on top of `payout` when the slip wins.
+    bonus_percent = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+    bonus = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     placed_at = models.DateTimeField(auto_now_add=True)
     settled_at = models.DateTimeField(null=True, blank=True)
 

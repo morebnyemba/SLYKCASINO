@@ -239,6 +239,12 @@ SPORTSBOOK_LIVE_ODDS_INTERVAL = float(os.environ.get('SPORTSBOOK_LIVE_ODDS_INTER
 SPORTSBOOK_LIVE_ODDS_STALE = int(os.environ.get('SPORTSBOOK_LIVE_ODDS_STALE', '30'))
 SPORTSBOOK_LIVE_BET_DELAY = int(os.environ.get('SPORTSBOOK_LIVE_BET_DELAY', '6'))
 
+# Multi-bet bonus: legs priced below SPORTSBOOK_ACCA_BONUS_MIN_ODDS don't count
+# towards a tier (tiers are edited in the admin); the bonus paid on one slip is
+# capped at SPORTSBOOK_ACCA_BONUS_CAP (0 = no cap).
+SPORTSBOOK_ACCA_BONUS_MIN_ODDS = os.environ.get('SPORTSBOOK_ACCA_BONUS_MIN_ODDS', '1.20')
+SPORTSBOOK_ACCA_BONUS_CAP = os.environ.get('SPORTSBOOK_ACCA_BONUS_CAP', '1000')
+
 # ---------------------------------------------------------------------------
 # Celery — workers run domain recovery; beat schedules reconciliation passes.
 # ---------------------------------------------------------------------------
@@ -256,6 +262,11 @@ CELERY_BEAT_SCHEDULE = {
     'wallet-reconcile-ledger': {
         'task': 'apps.wallet.tasks.reconcile_ledger',
         'schedule': 300.0,   # every 5 min
+    },
+    'wallet-sweep-pending-payments': {
+        # Paynow deposits whose callback never arrived (no-op unless PSP_PROVIDER=paynow).
+        'task': 'apps.wallet.tasks.sweep_pending_payments',
+        'schedule': 60.0,
     },
     'sportsbook-orphaned-bets': {
         'task': 'apps.sportsbook.tasks.reconcile_orphaned_bets',
@@ -348,6 +359,15 @@ LOGGING = {
 # Payment & KYC provider selection
 # ---------------------------------------------------------------------------
 PSP_PROVIDER = os.environ.get('PSP_PROVIDER', 'stub')
+# Paynow (PSP_PROVIDER=paynow): EcoCash / OneMoney / InnBucks / card deposits.
+# The result and return URLs default to FRONTEND_URL (/api/wallet/paynow/result/
+# and /deposit/return). PAYNOW_AUTH_EMAIL is the merchant email Paynow requires
+# for mobile payments.
+PAYNOW_INTEGRATION_ID = os.environ.get('PAYNOW_INTEGRATION_ID', '')
+PAYNOW_INTEGRATION_KEY = os.environ.get('PAYNOW_INTEGRATION_KEY', '')
+PAYNOW_AUTH_EMAIL = os.environ.get('PAYNOW_AUTH_EMAIL', '')
+PAYNOW_RESULT_URL = os.environ.get('PAYNOW_RESULT_URL', '')
+PAYNOW_RETURN_URL = os.environ.get('PAYNOW_RETURN_URL', '')
 KYC_PROVIDER = os.environ.get('KYC_PROVIDER', 'stub')
 
 # ---------------------------------------------------------------------------

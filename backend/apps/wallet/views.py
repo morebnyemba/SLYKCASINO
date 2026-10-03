@@ -12,9 +12,10 @@ from rest_framework.views import APIView
 
 from apps.accounts import services as accounts_services
 
+from . import paynow, payments
 from . import psp as psp_registry
 from . import services
-from .models import LedgerEntry
+from .models import LedgerEntry, PaymentTransaction
 from .serializers import AdminLedgerEntrySerializer, LedgerEntrySerializer
 
 # Header each provider signs its webhook payload with. Anything not listed
@@ -40,7 +41,11 @@ class WalletView(APIView):
         if err:
             return err
         dto = services.get_balance_dto(player.id)
-        return Response({'balance': str(dto.balance), 'currency': dto.currency})
+        return Response({
+            'balance': str(dto.balance), 'currency': dto.currency,
+            'deposit_methods': payments.deposit_methods(),
+            'deposit_gateway': 'paynow' if payments.gateway_enabled() else 'stub',
+        })
 
 
 class LedgerView(APIView):
@@ -82,6 +87,9 @@ class DepositView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        if payments.gateway_enabled():
+            return self._start_gateway_deposit(request, player, amount)
+
         idempotency_key = request.data.get('idempotency_key') or f'deposit:req:{uuid.uuid4()}'
         entry = services.credit(
             player_id=player.id,
@@ -96,6 +104,64 @@ class DepositView(APIView):
             'currency': dto.currency,
             'entry': LedgerEntrySerializer(entry).data,
         }, status=status.HTTP_201_CREATED)
+
+
+    def _start_gateway_deposit(self, request, player, amount):
+        """Paynow: the money moves on the player's phone (or Paynow's card page),
+        so this only starts the payment; the wallet is credited when Paynow
+        confirms it (see payments.apply_status)."""
+        dto = services.get_balance_dto(player.id)
+        try:
+            txn = payments.start_deposit(
+                player_id=player.id, amount=amount, currency=dto.currency,
+                method=str(request.data.get('method', '')), phone=str(request.data.get('phone', '')),
+            )
+        except ValueError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except paynow.PaynowError as exc:
+            return Response({'detail': f'Payment could not be started: {exc}'}, status=status.HTTP_502_BAD_GATEWAY)
+        return Response(_payment_payload(txn), status=status.HTTP_202_ACCEPTED)
+
+
+def _payment_payload(txn: PaymentTransaction, balance=None) -> dict:
+    return {
+        'reference': txn.reference, 'status': txn.status, 'method': txn.method,
+        'amount': str(txn.amount), 'currency': txn.currency,
+        'instructions': txn.instructions, 'redirect_url': txn.redirect_url,
+        **({'balance': str(balance)} if balance is not None else {}),
+    }
+
+
+class PaymentStatusView(APIView):
+    """GET /api/wallet/deposits/<reference>/ — a gateway deposit's status. While
+    pending it re-asks Paynow, so the deposit screen can poll this."""
+
+    def get(self, request, reference: str):
+        player, err = _get_player_or_404(request)
+        if err:
+            return err
+        txn = PaymentTransaction.objects.filter(reference=reference, player_id=player.id).first()
+        if txn is None:
+            return Response({'detail': 'not found'}, status=status.HTTP_404_NOT_FOUND)
+        txn = payments.refresh(txn)
+        balance = services.get_balance_dto(player.id).balance
+        return Response(_payment_payload(txn, balance))
+
+
+class PaynowResultView(APIView):
+    """POST /api/wallet/paynow/result/ — Paynow's server-to-server status
+    callback. Unauthenticated by design: the message is signed with our
+    integration key and rejected unless the hash verifies."""
+    permission_classes = [AllowAny]
+    authentication_classes = []
+    throttle_classes = []
+
+    def post(self, request):
+        try:
+            payments.handle_result(request.body)
+        except paynow.PaynowError:
+            return Response({'detail': 'invalid message'}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({'detail': 'ok'})
 
 
 class PSPWebhookView(APIView):

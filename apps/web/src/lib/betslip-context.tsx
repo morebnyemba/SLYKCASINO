@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import { config } from '@/lib/config';
+import { loadBooking } from '@/lib/booking';
 import { onBoardFrame } from '@/lib/live-board';
 import { authedPost } from '@/lib/use-api';
 
@@ -101,6 +102,26 @@ function acceptanceMessage({ accepted, rejected, pending }: { accepted: number; 
   return `In-play bets: ${parts.filter(Boolean).join(', ')}.`;
 }
 
+/** The accumulator bonus ladder from the API. */
+interface BonusLadder {
+  minOdds: number;
+  cap: number;
+  tiers: { minLegs: number; percent: number }[];
+}
+
+/** Bonus for a multiple: the highest tier its qualifying legs reach, and the next one up. */
+export function bonusFor(ladder: BonusLadder | null, legs: BetLeg[]) {
+  if (!ladder || ladder.tiers.length === 0) return { percent: 0, qualifying: 0, next: null as null | { minLegs: number; percent: number } };
+  const qualifying = legs.filter((l) => l.odds >= ladder.minOdds).length;
+  let percent = 0;
+  let next: { minLegs: number; percent: number } | null = null;
+  for (const t of ladder.tiers) {
+    if (t.minLegs <= qualifying) percent = t.percent;
+    else if (!next) next = t;
+  }
+  return { percent, qualifying, next };
+}
+
 interface BetslipContextValue {
   legs: BetLeg[];
   mode: SlipMode;
@@ -110,7 +131,12 @@ interface BetslipContextValue {
   legStakes: Record<string, string>;
   setLegStake: (key: string, value: string) => void;
   combinedOdds: number;
+  /** Potential return including any multi-bet bonus. */
   potentialPayout: number;
+  /** Multi-bet bonus on this slip (multiples only): rate, amount, and the next tier to reach. */
+  bonus: { percent: number; amount: number; qualifying: number; minOdds: number; next: { minLegs: number; percent: number } | null };
+  /** Replace the slip with the picks of a booking code. */
+  loadCode: (code: string) => Promise<{ ok: boolean; message: string }>;
   status: string | null;
   busy: boolean;
   /** Event ids with more than one pick — those can't be combined in a multiple. */
@@ -158,6 +184,23 @@ export function BetslipProvider({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [slipOpen, setSlipOpen] = useState(false);
+  const [ladder, setLadder] = useState<BonusLadder | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`${config.apiUrl}/multibet-bonus/`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { min_odds: string; cap: string; tiers: { min_legs: number; percent: string }[] } | null) => {
+        if (cancelled || !d) return;
+        setLadder({
+          minOdds: Number(d.min_odds),
+          cap: Number(d.cap) || 0,
+          tiers: d.tiers.map((t) => ({ minLegs: t.min_legs, percent: Number(t.percent) })),
+        });
+      })
+      .catch(() => { /* no bonus shown */ });
+    return () => { cancelled = true; };
+  }, []);
 
   // Restore a slip the player was building before navigating/refreshing.
   useEffect(() => {
@@ -296,6 +339,18 @@ export function BetslipProvider({ children }: { children: React.ReactNode }) {
 
   const combinedOdds = useMemo(() => legs.reduce((acc, l) => acc * l.odds, 1), [legs]);
 
+  const bonus = useMemo(() => {
+    // Only a multiple earns the bonus; the hint for the next tier shows either way.
+    const isMultiple = mode === 'acca' && legs.length > 1 && conflictingEvents.size === 0;
+    const tier = bonusFor(ladder, legs);
+    const percent = isMultiple ? tier.percent : 0;
+    const stake = parseFloat(accaStake || '0') || 0;
+    const winnings = Math.max(0, stake * combinedOdds - stake);
+    let amount = Math.round(winnings * percent) / 100;
+    if (ladder?.cap) amount = Math.min(amount, ladder.cap);
+    return { percent, amount, qualifying: tier.qualifying, minOdds: ladder?.minOdds ?? 0, next: tier.next };
+  }, [ladder, mode, legs, conflictingEvents, accaStake, combinedOdds]);
+
   const potentialPayout = useMemo(() => {
     if (mode === 'singles') {
       return legs.reduce((acc, l) => {
@@ -303,8 +358,33 @@ export function BetslipProvider({ children }: { children: React.ReactNode }) {
         return acc + stake * l.odds;
       }, 0);
     }
-    return (parseFloat(accaStake || '0') || 0) * combinedOdds;
-  }, [mode, legs, legStakes, accaStake, combinedOdds]);
+    return (parseFloat(accaStake || '0') || 0) * combinedOdds + bonus.amount;
+  }, [mode, legs, legStakes, accaStake, combinedOdds, bonus.amount]);
+
+  const loadCode = useCallback(async (code: string) => {
+    const { legs: loaded, skipped = 0, error } = await loadBooking(code);
+    if (error || !loaded) return { ok: false, message: error ?? 'Could not load that code.' };
+    if (loaded.length === 0) {
+      return { ok: false, message: 'None of the selections on that code can be backed any more.' };
+    }
+    setLegs(loaded);
+    setLegStakes({});
+    setMode('acca');
+    const message = `Loaded ${loaded.length} selection${loaded.length === 1 ? '' : 's'}`
+      + (skipped ? ` — ${skipped} no longer available.` : '.');
+    setStatus(null);
+    return { ok: true, message };
+  }, []);
+
+  // A shared link (/sportsbook?code=ABC123) loads its slip once on arrival.
+  useEffect(() => {
+    const code = new URLSearchParams(window.location.search).get('code');
+    if (!code) return;
+    void loadCode(code).then(({ message }) => { setStatus(message); setSlipOpen(true); });
+    const url = new URL(window.location.href);
+    url.searchParams.delete('code');
+    window.history.replaceState(window.history.state, '', url.toString());
+  }, [loadCode]);
 
   /** On a 409 odds_changed, move the leg to the new price so the player can re-confirm. */
   const applyPriceChange = useCallback((leg: BetLeg, body?: Record<string, unknown>) => {
@@ -396,7 +476,7 @@ export function BetslipProvider({ children }: { children: React.ReactNode }) {
 
   const value: BetslipContextValue = {
     legs, mode, setMode, accaStake, setAccaStake, legStakes, setLegStake,
-    combinedOdds, potentialPayout, status, busy, conflictingEvents,
+    combinedOdds, potentialPayout, bonus, loadCode, status, busy, conflictingEvents,
     isOnSlip, isOutcomeOnSlip, toggleLeg, removeLeg, clear, place,
     hasPriceChanges, hasSuspended, acceptPriceChanges,
     slipOpen, setSlipOpen,

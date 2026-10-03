@@ -16,7 +16,10 @@ export default async function SportsbookPage() {
     apiGet<Banner>('/promotions/banners/?placement=sportsbook'),
   ]);
   // Hero: the operator's sportsbook promos, then banners for the biggest fixtures.
-  const banners = (bannerData.results ?? []) as Banner[];
+  // Filter here too, so an API without the placement filter can't leak
+  // homepage banners into the sportsbook.
+  const banners = ((bannerData.results ?? []) as (Banner & { placement?: string })[])
+    .filter((b) => b.placement === 'sportsbook');
   // Fixtures the bookmaker hasn't priced yet aren't bettable, so they stay off the board.
   const events = all.filter(isPriced);
   const awaitingOdds = all.length - events.length;
