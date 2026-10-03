@@ -1,12 +1,17 @@
 from django.urls import path
 
-from .views import AdminLedgerViewSet, DepositView, LedgerView, PSPWebhookView, WalletView, WithdrawView
+from .views import (
+    AdminLedgerViewSet, DepositView, LedgerView, PaymentStatusView, PaynowResultView, PSPWebhookView, WalletView,
+    WithdrawView,
+)
 
 urlpatterns = [
     path('wallet/', WalletView.as_view(), name='wallet'),
     path('wallet/ledger/', LedgerView.as_view(), name='wallet-ledger'),
     path('wallet/deposit/', DepositView.as_view(), name='wallet-deposit'),
     path('wallet/withdraw/', WithdrawView.as_view(), name='wallet-withdraw'),
+    path('wallet/deposits/<str:reference>/', PaymentStatusView.as_view(), name='wallet-deposit-status'),
+    path('wallet/paynow/result/', PaynowResultView.as_view(), name='wallet-paynow-result'),
     path('wallet/webhook/<str:provider>/', PSPWebhookView.as_view(), name='wallet-webhook'),
     path('admin/ledger/', AdminLedgerViewSet.as_view({'get': 'list'}), name='admin-ledger'),
 ]

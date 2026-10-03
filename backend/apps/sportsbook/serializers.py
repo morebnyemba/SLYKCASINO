@@ -35,6 +35,11 @@ class MarketSerializer(serializers.ModelSerializer):
         ]
 
 
+# Markets listings can switch to instead of 1X2 (the market switcher above the
+# match list). The view prefetches just these into `quick_market_list`.
+QUICK_MARKET_KEYS = ('double_chance:ft', 'over_under:ft:2.5', 'btts:ft')
+
+
 class EventSerializer(serializers.ModelSerializer):
     home_team = TeamSerializer(read_only=True)
     away_team = TeamSerializer(read_only=True)
@@ -46,6 +51,23 @@ class EventSerializer(serializers.ModelSerializer):
     in_play = serializers.SerializerMethodField()
     bettable = serializers.SerializerMethodField()
     main_open = serializers.SerializerMethodField()
+    quick_markets = serializers.SerializerMethodField()
+
+    def get_quick_markets(self, obj) -> dict:
+        """{market key: {id, name, open, outcomes: {outcome key: {id, label, odds, open}}}}."""
+        markets = getattr(obj, 'quick_market_list', None)
+        if not markets:
+            return {}
+        return {
+            m.key: {
+                'id': m.id, 'name': m.name, 'open': bool(m.is_open and not m.settled),
+                'outcomes': {
+                    o.key: {'id': o.id, 'label': o.label, 'odds': str(o.odds), 'open': o.is_open}
+                    for o in m.outcomes.all()
+                },
+            }
+            for m in markets
+        }
 
     def _state(self, obj):
         from .services import trading_state
@@ -69,7 +91,7 @@ class EventSerializer(serializers.ModelSerializer):
             'id', 'name', 'sport', 'odds', 'odds_draw', 'odds_away', 'previous_odds', 'has_odds',
             'featured', 'is_open', 'starts_at', 'home_team', 'away_team', 'league',
             'status', 'elapsed', 'score_home', 'score_away', 'ht_score_home', 'ht_score_away',
-            'markets_count', 'in_play', 'bettable', 'main_open',
+            'markets_count', 'in_play', 'bettable', 'main_open', 'quick_markets',
         ]
         read_only_fields = ['status', 'elapsed', 'score_home', 'score_away', 'ht_score_home', 'ht_score_away']
 
@@ -120,5 +142,8 @@ class BetSlipSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = BetSlip
-        fields = ['id', 'stake', 'combined_odds', 'status', 'payout', 'placed_at', 'settled_at', 'legs']
-        read_only_fields = ['combined_odds', 'status', 'payout', 'placed_at', 'settled_at']
+        fields = [
+            'id', 'stake', 'combined_odds', 'status', 'payout', 'bonus_percent', 'bonus',
+            'placed_at', 'settled_at', 'legs',
+        ]
+        read_only_fields = ['combined_odds', 'status', 'payout', 'bonus_percent', 'bonus', 'placed_at', 'settled_at']

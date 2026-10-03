@@ -16,6 +16,24 @@ export interface League {
   sort_order?: number;
 }
 
+/** A market as listings carry it for the market switcher. */
+export interface QuickMarket {
+  id: number;
+  name: string;
+  open: boolean;
+  outcomes: Record<string, { id: number; label: string; odds: string; open: boolean }>;
+}
+
+/** Markets a listing can switch to; `1x2` is the event's own headline prices. */
+export const LIST_MARKETS = [
+  { id: '1x2', label: '1X2', key: null, cols: [['home', '1'], ['draw', 'X'], ['away', '2']] },
+  { id: 'dc', label: 'Double chance', key: 'double_chance:ft', cols: [['1x', '1X'], ['12', '12'], ['x2', 'X2']] },
+  { id: 'ou', label: 'Over/Under 2.5', key: 'over_under:ft:2.5', cols: [['over', 'Over'], ['under', 'Under']] },
+  { id: 'btts', label: 'Both teams score', key: 'btts:ft', cols: [['yes', 'Yes'], ['no', 'No']] },
+] as const;
+
+export type ListMarket = (typeof LIST_MARKETS)[number];
+
 export interface EventItem {
   id: string | number;
   name: string;
@@ -50,6 +68,8 @@ export interface EventItem {
   markets_count?: number;
   /** Every market (detail endpoint). */
   markets?: Market[];
+  /** List endpoint: the markets the list's market switcher can show, by key. */
+  quick_markets?: Record<string, QuickMarket>;
   match_facts?: MatchFacts | null;
 }
 

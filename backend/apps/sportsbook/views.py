@@ -7,14 +7,16 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny, IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from apps.accounts import services as accounts_services
 from apps.wallet.services import InsufficientFunds
 
+from . import booking as booking_services
 from . import services
 from .dtos import AccumulatorRequestDTO, BetRequestDTO
 from .models import Bet, BetLeg, BetSlip, Event, Market
-from .serializers import BetSerializer, BetSlipSerializer, EventDetailSerializer, EventSerializer
+from .serializers import QUICK_MARKET_KEYS, BetSerializer, BetSlipSerializer, EventDetailSerializer, EventSerializer
 
 
 class EventPagination(PageNumberPagination):
@@ -46,6 +48,11 @@ class EventViewSet(viewsets.ModelViewSet):
         if self.action == 'retrieve':
             qs = qs.prefetch_related(Prefetch(
                 'markets', queryset=Market.objects.prefetch_related('outcomes'),
+            ))
+        elif self.action == 'list':
+            qs = qs.prefetch_related(Prefetch(
+                'markets', queryset=Market.objects.filter(key__in=QUICK_MARKET_KEYS).prefetch_related('outcomes'),
+                to_attr='quick_market_list',
             ))
         return qs
 
@@ -261,3 +268,38 @@ class AdminBetViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         from apps.accounts.services import audit
         audit(bet.player_id, 'bet_settled', request, bet_id=bet.id, outcome=outcome)
         return Response(self.get_serializer(bet).data)
+
+
+class BookingCodeCreateView(APIView):
+    """POST /api/booking-codes/ {selections: [{event_id, selection} | {outcome_id}]}
+    -> a short code anyone can load. Guests may book codes too."""
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        player = accounts_services.get_current_player(request)
+        try:
+            booking = booking_services.create_booking(
+                request.data.get('selections'), player_id=player.id if player else None,
+            )
+        except ValueError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(booking_services.booking_payload(booking), status=status.HTTP_201_CREATED)
+
+
+class BookingCodeDetailView(APIView):
+    """GET /api/booking-codes/<code>/ -> the picks with current prices."""
+    permission_classes = [AllowAny]
+
+    def get(self, request, code: str):
+        payload = booking_services.load_booking(code)
+        if payload is None:
+            return Response({'detail': 'Booking code not found.'}, status=status.HTTP_404_NOT_FOUND)
+        return Response(payload)
+
+
+class MultiBetBonusView(APIView):
+    """GET /api/multibet-bonus/ -> the accumulator bonus ladder."""
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        return Response(services.multibet_bonus_info())

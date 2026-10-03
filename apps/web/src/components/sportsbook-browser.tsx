@@ -8,11 +8,24 @@ import { SPORT_CATEGORIES } from '@/components/sports-sidebar';
 import { Carousel, CarouselItem } from '@/components/carousel';
 import { FeaturedMatchCard, MarketHeader, sportMeta } from '@/components/event-row';
 import { LeagueSection } from '@/components/league-section';
-import { groupByLeague, isLive, sortEvents, type EventItem } from '@/lib/sports';
+import { groupByLeague, isLive, LIST_MARKETS, sortEvents, type EventItem } from '@/lib/sports';
 
 type Tab = 'all' | 'live' | 'upcoming';
 
 const COLLAPSED_KEY = 'slyk:collapsed-leagues';
+
+/** Local calendar day of a kick-off, e.g. "2026-10-03" (the viewer's timezone). */
+function localDay(iso: string) {
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function dayChipLabel(day: string, today: string, tomorrow: string) {
+  if (day === today) return 'Today';
+  if (day === tomorrow) return 'Tomorrow';
+  const [y, m, d] = day.split('-').map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
+}
 
 export function SportsbookBrowser({ events, topMatches = [], awaitingOdds = 0 }: {
   events: EventItem[];
@@ -30,9 +43,22 @@ export function SportsbookBrowser({ events, topMatches = [], awaitingOdds = 0 }:
   const sport = params.get('sport');
   const tabParam = params.get('tab');
   const tab: Tab = tabParam === 'live' || tabParam === 'upcoming' ? tabParam : 'all';
+  const market = LIST_MARKETS.find((m) => m.id === params.get('market')) ?? LIST_MARKETS[0];
+  const day = params.get('day');
 
-  function update(next: { sport?: string | null; tab?: Tab }) {
+  // Day chips depend on the viewer's timezone, so they're built after mount
+  // (the server can't know it, and a mismatch would break hydration).
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
+
+  function update(next: { sport?: string | null; tab?: Tab; market?: string; day?: string | null }) {
     const q = new URLSearchParams(params.toString());
+    if (next.market !== undefined) {
+      if (next.market !== '1x2') q.set('market', next.market); else q.delete('market');
+    }
+    if (next.day !== undefined) {
+      if (next.day) q.set('day', next.day); else q.delete('day');
+    }
     if (next.sport !== undefined) {
       if (next.sport) q.set('sport', next.sport); else q.delete('sport');
     }
@@ -53,11 +79,28 @@ export function SportsbookBrowser({ events, topMatches = [], awaitingOdds = 0 }:
   }, [openEvents]);
   const liveCount = useMemo(() => openEvents.filter(isLive).length, [openEvents]);
 
+  const days = useMemo(() => {
+    if (!mounted) return [];
+    const now = new Date();
+    const today = localDay(now.toISOString());
+    const tomorrow = localDay(new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).toISOString());
+    const counts = new Map<string, number>();
+    for (const ev of openEvents) {
+      if (!ev.starts_at || isLive(ev)) continue;
+      if (sport && ev.sport !== sport) continue;
+      const d = localDay(ev.starts_at);
+      counts.set(d, (counts.get(d) ?? 0) + 1);
+    }
+    return [...counts.entries()].sort(([a], [b]) => a.localeCompare(b)).slice(0, 7)
+      .map(([d, count]) => ({ day: d, count, label: dayChipLabel(d, today, tomorrow) }));
+  }, [mounted, openEvents, sport]);
+
   const filtered = useMemo(() => {
     let list = openEvents;
     if (sport) list = list.filter((ev) => ev.sport === sport);
     if (tab === 'live') list = list.filter(isLive);
     if (tab === 'upcoming') list = list.filter((ev) => !isLive(ev));
+    if (day && mounted) list = list.filter((ev) => !isLive(ev) && !!ev.starts_at && localDay(ev.starts_at) === day);
     const q = search.trim().toLowerCase();
     if (q) {
       list = list.filter((ev) =>
@@ -66,7 +109,7 @@ export function SportsbookBrowser({ events, topMatches = [], awaitingOdds = 0 }:
       );
     }
     return list;
-  }, [openEvents, sport, tab, search]);
+  }, [openEvents, sport, tab, search, day, mounted]);
 
   // Group by sport, in sidebar order, so each block gets its own 1/X/2 header.
   const groups = useMemo(() => {
@@ -159,7 +202,7 @@ export function SportsbookBrowser({ events, topMatches = [], awaitingOdds = 0 }:
             {tabs.map((t) => (
               <button
                 key={t.id}
-                onClick={() => update({ tab: t.id })}
+                onClick={() => update({ tab: t.id, ...(t.id === 'live' ? { day: null } : {}) })}
                 className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3.5 py-1.5 text-xs font-bold transition-colors sm:flex-none ${
                   tab === t.id ? 'bg-secondary text-white' : 'text-muted-foreground hover:text-foreground'
                 }`}
@@ -204,15 +247,54 @@ export function SportsbookBrowser({ events, topMatches = [], awaitingOdds = 0 }:
           </div>
         </div>
 
+        {/* Market switcher (football) and kick-off days */}
+        {(!sport || sport === 'football') && (
+          <div className="no-scrollbar -mx-3 flex gap-1.5 overflow-x-auto px-3 sm:mx-0 sm:px-0" role="tablist" aria-label="Market">
+            {LIST_MARKETS.map((m) => (
+              <button
+                key={m.id}
+                role="tab"
+                aria-selected={market.id === m.id}
+                onClick={() => update({ market: m.id })}
+                className={`shrink-0 rounded-full border px-3.5 py-1.5 text-xs font-bold transition-colors ${
+                  market.id === m.id
+                    ? 'border-secondary bg-secondary text-white'
+                    : 'border-border bg-card text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
+        )}
+        {tab !== 'live' && days.length > 1 && (
+          <div className="no-scrollbar -mx-3 flex gap-1.5 overflow-x-auto px-3 sm:mx-0 sm:px-0" aria-label="Kick-off day">
+            {[{ day: null as string | null, label: 'All days', count: undefined as number | undefined }, ...days].map((d) => (
+              <button
+                key={d.day ?? 'all'}
+                onClick={() => update({ day: d.day })}
+                className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-bold transition-colors ${
+                  day === d.day || (!day && !d.day)
+                    ? 'bg-foreground text-background'
+                    : 'bg-muted/60 text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {d.label}
+                {d.count != null && <span className="ml-1 opacity-60">{d.count}</span>}
+              </button>
+            ))}
+          </div>
+        )}
+
         {groups.length === 0 && (
           <div className="rounded-2xl border border-border bg-card p-12 text-center">
             <p className="mb-1 font-bold">No matches found</p>
             <p className="mb-4 text-sm text-muted-foreground">
               {tab === 'live' ? 'Nothing is in play right now.' : 'Try another sport or clear your search.'}
             </p>
-            {(sport || tab !== 'all' || search) && (
+            {(sport || tab !== 'all' || search || day) && (
               <button
-                onClick={() => { setSearch(''); update({ sport: null, tab: 'all' }); }}
+                onClick={() => { setSearch(''); update({ sport: null, tab: 'all', day: null }); }}
                 className="rounded-lg bg-secondary px-4 py-2 text-xs font-bold text-white"
               >
                 Show all matches
@@ -229,9 +311,11 @@ export function SportsbookBrowser({ events, topMatches = [], awaitingOdds = 0 }:
 
         {groups.map((g) => {
           const meta = sportMeta(g.sport);
+          // Switched markets are football markets; other sports keep 1X2.
+          const shown = g.sport === 'football' ? market : LIST_MARKETS[0];
           return (
             <div key={g.sport ?? 'other'} className="overflow-hidden rounded-2xl border border-border bg-card">
-              <MarketHeader title={meta.label} icon={meta.icon} count={g.events.length} />
+              <MarketHeader title={meta.label} icon={meta.icon} count={g.events.length} market={shown} />
               {g.leagues.map((lg) => {
                 const key = `${g.sport ?? 'other'}:${lg.key}`;
                 return (
@@ -242,6 +326,7 @@ export function SportsbookBrowser({ events, topMatches = [], awaitingOdds = 0 }:
                     collapsed={!search.trim() && collapsed.has(key)}
                     onToggle={() => toggleLeague(key)}
                     fallbackTitle={`Other ${meta.label.toLowerCase()}`}
+                    market={shown}
                   />
                 );
               })}
