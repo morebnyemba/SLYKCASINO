@@ -7,8 +7,7 @@ import { OddsButton } from '@/components/odds-button';
 import { useLiveEvent } from '@/lib/live-board';
 import { SPORT_CATEGORIES } from '@/components/sports-sidebar';
 import {
-  dayLabel, hasScore, homeMove, isLive, isMainOpen, isPriced, kickoffTime, LIST_MARKETS, marketShape, matchClock, teamNames,
-  type EventItem, type ListMarket, type Team,
+  dayLabel, hasScore, homeMove, isLive, isMainOpen, isPriced, kickoffTime, marketShape, matchClock, teamNames, type EventItem, type Team,
 } from '@/lib/sports';
 
 export function sportMeta(id?: string): { label: string; icon?: IconType } {
@@ -71,43 +70,17 @@ function EventStatus({ ev, inline = false }: { ev: EventItem; inline?: boolean }
 }
 
 const ODDS_COLS = 'grid grid-cols-3 gap-1.5 w-[178px] sm:w-[222px]';
-const ODDS_COLS_2 = 'grid grid-cols-2 gap-1.5 w-[178px] sm:w-[222px]';
 
-/** Prices for a switched-to market (double chance, goals line, BTTS) from the listing's quick markets. */
-function QuickMarketButtons({ ev, market }: { ev: EventItem; market: ListMarket }) {
-  const m = market.key ? ev.quick_markets?.[market.key] : undefined;
-  const tradable = !!m?.open && ev.bettable !== false;
-  return (
-    <div className={market.cols.length === 2 ? ODDS_COLS_2 : ODDS_COLS}>
-      {market.cols.map(([key]) => {
-        const o = m?.outcomes[key];
-        return (
-          <OddsButton
-            key={key}
-            eventId={ev.id}
-            eventName={ev.name}
-            odds={o ? o.odds : null}
-            disabled={!tradable || !o?.open}
-            outcome={o && m ? { id: o.id, marketId: m.id, marketName: m.name, label: o.label } : undefined}
-          />
-        );
-      })}
-    </div>
-  );
-}
-
-/** Section header for a block of events, with the column captions of the market shown (1 / X / 2 by default). */
-export function MarketHeader({ title, icon: Icon, count, market = LIST_MARKETS[0] }: {
-  title: string; icon?: IconType; count?: number; market?: ListMarket;
-}) {
+/** Section header for a block of events, with the 1 / X / 2 column captions. */
+export function MarketHeader({ title, icon: Icon, count }: { title: string; icon?: IconType; count?: number }) {
   return (
     <div className="flex items-center gap-2 border-b border-border bg-muted/40 px-3 py-2.5 sm:px-4">
       {Icon && <Icon size={16} className="text-secondary" />}
       <span className="text-sm font-extrabold">{title}</span>
       {count != null && <span className="text-xs font-semibold text-muted-foreground">{count}</span>}
-      <div className={`ml-auto ${market.cols.length === 2 ? ODDS_COLS_2 : ODDS_COLS} sm:mr-[52px]`}>
-        {market.cols.map(([key, l]) => (
-          <span key={key} className="text-center text-[11px] font-extrabold text-muted-foreground">{l}</span>
+      <div className={`ml-auto ${ODDS_COLS} sm:mr-[52px]`}>
+        {['1', 'X', '2'].map((l) => (
+          <span key={l} className="text-center text-[11px] font-extrabold text-muted-foreground">{l}</span>
         ))}
       </div>
     </div>
@@ -116,7 +89,7 @@ export function MarketHeader({ title, icon: Icon, count, market = LIST_MARKETS[0
 
 /** One compact market row: status, teams, and 1/X/2 price buttons — kept live
  * (prices, score, clock, locks) from the shared board channel. */
-export function EventRow({ ev: snapshot, market = LIST_MARKETS[0] }: { ev: EventItem; market?: ListMarket }) {
+export function EventRow({ ev: snapshot }: { ev: EventItem }) {
   const { ev, moves } = useLiveEvent(snapshot);
   const { home, away } = teamNames(ev);
   const shape = marketShape(ev);
@@ -155,15 +128,11 @@ export function EventRow({ ev: snapshot, market = LIST_MARKETS[0] }: { ev: Event
           )}
         </div>
       </Link>
-      {market.key ? (
-        <QuickMarketButtons ev={ev} market={market} />
-      ) : (
-        <div className={ODDS_COLS}>
-          <OddsButton eventId={ev.id} eventName={ev.name} selection="home" odds={priced ? ev.odds : null} move={moves.home ?? homeMove(ev)} disabled={closed} />
-          <OddsButton eventId={ev.id} eventName={ev.name} selection="draw" odds={priced && shape === '1x2' ? ev.odds_draw : null} move={moves.draw} disabled={closed} />
-          <OddsButton eventId={ev.id} eventName={ev.name} selection="away" odds={priced && shape !== 'single' ? ev.odds_away : null} move={moves.away} disabled={closed} />
-        </div>
-      )}
+      <div className={ODDS_COLS}>
+        <OddsButton eventId={ev.id} eventName={ev.name} selection="home" odds={priced ? ev.odds : null} move={moves.home ?? homeMove(ev)} disabled={closed} />
+        <OddsButton eventId={ev.id} eventName={ev.name} selection="draw" odds={priced && shape === '1x2' ? ev.odds_draw : null} move={moves.draw} disabled={closed} />
+        <OddsButton eventId={ev.id} eventName={ev.name} selection="away" odds={priced && shape !== 'single' ? ev.odds_away : null} move={moves.away} disabled={closed} />
+      </div>
       <Link
         href={href}
         aria-label={`All markets for ${ev.name}`}

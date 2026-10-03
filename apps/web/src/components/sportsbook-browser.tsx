@@ -8,7 +8,7 @@ import { SPORT_CATEGORIES } from '@/components/sports-sidebar';
 import { Carousel, CarouselItem } from '@/components/carousel';
 import { FeaturedMatchCard, MarketHeader, sportMeta } from '@/components/event-row';
 import { LeagueSection } from '@/components/league-section';
-import { groupByLeague, isLive, LIST_MARKETS, sortEvents, type EventItem } from '@/lib/sports';
+import { groupByLeague, isLive, sortEvents, type EventItem } from '@/lib/sports';
 
 type Tab = 'all' | 'live' | 'upcoming';
 
@@ -43,7 +43,6 @@ export function SportsbookBrowser({ events, topMatches = [], awaitingOdds = 0 }:
   const sport = params.get('sport');
   const tabParam = params.get('tab');
   const tab: Tab = tabParam === 'live' || tabParam === 'upcoming' ? tabParam : 'all';
-  const market = LIST_MARKETS.find((m) => m.id === params.get('market')) ?? LIST_MARKETS[0];
   const day = params.get('day');
 
   // Day chips depend on the viewer's timezone, so they're built after mount
@@ -51,11 +50,8 @@ export function SportsbookBrowser({ events, topMatches = [], awaitingOdds = 0 }:
   const [mounted, setMounted] = useState(false);
   useEffect(() => { setMounted(true); }, []);
 
-  function update(next: { sport?: string | null; tab?: Tab; market?: string; day?: string | null }) {
+  function update(next: { sport?: string | null; tab?: Tab; day?: string | null }) {
     const q = new URLSearchParams(params.toString());
-    if (next.market !== undefined) {
-      if (next.market !== '1x2') q.set('market', next.market); else q.delete('market');
-    }
     if (next.day !== undefined) {
       if (next.day) q.set('day', next.day); else q.delete('day');
     }
@@ -247,26 +243,7 @@ export function SportsbookBrowser({ events, topMatches = [], awaitingOdds = 0 }:
           </div>
         </div>
 
-        {/* Market switcher (football) and kick-off days */}
-        {(!sport || sport === 'football') && (
-          <div className="no-scrollbar -mx-3 flex gap-1.5 overflow-x-auto px-3 sm:mx-0 sm:px-0" role="tablist" aria-label="Market">
-            {LIST_MARKETS.map((m) => (
-              <button
-                key={m.id}
-                role="tab"
-                aria-selected={market.id === m.id}
-                onClick={() => update({ market: m.id })}
-                className={`shrink-0 rounded-full border px-3.5 py-1.5 text-xs font-bold transition-colors ${
-                  market.id === m.id
-                    ? 'border-secondary bg-secondary text-white'
-                    : 'border-border bg-card text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                {m.label}
-              </button>
-            ))}
-          </div>
-        )}
+        {/* Kick-off days */}
         {tab !== 'live' && days.length > 1 && (
           <div className="no-scrollbar -mx-3 flex gap-1.5 overflow-x-auto px-3 sm:mx-0 sm:px-0" aria-label="Kick-off day">
             {[{ day: null as string | null, label: 'All days', count: undefined as number | undefined }, ...days].map((d) => (
@@ -311,11 +288,9 @@ export function SportsbookBrowser({ events, topMatches = [], awaitingOdds = 0 }:
 
         {groups.map((g) => {
           const meta = sportMeta(g.sport);
-          // Switched markets are football markets; other sports keep 1X2.
-          const shown = g.sport === 'football' ? market : LIST_MARKETS[0];
           return (
             <div key={g.sport ?? 'other'} className="overflow-hidden rounded-2xl border border-border bg-card">
-              <MarketHeader title={meta.label} icon={meta.icon} count={g.events.length} market={shown} />
+              <MarketHeader title={meta.label} icon={meta.icon} count={g.events.length} />
               {g.leagues.map((lg) => {
                 const key = `${g.sport ?? 'other'}:${lg.key}`;
                 return (
@@ -326,7 +301,6 @@ export function SportsbookBrowser({ events, topMatches = [], awaitingOdds = 0 }:
                     collapsed={!search.trim() && collapsed.has(key)}
                     onToggle={() => toggleLeague(key)}
                     fallbackTitle={`Other ${meta.label.toLowerCase()}`}
-                    market={shown}
                   />
                 );
               })}

@@ -16,7 +16,7 @@ from . import booking as booking_services
 from . import services
 from .dtos import AccumulatorRequestDTO, BetRequestDTO
 from .models import Bet, BetLeg, BetSlip, Event, Market
-from .serializers import QUICK_MARKET_KEYS, BetSerializer, BetSlipSerializer, EventDetailSerializer, EventSerializer
+from .serializers import BetSerializer, BetSlipSerializer, EventDetailSerializer, EventSerializer
 
 
 class EventPagination(PageNumberPagination):
@@ -48,11 +48,6 @@ class EventViewSet(viewsets.ModelViewSet):
         if self.action == 'retrieve':
             qs = qs.prefetch_related(Prefetch(
                 'markets', queryset=Market.objects.prefetch_related('outcomes'),
-            ))
-        elif self.action == 'list':
-            qs = qs.prefetch_related(Prefetch(
-                'markets', queryset=Market.objects.filter(key__in=QUICK_MARKET_KEYS).prefetch_related('outcomes'),
-                to_attr='quick_market_list',
             ))
         return qs
 

@@ -149,13 +149,3 @@ class MultiBetBonusTests(TestCase):
         self.assertEqual(data['min_odds'], '1.20')
         self.assertEqual([t['min_legs'] for t in data['tiers']], [3, 4])
 
-
-class QuickMarketListingTests(TestCase):
-    def test_listing_carries_switcher_markets_only(self):
-        ev = _event('Dynamos vs CAPS United')
-        btts = Market.objects.create(event=ev, key='btts:ft', name='Both teams to score', group='main', kind='btts')
-        MarketOutcome.objects.create(market=btts, key='yes', label='Yes', odds=D('1.90'))
-        Market.objects.create(event=ev, key='correct_score:ft', name='Correct score', group='score', kind='correct_score')
-        row = APIClient().get('/api/events/?upcoming=true').json()['results'][0]
-        self.assertEqual(list(row['quick_markets']), ['btts:ft'])
-        self.assertEqual(row['quick_markets']['btts:ft']['outcomes']['yes']['odds'], '1.90')
