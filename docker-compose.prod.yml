@@ -25,6 +25,9 @@ networks:
 volumes:
   pgdata_prod:
   redis_prod:
+  # Uploaded files (KYC identity documents). Private: never served by nginx,
+  # only streamed to staff through the authenticated admin API.
+  media_prod:
   letsencrypt:
   certbot_www:
 
@@ -67,6 +70,8 @@ services:
     env_file: .env.prod
     environment:
       GUNICORN_WORKERS: "4"
+    volumes:
+      - media_prod:/app/media
     # entrypoint.sh applies migrations, runs collectstatic, then execs gunicorn
     # — all inside this same persistent container, so static files & schema
     # always match the code actually running (no separate `run --rm` needed).
@@ -85,6 +90,8 @@ services:
     image: slykcasino/django:latest
     env_file: .env.prod
     command: celery -A config worker -l info -c 4
+    volumes:
+      - media_prod:/app/media
     depends_on:
       postgres: { condition: service_healthy }
       redis:    { condition: service_healthy }

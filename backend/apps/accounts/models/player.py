@@ -22,6 +22,8 @@ class Player(models.Model):
     )
     username = models.CharField(max_length=150, unique=True)
     email = models.EmailField(blank=True)
+    # Legal name as on the player's identity document (captured with KYC).
+    full_name = models.CharField(max_length=150, blank=True, default='')
     kyc_status = models.CharField(max_length=20, choices=Kyc.choices, default=Kyc.UNVERIFIED)
     kyc_updated_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

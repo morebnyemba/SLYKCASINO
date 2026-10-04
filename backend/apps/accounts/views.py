@@ -480,6 +480,7 @@ class KYCSubmitView(APIView):
             player.id,
             document_type=ser.validated_data['document_type'],
             file=ser.validated_data['file'],
+            full_name=ser.validated_data['full_name'],
         )
         services.audit(player.id, 'kyc_submitted', request, document_type=submission.document_type)
         return Response(KYCSubmissionSerializer(submission).data, status=status.HTTP_201_CREATED)
