@@ -172,3 +172,41 @@ class DemoBannerMigrationTests(TestCase):
         module = import_module('apps.promotions.migrations.0006_remove_demo_banners')
         module.remove_demo_banners(django_apps, None)
         self.assertEqual(list(Banner.objects.values_list('image_url', flat=True)), ['https://cdn.example/our-own.jpg'])
+
+
+class BannerImageUploadTests(TestCase):
+    PNG = b'\x89PNG\r\n\x1a\n' + b'\x00' * 64
+
+    def setUp(self):
+        from django.contrib.auth.models import User
+        self.staff = User.objects.create(username='banner_staff', is_staff=True)
+        self.player = User.objects.create(username='banner_player')
+
+    def _upload(self, user, content, name='design.png'):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        api = APIClient()
+        if user:
+            api.force_authenticate(user)
+        return api.post('/api/promotions/banner-images/', {'file': SimpleUploadedFile(name, content)}, format='multipart')
+
+    def test_staff_upload_is_served_back(self):
+        res = self._upload(self.staff, self.PNG)
+        self.assertEqual(res.status_code, 201, res.content)
+        url = res.json()['url']
+        self.assertTrue(url.startswith('/api/promotions/banner-images/'))
+        got = APIClient().get(url)
+        self.assertEqual(got.status_code, 200)
+        self.assertEqual(got['Content-Type'], 'image/png')
+        self.assertIn('immutable', got['Cache-Control'])
+        self.assertEqual(got.content, self.PNG)
+
+    def test_only_staff_can_upload(self):
+        self.assertIn(self._upload(None, self.PNG).status_code, (401, 403))
+        self.assertEqual(self._upload(self.player, self.PNG).status_code, 403)
+
+    def test_rejects_non_images_whatever_the_name(self):
+        res = self._upload(self.staff, b'<html><script>alert(1)</script></html>', name='evil.png')
+        self.assertEqual(res.status_code, 400)
+
+    def test_missing_image_is_404(self):
+        self.assertEqual(APIClient().get('/api/promotions/banner-images/999999/').status_code, 404)

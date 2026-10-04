@@ -42,3 +42,20 @@ class Banner(models.Model):
         if self.ends_at and now > self.ends_at:
             return False
         return True
+
+
+class BannerImage(models.Model):
+    """A banner design uploaded from the operator console. Stored in the
+    database (not on the container's disk) so it survives redeploys, and
+    served publicly at /api/promotions/banner-images/<id>/."""
+
+    content = models.BinaryField()
+    content_type = models.CharField(max_length=40)
+    size = models.PositiveIntegerField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'promotions_bannerimage'
+
+    def __str__(self) -> str:
+        return f'Banner image #{self.pk} ({self.content_type}, {self.size} bytes)'

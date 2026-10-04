@@ -2,17 +2,20 @@
 from __future__ import annotations
 
 from django.db.models import Count, Q
+from django.http import Http404, HttpResponse
 from django.utils import timezone
 
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny, IsAdminUser, IsAuthenticated
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from apps.accounts import services as accounts_services
 
 from . import services
-from .models import Banner, PromotionClaim, Tournament
+from .models import Banner, BannerImage, PromotionClaim, Tournament
 from .serializers import (
     BannerSerializer,
     PromotionClaimSerializer,
@@ -116,3 +119,60 @@ class TournamentViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewse
         except ValueError as exc:
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(TournamentEntrySerializer(entry).data, status=status.HTTP_201_CREATED)
+
+
+# Banner uploads: the type is read from the file's own bytes, never from the
+# client, so only real images are ever served back.
+BANNER_IMAGE_MAX_BYTES = 5 * 1024 * 1024
+
+
+def _sniff_image_type(head: bytes):
+    if head.startswith(b'\xff\xd8\xff'):
+        return 'image/jpeg'
+    if head.startswith(b'\x89PNG\r\n\x1a\n'):
+        return 'image/png'
+    if head[:6] in (b'GIF87a', b'GIF89a'):
+        return 'image/gif'
+    if head[:4] == b'RIFF' and head[8:12] == b'WEBP':
+        return 'image/webp'
+    return None
+
+
+class BannerImageUploadView(APIView):
+    """POST /api/promotions/banner-images/ (staff, multipart `file`) -> {id, url}.
+    `url` is site-relative, so it works on whichever domain serves the site."""
+    permission_classes = [IsAdminUser]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request):
+        upload = request.FILES.get('file')
+        if upload is None:
+            return Response({'detail': 'Choose an image to upload.'}, status=status.HTTP_400_BAD_REQUEST)
+        if upload.size > BANNER_IMAGE_MAX_BYTES:
+            return Response({'detail': 'Images must be 5 MB or smaller.'}, status=status.HTTP_400_BAD_REQUEST)
+        content = upload.read()
+        content_type = _sniff_image_type(content[:16])
+        if content_type is None:
+            return Response({'detail': 'Upload a JPG, PNG, WebP or GIF image.'}, status=status.HTTP_400_BAD_REQUEST)
+        image = BannerImage.objects.create(content=content, content_type=content_type, size=len(content))
+        return Response(
+            {'id': image.id, 'url': f'/api/promotions/banner-images/{image.id}/'},
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class BannerImageView(APIView):
+    """GET /api/promotions/banner-images/<id>/ — the image bytes, cached for a
+    year (an upload never changes; a new design gets a new id)."""
+    permission_classes = [AllowAny]
+    authentication_classes = []
+    throttle_classes = []
+
+    def get(self, request, pk: int):
+        image = BannerImage.objects.filter(pk=pk).only('content', 'content_type').first()
+        if image is None:
+            raise Http404
+        response = HttpResponse(bytes(image.content), content_type=image.content_type)
+        response['Cache-Control'] = 'public, max-age=31536000, immutable'
+        response['X-Content-Type-Options'] = 'nosniff'
+        return response

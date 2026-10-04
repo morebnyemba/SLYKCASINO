@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 import { FaChevronLeft, FaChevronRight } from 'react-icons/fa';
+import { config } from '@/lib/config';
 
 export interface Banner {
   id: number | string;
@@ -96,6 +97,11 @@ export function BannerSlider({ banners }: { banners: Banner[] }) {
   );
 }
 
+/** Uploaded designs are stored as site-relative API paths ("/api/promotions/banner-images/7/"). */
+function imageSrc(url: string) {
+  return url.startsWith('/api/') ? `${config.apiUrl.replace(/\/api\/?$/, '')}${url}` : url;
+}
+
 /** One promo banner's content (photo or gradient art, copy and buttons), filling
  * its parent. Shared by the homepage slider and the sportsbook hero. */
 export function PromoSlide({ b, secondary }: { b: Banner; secondary?: { href: string; label: string } | null }) {
@@ -105,7 +111,7 @@ export function PromoSlide({ b, secondary }: { b: Banner; secondary?: { href: st
       {b.image_url ? (
         <>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={b.image_url} alt={b.title} className="h-full w-full object-cover" />
+          <img src={imageSrc(b.image_url)} alt={b.title} className="h-full w-full object-cover" />
           <div className="absolute inset-0 bg-gradient-to-r from-black/85 via-black/45 to-transparent" />
         </>
       ) : (

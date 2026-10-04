@@ -26,6 +26,11 @@ interface Banner {
 
 interface BannersResponse { results?: Banner[] }
 
+/** Uploaded designs are stored as site-relative API paths ("/api/promotions/banner-images/7/"). */
+function imageSrc(url: string) {
+  return url.startsWith('/api/') ? `${config.apiUrl.replace(/\/api\/?$/, '')}${url}` : url;
+}
+
 const PLACEMENTS = [
   { id: 'home_hero', label: 'Homepage hero' },
   { id: 'sportsbook', label: 'Sportsbook' },
@@ -77,6 +82,27 @@ export default function BannersPage() {
   const [formError, setFormError] = useState('');
 
   const set = (k: keyof FormState, v: string) => setForm((f) => ({ ...f, [k]: v }));
+  const [uploading, setUploading] = useState(false);
+
+  async function uploadDesign(file: File) {
+    if (!accessToken) return;
+    setUploading(true);
+    setFormError('');
+    try {
+      const body = new FormData();
+      body.append('file', file);
+      const res = await fetch(`${config.apiUrl}/promotions/banner-images/`, {
+        method: 'POST', headers: { Authorization: `Bearer ${accessToken}` }, body,
+      });
+      const json = (await res.json().catch(() => ({}))) as { url?: string; detail?: string };
+      if (!res.ok || !json.url) setFormError(json.detail ?? `Upload failed (${res.status}).`);
+      else set('image_url', json.url);
+    } catch {
+      setFormError('Upload failed — check your connection and try again.');
+    } finally {
+      setUploading(false);
+    }
+  }
 
   function startCreate() {
     setEditingId(null);
@@ -142,7 +168,7 @@ export default function BannersPage() {
     { label: 'Title', key: 'title', type: 'text', placeholder: 'BetBlits Aviator' },
     { label: 'Sort order', key: 'sort_order', type: 'number', placeholder: '0' },
     { label: 'Subtitle', key: 'subtitle', type: 'text', placeholder: 'Cash out before the crash', full: true },
-    { label: 'Image URL', key: 'image_url', type: 'text', placeholder: 'https://…/banner.jpg', full: true },
+    { label: 'Image URL (or upload a design above)', key: 'image_url', type: 'text', placeholder: 'https://…/banner.jpg', full: true },
     { label: 'Link URL', key: 'link_url', type: 'text', placeholder: '/casino/crash' },
     { label: 'CTA label', key: 'cta_label', type: 'text', placeholder: 'Play now' },
     { label: 'Starts at (optional)', key: 'starts_at', type: 'datetime-local', placeholder: '' },
@@ -178,7 +204,7 @@ export default function BannersPage() {
             {form.image_url && (
               <div className="relative h-40 overflow-hidden rounded-xl">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={form.image_url} alt="preview" className="h-full w-full object-cover" />
+                <img src={imageSrc(form.image_url)} alt="preview" className="h-full w-full object-cover" />
                 <div className="absolute inset-0 bg-gradient-to-r from-black/85 via-black/45 to-transparent" />
                 <div className="absolute inset-0 flex flex-col justify-center gap-1.5 p-6">
                   <p className="max-w-md text-2xl font-extrabold text-white drop-shadow">{form.title || 'Banner title'}</p>
@@ -201,9 +227,26 @@ export default function BannersPage() {
                 >
                   {PLACEMENTS.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
                 </select>
-                {form.placement === 'sportsbook' && (
-                  <p className="text-xs text-muted-foreground">Plays first in the sportsbook hero, before the automatic match banners.</p>
-                )}
+                <p className="text-xs text-muted-foreground">
+                  {form.placement === 'sportsbook'
+                    ? 'Shown in the slider at the top of the sportsbook.'
+                    : 'Shown in the slider at the top of the homepage.'}
+                </p>
+              </div>
+              <div className="space-y-1 sm:col-span-2">
+                <label className="text-sm font-medium">Banner design</label>
+                <label className={`flex cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed border-border bg-background px-3 py-4 text-sm font-medium transition-colors hover:border-primary ${uploading ? 'pointer-events-none opacity-60' : ''}`}>
+                  {uploading ? <><Spinner size={14} />Uploading…</> : form.image_url ? 'Replace image…' : 'Upload image…'}
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/gif"
+                    className="sr-only"
+                    onChange={(e) => { const f = e.target.files?.[0]; if (f) void uploadDesign(f); e.target.value = ''; }}
+                  />
+                </label>
+                <p className="text-xs text-muted-foreground">
+                  JPG, PNG, WebP or GIF up to 5 MB. Wide images work best (about 1600 × 500); the left side sits under the title text.
+                </p>
               </div>
               {FIELDS.map(({ label, key, type, placeholder, full }) => (
                 <div key={key} className={`space-y-1 ${full ? 'sm:col-span-2' : ''}`}>
@@ -257,7 +300,7 @@ export default function BannersPage() {
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-3">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={b.image_url} alt="" className="h-10 w-16 shrink-0 rounded object-cover bg-muted" />
+                        <img src={imageSrc(b.image_url)} alt="" className="h-10 w-16 shrink-0 rounded object-cover bg-muted" />
                         <div>
                           <p className="font-medium">{b.title}</p>
                           <p className="text-xs text-muted-foreground">{b.subtitle || '—'}</p>
