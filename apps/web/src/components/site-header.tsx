@@ -81,7 +81,8 @@ function SearchTrigger() {
         <kbd className="ml-auto rounded-md border border-border bg-muted px-1.5 text-[10px] font-bold">/</kbd>
       </button>
       {/* …icon button elsewhere. */}
-      <button onClick={() => setSearchOpen(true)} aria-label="Search" className={`${iconBtn} xl:hidden`}>
+      {/* (Phones and tablets search from the bottom bar.) */}
+      <button onClick={() => setSearchOpen(true)} aria-label="Search" className={`${iconBtn.replace('relative flex', 'relative hidden lg:flex')} xl:hidden`}>
         <BsSearch size={16} />
       </button>
     </>
