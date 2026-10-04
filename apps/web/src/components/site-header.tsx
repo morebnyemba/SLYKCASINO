@@ -274,7 +274,9 @@ export function SiteHeader() {
           {/* The desktop rail carries the logo; smaller screens (and the rail-less
               sign-in pages) show it here. */}
           <div className={onAuthPage ? '' : 'lg:hidden'}>
-            <Logo markOnly={!!user} nameClassName="max-[399px]:hidden" />
+            {/* The name shows on every screen; search lives in the bottom bar on
+                phones, which leaves room for it. */}
+            <Logo nameClassName="max-[359px]:text-[15px]" />
           </div>
 
           <ProductSwitch />
