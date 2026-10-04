@@ -240,25 +240,3 @@ export function sortEvents<T extends EventItem>(list: T[]): T[] {
     return ta - tb;
   });
 }
-
-/**
- * Pick the fixtures worth a banner: priced two-team matches that are live and
- * trading, or start within two days, from the highest-ranked leagues first (featured
- * competitions have a low sort_order), live before upcoming, then soonest.
- */
-export function pickBannerMatches(events: EventItem[], limit = 4): EventItem[] {
-  const horizon = Date.now() + 48 * 3600 * 1000;
-  const candidates = events.filter((ev) =>
-    isPriced(ev) && !!teamNames(ev).away && (
-      // A live match only earns a banner while its prices are actually trading.
-      isLive(ev) ? isMainOpen(ev) : !!ev.starts_at && new Date(ev.starts_at).getTime() <= horizon
-    ),
-  );
-  const rank = (ev: EventItem) => ev.league?.sort_order ?? 1000;
-  return [...candidates]
-    .sort((a, b) =>
-      rank(a) - rank(b)
-      || Number(isLive(b)) - Number(isLive(a))
-      || new Date(a.starts_at ?? 0).getTime() - new Date(b.starts_at ?? 0).getTime())
-    .slice(0, limit);
-}

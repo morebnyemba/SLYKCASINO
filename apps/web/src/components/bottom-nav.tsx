@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { Suspense } from 'react';
 import { usePathname, useSearchParams } from 'next/navigation';
-import { BsBroadcast, BsList, BsTicketPerforated, BsReceipt } from 'react-icons/bs';
+import { BsBroadcast, BsList, BsReceipt, BsSearch, BsTicketPerforated } from 'react-icons/bs';
 import { GiTrophy } from 'react-icons/gi';
 import type { IconType } from 'react-icons';
 import { useAuth } from '@/lib/auth-context';
@@ -37,12 +37,12 @@ function SportsTabs({ pathname }: { pathname: string }) {
   );
 }
 
-/** Mobile-only tab bar: menu drawer, live, sports, bet slip and bets (casino is in the menu and header). Desktop uses the sidebar + header. */
+/** Mobile-only tab bar: menu drawer, search, live, sports, bet slip and bets (casino is in the menu and header). Desktop uses the sidebar + header. */
 export function BottomNav() {
   const pathname = usePathname();
   const { user } = useAuth();
   const { legs, slipOpen, setSlipOpen } = useBetslip();
-  const { menuOpen, setMenuOpen } = useShell();
+  const { menuOpen, setMenuOpen, searchOpen, setSearchOpen } = useShell();
 
   return (
     <nav className="fixed inset-x-0 bottom-0 z-40 flex border-t border-border bg-sidebar/95 px-1 pb-[max(env(safe-area-inset-bottom),0.5rem)] pt-1.5 shadow-[0_-8px_24px_rgba(0,0,0,0.2)] backdrop-blur-xl lg:hidden">
@@ -54,6 +54,15 @@ export function BottomNav() {
           <BsList size={21} />
         </span>
         <span>Menu</span>
+      </button>
+      <button
+        onClick={() => setSearchOpen(true)}
+        className={`${tabClass} ${searchOpen ? 'text-secondary' : 'text-muted-foreground'}`}
+      >
+        <span className={`flex h-7 w-12 items-center justify-center rounded-full ${searchOpen ? 'bg-secondary/20' : ''}`}>
+          <BsSearch size={18} />
+        </span>
+        <span>Search</span>
       </button>
       <Suspense fallback={(
         <>

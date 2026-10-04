@@ -89,7 +89,11 @@ export function MarketHeader({ title, icon: Icon, count }: { title: string; icon
 
 /** One compact market row: status, teams, and 1/X/2 price buttons — kept live
  * (prices, score, clock, locks) from the shared board channel. */
-export function EventRow({ ev: snapshot }: { ev: EventItem }) {
+export function EventRow({ ev: snapshot, showLeague = false }: {
+  ev: EventItem;
+  /** Name the competition on the row (lists sorted by time, not grouped by league). */
+  showLeague?: boolean;
+}) {
   const { ev, moves } = useLiveEvent(snapshot);
   const { home, away } = teamNames(ev);
   const shape = marketShape(ev);
@@ -113,6 +117,15 @@ export function EventRow({ ev: snapshot }: { ev: EventItem }) {
             </span>
           )}
         </div>
+        {showLeague && ev.league && (
+          <p className="mb-1 flex min-w-0 items-center gap-1.5 text-[11px] font-semibold text-muted-foreground">
+            {(ev.league.flag_url || ev.league.logo_url) && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={ev.league.flag_url || ev.league.logo_url} alt="" className="h-3 w-4 shrink-0 rounded-[2px] object-cover" />
+            )}
+            <span className="truncate">{ev.league.country ? `${ev.league.country} · ` : ''}{ev.league.name}</span>
+          </p>
+        )}
         <div className="space-y-1">
           <div className="flex items-center gap-2">
             <TeamBadge team={ev.home_team} name={home} size={18} />
