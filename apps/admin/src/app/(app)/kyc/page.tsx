@@ -13,6 +13,9 @@ interface KYCSubmission {
   id: number;
   player: number;
   username: string;
+  email?: string;
+  full_name?: string;
+  file_name?: string;
   document_type: string;
   status: 'pending' | 'approved' | 'rejected';
   rejection_reason: string;
@@ -146,8 +149,14 @@ export default function KYCReviewPage() {
               <tbody>
                 {submissions.map((s) => (
                   <tr key={s.id} className="border-b border-border last:border-0 align-top">
-                    <td className="px-4 py-3 font-medium">{s.username}</td>
-                    <td className="px-4 py-3">{DOCUMENT_LABELS[s.document_type] ?? s.document_type}</td>
+                    <td className="px-4 py-3">
+                      <p className="font-semibold">{s.full_name || <span className="font-normal italic text-muted-foreground">No name given</span>}</p>
+                      <p className="text-xs text-muted-foreground">@{s.username}{s.email ? ` · ${s.email}` : ''}</p>
+                    </td>
+                    <td className="px-4 py-3">
+                      {DOCUMENT_LABELS[s.document_type] ?? s.document_type}
+                      {s.file_name && <p className="mt-0.5 max-w-[180px] truncate text-xs text-muted-foreground" title={s.file_name}>{s.file_name}</p>}
+                    </td>
                     <td className="px-4 py-3 text-muted-foreground">{new Date(s.submitted_at).toLocaleString()}</td>
                     <td className="px-4 py-3">
                       {statusBadge(s.status)}

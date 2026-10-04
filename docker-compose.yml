@@ -23,6 +23,7 @@ volumes:
   redis_data:
   letsencrypt:        # /etc/letsencrypt — issued certs + recommended params
   certbot_www:        # /var/www/certbot — http-01 challenge webroot
+  media_data:         # /app/media — uploaded files (KYC documents); private
 
 services:
   # ---------------------------------------------------------------------------
@@ -80,6 +81,8 @@ services:
       DJANGO_SUPERUSER_USERNAME: ${DJANGO_SUPERUSER_USERNAME:-}
       DJANGO_SUPERUSER_EMAIL: ${DJANGO_SUPERUSER_EMAIL:-}
       DJANGO_SUPERUSER_PASSWORD: ${DJANGO_SUPERUSER_PASSWORD:-}
+    volumes:
+      - media_data:/app/media
     depends_on:
       postgres: { condition: service_healthy }
       redis:    { condition: service_healthy }

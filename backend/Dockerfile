@@ -19,7 +19,7 @@ COPY . .
 # Run as non-root.
 RUN addgroup --system django && adduser --system --ingroup django django \
  && chmod +x entrypoint.sh \
- && mkdir -p /app/staticfiles && chown -R django:django /app
+ && mkdir -p /app/staticfiles /app/media && chown -R django:django /app
 USER django
 
 EXPOSE 8000

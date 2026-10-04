@@ -15,6 +15,8 @@ interface Player {
   id: number;
   username: string;
   email: string;
+  /** Legal name from KYC (blank until the player submits a document). */
+  full_name?: string;
   kyc_status: string;
   balance: string;
   currency: string;
@@ -122,8 +124,10 @@ export default function PlayerDetailPage({ params }: PageProps) {
           <FaUser size={13} />
         </span>
         <div>
-          <h1 className="text-2xl font-bold">{player.username}</h1>
-          <p className="text-sm text-muted-foreground">{player.email}</p>
+          <h1 className="text-2xl font-bold">{player.full_name || player.username}</h1>
+          <p className="text-sm text-muted-foreground">
+            {player.full_name ? `@${player.username} · ` : ''}{player.email}
+          </p>
         </div>
         {player.is_suspended ? <Badge variant="destructive">Suspended</Badge> : <Badge variant="success">Active</Badge>}
       </div>

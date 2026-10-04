@@ -23,6 +23,8 @@ class KYCSubmission(models.Model):
 
     player = models.ForeignKey(Player, on_delete=models.CASCADE, related_name='kyc_submissions')
     document_type = models.CharField(max_length=20, choices=DocumentType.choices)
+    # Name as written on the document, for staff to check against it.
+    full_name = models.CharField(max_length=150, blank=True, default='')
     file = models.FileField(upload_to='kyc/%Y/%m/')
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.PENDING)
     rejection_reason = models.CharField(max_length=255, blank=True, default='')

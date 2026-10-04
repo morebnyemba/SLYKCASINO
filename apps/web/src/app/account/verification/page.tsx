@@ -13,6 +13,7 @@ import { LoadingState, Spinner } from '@slyk/ui/components/spinner';
 interface KYCSubmission {
   id: number;
   document_type: string;
+  full_name?: string;
   status: 'pending' | 'approved' | 'rejected';
   rejection_reason: string;
   submitted_at: string;
@@ -32,9 +33,10 @@ function statusBadge(status: KYCSubmission['status']) {
   return <Badge variant="secondary">Pending review</Badge>;
 }
 
-async function uploadKycDocument(documentType: string, file: File, token: string) {
+async function uploadKycDocument(documentType: string, fullName: string, file: File, token: string) {
   const form = new FormData();
   form.append('document_type', documentType);
+  form.append('full_name', fullName);
   form.append('file', file);
 
   let res = await fetch(`${config.apiUrl}/players/me/kyc/`, {
@@ -71,6 +73,10 @@ export default function VerificationPage() {
   const submissions = data ?? [];
 
   const [documentType, setDocumentType] = useState('passport');
+  const [fullName, setFullName] = useState('');
+  // Start from the name on the player's last submission, if any.
+  const lastName = submissions.find((s) => s.full_name)?.full_name ?? '';
+  const nameValue = fullName || lastName;
   const [file, setFile] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
@@ -79,11 +85,11 @@ export default function VerificationPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!accessToken || !file) return;
+    if (!accessToken || !file || !nameValue.trim()) return;
     setSubmitting(true);
     setSubmitError('');
     try {
-      await uploadKycDocument(documentType, file, accessToken);
+      await uploadKycDocument(documentType, nameValue.trim(), file, accessToken);
       setFile(null);
       refetch();
     } catch (err) {
@@ -110,6 +116,19 @@ export default function VerificationPage() {
         <Card className="rounded-2xl border-gold/20">
           <CardContent className="pt-6">
             <form onSubmit={handleSubmit} className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1 sm:col-span-2">
+                <label htmlFor="kyc-full-name" className="text-sm font-medium">Full name (exactly as on your document)</label>
+                <input
+                  id="kyc-full-name"
+                  value={nameValue}
+                  onChange={(e) => setFullName(e.target.value)}
+                  required
+                  maxLength={150}
+                  autoComplete="name"
+                  placeholder="e.g. Tendai Moyo"
+                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+              </div>
               <div className="space-y-1">
                 <label className="text-sm font-medium">Document type</label>
                 <select
@@ -134,7 +153,7 @@ export default function VerificationPage() {
               <div className="col-span-2">
                 <button
                   type="submit"
-                  disabled={submitting || !file}
+                  disabled={submitting || !file || !nameValue.trim()}
                   className="flex items-center gap-2 rounded-md bg-gradient-to-br from-gold to-gold/70 px-4 py-2 text-sm font-bold text-gold-foreground shadow transition-transform hover:scale-[1.02] disabled:opacity-50 disabled:hover:scale-100"
                 >
                   <FaUpload size={12} />

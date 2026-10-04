@@ -182,16 +182,24 @@ def run_kyc_verification(player_id: int) -> Player:
 # ---------------------------------------------------------------------------
 
 @transaction.atomic
-def submit_kyc_document(player_id: int, *, document_type: str, file) -> KYCSubmission:
-    """Player submits an identity document for staff review."""
+def submit_kyc_document(player_id: int, *, document_type: str, file, full_name: str = '') -> KYCSubmission:
+    """Player submits an identity document (with their name as written on it)
+    for staff review. The name is also kept on the player as their legal name."""
+    full_name = ' '.join((full_name or '').split())[:150]
     submission = KYCSubmission.objects.create(
-        player_id=player_id, document_type=document_type, file=file,
+        player_id=player_id, document_type=document_type, file=file, full_name=full_name,
     )
     player = Player.objects.select_for_update().get(pk=player_id)
+    fields = []
+    if full_name and player.full_name != full_name:
+        player.full_name = full_name
+        fields.append('full_name')
     if player.kyc_status == Player.Kyc.UNVERIFIED:
         player.kyc_status = Player.Kyc.PENDING
         player.kyc_updated_at = timezone.now()
-        player.save(update_fields=['kyc_status', 'kyc_updated_at'])
+        fields += ['kyc_status', 'kyc_updated_at']
+    if fields:
+        player.save(update_fields=fields)
     return submission
 
 

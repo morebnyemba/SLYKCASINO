@@ -21,10 +21,12 @@ class PlayerSerializer(serializers.ModelSerializer):
     class Meta:
         model = Player
         fields = [
-            'id', 'username', 'email', 'kyc_status', 'balance', 'currency',
+            'id', 'username', 'email', 'full_name', 'kyc_status', 'balance', 'currency',
             'created_at', 'avatar_url', 'loyalty_tier',
             'is_suspended', 'suspended_reason', 'suspended_at',
         ]
+        # The legal name comes from KYC, not from profile edits.
+        read_only_fields = ['full_name']
 
     def get_balance(self, obj: Player) -> str:
         return str(wallet_services.get_balance(obj.id))
@@ -77,11 +79,16 @@ class RegisterSerializer(serializers.Serializer):
 
 class KYCSubmissionSerializer(serializers.ModelSerializer):
     username = serializers.CharField(source='player.username', read_only=True)
+    email = serializers.CharField(source='player.email', read_only=True)
+    file_name = serializers.SerializerMethodField()
+
+    def get_file_name(self, obj) -> str:
+        return obj.file.name.rsplit('/', 1)[-1] if obj.file else ''
 
     class Meta:
         model = KYCSubmission
         fields = [
-            'id', 'player', 'username', 'document_type', 'status',
+            'id', 'player', 'username', 'email', 'full_name', 'file_name', 'document_type', 'status',
             'rejection_reason', 'submitted_at', 'reviewed_at', 'reviewed_by_username',
         ]
         read_only_fields = fields
@@ -89,6 +96,7 @@ class KYCSubmissionSerializer(serializers.ModelSerializer):
 
 class KYCSubmitSerializer(serializers.Serializer):
     document_type = serializers.ChoiceField(choices=KYCSubmission.DocumentType.choices)
+    full_name = serializers.CharField(max_length=150, trim_whitespace=True)
     file = serializers.FileField()
 
 
