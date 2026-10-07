@@ -152,16 +152,16 @@ services:
   nginx:
     <<: *restart
     image: nginx:1.27-alpine
-    # Skip the stock docker-entrypoint.sh: it tries to envsubst its bundled
-    # /etc/nginx/templates/default.conf.template into conf.d, which we mount
-    # read-only with our own static config. That write failure is fatal and
-    # crash-loops the container before nginx ever starts, so exec it directly.
-    entrypoint: ["nginx", "-g", "daemon off;"]
+    # The stock entrypoint renders nginx/prod/default.conf.template into
+    # conf.d, filling in ${DOMAIN} (the certificate path), so one config
+    # serves whichever domain .env sets.
+    environment:
+      DOMAIN: ${DOMAIN}
     ports:
       - "80:80"
       - "443:443"
     volumes:
-      - ./nginx/prod:/etc/nginx/conf.d:ro
+      - ./nginx/prod:/etc/nginx/templates:ro
       - letsencrypt:/etc/letsencrypt:ro
       - certbot_www:/var/www/certbot:ro
     depends_on:

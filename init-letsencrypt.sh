@@ -60,11 +60,14 @@ $COMPOSE run --rm --entrypoint "/bin/sh -c 'rm -rf $LE_PATH'" certbot
 
 echo "### Requesting the real certificate from Let's Encrypt ..."
 STAGING_FLAG=""; [ "$STAGING" = "1" ] && STAGING_FLAG="--staging"
+# WITH_WWW=1 also covers www.$DOMAIN (its DNS must point here too). The
+# certificate is still stored under live/$DOMAIN, which nginx expects.
+WWW_FLAG=""; [ "${WITH_WWW:-0}" = "1" ] && WWW_FLAG="-d www.$DOMAIN"
 $COMPOSE run --rm --entrypoint certbot certbot certonly \
   --webroot -w /var/www/certbot \
   --email "$CERTBOT_EMAIL" --agree-tos --no-eff-email \
   $STAGING_FLAG \
-  -d "$DOMAIN"
+  -d "$DOMAIN" $WWW_FLAG
 
 echo "### Reloading nginx with the real certificate ..."
 $COMPOSE exec nginx nginx -s reload
