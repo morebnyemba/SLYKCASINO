@@ -9,6 +9,7 @@ import { Badge } from '@slyk/ui/components/badge';
 import { useApi, authedPost } from '@/lib/use-api';
 import { useAuth } from '@/lib/auth-context';
 import { LoadingState } from '@slyk/ui/components/spinner';
+import { PageHeader } from '@/components/console/ui';
 
 interface Bet {
   id: number;
@@ -46,15 +47,7 @@ export default function BettingFeedsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-2.5">
-        <span className="flex h-8 w-8 items-center justify-center rounded-full bg-gold/15 text-gold">
-          <FaChartLine size={13} />
-        </span>
-        <div>
-          <h1 className="text-2xl font-bold">Live Betting Feeds</h1>
-          <p className="text-muted-foreground">Monitor incoming bets and odds movements across markets.</p>
-        </div>
-      </div>
+      <PageHeader icon={FaChartLine} eyebrow="Sportsbook" title="Bets & tickets" description="Monitor incoming bets and odds movements across markets." />
 
       {/* Live WebSocket streams */}
       <div className="grid gap-5 lg:grid-cols-2">
@@ -65,7 +58,7 @@ export default function BettingFeedsPage() {
       {/* Recent bets from API */}
       <div>
         <h2 className="mb-3 text-lg font-semibold">Recent bets (all players)</h2>
-        <Card className="rounded-2xl border-gold/15 p-2">
+        <Card className="rounded-2xl border-border/70 p-2">
           <Table>
             <TableHeader>
               <TableRow>

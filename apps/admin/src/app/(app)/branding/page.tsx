@@ -7,6 +7,7 @@ import { useAuth } from '@/lib/auth-context';
 import { useApi } from '@/lib/use-api';
 import { config } from '@/lib/config';
 import { LoadingState, Spinner } from '@slyk/ui/components/spinner';
+import { PageHeader } from '@/components/console/ui';
 
 type Tokens = Record<string, string>;
 
@@ -215,13 +216,13 @@ function IdentitySection() {
   }
 
   return (
-    <Card>
+    <Card className="overflow-hidden rounded-2xl border-border/70">
       <CardHeader className="flex-row items-center justify-between space-y-0">
         <CardTitle className="text-base">Site identity</CardTitle>
         <button
           onClick={handleSave}
           disabled={saving || loading}
-          className="rounded-md bg-gradient-to-br from-gold to-gold/70 px-4 py-1.5 text-xs font-bold text-gold-foreground shadow transition-transform hover:scale-[1.02] disabled:opacity-50"
+          className="rounded-md bg-gradient-to-br from-secondary to-primary px-4 py-1.5 text-xs font-bold text-white shadow transition-transform hover:scale-[1.02] disabled:opacity-50"
         >
           {saving ? <span className="inline-flex items-center justify-center gap-2"><Spinner size={14} />Saving…</span> : 'Save identity'}
         </button>
@@ -324,18 +325,8 @@ export default function BrandingPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2.5">
-          <span className="flex h-8 w-8 items-center justify-center rounded-full bg-gold/15 text-gold">
-            <FaPalette size={13} />
-          </span>
-          <div>
-            <h1 className="text-2xl font-bold">Branding</h1>
-            <p className="text-sm text-muted-foreground">
-              Site name, logo, licence text, and site-wide colors for headers, footers, cards, casino & sportsbook displays, and modals. Changes go live immediately after saving.
-            </p>
-          </div>
-        </div>
+      <div className="flex flex-wrap items-start justify-between gap-4 [&>div:first-child]:mb-0">
+        <PageHeader icon={FaPalette} eyebrow="Settings" title="Branding" description="Site name, logo, licence text, and site-wide colors for headers, footers, cards, casino & sportsbook displays, and modals. Changes go live immediately after saving." />
       </div>
 
       <IdentitySection />
@@ -345,7 +336,7 @@ export default function BrandingPage() {
         <button
           onClick={handleSave}
           disabled={saving || loading}
-          className="rounded-md bg-gradient-to-br from-gold to-gold/70 px-5 py-2 text-sm font-bold text-gold-foreground shadow transition-transform hover:scale-[1.02] disabled:opacity-50"
+          className="rounded-md bg-gradient-to-br from-secondary to-primary px-5 py-2 text-sm font-bold text-white shadow transition-transform hover:scale-[1.02] disabled:opacity-50"
         >
           {saving ? <span className="inline-flex items-center justify-center gap-2"><Spinner size={14} />Saving…</span> : 'Save theme'}
         </button>
@@ -358,14 +349,14 @@ export default function BrandingPage() {
 
       {!loading && (
         <div className="grid gap-6 xl:grid-cols-2">
-          <Card>
+          <Card className="overflow-hidden rounded-2xl border-border/70">
             <CardHeader><CardTitle className="text-base">Light theme</CardTitle></CardHeader>
             <CardContent className="space-y-5">
               <PreviewCard title="Light" tokens={light} />
               <ThemeColumn title="Light theme tokens" tokens={light} onReset={() => setLight(DEFAULT_LIGHT)} onChange={(k, v) => setLight((t) => ({ ...t, [k]: v }))} />
             </CardContent>
           </Card>
-          <Card>
+          <Card className="overflow-hidden rounded-2xl border-border/70">
             <CardHeader><CardTitle className="text-base">Dark theme</CardTitle></CardHeader>
             <CardContent className="space-y-5">
               <PreviewCard title="Dark" tokens={dark} />

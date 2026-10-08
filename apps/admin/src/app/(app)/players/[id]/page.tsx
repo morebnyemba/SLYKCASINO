@@ -135,19 +135,19 @@ export default function PlayerDetailPage({ params }: PageProps) {
       {actionError && <p className="text-sm text-destructive">{actionError}</p>}
 
       <div className="grid gap-4 sm:grid-cols-3">
-        <Card>
+        <Card className="overflow-hidden rounded-2xl border-border/70">
           <CardContent className="p-4">
             <p className="text-xs text-muted-foreground">Balance</p>
             <p className="text-xl font-bold">{player.balance} {player.currency}</p>
           </CardContent>
         </Card>
-        <Card>
+        <Card className="overflow-hidden rounded-2xl border-border/70">
           <CardContent className="p-4">
             <p className="text-xs text-muted-foreground">KYC status</p>
             <p className="text-xl font-bold"><Badge variant="outline">{player.kyc_status}</Badge></p>
           </CardContent>
         </Card>
-        <Card>
+        <Card className="overflow-hidden rounded-2xl border-border/70">
           <CardContent className="p-4">
             <p className="text-xs text-muted-foreground">Joined</p>
             <p className="text-xl font-bold">{new Date(player.created_at).toLocaleDateString()}</p>
@@ -155,7 +155,7 @@ export default function PlayerDetailPage({ params }: PageProps) {
         </Card>
       </div>
 
-      <Card>
+      <Card className="overflow-hidden rounded-2xl border-border/70">
         <CardHeader><CardTitle className="text-base">Suspension</CardTitle></CardHeader>
         <CardContent className="space-y-3">
           {player.is_suspended && (
@@ -209,7 +209,7 @@ export default function PlayerDetailPage({ params }: PageProps) {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="overflow-hidden rounded-2xl border-border/70">
         <CardHeader><CardTitle className="text-base">Adjust balance</CardTitle></CardHeader>
         <CardContent>
           <form onSubmit={handleAdjustBalance} className="grid gap-3 sm:grid-cols-3">
@@ -246,7 +246,7 @@ export default function PlayerDetailPage({ params }: PageProps) {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="overflow-hidden rounded-2xl border-border/70">
         <CardHeader><CardTitle className="text-base">KYC submissions</CardTitle></CardHeader>
         <CardContent className="p-0">
           {kycSubmissions.length === 0 && (
@@ -280,7 +280,7 @@ export default function PlayerDetailPage({ params }: PageProps) {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="overflow-hidden rounded-2xl border-border/70">
         <CardHeader><CardTitle className="text-base">Ledger history</CardTitle></CardHeader>
         <CardContent className="p-0">
           {ledger.length === 0 && (

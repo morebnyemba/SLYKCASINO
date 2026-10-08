@@ -6,6 +6,7 @@ import { FaExchangeAlt } from 'react-icons/fa';
 import { Card, CardContent } from '@slyk/ui/components/card';
 import { useApi } from '@/lib/use-api';
 import { LoadingState } from '@slyk/ui/components/spinner';
+import { PageHeader } from '@/components/console/ui';
 
 interface LedgerEntry {
   id: number;
@@ -37,12 +38,7 @@ export default function TransactionsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-2.5">
-        <span className="flex h-8 w-8 items-center justify-center rounded-full bg-gold/15 text-gold">
-          <FaExchangeAlt size={13} />
-        </span>
-        <h1 className="text-2xl font-bold">Transactions</h1>
-      </div>
+      <PageHeader icon={FaExchangeAlt} eyebrow="Money" title="Transactions" description="Every wallet movement: deposits, withdrawals, stakes, payouts and bonuses." />
 
       <div className="flex items-center gap-2">
         <input
@@ -56,7 +52,7 @@ export default function TransactionsPage() {
 
       {error && <p className="text-sm text-destructive">{error}</p>}
 
-      <Card>
+      <Card className="overflow-hidden rounded-2xl border-border/70">
         <CardContent className="p-0">
           {loading && <LoadingState className="py-6" label="Loading transactions…" />}
           {!loading && entries.length === 0 && (

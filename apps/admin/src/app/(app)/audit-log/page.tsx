@@ -7,6 +7,7 @@ import { Card, CardContent } from '@slyk/ui/components/card';
 import { Badge } from '@slyk/ui/components/badge';
 import { useApi } from '@/lib/use-api';
 import { LoadingState } from '@slyk/ui/components/spinner';
+import { PageHeader } from '@/components/console/ui';
 
 interface AuditLogEntry {
   id: number;
@@ -43,12 +44,7 @@ export default function AuditLogPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-2.5">
-        <span className="flex h-8 w-8 items-center justify-center rounded-full bg-gold/15 text-gold">
-          <FaHistory size={13} />
-        </span>
-        <h1 className="text-2xl font-bold">Audit Log</h1>
-      </div>
+      <PageHeader icon={FaHistory} eyebrow="Settings" title="Audit log" description="Every sensitive action by players and staff, newest first." />
 
       <div className="flex items-center gap-2">
         <select
@@ -69,7 +65,7 @@ export default function AuditLogPage() {
 
       {error && <p className="text-sm text-destructive">{error}</p>}
 
-      <Card>
+      <Card className="overflow-hidden rounded-2xl border-border/70">
         <CardContent className="p-0">
           {loading && <LoadingState className="py-6" label="Loading audit log…" />}
           {!loading && entries.length === 0 && (

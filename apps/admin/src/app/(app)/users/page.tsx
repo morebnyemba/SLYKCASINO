@@ -7,6 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@slyk/ui/components/badge';
 import { useApi } from '@/lib/use-api';
 import { LoadingState } from '@slyk/ui/components/spinner';
+import { PageHeader } from '@/components/console/ui';
 
 interface Player {
   id: string | number;
@@ -29,15 +30,9 @@ export default function UsersPage() {
 
   return (
     <div>
-      <div className="mb-1 flex items-center gap-2.5">
-        <span className="flex h-8 w-8 items-center justify-center rounded-full bg-gold/15 text-gold">
-          <FaUsers size={13} />
-        </span>
-        <h1 className="text-2xl font-bold">Players</h1>
-      </div>
-      <p className="mb-4 text-muted-foreground">Operator view of registered players.</p>
+      <PageHeader icon={FaUsers} eyebrow="Players" title="Players" description="Operator view of registered players." />
       {error && <p className="mb-3 text-sm text-destructive">{error}</p>}
-      <Card className="rounded-2xl border-gold/15 p-2">
+      <Card className="rounded-2xl border-border/70 p-2">
         <Table>
           <TableHeader>
             <TableRow>

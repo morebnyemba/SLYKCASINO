@@ -46,6 +46,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const stored = getStoredTokens();
     if (!stored) { setIsLoading(false); return; }
+    // A page load reuses a still-valid access token instead of refreshing every
+    // time: the refresh endpoint is rate-limited, so reloading pages or opening
+    // tabs would otherwise log staff out.
+    const current = decodeToken(stored.access);
+    if (current?.is_staff && current.exp * 1000 > Date.now() + 60_000) {
+      setAccessToken(stored.access);
+      setUser(userFromDecoded(current));
+      setIsLoading(false);
+      return;
+    }
     apiRefresh(stored.refresh)
       .then((tokens) => {
         const decoded = decodeToken(tokens.access);
@@ -54,7 +64,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setAccessToken(tokens.access);
         setUser(userFromDecoded(decoded));
       })
-      .catch(() => clearTokens())
+      .catch((err: Error & { expired?: boolean }) => {
+        if (err.expired) { clearTokens(); return; }
+        // Couldn't refresh right now (rate limit, network): keep the session
+        // with the stored token; API calls retry the refresh when they need to.
+        const decoded = decodeToken(stored.access);
+        if (decoded?.is_staff) { setAccessToken(stored.access); setUser(userFromDecoded(decoded)); }
+      })
       .finally(() => setIsLoading(false));
   }, []);
 

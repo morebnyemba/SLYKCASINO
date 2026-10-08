@@ -69,7 +69,12 @@ export async function apiRefresh(refresh: string): Promise<AuthTokens> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ refresh }),
   });
-  if (!res.ok) throw new Error('Session expired');
+  if (!res.ok) {
+    // Only a rejected token ends the session; a rate limit or outage doesn't.
+    const err = new Error(res.status === 401 || res.status === 400 ? 'Session expired' : `Refresh failed (${res.status})`);
+    (err as Error & { expired?: boolean }).expired = res.status === 401 || res.status === 400;
+    throw err;
+  }
   return res.json() as Promise<AuthTokens>;
 }
 

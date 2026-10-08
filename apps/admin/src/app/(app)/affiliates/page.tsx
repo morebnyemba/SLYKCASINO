@@ -7,6 +7,7 @@ import { Badge } from '@slyk/ui/components/badge';
 import { useAuth } from '@/lib/auth-context';
 import { authedPost, useApi } from '@/lib/use-api';
 import { LoadingState, Spinner } from '@slyk/ui/components/spinner';
+import { PageHeader } from '@/components/console/ui';
 
 interface Affiliate {
   id: number;
@@ -138,7 +139,7 @@ function AffiliatesTab() {
     <div className="space-y-4">
       <Filter value={status} onChange={setStatus} options={[['pending', 'Pending'], ['active', 'Active'], ['suspended', 'Suspended'], ['rejected', 'Rejected'], ['', 'All']]} />
       {error && <p className="text-sm text-red-500">{error}</p>}
-      <Card>
+      <Card className="overflow-hidden rounded-2xl border-border/70">
         <CardContent className="p-0">
           {loading && <LoadingState className="py-6" label="Loading affiliates…" />}
           {!loading && rows.length === 0 && <p className="p-4 text-sm text-muted-foreground">No affiliates for this filter.</p>}
@@ -236,7 +237,7 @@ function CommissionsTab() {
         </button>
       </div>
       {message && <p className={`text-sm ${message.startsWith('Error') ? 'text-red-500' : 'text-muted-foreground'}`}>{message}</p>}
-      <Card>
+      <Card className="overflow-hidden rounded-2xl border-border/70">
         <CardContent className="p-0">
           {loading && <LoadingState className="py-6" label="Loading commissions…" />}
           {!loading && rows.length === 0 && <p className="p-4 text-sm text-muted-foreground">No commissions for this filter.</p>}
@@ -289,13 +290,7 @@ export default function AffiliatesPage() {
   const [tab, setTab] = useState<'affiliates' | 'commissions'>('affiliates');
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-2.5">
-        <span className="flex h-8 w-8 items-center justify-center rounded-full bg-gold/15 text-gold"><FaHandshake size={15} /></span>
-        <div>
-          <h1 className="text-2xl font-bold">Affiliates</h1>
-          <p className="text-sm text-muted-foreground">Approve partners, set their terms, and review and pay commissions.</p>
-        </div>
-      </div>
+      <PageHeader icon={FaHandshake} eyebrow="Money" title="Affiliates" description="Approve partners, set their terms, and review and pay commissions." />
       <Filter value={tab} onChange={(v) => setTab(v as typeof tab)} options={[['affiliates', 'Affiliates'], ['commissions', 'Commissions']]} />
       {tab === 'affiliates' ? <AffiliatesTab /> : <CommissionsTab />}
     </div>

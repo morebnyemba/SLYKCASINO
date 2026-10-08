@@ -43,6 +43,9 @@ class Event(models.Model):
     # `odds` default above is a placeholder, not a price, and mustn't be shown or bet.
     has_odds = models.BooleanField(default=True)
     featured = models.BooleanField(default=False)
+    # Set by an operator who prices the match by hand: the odds feeds then
+    # leave the 1X2 and markets alone (scores and status still update).
+    prices_locked = models.BooleanField(default=False)
     is_open = models.BooleanField(default=True)
     starts_at = models.DateTimeField(null=True, blank=True)
     # Live/final score and provider match status (e.g. 'NS', '1H', 'HT', 'FT'),
