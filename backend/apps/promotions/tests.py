@@ -161,6 +161,38 @@ class BannerPlacementTests(TestCase):
         self.assertEqual(titles(''), ['Acca boost', 'Home promo'])
 
 
+class BannerAdminEditTests(TestCase):
+    """The console edits banners players can't see: off, scheduled or expired."""
+
+    def setUp(self):
+        from django.contrib.auth.models import User
+        self.api = APIClient()
+        self.api.force_authenticate(User.objects.create_superuser('bannerops', 'b@example.com', 'pw'))
+
+    def test_admin_can_enable_edit_and_delete_hidden_banners(self):
+        from datetime import timedelta
+        from apps.promotions.models import Banner
+        off = Banner.objects.create(title='Off', image_url='https://x/a.jpg', active=False)
+        later = Banner.objects.create(title='Later', image_url='https://x/b.jpg',
+                                      starts_at=timezone.now() + timedelta(days=3))
+        gone = Banner.objects.create(title='Gone', image_url='https://x/c.jpg',
+                                     ends_at=timezone.now() - timedelta(days=1))
+
+        res = self.api.patch(f'/api/promotions/banners/{off.id}/', {'active': True}, format='json')
+        self.assertEqual(res.status_code, 200, res.content)
+        off.refresh_from_db()
+        self.assertTrue(off.active)
+        res = self.api.patch(f'/api/promotions/banners/{later.id}/', {'title': 'Later promo'}, format='json')
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(self.api.delete(f'/api/promotions/banners/{gone.id}/').status_code, 204)
+
+    def test_players_still_only_see_live_banners(self):
+        from apps.promotions.models import Banner
+        hidden = Banner.objects.create(title='Off', image_url='https://x/a.jpg', active=False)
+        self.assertEqual(APIClient().get(f'/api/promotions/banners/{hidden.id}/').status_code, 404)
+        self.assertEqual(APIClient().patch(f'/api/promotions/banners/{hidden.id}/', {'active': True}).status_code, 401)
+
+
 class DemoBannerMigrationTests(TestCase):
     def test_removes_only_seeded_demo_banners(self):
         from importlib import import_module
