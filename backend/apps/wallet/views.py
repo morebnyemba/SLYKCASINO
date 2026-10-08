@@ -15,7 +15,7 @@ from apps.accounts import services as accounts_services
 from . import paynow, payments
 from . import psp as psp_registry
 from . import services
-from .models import LedgerEntry, PaymentMethod, PaymentTransaction
+from .models import LedgerEntry, PaymentGateway, PaymentMethod, PaymentTransaction
 from .serializers import (
     AdminLedgerEntrySerializer, AdminPaymentMethodSerializer, LedgerEntrySerializer, PaymentMethodSerializer,
 )
@@ -303,3 +303,109 @@ class AdminPaymentMethodViewSet(viewsets.ModelViewSet):
             'results': response.data,
         }
         return response
+
+
+def _key_hint(key: str) -> str:
+    return f'••••{key[-4:]}' if len(key) >= 8 else ('••••' if key else '')
+
+
+def _gateway_summary() -> dict:
+    from django.conf import settings as dj
+    saved = PaymentGateway.load()
+    cfg = paynow.get_config()
+    return {
+        'provider': payments.active_provider(),
+        # '' = the admin hasn't chosen; the server's PSP_PROVIDER applies.
+        'provider_setting': saved.provider,
+        'server_provider': getattr(dj, 'PSP_PROVIDER', 'stub'),
+        'paynow': {
+            'integration_id': cfg.integration_id,
+            'key_hint': _key_hint(cfg.integration_key),
+            'key_set': bool(cfg.integration_key),
+            'auth_email': cfg.auth_email,
+            'configured': paynow.is_configured(),
+            # Where each value comes from: saved here, or the server environment.
+            'from_server': {
+                'integration_id': not saved.paynow_integration_id and bool(cfg.integration_id),
+                'integration_key': not saved.paynow_integration_key and bool(cfg.integration_key),
+                'auth_email': not saved.paynow_auth_email and bool(cfg.auth_email),
+            },
+            'result_url': cfg.result_url,
+            'return_url': cfg.return_url,
+        },
+        'updated_at': saved.updated_at,
+        'updated_by': saved.updated_by_username,
+    }
+
+
+class AdminPaymentGatewayView(APIView):
+    """GET/PUT /api/admin/payment-gateway/ — the live gateway and the Paynow
+    credentials. The key is write-only: reads show its last four characters."""
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        return Response(_gateway_summary())
+
+    def put(self, request):
+        from django.conf import settings as dj
+        from django.core.exceptions import ValidationError
+        from django.core.validators import validate_email
+        saved = PaymentGateway.load()
+        data = request.data
+
+        def bad(detail):
+            return Response({'detail': detail}, status=status.HTTP_400_BAD_REQUEST)
+
+        if 'paynow_integration_id' in data:
+            value = str(data.get('paynow_integration_id') or '').strip()
+            if value and not value.isdigit():
+                return bad('The Integration ID is a number, e.g. 12345.')
+            saved.paynow_integration_id = value[:20]
+        if data.get('clear_key'):
+            saved.paynow_integration_key = ''
+        elif (key := str(data.get('paynow_integration_key') or '').strip()):
+            saved.paynow_integration_key = key[:100]
+        if 'paynow_auth_email' in data:
+            email = str(data.get('paynow_auth_email') or '').strip()
+            if email:
+                try:
+                    validate_email(email)
+                except ValidationError:
+                    return bad('Enter a valid merchant email.')
+            saved.paynow_auth_email = email
+        if 'provider' in data:
+            provider = str(data.get('provider') or '')
+            if provider not in PaymentGateway.Provider.values:
+                return bad('Unknown gateway.')
+            # The test processor credits deposits without taking money: switching
+            # to it on purpose must be confirmed.
+            if provider == PaymentGateway.Provider.STUB and saved.provider != provider and not data.get('confirm_test_mode'):
+                return bad('Switching to the test processor credits deposits without taking any money. Confirm to continue.')
+            saved.provider = provider
+
+        effective = saved.provider or getattr(dj, 'PSP_PROVIDER', 'stub')
+        has_id = saved.paynow_integration_id or getattr(dj, 'PAYNOW_INTEGRATION_ID', '')
+        has_key = saved.paynow_integration_key or getattr(dj, 'PAYNOW_INTEGRATION_KEY', '')
+        if effective == 'paynow' and not (has_id and has_key):
+            return bad('Paynow needs its Integration ID and Integration Key before it can take payments.')
+
+        saved.updated_by_username = request.user.get_username()[:150]
+        saved.save()
+        accounts_services.audit(None, 'payment_settings', request, provider=payments.active_provider(),
+                                key_changed=bool(data.get('paynow_integration_key') or data.get('clear_key')))
+        return Response(_gateway_summary())
+
+
+class AdminPaymentGatewayTestView(APIView):
+    """POST /api/admin/payment-gateway/test/ — check the Paynow credentials by
+    starting a $1 checkout nobody pays (no money moves)."""
+    permission_classes = [IsAdminUser]
+
+    def post(self, request):
+        if not paynow.is_configured():
+            return Response({'ok': False, 'error': 'Add the Integration ID and key first.'})
+        try:
+            ref = paynow.check_credentials()
+        except paynow.PaynowError as exc:
+            return Response({'ok': False, 'error': str(exc)})
+        return Response({'ok': True, 'paynow_reference': ref})

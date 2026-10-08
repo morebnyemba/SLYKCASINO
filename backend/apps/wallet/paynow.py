@@ -45,13 +45,17 @@ class PaynowConfig:
 
 
 def get_config() -> PaynowConfig:
+    """Credentials saved in the admin console win; the server environment
+    (PAYNOW_*) fills anything left blank there."""
+    from .models import PaymentGateway
+    saved = PaymentGateway.current()
     frontend = getattr(settings, 'FRONTEND_URL', '').rstrip('/')
     return PaynowConfig(
-        integration_id=getattr(settings, 'PAYNOW_INTEGRATION_ID', ''),
-        integration_key=getattr(settings, 'PAYNOW_INTEGRATION_KEY', ''),
+        integration_id=(saved and saved.paynow_integration_id) or getattr(settings, 'PAYNOW_INTEGRATION_ID', ''),
+        integration_key=(saved and saved.paynow_integration_key) or getattr(settings, 'PAYNOW_INTEGRATION_KEY', ''),
         result_url=getattr(settings, 'PAYNOW_RESULT_URL', '') or f'{frontend}/api/wallet/paynow/result/',
         return_url=getattr(settings, 'PAYNOW_RETURN_URL', '') or f'{frontend}/deposit/return',
-        auth_email=getattr(settings, 'PAYNOW_AUTH_EMAIL', ''),
+        auth_email=(saved and saved.paynow_auth_email) or getattr(settings, 'PAYNOW_AUTH_EMAIL', ''),
     )
 
 
@@ -155,6 +159,18 @@ def initiate(*, reference: str, amount: Decimal, method: str, phone: str = '', i
         redirect_url=reply.get('browserurl', ''),
         instructions=instructions,
     )
+
+
+def check_credentials() -> str:
+    """Prove the saved Integration ID and key work: start a $1 card checkout
+    that nobody pays (it simply expires — no money moves). Returns Paynow's
+    reference; raises PaynowError with Paynow's reason otherwise."""
+    import uuid
+    started = initiate(
+        reference=f'TEST{uuid.uuid4().hex[:12].upper()}', amount=Decimal('1.00'), method='card',
+        info='Connection test from the BetBlits admin console',
+    )
+    return started.provider_ref
 
 
 def poll(poll_url: str) -> dict[str, str]:
