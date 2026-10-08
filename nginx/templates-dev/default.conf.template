@@ -8,10 +8,15 @@ map $http_upgrade $connection_upgrade {
     ''      close;
 }
 
-upstream player_upstream { server player_frontend:3000; }
-upstream admin_upstream  { server admin_frontend:3000;  }
-upstream django_upstream { server django:8000; }
-upstream erlang_upstream { server erlang:8080; }
+# Docker's embedded DNS. A container gets a new IP whenever it's recreated
+# (`docker compose up -d django` after a deploy), and a static `upstream {}`
+# block keeps the address it looked up at startup — every request would then
+# 502 until nginx restarted. Each proxy_pass below names its service through
+# a variable instead, which nginx resolves through this resolver (cached for
+# `valid`), so it follows recreated containers on its own and boots even if
+# one isn't up yet.
+resolver 127.0.0.11 valid=10s ipv6=off;
+
 
 proxy_set_header Host              $host;
 proxy_set_header X-Real-IP         $remote_addr;
@@ -25,7 +30,8 @@ server {
 
     # Django REST API
     location /api/ {
-        proxy_pass http://django_upstream;
+        set $django_upstream django:8000;
+        proxy_pass http://$django_upstream;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header Connection "";
@@ -33,7 +39,8 @@ server {
 
     # Django admin (raw DB intervention)
     location /django-admin/ {
-        proxy_pass http://django_upstream;
+        set $django_upstream django:8000;
+        proxy_pass http://$django_upstream;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header Connection "";
@@ -41,7 +48,8 @@ server {
 
     # Django admin static assets (WhiteNoise).
     location /django-static/ {
-        proxy_pass http://django_upstream;
+        set $django_upstream django:8000;
+        proxy_pass http://$django_upstream;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header Connection "";
@@ -49,7 +57,8 @@ server {
 
     # Erlang realtime WebSocket
     location /ws/ {
-        proxy_pass http://erlang_upstream;
+        set $erlang_upstream erlang:8080;
+        proxy_pass http://$erlang_upstream;
         proxy_http_version 1.1;
         proxy_set_header Host       $host;
         proxy_set_header Upgrade    $http_upgrade;
@@ -60,7 +69,8 @@ server {
 
     # Next.js Admin UI (basePath /admin-portal). Upgrade headers => HMR works.
     location /admin-portal {
-        proxy_pass http://admin_upstream;
+        set $admin_upstream admin_frontend:3000;
+        proxy_pass http://$admin_upstream;
         proxy_http_version 1.1;
         proxy_set_header Host       $host;
         proxy_set_header Upgrade    $http_upgrade;
@@ -69,7 +79,8 @@ server {
 
     # Next.js Player UI (root). Upgrade headers => HMR works.
     location / {
-        proxy_pass http://player_upstream;
+        set $player_upstream player_frontend:3000;
+        proxy_pass http://$player_upstream;
         proxy_http_version 1.1;
         proxy_set_header Host       $host;
         proxy_set_header Upgrade    $http_upgrade;
