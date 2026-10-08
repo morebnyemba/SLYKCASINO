@@ -25,6 +25,9 @@ from .serializers import (
 )
 
 
+ADMIN_ACTIONS = ('update', 'partial_update', 'destroy')
+
+
 class BannerViewSet(viewsets.ModelViewSet):
     """Public read of live banners; admin-only create/update/delete.
 
@@ -38,7 +41,9 @@ class BannerViewSet(viewsets.ModelViewSet):
         placement = self.request.query_params.get('placement')
         if placement:
             qs = qs.filter(placement=placement)
-        if self.request.query_params.get('all') == 'true':
+        # Edits come from the operator console and must reach any banner —
+        # switched off, scheduled or expired — not just the live ones.
+        if self.request.query_params.get('all') == 'true' or self.action in ADMIN_ACTIONS:
             return qs
         now = timezone.now()
         return (
@@ -48,7 +53,7 @@ class BannerViewSet(viewsets.ModelViewSet):
         )
 
     def get_permissions(self):
-        if self.action in ('create', 'update', 'partial_update', 'destroy'):
+        if self.action in ('create', *ADMIN_ACTIONS):
             return [IsAdminUser()]
         return [AllowAny()]
 
