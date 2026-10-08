@@ -249,6 +249,39 @@ class ApiFootballClient:
         except Exception:  # noqa: BLE001 — table may not exist yet (pre-migrate)
             return None
 
+    def fetch_status(self) -> dict:
+        """Account, plan and today's request quota (api-football /status).
+        Raises ValueError with a readable message on any failure."""
+        if not self.api_key:
+            raise ValueError('No API key is set.')
+        try:
+            resp = requests.get(
+                f'{self.base_url}/status', timeout=8, headers={'x-apisports-key': self.api_key},
+            )
+            resp.raise_for_status()
+            payload = resp.json()
+        except requests.RequestException as exc:
+            raise ValueError(f'Could not reach api-football ({exc.__class__.__name__}).') from exc
+        except ValueError as exc:
+            raise ValueError('api-football returned an unreadable response.') from exc
+        errors = payload.get('errors')
+        if errors:
+            message = '; '.join(str(v) for v in (errors.values() if isinstance(errors, dict) else errors))
+            raise ValueError(message or 'api-football rejected the key.')
+        response = payload.get('response') or {}
+        account = response.get('account') or {}
+        subscription = response.get('subscription') or {}
+        requests_ = response.get('requests') or {}
+        return {
+            'account': ' '.join(filter(None, [account.get('firstname'), account.get('lastname')])) or account.get('email', ''),
+            'email': account.get('email', ''),
+            'plan': subscription.get('plan', ''),
+            'active': bool(subscription.get('active')),
+            'ends': subscription.get('end'),
+            'requests_today': requests_.get('current'),
+            'requests_limit': requests_.get('limit_day'),
+        }
+
     def fetch_fixtures(
         self, *, date: Optional[str] = None, live: Optional[str] = None,
         league: Optional[int] = None, season: Optional[int] = None, next_count: Optional[int] = None,

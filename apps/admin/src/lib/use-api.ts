@@ -30,9 +30,10 @@ export function useApi<T>(path: string | null) {
               headers: { Authorization: `Bearer ${refreshed.access}` },
               cache: 'no-store',
             });
-          } catch {
-            logout();
-            setError('Session expired');
+          } catch (err) {
+            // Log out only when the server rejected the session, not on a rate limit.
+            if ((err as { expired?: boolean }).expired) logout();
+            setError((err as { expired?: boolean }).expired ? 'Session expired' : 'Could not refresh your session — try again in a moment.');
             return;
           }
         } else {
@@ -95,6 +96,45 @@ export async function authedPost<T>(
     if (!res.ok) {
       const msg = (json as { detail?: string }).detail ?? `API ${res.status}`;
       return { error: msg, status: res.status };
+    }
+    return { data: json as T, status: res.status };
+  } catch (e) {
+    return { error: String(e), status: 0 };
+  }
+}
+
+/** PUT / PATCH / DELETE (and POST) with the same token refresh as authedPost. */
+export async function authedRequest<T>(
+  method: 'POST' | 'PUT' | 'PATCH' | 'DELETE',
+  path: string,
+  token: string,
+  body?: unknown,
+): Promise<{ data?: T; error?: string; status: number; fields?: Record<string, string[]> }> {
+  const send = (t: string) => fetch(`${config.apiUrl}${path}`, {
+    method,
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${t}` },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  try {
+    let res = await send(token);
+    if (res.status === 401) {
+      const stored = getStoredTokens();
+      if (stored?.refresh) {
+        const refreshed = await apiRefresh(stored.refresh);
+        storeTokens(refreshed);
+        res = await send(refreshed.access);
+      }
+    }
+    if (res.status === 204) return { status: 204 };
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const obj = json as Record<string, unknown>;
+      const detail = typeof obj.detail === 'string' ? obj.detail : null;
+      // DRF field errors: { field: ["message"] } -> "field: message".
+      const fields = detail ? undefined : (obj as Record<string, string[]>);
+      const msg = detail ?? Object.entries(fields ?? {})
+        .map(([k, v]) => `${k.replace(/_/g, ' ')}: ${Array.isArray(v) ? v.join(' ') : String(v)}`).join(' · ');
+      return { error: msg || `API ${res.status}`, status: res.status, fields };
     }
     return { data: json as T, status: res.status };
   } catch (e) {

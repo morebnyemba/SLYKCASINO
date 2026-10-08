@@ -1184,6 +1184,7 @@ def sync_fixture_odds(odds: OddsSnapshot) -> Optional[Event]:
         Event.objects.select_for_update()
         .filter(
             external_id=odds.external_id, provider=ApiFootballClient.provider_name, is_open=True,
+            prices_locked=False,
         )
         # In play, the live feed owns the prices.
         .exclude(status__in=LIVE_STATUSES).exclude(live_odds_at__isnull=False)
@@ -1274,7 +1275,8 @@ def apply_live_odds(snapshot: LiveOddsSnapshot, *, now=None) -> Optional[Event]:
             event.save(update_fields=sorted(set(fields)))  # post_save publishes the new state
         return event
 
-    if snapshot.one_x_two is not None:
+    # An operator's hand-set prices stand; the feed still drives score and state.
+    if snapshot.one_x_two is not None and not event.prices_locked:
         event.odds, event.odds_draw, event.odds_away = snapshot.one_x_two
         event.has_odds = True
         fields += ['odds', 'odds_draw', 'odds_away', 'previous_odds', 'has_odds']
@@ -1282,6 +1284,8 @@ def apply_live_odds(snapshot: LiveOddsSnapshot, *, now=None) -> Optional[Event]:
     event.live_odds_at = now
     fields += ['live_main_open', 'live_odds_at']
     event.save(update_fields=sorted(set(fields)))
+    if event.prices_locked:
+        return event
     # Everything the live feed doesn't offer right now is suspended.
     apply_feed_markets(event, snapshot.markets)
     # Event post_save publishes prices/state; markets go out here.

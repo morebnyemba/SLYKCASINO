@@ -8,6 +8,7 @@ import { useAuth } from '@/lib/auth-context';
 import { useApi, authedPost } from '@/lib/use-api';
 import { config } from '@/lib/config';
 import { LoadingState } from '@slyk/ui/components/spinner';
+import { PageHeader } from '@/components/console/ui';
 
 interface KYCSubmission {
   id: number;
@@ -103,15 +104,7 @@ export default function KYCReviewPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-2.5">
-        <span className="flex h-8 w-8 items-center justify-center rounded-full bg-gold/15 text-gold">
-          <FaIdCard size={13} />
-        </span>
-        <div>
-          <h1 className="text-2xl font-bold">KYC Review</h1>
-          <p className="text-muted-foreground text-sm">Manual document review — no external provider is used.</p>
-        </div>
-      </div>
+      <PageHeader icon={FaIdCard} eyebrow="Players" title="KYC review" description="Manual document review — no external provider is used." />
 
       <div className="flex gap-1 rounded-md bg-muted p-1 w-fit">
         {STATUS_FILTERS.map((f) => (
@@ -129,7 +122,7 @@ export default function KYCReviewPage() {
 
       {actionError && <p className="text-sm text-red-500">{actionError}</p>}
 
-      <Card>
+      <Card className="overflow-hidden rounded-2xl border-border/70">
         <CardContent className="p-0">
           {loading && <LoadingState className="py-6" label="Loading submissions…" />}
           {!loading && submissions.length === 0 && (

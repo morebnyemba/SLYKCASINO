@@ -8,6 +8,7 @@ import { useAuth } from '@/lib/auth-context';
 import { useApi, authedPost } from '@/lib/use-api';
 import { config } from '@/lib/config';
 import { LoadingState, Spinner } from '@slyk/ui/components/spinner';
+import { PageHeader } from '@/components/console/ui';
 
 interface Banner {
   id: number;
@@ -177,20 +178,12 @@ export default function BannersPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2.5">
-          <span className="flex h-8 w-8 items-center justify-center rounded-full bg-gold/15 text-gold">
-            <FaImages size={13} />
-          </span>
-          <div>
-            <h1 className="text-2xl font-bold">Site Banners</h1>
-            <p className="text-muted-foreground text-sm">Wide promotional banners for the player homepage and the sportsbook.</p>
-          </div>
-        </div>
+      <div className="flex flex-wrap items-start justify-between gap-4 [&>div:first-child]:mb-0">
+        <PageHeader icon={FaImages} eyebrow="Marketing" title="Banners" description="Wide promotional banners for the player homepage and the sportsbook." />
         <button
           onClick={() => (showForm ? setShowForm(false) : startCreate())}
           className={`rounded-md px-4 py-2 text-sm font-bold shadow transition-transform hover:scale-[1.02] ${
-            showForm ? 'border border-border bg-background text-foreground hover:scale-100' : 'bg-gradient-to-br from-gold to-gold/70 text-gold-foreground'
+            showForm ? 'border border-border bg-background text-foreground hover:scale-100' : 'bg-gradient-to-br from-secondary to-primary text-white'
           }`}
         >
           {showForm ? 'Cancel' : '+ New banner'}
@@ -198,7 +191,7 @@ export default function BannersPage() {
       </div>
 
       {showForm && (
-        <Card className="rounded-2xl border-gold/15">
+        <Card className="rounded-2xl border-border/70">
           <CardHeader><CardTitle className="text-base">{editingId == null ? 'Create banner' : 'Edit banner'}</CardTitle></CardHeader>
           <CardContent className="space-y-4">
             {form.image_url && (
@@ -276,7 +269,7 @@ export default function BannersPage() {
         </Card>
       )}
 
-      <Card>
+      <Card className="overflow-hidden rounded-2xl border-border/70">
         <CardContent className="p-0">
           {loading && <LoadingState className="py-6" label="Loading banners…" />}
           {!loading && banners.length === 0 && (
