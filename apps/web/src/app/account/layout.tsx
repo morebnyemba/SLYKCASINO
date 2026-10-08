@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 import { FaUser, FaWallet, FaShieldAlt, FaIdCard, FaBell, FaSignOutAlt, FaHandshake } from 'react-icons/fa';
-import { GiTrophy, GiRollingDices } from 'react-icons/gi';
+import { GiTrophy } from 'react-icons/gi';
 import type { IconType } from 'react-icons';
 import { useAuth } from '@/lib/auth-context';
 import { ThemeToggle, SettingsMenu } from '@/components/settings-menu';
@@ -14,7 +14,6 @@ const tabs: { href: string; label: string; icon: IconType }[] = [
   { href: '/account/profile', label: 'Profile', icon: FaUser },
   { href: '/account/wallet', label: 'Wallet', icon: FaWallet },
   { href: '/account/bets', label: 'My Bets', icon: GiTrophy },
-  { href: '/account/casino', label: 'Casino History', icon: GiRollingDices },
   { href: '/account/verification', label: 'Verification', icon: FaIdCard },
   { href: '/account/notifications', label: 'Notifications', icon: FaBell },
   { href: '/account/affiliate', label: 'Refer & earn', icon: FaHandshake },

@@ -6,7 +6,8 @@ import { Badge } from '@slyk/ui/components/badge';
 import { Carousel, CarouselItem } from '@/components/carousel';
 import { useAuth } from '@/lib/auth-context';
 import { useApi, authedPost } from '@/lib/use-api';
-import { gameAvatarUrl, CASINO_HERO_IMAGES } from '@/lib/game-images';
+import { GiTrophy } from 'react-icons/gi';
+import { gameAvatarUrl } from '@/lib/game-images';
 import { sanitizeHtml } from '@/lib/sanitize';
 import { LoadingState, Spinner } from '@slyk/ui/components/spinner';
 interface Promo {
@@ -94,12 +95,13 @@ export default function PromotionsPage() {
           {promos.slice(0, 6).map((p, i) => (
             <CarouselItem key={p.id} className="w-[260px] sm:w-[320px]">
               <div className="relative h-32 overflow-hidden rounded-xl sm:h-36">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={CASINO_HERO_IMAGES[i % CASINO_HERO_IMAGES.length]}
-                  alt={p.name}
-                  className="h-full w-full object-cover"
-                />
+                <div
+                  aria-hidden
+                  className="flex h-full w-full items-start justify-end p-3"
+                  style={{ background: `linear-gradient(150deg, hsl(${(150 + i * 47) % 360} 58% 30%), hsl(${(150 + i * 47) % 360} 64% 12%))` }}
+                >
+                  <GiTrophy size={64} className="text-white/15" />
+                </div>
                 <div className="absolute inset-0 flex flex-col justify-end bg-gradient-to-t from-black/75 to-transparent p-3">
                   <p className="font-semibold text-white">{p.name}</p>
                   <p className="text-xs text-white/80">{p.bonus_amount} bonus</p>

@@ -37,7 +37,7 @@ function SportsTabs({ pathname }: { pathname: string }) {
   );
 }
 
-/** Mobile-only tab bar: menu drawer, search, live, sports, bet slip and bets (casino is in the menu and header). Desktop uses the sidebar + header. */
+/** Mobile-only tab bar: menu drawer, search, live, sports, bet slip and bets. Desktop uses the sidebar + header. */
 export function BottomNav() {
   const pathname = usePathname();
   const { user } = useAuth();

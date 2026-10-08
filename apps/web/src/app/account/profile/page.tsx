@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { FaCrown, FaMedal, FaEnvelope, FaCheckCircle, FaWallet, FaTicketAlt, FaDice } from 'react-icons/fa';
+import { FaCrown, FaMedal, FaEnvelope, FaCheckCircle, FaWallet, FaTicketAlt } from 'react-icons/fa';
 import { Card, CardContent } from '@slyk/ui/components/card';
 import { Badge } from '@slyk/ui/components/badge';
 import { useApi } from '@/lib/use-api';
@@ -19,7 +19,6 @@ interface Me {
 
 interface Stats {
   bets: { count: number; won: number; total_staked: string; total_payout: string };
-  casino: { count: number; total_staked: string; total_win: string };
 }
 
 const KYC_LABEL: Record<string, string> = {
@@ -113,7 +112,7 @@ export default function ProfilePage() {
       {stats && (
         <div className="mt-6">
           <h2 className="mb-3 text-lg font-semibold">Lifetime stats</h2>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-3 sm:grid-cols-2">
             <Card className="rounded-xl border-gold/10 p-4">
               <FaTicketAlt className="mb-2 text-secondary" size={16} />
               <p className="text-xs text-muted-foreground">Bets placed</p>
@@ -124,16 +123,6 @@ export default function ProfilePage() {
               <FaWallet className="mb-2 text-secondary" size={16} />
               <p className="text-xs text-muted-foreground">Sportsbook staked</p>
               <p className="text-lg font-bold">{stats.bets.total_staked}</p>
-            </Card>
-            <Card className="rounded-xl border-gold/10 p-4">
-              <FaDice className="mb-2 text-secondary" size={16} />
-              <p className="text-xs text-muted-foreground">Casino rounds</p>
-              <p className="text-lg font-bold">{stats.casino.count}</p>
-            </Card>
-            <Card className="rounded-xl border-gold/10 p-4">
-              <FaCrown className="mb-2 text-gold" size={16} />
-              <p className="text-xs text-muted-foreground">Casino won</p>
-              <p className="text-lg font-bold text-win">{stats.casino.total_win}</p>
             </Card>
           </div>
         </div>

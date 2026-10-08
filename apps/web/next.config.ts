@@ -11,7 +11,15 @@ const nextConfig: NextConfig = {
   // The sportsbook is the landing page; the promo lobby lives at /home.
   // Temporary (307) so the default page can be changed again later.
   async redirects() {
-    return [{ source: '/', destination: '/sportsbook', permanent: false }];
+    return [
+      { source: '/', destination: '/sportsbook', permanent: false },
+      // The casino (stub slots + crash) is retired; old links land on the sportsbook.
+      { source: '/casino', destination: '/sportsbook', permanent: false },
+      { source: '/casino/:path*', destination: '/sportsbook', permanent: false },
+      { source: '/account/casino', destination: '/account', permanent: false },
+      // Tournaments only scored casino play.
+      { source: '/tournaments', destination: '/promotions', permanent: false },
+    ];
   },
 };
 

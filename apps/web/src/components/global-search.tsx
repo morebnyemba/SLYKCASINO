@@ -4,20 +4,18 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { BsSearch, BsXLg, BsChevronRight } from 'react-icons/bs';
-import { GiRocketFlight, GiCherry, GiPokerHand, GiSoccerBall, GiTrophy } from 'react-icons/gi';
+import { GiBasketballBall, GiSoccerBall, GiTennisRacket, GiTrophy } from 'react-icons/gi';
 import type { IconType } from 'react-icons';
 import { LiveClock, TeamBadge } from '@/components/event-row';
 import { config } from '@/lib/config';
 import { useShell } from '@/lib/shell-context';
-import { gameHref, tileArt, type Game } from '@/lib/casino';
 import { dayLabel, isLive, kickoffTime, teamNames, type EventItem } from '@/lib/sports';
 
 const SHORTCUTS: { href: string; label: string; icon: IconType }[] = [
-  { href: '/casino/crash', label: 'Aviator', icon: GiRocketFlight },
-  { href: '/casino?category=slots', label: 'Slots', icon: GiCherry },
-  { href: '/casino?category=live', label: 'Live casino', icon: GiPokerHand },
   { href: '/sportsbook?tab=live', label: 'Live betting', icon: GiTrophy },
   { href: '/sportsbook?sport=football', label: 'Football', icon: GiSoccerBall },
+  { href: '/sportsbook?sport=basketball', label: 'Basketball', icon: GiBasketballBall },
+  { href: '/sportsbook?sport=tennis', label: 'Tennis', icon: GiTennisRacket },
 ];
 
 /** Every row of a list endpoint, following DRF `next` links (capped as a safety net). */
@@ -39,21 +37,19 @@ async function getList<T>(path: string, maxPages = 10): Promise<T[]> {
   return rows;
 }
 
-/** Full-screen (mobile) / dropdown-panel (desktop) search across games and matches. */
+/** Full-screen (mobile) / dropdown-panel (desktop) search across matches and teams. */
 export function GlobalSearch() {
   const { searchOpen, setSearchOpen } = useShell();
   const pathname = usePathname();
   const [query, setQuery] = useState('');
-  const [games, setGames] = useState<Game[] | null>(null);
   const [events, setEvents] = useState<EventItem[] | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Load the catalogues once, the first time search opens.
   useEffect(() => {
-    if (!searchOpen || games) return;
-    void getList<Game>('/casino/games/').then((g) => setGames(g));
+    if (!searchOpen || events) return;
     void getList<EventItem>('/events/?upcoming=true&priced=true&page_size=500').then((e) => setEvents(e));
-  }, [searchOpen, games]);
+  }, [searchOpen, events]);
 
   useEffect(() => {
     if (!searchOpen) return;
@@ -68,14 +64,10 @@ export function GlobalSearch() {
   useEffect(() => { setSearchOpen(false); }, [pathname, setSearchOpen]);
 
   const q = query.trim().toLowerCase();
-  const gameHits = useMemo(
-    () => (q.length < 2 ? [] : (games ?? []).filter((g) => `${g.name} ${g.provider} ${g.category ?? ''}`.toLowerCase().includes(q)).slice(0, 8)),
-    [games, q],
-  );
   const eventHits = useMemo(
     () => (q.length < 2 ? [] : (events ?? []).filter((ev) =>
       [ev.name, ev.home_team?.name, ev.away_team?.name, ev.sport].some((s) => s?.toLowerCase().includes(q)),
-    ).slice(0, 6)),
+    ).slice(0, 10)),
     [events, q],
   );
 
@@ -98,7 +90,7 @@ export function GlobalSearch() {
               ref={inputRef}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search games, providers, teams…"
+              placeholder="Search teams, matches, sports…"
               aria-label="Search"
               className="w-full rounded-xl border border-border bg-input py-3 pl-10 pr-3 text-[15px] outline-none focus:ring-2 focus:ring-ring"
             />
@@ -124,35 +116,13 @@ export function GlobalSearch() {
               </div>
               <p className="mt-6 px-1 text-xs text-muted-foreground">Type at least 2 characters to search.</p>
             </>
-          ) : gameHits.length === 0 && eventHits.length === 0 ? (
+          ) : eventHits.length === 0 ? (
             <div className="py-12 text-center">
               <p className="font-bold">No results for “{query.trim()}”</p>
-              <p className="mt-1 text-sm text-muted-foreground">Check the spelling or try a team, game or provider.</p>
+              <p className="mt-1 text-sm text-muted-foreground">Check the spelling or try a team or sport.</p>
             </div>
           ) : (
             <div className="space-y-5">
-              {gameHits.length > 0 && (
-                <section>
-                  <p className="mb-2 px-1 text-[11px] font-extrabold uppercase tracking-wider text-muted-foreground">Games</p>
-                  <ul className="space-y-1">
-                    {gameHits.map((g) => (
-                      <li key={g.slug}>
-                        <Link href={gameHref(g)} onClick={close} className="flex items-center gap-3 rounded-xl p-2 hover:bg-muted">
-                          <span className="h-11 w-11 shrink-0 overflow-hidden rounded-lg" style={{ background: tileArt(g.slug) }}>
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            {g.image_url && <img src={g.image_url} alt="" className="h-full w-full object-cover" />}
-                          </span>
-                          <span className="min-w-0 flex-1">
-                            <span className="block truncate text-sm font-bold">{g.name}</span>
-                            <span className="block text-xs text-muted-foreground">{g.provider} · RTP {parseFloat(g.rtp).toFixed(1)}%</span>
-                          </span>
-                          <BsChevronRight size={12} className="text-muted-foreground" />
-                        </Link>
-                      </li>
-                    ))}
-                  </ul>
-                </section>
-              )}
               {eventHits.length > 0 && (
                 <section>
                   <p className="mb-2 px-1 text-[11px] font-extrabold uppercase tracking-wider text-muted-foreground">Matches</p>
