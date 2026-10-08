@@ -13,6 +13,8 @@ interface Wallet {
   currency?: string;
   /** Methods the configured gateway accepts. */
   deposit_methods?: string[];
+  /** The same methods with the operator's settings (Admin → Payment methods). */
+  payment_methods?: ApiMethod[];
   /** `paynow`: real payments confirmed on the player's phone; `stub`: instant test credits. */
   deposit_gateway?: 'paynow' | 'stub';
 }
@@ -35,8 +37,20 @@ interface Promotion {
   wagering_multiplier: string;
 }
 
-type FieldType = 'phone' | 'card' | 'crypto';
-type MethodId = 'ecocash' | 'onemoney' | 'innbucks' | 'card' | 'usdt';
+type FieldType = 'phone' | 'card' | 'crypto' | 'none';
+type MethodId = string;
+
+interface ApiMethod {
+  code: string;
+  name: string;
+  description: string;
+  speed: string;
+  logo_text: string;
+  color: string;
+  field: FieldType;
+  min_deposit: string;
+  max_deposit: string | null;
+}
 type Step = 'method' | 'amount' | 'confirm' | 'waiting' | 'success';
 
 interface MethodDef {
@@ -47,6 +61,31 @@ interface MethodDef {
   field: FieldType;
   logo: string;
   logoClass: string;
+  /** Operator-chosen tile colour; wins over logoClass. */
+  color?: string;
+  min?: number;
+  max?: number | null;
+}
+
+function fromApi(m: ApiMethod): MethodDef {
+  const min = Number(m.min_deposit);
+  return {
+    id: m.code,
+    name: m.name,
+    meta: [m.description, min > 0 ? `min $${min % 1 ? min.toFixed(2) : min}` : ''].filter(Boolean).join(' · '),
+    speed: m.speed,
+    field: m.field,
+    logo: m.logo_text || m.name.slice(0, 2).toUpperCase(),
+    logoClass: '',
+    color: m.color,
+    min,
+    max: m.max_deposit != null ? Number(m.max_deposit) : null,
+  };
+}
+
+/** Tile background: the operator's colour as a soft gradient. */
+function logoStyle(m: MethodDef): React.CSSProperties | undefined {
+  return m.color ? { background: `linear-gradient(135deg, ${m.color}, color-mix(in srgb, ${m.color} 55%, black))` } : undefined;
 }
 
 const METHODS: MethodDef[] = [
@@ -158,9 +197,11 @@ export function DepositModal({ open, onClose }: { open: boolean; onClose: () => 
   if (!open) return null;
 
   const gateway = wallet?.deposit_gateway === 'paynow';
-  const methods = wallet?.deposit_methods
-    ? METHODS.filter((m) => wallet.deposit_methods!.includes(m.id))
-    : METHODS;
+  const methods = wallet?.payment_methods
+    ? wallet.payment_methods.map(fromApi)
+    : wallet?.deposit_methods
+      ? METHODS.filter((m) => wallet.deposit_methods!.includes(m.id))
+      : METHODS;
   const selected = methods.find((m) => m.id === method) ?? methods[0] ?? METHODS[0];
   const numAmount = parseFloat(amount) || 0;
   const bonusAmount = applyBonus && depositPromo ? Number(depositPromo.bonus_amount) : 0;
@@ -172,7 +213,11 @@ export function DepositModal({ open, onClose }: { open: boolean; onClose: () => 
     selected.field === 'phone' ? phone.trim().length >= 7 :
     selected.field === 'card' ? gateway || card.replace(/\s/g, '').length >= 12 :
     true;
-  const canContinueAmount = numAmount > 0 && fieldValid;
+  const belowMin = selected.min != null && numAmount < selected.min;
+  const aboveMax = selected.max != null && numAmount > selected.max;
+  const limitHint = belowMin ? `Minimum ${selected.name} deposit is $${selected.min!.toFixed(2)}.`
+    : aboveMax ? `Maximum ${selected.name} deposit is $${selected.max!.toFixed(2)}.` : null;
+  const canContinueAmount = numAmount > 0 && fieldValid && !belowMin && !aboveMax;
 
   async function handleConfirm() {
     if (!accessToken) return;
@@ -272,7 +317,7 @@ export function DepositModal({ open, onClose }: { open: boolean; onClose: () => 
             method === m.id ? 'border-secondary' : 'border-border'
           }`}
         >
-          <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-[13px] font-extrabold text-white ${m.logoClass}`}>
+          <span style={logoStyle(m)} className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-[13px] font-extrabold text-white ${m.logoClass}`}>
             {m.logo}
           </span>
           <span className="flex min-w-0 flex-col gap-0.5">
@@ -296,7 +341,7 @@ export function DepositModal({ open, onClose }: { open: boolean; onClose: () => 
   const amountBody = (
     <div>
       <div className="mb-4 flex items-center gap-2.5 rounded-xl border border-border bg-card px-3.5 py-2.5">
-        <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[11px] font-extrabold text-white ${selected.logoClass}`}>
+        <span style={logoStyle(selected)} className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[11px] font-extrabold text-white ${selected.logoClass}`}>
           {selected.logo}
         </span>
         <span className="text-[13.5px] font-bold">{selected.name}</span>
@@ -329,6 +374,9 @@ export function DepositModal({ open, onClose }: { open: boolean; onClose: () => 
           </button>
         ))}
       </div>
+      {limitHint && numAmount > 0 && (
+        <p className="mt-2 text-[12.5px] font-semibold text-live">{limitHint}</p>
+      )}
 
       {selected.field === 'phone' && (
         <div className="mt-4">
@@ -434,7 +482,7 @@ export function DepositModal({ open, onClose }: { open: boolean; onClose: () => 
 
   const waitingBody = (
     <div className="flex flex-col items-center px-0 py-4 text-center">
-      <span className={`mb-4 flex h-14 w-14 items-center justify-center rounded-2xl text-base font-extrabold text-white ${selected.logoClass}`}>
+      <span style={logoStyle(selected)} className={`mb-4 flex h-14 w-14 items-center justify-center rounded-2xl text-base font-extrabold text-white ${selected.logoClass}`}>
         {selected.logo}
       </span>
       <h2 className="mb-2 text-xl font-extrabold">Check your phone</h2>

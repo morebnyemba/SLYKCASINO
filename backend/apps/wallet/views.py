@@ -15,8 +15,10 @@ from apps.accounts import services as accounts_services
 from . import paynow, payments
 from . import psp as psp_registry
 from . import services
-from .models import LedgerEntry, PaymentTransaction
-from .serializers import AdminLedgerEntrySerializer, LedgerEntrySerializer
+from .models import LedgerEntry, PaymentMethod, PaymentTransaction
+from .serializers import (
+    AdminLedgerEntrySerializer, AdminPaymentMethodSerializer, LedgerEntrySerializer, PaymentMethodSerializer,
+)
 
 # Header each provider signs its webhook payload with. Anything not listed
 # here falls back to a generic header name (and will simply fail that PSP's
@@ -44,6 +46,7 @@ class WalletView(APIView):
         return Response({
             'balance': str(dto.balance), 'currency': dto.currency,
             'deposit_methods': payments.deposit_methods(),
+            'payment_methods': PaymentMethodSerializer(payments.offered_methods(), many=True).data,
             'deposit_gateway': 'paynow' if payments.gateway_enabled() else 'stub',
         })
 
@@ -86,6 +89,11 @@ class DepositView(APIView):
                 {'detail': f'Amount exceeds your daily deposit limit of {player.deposit_limit_daily}'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        try:
+            payments.check_deposit(str(request.data.get('method', '') or ''), amount)
+        except ValueError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
         if payments.gateway_enabled():
             return self._start_gateway_deposit(request, player, amount)
@@ -265,3 +273,33 @@ class WithdrawView(APIView):
             'currency': dto.currency,
             'entry': LedgerEntrySerializer(entry).data,
         }, status=status.HTTP_201_CREATED)
+
+
+class PaymentMethodsView(APIView):
+    """GET /api/wallet/payment-methods/ — public: the deposit options on offer
+    and the method names for the site footer."""
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        return Response({
+            'deposit': PaymentMethodSerializer(payments.offered_methods(), many=True).data,
+            'footer': list(PaymentMethod.objects.filter(show_in_footer=True).values_list('name', flat=True)),
+        })
+
+
+class AdminPaymentMethodViewSet(viewsets.ModelViewSet):
+    """/api/admin/payment-methods/ — operators add, edit, reorder and switch
+    deposit methods on or off."""
+    serializer_class = AdminPaymentMethodSerializer
+    permission_classes = [IsAdminUser]
+    pagination_class = None
+    queryset = PaymentMethod.objects.all()
+
+    def list(self, request, *args, **kwargs):
+        response = super().list(request, *args, **kwargs)
+        response.data = {
+            'gateway': 'paynow' if payments.gateway_enabled() else 'stub',
+            'gateway_methods': list(paynow.METHODS),
+            'results': response.data,
+        }
+        return response
