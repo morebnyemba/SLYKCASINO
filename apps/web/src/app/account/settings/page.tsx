@@ -215,7 +215,7 @@ export default function SettingsPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              Self-exclusion prevents you from depositing, betting, or playing casino games
+              Self-exclusion prevents you from depositing or betting
               for the chosen period. This cannot be reversed during the exclusion period.
             </p>
             <div className="flex flex-wrap gap-2">

@@ -2,19 +2,16 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { GiRocketFlight, GiSoccerBall, GiCherry, GiPokerHand, GiPodiumWinner, GiBasketballBall } from 'react-icons/gi';
+import { GiSoccerBall, GiBasketballBall, GiTennisRacket } from 'react-icons/gi';
 import { FaGift } from 'react-icons/fa';
 import type { IconType } from 'react-icons';
 
 const ITEMS: { href: string; label: string; icon?: IconType; live?: boolean }[] = [
   { href: '/sportsbook?tab=live', label: 'Live', live: true },
-  { href: '/casino/crash', label: 'Aviator', icon: GiRocketFlight },
   { href: '/sportsbook?sport=football', label: 'Football', icon: GiSoccerBall },
-  { href: '/casino?category=slots', label: 'Slots', icon: GiCherry },
-  { href: '/casino?category=live', label: 'Live casino', icon: GiPokerHand },
   { href: '/sportsbook?sport=basketball', label: 'Basketball', icon: GiBasketballBall },
+  { href: '/sportsbook?sport=tennis', label: 'Tennis', icon: GiTennisRacket },
   { href: '/promotions', label: 'Promos', icon: FaGift },
-  { href: '/tournaments', label: 'Tournaments', icon: GiPodiumWinner },
 ];
 
 /**

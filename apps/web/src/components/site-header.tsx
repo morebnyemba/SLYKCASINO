@@ -3,9 +3,8 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { GiTrophy, GiRollingDices } from 'react-icons/gi';
 import {
-  FaUser, FaSignOutAlt, FaWallet, FaBell, FaIdCard, FaShieldAlt, FaChevronDown, FaHistory, FaPlus, FaGift, FaHandshake,
+  FaUser, FaSignOutAlt, FaWallet, FaBell, FaIdCard, FaShieldAlt, FaChevronDown, FaPlus, FaGift, FaHandshake,
 } from 'react-icons/fa';
 import { BsReceipt, BsSearch, BsTicketPerforated } from 'react-icons/bs';
 import type { IconType } from 'react-icons';
@@ -34,7 +33,6 @@ const ACCOUNT_LINKS: { href: string; label: string; icon: IconType }[] = [
   { href: '/account/profile', label: 'Profile', icon: FaUser },
   { href: '/account/wallet', label: 'Wallet', icon: FaWallet },
   { href: '/account/bets', label: 'My bets', icon: BsTicketPerforated },
-  { href: '/account/casino', label: 'Casino history', icon: FaHistory },
   { href: '/promotions', label: 'Promotions', icon: FaGift },
   { href: '/account/affiliate', label: 'Refer & earn', icon: FaHandshake },
   { href: '/account/verification', label: 'Verification', icon: FaIdCard },
@@ -50,23 +48,6 @@ function formatBalance(balance?: string): string {
 const iconBtn =
   'relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-muted hover:text-foreground';
 
-/** Casino | Sports segmented switch — the primary product toggle on betting sites. */
-function ProductSwitch() {
-  const pathname = usePathname();
-  const onSports = pathname.startsWith('/sportsbook');
-  const onCasino = pathname.startsWith('/casino');
-  const item = (active: boolean) =>
-    `flex h-9 items-center gap-2 rounded-[10px] px-4 text-[13px] font-extrabold transition-all ${
-      active ? 'bg-secondary text-white shadow-[0_4px_14px_color-mix(in_srgb,var(--secondary)_40%,transparent)]' : 'text-muted-foreground hover:text-foreground'
-    }`;
-  return (
-    <div className="hidden shrink-0 items-center gap-1 rounded-xl border border-border bg-background/60 p-1 md:flex">
-      <Link href="/casino" className={item(onCasino)}><GiRollingDices size={16} /> Casino</Link>
-      <Link href="/sportsbook" className={item(onSports)}><GiTrophy size={15} /> Sports</Link>
-    </div>
-  );
-}
-
 function SearchTrigger() {
   const { setSearchOpen } = useShell();
   return (
@@ -77,7 +58,7 @@ function SearchTrigger() {
         className="hidden h-10 min-w-0 max-w-sm flex-1 items-center gap-2.5 rounded-xl border border-border bg-background/60 px-3.5 text-sm text-muted-foreground transition-colors hover:border-secondary/50 hover:text-foreground xl:flex"
       >
         <BsSearch size={14} className="shrink-0" />
-        <span className="truncate">Search games or matches</span>
+        <span className="truncate">Search teams or matches</span>
         <kbd className="ml-auto rounded-md border border-border bg-muted px-1.5 text-[10px] font-bold">/</kbd>
       </button>
       {/* …icon button elsewhere. */}
@@ -279,7 +260,6 @@ export function SiteHeader() {
             <Logo nameClassName="max-[359px]:text-[15px]" />
           </div>
 
-          <ProductSwitch />
           <SearchTrigger />
 
           <div className="ml-auto flex min-w-0 items-center gap-1.5 sm:gap-2">

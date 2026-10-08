@@ -1,14 +1,11 @@
 import Link from 'next/link';
-import { GiTrophy, GiRollingDices } from 'react-icons/gi';
+import { GiTrophy } from 'react-icons/gi';
 import { FaShieldAlt, FaBolt, FaLock, FaHeadset } from 'react-icons/fa';
 import type { IconType } from 'react-icons';
-import { WinnersTicker } from '@/components/winners-ticker';
 import { BannerSlider, type Banner } from '@/components/banner-slider';
-import { PopularGames } from '@/components/popular-games';
 import { Carousel, CarouselItem } from '@/components/carousel';
 import { FeaturedMatchCard } from '@/components/event-row';
 import { apiGet } from '@/lib/config';
-import type { Game } from '@/lib/casino';
 import { isLive, isPriced, sortEvents, type EventItem } from '@/lib/sports';
 
 // Brand gradient treatment for a hue (matches the design system's `art()` generator).
@@ -46,20 +43,18 @@ function ProductCard({ href, title, subtitle, icon: Icon, hue, stat }: {
 }
 
 export default async function LobbyPage() {
-  const [featuredData, eventsData, bannersData, gamesData] = await Promise.all([
+  const [featuredData, eventsData, bannersData] = await Promise.all([
     // Featured matches are fetched on their own so one far down the kick-off
     // order is never missed; the soonest priced matches are the fallback.
     apiGet<EventItem>('/events/?upcoming=true&priced=true&featured=true&page_size=8'),
     apiGet<EventItem>('/events/?upcoming=true&priced=true&page_size=8'),
     apiGet<Banner>('/promotions/banners/?placement=home_hero'),
-    apiGet<Game>('/casino/games/'),
   ]);
   const bettable = (data: typeof eventsData) =>
     ((data.results ?? []) as EventItem[]).filter((ev) => ev.is_open !== false && isPriced(ev));
   const featured = bettable(featuredData);
   const events = sortEvents(featured.length > 0 ? featured : bettable(eventsData));
   const banners = (bannersData.results ?? []) as Banner[];
-  const games = (gamesData.results ?? []) as Game[];
   const liveCount = events.filter(isLive).length;
 
   return (
@@ -67,7 +62,6 @@ export default async function LobbyPage() {
       <div className="grid gap-3 xl:grid-cols-[1fr_340px]">
         <BannerSlider banners={banners} />
         <div className="flex gap-3 xl:flex-col">
-          <ProductCard href="/casino" title="Casino" subtitle="Slots, live tables & crash" icon={GiRollingDices} hue={262} stat="Games live now" />
           <ProductCard
             href="/sportsbook"
             title="Sports"
@@ -78,8 +72,6 @@ export default async function LobbyPage() {
           />
         </div>
       </div>
-
-      <WinnersTicker />
 
       {events.length > 0 && (
         <section>
@@ -99,8 +91,6 @@ export default async function LobbyPage() {
           </Carousel>
         </section>
       )}
-
-      {games.length > 0 && <PopularGames games={games} />}
 
       <div className="grid grid-cols-2 gap-3 rounded-2xl border border-border bg-card p-4 text-xs font-semibold text-muted-foreground sm:grid-cols-4">
         {TRUST_BADGES.map((b) => {

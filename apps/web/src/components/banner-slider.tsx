@@ -56,7 +56,7 @@ export function BannerSlider({ banners }: { banners: Banner[] }) {
             className={`absolute inset-0 transition-opacity duration-700 ${i === index ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
             aria-hidden={i === index ? undefined : true}
           >
-            <PromoSlide b={b} secondary={{ href: '/casino', label: 'Try demo' }} />
+            <PromoSlide b={b} secondary={{ href: '/sportsbook?tab=live', label: 'Live betting' }} />
           </div>
         );
       })}

@@ -4,10 +4,7 @@ import Link from 'next/link';
 import { Suspense } from 'react';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { BsLayoutSidebarInset, BsXLg } from 'react-icons/bs';
-import {
-  GiRollingDices, GiTrophy, GiRocketFlight, GiCherry, GiCardAceSpades,
-  GiPokerHand, GiPodiumWinner, GiLightningFrequency, GiSoccerKick, GiCastle,
-} from 'react-icons/gi';
+import { GiTrophy } from 'react-icons/gi';
 import { FaGift, FaHandshake, FaRegCommentDots, FaShieldAlt } from 'react-icons/fa';
 import type { IconType } from 'react-icons';
 import { SPORT_CATEGORIES } from '@/components/sports-sidebar';
@@ -23,16 +20,6 @@ interface NavItem {
   live?: boolean;
 }
 
-const CASINO_ITEMS: NavItem[] = [
-  { href: '/casino', label: 'Casino lobby', icon: GiCastle },
-  { href: '/casino/crash', label: 'Aviator', icon: GiRocketFlight },
-  { href: '/casino?category=slots', label: 'Slots', icon: GiCherry },
-  { href: '/casino?category=live', label: 'Live casino', icon: GiPokerHand },
-  { href: '/casino?category=table', label: 'Table games', icon: GiCardAceSpades },
-  { href: '/casino?category=instant', label: 'Instant win', icon: GiLightningFrequency },
-  { href: '/casino?category=virtual', label: 'Virtual sports', icon: GiSoccerKick },
-];
-
 const SPORTS_ITEMS: NavItem[] = [
   { href: '/sportsbook?tab=live', label: 'Live now', icon: GiTrophy, live: true },
   ...SPORT_CATEGORIES.map((s) => ({ href: `/sportsbook?sport=${s.id}`, label: s.label, icon: s.icon })),
@@ -40,7 +27,6 @@ const SPORTS_ITEMS: NavItem[] = [
 
 const MORE_ITEMS: NavItem[] = [
   { href: '/promotions', label: 'Promotions', icon: FaGift },
-  { href: '/tournaments', label: 'Tournaments', icon: GiPodiumWinner },
   { href: '/account/affiliate', label: 'Refer & earn', icon: FaHandshake },
   { href: '/livechat', label: 'Live support', icon: FaRegCommentDots },
   { href: '/account/settings', label: 'Responsible gaming', icon: FaShieldAlt },
@@ -52,7 +38,7 @@ function isActive(href: string, pathname: string, query: URLSearchParams | null)
   if (path !== pathname) return false;
   const want = new URLSearchParams(qs ?? '');
   if (!qs) {
-    // A bare section link (e.g. "/casino") is active only when no filter is applied.
+    // A bare section link (e.g. "/sportsbook") is active only when no filter is applied.
     return !query || (!query.get('category') && !query.get('sport') && !query.get('tab'));
   }
   if (!query) return false;
@@ -109,7 +95,6 @@ function SidebarNav({ query, variant }: { query: URLSearchParams | null; variant
   const pathname = usePathname();
   const { collapsed, toggleCollapsed, setMenuOpen } = useShell();
   const compact = variant === 'rail' && collapsed;
-  const onSports = pathname.startsWith('/sportsbook');
   const sectionProps = { compact, pathname, query, onNavigate: () => setMenuOpen(false) };
 
   return (
@@ -151,41 +136,11 @@ function SidebarNav({ query, variant }: { query: URLSearchParams | null; variant
               <BsXLg size={16} />
             </button>
           </div>
-          <div className="grid grid-cols-2 gap-1 rounded-xl bg-muted/60 p-1 text-sm font-extrabold">
-            <Link
-              href="/casino"
-              onClick={() => setMenuOpen(false)}
-              className={`flex items-center justify-center gap-1.5 rounded-lg py-2.5 transition-colors ${
-                !onSports ? 'bg-secondary text-white shadow' : 'text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              <GiRollingDices size={15} /> Casino
-            </Link>
-            <Link
-              href="/sportsbook"
-              onClick={() => setMenuOpen(false)}
-              className={`flex items-center justify-center gap-1.5 rounded-lg py-2.5 transition-colors ${
-                onSports ? 'bg-secondary text-white shadow' : 'text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              <GiTrophy size={15} /> Sports
-            </Link>
-          </div>
         </div>
       )}
 
       <nav className="no-scrollbar flex-1 space-y-1 overflow-y-auto px-2 py-2">
-        {onSports ? (
-          <>
-            <Section title="Sports" items={SPORTS_ITEMS} {...sectionProps} />
-            <Section title="Casino" items={CASINO_ITEMS} {...sectionProps} />
-          </>
-        ) : (
-          <>
-            <Section title="Casino" items={CASINO_ITEMS} {...sectionProps} />
-            <Section title="Sports" items={SPORTS_ITEMS} {...sectionProps} />
-          </>
-        )}
+        <Section title="Sports" items={SPORTS_ITEMS} {...sectionProps} />
         <div className="mx-3 border-t border-border" />
         <Section title="More" items={MORE_ITEMS} {...sectionProps} />
       </nav>
