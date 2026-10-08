@@ -48,6 +48,20 @@ class LiveParserTests(SimpleTestCase):
         self.assertNotIn('over_under:ft:3.5', keys)
         self.assertFalse(any('handicap' in k for k in keys))
 
+    def test_other_live_bets_come_in_as_manual_in_play_markets(self):
+        odds = [*FEED_ODDS, {'id': 20, 'name': 'Next Goal', 'values': [
+            _v('1', '1.70'), _v('No goal', '5.00'), _v('2', '2.40'),
+        ]}]
+        _, markets = parse_live_odds(odds, first_half=True, include_manual=True)
+        by_key = {m.key: m for m in markets}
+        # Live handicaps differ from the pre-match ones: their own manual row.
+        handicap = by_key['manual:in_play_asian_handicap:ft']
+        self.assertEqual((handicap.kind, handicap.name), ('manual', 'In play: Asian Handicap'))
+        self.assertEqual([o.label for o in handicap.outcomes], ['Home -0.5', 'Away 0.5'])
+        nxt = by_key['manual:in_play_next_goal:ft']
+        self.assertEqual(len(nxt.outcomes), 3)
+        self.assertIn('over_under:ft:2.5', by_key)  # recognised bets still settle automatically
+
     def test_first_half_markets_drop_after_the_break(self):
         _, markets = parse_live_odds(FEED_ODDS, first_half=False)
         self.assertNotIn('match_result:1h', {m.key for m in markets})

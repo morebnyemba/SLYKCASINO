@@ -214,11 +214,12 @@ API_FOOTBALL_IMPORT_NEXT = int(os.environ.get('API_FOOTBALL_IMPORT_NEXT', '20'))
 # days ahead; every page is followed up to the page cap (10 fixtures per page).
 API_FOOTBALL_ODDS_DAYS = int(os.environ.get('API_FOOTBALL_ODDS_DAYS', '2'))
 API_FOOTBALL_ODDS_MAX_PAGES = int(os.environ.get('API_FOOTBALL_ODDS_MAX_PAGES', '20'))
-# Every bet type the importer recognises (goals, handicaps, halves, corners,
-# cards, goalscorers, combos…) settles automatically from the match facts.
-# Set to true to ALSO offer unrecognised bet types; those must be settled by an
-# operator from the admin Events page.
-SPORTSBOOK_IMPORT_MANUAL_MARKETS = os.environ.get('SPORTSBOOK_IMPORT_MANUAL_MARKETS', 'false').lower() == 'true'
+# Every bet type api-football offers is imported, pre-match and in play. The
+# ones the importer recognises (goals, handicaps, halves, corners, cards,
+# goalscorers, combos…) settle automatically from the match facts; the rest
+# come in as manual markets an operator settles from the admin match page.
+# Set to false to offer only the automatically-settled bet types.
+SPORTSBOOK_IMPORT_MANUAL_MARKETS = os.environ.get('SPORTSBOOK_IMPORT_MANUAL_MARKETS', 'true').lower() == 'true'
 # Affiliate programme defaults (each affiliate's terms can be changed in admin).
 # Revenue share is a % of referred players' monthly net gaming revenue (a losing
 # month pays nothing, no carry-over); CPA is a one-off per referral once their

@@ -4,8 +4,8 @@ markets. Pure: NO model imports — services.py upserts the result.
 Each api-football bet type maps to a settlement kind (settlement.py), a display
 group, and a period. Bet types that carry several lines in one list ("Over 2.5",
 "Under 2.5", "Over 3.5"…) are split into one market per line. Bet types we can't
-settle from the score (corners, cards, scorers…) come through as MANUAL markets
-for an operator to settle, only when `include_manual` is set — every bet type
+settle automatically (anything not listed in SPECS) come through as MANUAL
+markets for an operator to settle when `include_manual` is set — every bet type
 listed in SPECS settles automatically from the match facts (see settlement.py).
 """
 from __future__ import annotations
@@ -184,7 +184,7 @@ def _scorer(value: str) -> Parsed:
 def _generic(value: str) -> Parsed:
     """Manual markets: keep the provider's wording, derive a stable key from it."""
     label = value.strip()[:60]
-    key = re.sub(r'[^a-z0-9+:.-]+', '_', label.lower()).strip('_')[:24]
+    key = re.sub(r'[^a-z0-9+:.-]+', '_', label.lower()).strip('_')[:40]
     return (key, label, None) if key else None
 
 
@@ -390,16 +390,29 @@ def _live_value(raw: dict[str, Any]) -> Optional[dict[str, Any]]:
     return {'value': value, 'odd': raw.get('odd')}
 
 
+LIVE_MANUAL_PREFIX = 'In play: '
+
+
 def parse_live_odds(
-    odds: list[dict[str, Any]], *, first_half: bool = True,
+    odds: list[dict[str, Any]], *, first_half: bool = True, include_manual: bool = False,
 ) -> tuple[Optional[tuple[Decimal, Optional[Decimal], Decimal]], list[FeedMarketData]]:
     """Normalise a live fixture's `odds` list into (1X2 prices or None, markets).
-    `first_half=False` drops first-half markets (the half is over)."""
+    `first_half=False` drops first-half markets (the half is over).
+
+    With `include_manual`, every other live bet type (next goal, rest of match,
+    live handicaps…) is offered too, as a manual market named "In play: …" —
+    its rules depend on when the bet was struck, so it never shares a row or an
+    automatic settlement with the pre-match market of the same name."""
     merged: dict[str, list[dict[str, Any]]] = {}
     winner: list[dict[str, Any]] = []
     for bet in odds or []:
-        canonical = LIVE_BETS.get(str(bet.get('name') or '').strip().lower())
-        if canonical is None or (canonical in FIRST_HALF_ONLY and not first_half):
+        raw_name = str(bet.get('name') or '').strip()
+        canonical = LIVE_BETS.get(raw_name.lower())
+        if canonical is None:
+            if not include_manual or not raw_name:
+                continue
+            canonical = f'{LIVE_MANUAL_PREFIX}{raw_name}'
+        elif canonical in FIRST_HALF_ONLY and not first_half:
             continue
         if canonical == 'Match Winner':
             winner = winner or list(bet.get('values') or [])
@@ -420,6 +433,6 @@ def parse_live_odds(
         if home and away and draw and min(home, draw, away) > 1:
             one_x_two = (home, draw, away)
     markets = parse_markets(
-        [{'name': name, 'values': values} for name, values in merged.items()], include_manual=False,
+        [{'name': name, 'values': values} for name, values in merged.items()], include_manual=include_manual,
     )
     return one_x_two, markets
