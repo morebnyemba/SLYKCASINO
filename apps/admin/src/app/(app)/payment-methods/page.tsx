@@ -9,6 +9,7 @@ import {
 import { useAuth } from '@/lib/auth-context';
 import { authedRequest, useApi } from '@/lib/use-api';
 import { LoadingState } from '@slyk/ui/components/spinner';
+import { GatewayPanel } from '@/components/payments/gateway-panel';
 
 type FieldType = 'phone' | 'card' | 'crypto' | 'none';
 
@@ -233,20 +234,20 @@ export default function PaymentMethodsPage() {
         icon={BsCreditCard2Front}
         eyebrow="Money"
         title="Payment methods"
-        description="What players can deposit with, in what order, and the limits for each — plus the payment names in the site footer."
+        description="The payment gateway, what players can deposit with, in what order, and the limits for each."
         actions={<Btn variant="primary" icon={BsPlusLg} onClick={() => open(null)}>Add method</Btn>}
       />
 
-      {data && (
-        <Notice tone={live ? 'green' : 'indigo'}>
-          {live
-            ? <>Live gateway: <b>Paynow</b>. It can process {data.gateway_methods.join(', ')} — other methods stay off the deposit screen.</>
-            : <>Test processor: deposits credit instantly and no money moves. Set <code>PSP_PROVIDER=paynow</code> on the server to take real payments.</>}
-        </Notice>
-      )}
+      <GatewayPanel onChanged={refetch} />
       {notice && <Notice tone={notice.tone} onClose={() => setNotice(null)}>{notice.text}</Notice>}
 
-      <Panel title="Deposit methods" description="Players see them in this order. Use the arrows to reorder." padded={false}>
+      <Panel
+        title="Deposit methods"
+        description={live
+          ? `Players see them in this order. Paynow can process ${data?.gateway_methods.join(', ')}; anything else stays off the deposit screen.`
+          : 'Players see them in this order. Use the arrows to reorder.'}
+        padded={false}
+      >
         {loading && !data ? (
           <div className="p-10"><LoadingState /></div>
         ) : methods.length === 0 ? (

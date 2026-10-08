@@ -13,7 +13,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from . import paynow, services
-from .models import PaymentMethod, PaymentTransaction
+from .models import PaymentGateway, PaymentMethod, PaymentTransaction
 
 logger = logging.getLogger(__name__)
 
@@ -23,8 +23,16 @@ EXPIRE_AFTER = timedelta(hours=24)
 POLL_EVERY = timedelta(seconds=4)
 
 
+def active_provider() -> str:
+    """'paynow' or 'stub': the admin console's choice, else the server's."""
+    saved = PaymentGateway.current()
+    if saved and saved.provider:
+        return saved.provider
+    return getattr(settings, 'PSP_PROVIDER', 'stub')
+
+
 def gateway_enabled() -> bool:
-    return getattr(settings, 'PSP_PROVIDER', 'stub') == 'paynow'
+    return active_provider() == 'paynow'
 
 
 def gateway_supports(code: str) -> bool:
