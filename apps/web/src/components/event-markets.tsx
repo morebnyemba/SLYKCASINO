@@ -2,12 +2,13 @@
 
 import Link from 'next/link';
 import { Fragment, useMemo, useState } from 'react';
-import { BsChevronLeft, BsChevronDown, BsCheckCircleFill, BsLockFill } from 'react-icons/bs';
+import { BsChevronLeft, BsChevronDown, BsCheckCircleFill, BsLockFill, BsSearch, BsXCircleFill } from 'react-icons/bs';
 import { OddsButton } from '@/components/odds-button';
 import { LiveBadge, TeamBadge, sportMeta } from '@/components/event-row';
 import { useLiveOdds } from '@/lib/use-live-odds';
 import { useLiveMarkets } from '@/lib/use-live-markets';
 import { formatOdds, useSettings } from '@/lib/settings-context';
+import { filterMarket, normalize, searchTokens } from '@/lib/market-search';
 import {
   MARKET_GROUPS, dayLabel, hasScore, homeMove, isBettable, isFinished, isLive, isMainOpen, isPriced, kickoffTime, matchClock,
   teamNames, withTeamNames, type EventItem, type Market, type MarketGroup, type MarketOutcome,
@@ -48,10 +49,13 @@ function fmtLine(line: string | null | undefined, signed: boolean) {
   return signed && n > 0 ? `+${text}` : text;
 }
 
-function Collapsible({ title, badge, children, defaultOpen = true }: {
+function Collapsible({ title, badge, children, defaultOpen = true, forceOpen = false }: {
   title: string; badge?: React.ReactNode; children: React.ReactNode; defaultOpen?: boolean;
+  /** Search results stay expanded even if the player collapsed the card earlier. */
+  forceOpen?: boolean;
 }) {
-  const [open, setOpen] = useState(defaultOpen);
+  const [userOpen, setOpen] = useState(defaultOpen);
+  const open = userOpen || forceOpen;
   return (
     <section className="overflow-hidden rounded-2xl border border-border bg-card">
       <button
@@ -115,6 +119,9 @@ export function EventMarkets({ ev }: { ev: EventItem }) {
   const initialMarkets = useMemo(() => ev.markets ?? [], [ev.markets]);
   const markets = useLiveMarkets(ev.id, initialMarkets);
   const [tab, setTab] = useState<Tab>('all');
+  const [query, setQuery] = useState('');
+  const tokens = useMemo(() => searchTokens(query), [query]);
+  const searching = tokens.length > 0;
 
   const { home, away } = teamNames(ev);
   const sport = sportMeta(ev.sport);
@@ -164,8 +171,30 @@ export function EventMarkets({ ev }: { ev: EventItem }) {
       id: g.id, label: g.label, count: (counts[g.id] ?? 0) + (g.id === 'main' ? 1 : 0),
     })),
   ];
-  const visible = tab === 'all' ? blocks : blocks.filter((b) => b.group === tab);
-  const showResult = tab === 'all' || tab === 'main';
+  const filtered = useMemo(() => {
+    if (!searching) return null;
+    const out: Block[] = [];
+    for (const b of blocks) {
+      if (b.type === 'single') {
+        const market = filterMarket(b.market, tokens, names);
+        if (market) out.push({ ...b, market });
+        continue;
+      }
+      // A line table keeps whole rows: the lines whose number, side or name match.
+      const signed = b.markets[0].kind.includes('handicap');
+      const lines = b.markets.filter((m) => filterMarket(m, tokens, names, fmtLine(m.line, signed)));
+      if (lines.length) out.push({ ...b, markets: lines });
+    }
+    return out;
+    // names only changes with the team names, which are fixed for the event.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [blocks, tokens, searching]);
+  const resultMatches = searching && tokens.every((t) => normalize(
+    `main match result 1x2 winner win full time ft ${resultOutcomes.map((o) => o.label).join(' ')}`,
+  ).includes(t));
+  const visible = filtered ?? (tab === 'all' ? blocks : blocks.filter((b) => b.group === tab));
+  const showResult = searching ? resultMatches : tab === 'all' || tab === 'main';
+  const resultCount = visible.length + (showResult ? 1 : 0);
 
   const outcomeProps = (m: Market, o: MarketOutcome) => ({
     eventId: ev.id,
@@ -183,7 +212,7 @@ export function EventMarkets({ ev }: { ev: EventItem }) {
     const many = m.outcomes.length > 3;
     const cols = m.outcomes.length === 2 ? 'grid-cols-2' : many ? 'grid-cols-2 sm:grid-cols-3' : 'grid-cols-3';
     return (
-      <Collapsible key={m.id} title={names(m.name)} badge={<StatusBadge market={m} />}>
+      <Collapsible key={m.id} title={names(m.name)} badge={<StatusBadge market={m} />} forceOpen={searching}>
         <div className={`grid gap-2 ${cols}`}>
           {m.outcomes.map((o) => m.settled
             ? <SettledOutcome key={o.id} outcome={o} label={names(o.label)} stack={m.outcomes.length === 3} />
@@ -196,7 +225,7 @@ export function EventMarkets({ ev }: { ev: EventItem }) {
   /** Goalscorer markets can list dozens of players: two columns of name + price. */
   function renderScorers(m: Market) {
     return (
-      <Collapsible key={m.id} title={m.name} badge={<StatusBadge market={m} />}>
+      <Collapsible key={m.id} title={m.name} badge={<StatusBadge market={m} />} forceOpen={searching}>
         <div className="grid gap-2 sm:grid-cols-2">
           {m.outcomes.map((o) => m.settled
             ? <SettledOutcome key={o.id} outcome={o} label={o.label} />
@@ -218,6 +247,7 @@ export function EventMarkets({ ev }: { ev: EventItem }) {
         key={block.id}
         title={names(block.name)}
         badge={!anyOpen ? <StatusBadge market={block.markets[0]} /> : undefined}
+        forceOpen={searching}
       >
         <div className={`mb-1.5 grid gap-2 px-0.5 text-center text-[11px] font-extrabold text-muted-foreground ${grid}`}>
           <span className="text-left">{signed ? 'Line' : ({ corners: 'Corners', cards: 'Cards' } as Record<string, string>)[block.markets[0].metric ?? ''] ?? 'Goals'}</span>
@@ -336,9 +366,40 @@ export function EventMarkets({ ev }: { ev: EventItem }) {
         </p>
       )}
 
-      {/* Market group tabs */}
+      {/* Market search + group tabs */}
       {markets.length > 0 && (
-        <div className="sticky top-[var(--header-h)] z-20 -mx-3 bg-background/95 px-3 py-2 backdrop-blur sm:mx-0 sm:px-0">
+        <div className="sticky top-[var(--header-h)] z-20 -mx-3 space-y-2 bg-background/95 px-3 py-2 backdrop-blur sm:mx-0 sm:px-0">
+          <label className="relative block">
+            <span className="sr-only">Search betting options</span>
+            <BsSearch size={14} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Escape') setQuery(''); }}
+              placeholder="Search bets — e.g. over 2.5, both teams, a player"
+              enterKeyHint="search"
+              autoComplete="off"
+              className="h-11 w-full rounded-2xl border border-border bg-card pl-10 pr-10 text-sm font-semibold outline-none transition-colors placeholder:font-medium placeholder:text-muted-foreground/80 focus:border-secondary [&::-webkit-search-cancel-button]:hidden"
+            />
+            {query && (
+              <button
+                type="button"
+                onClick={() => setQuery('')}
+                aria-label="Clear search"
+                className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full text-muted-foreground hover:text-foreground"
+              >
+                <BsXCircleFill size={15} />
+              </button>
+            )}
+          </label>
+          {searching ? (
+            <p className="px-1 text-xs font-bold text-muted-foreground" aria-live="polite">
+              {resultCount > 0
+                ? `${resultCount} market${resultCount === 1 ? ' matches' : 's match'} “${query.trim()}”`
+                : `Nothing matches “${query.trim()}”`}
+            </p>
+          ) : (
           <div className="no-scrollbar flex gap-1 overflow-x-auto rounded-2xl border border-border bg-card p-1">
             {tabs.map((t) => (
               <button
@@ -353,12 +414,13 @@ export function EventMarkets({ ev }: { ev: EventItem }) {
               </button>
             ))}
           </div>
+          )}
         </div>
       )}
 
       <div className="space-y-3">
         {showResult && (
-          <Collapsible title={hasDraw ? 'Match result (1X2)' : 'Match winner'} badge={finalResult ? (
+          <Collapsible forceOpen={searching} title={hasDraw ? 'Match result (1X2)' : 'Match winner'} badge={finalResult ? (
             <span className="rounded bg-muted px-2 py-0.5 text-[10.5px] font-bold text-muted-foreground">Settled</span>
           ) : closed ? (
             <span className="flex items-center gap-1 rounded bg-muted px-2 py-0.5 text-[10.5px] font-bold text-muted-foreground"><BsLockFill size={9} /> Closed</span>
@@ -391,6 +453,19 @@ export function EventMarkets({ ev }: { ev: EventItem }) {
           </Collapsible>
         )}
         {visible.map((b) => (b.type === 'single' ? renderSingle(b.market) : renderLines(b)))}
+        {searching && resultCount === 0 && (
+          <div className="rounded-2xl border border-dashed border-border px-4 py-8 text-center">
+            <p className="mb-1 text-sm font-bold">No betting options match “{query.trim()}”</p>
+            <p className="mb-4 text-xs text-muted-foreground">Try a market (“corners”, “handicap”), a line (“2.5”) or a player’s name.</p>
+            <button
+              type="button"
+              onClick={() => setQuery('')}
+              className="rounded-xl bg-secondary px-4 py-2 text-xs font-bold text-white hover:bg-secondary/90"
+            >
+              Show all markets
+            </button>
+          </div>
+        )}
         {markets.length === 0 && (
           <p className="rounded-2xl border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">
             {priced

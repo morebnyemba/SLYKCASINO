@@ -2,13 +2,11 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { BsHouseDoorFill } from 'react-icons/bs';
 import { GiRocketFlight, GiSoccerBall, GiCherry, GiPokerHand, GiPodiumWinner, GiBasketballBall } from 'react-icons/gi';
 import { FaGift } from 'react-icons/fa';
 import type { IconType } from 'react-icons';
 
 const ITEMS: { href: string; label: string; icon?: IconType; live?: boolean }[] = [
-  { href: '/home', label: 'Home', icon: BsHouseDoorFill },
   { href: '/sportsbook?tab=live', label: 'Live', live: true },
   { href: '/casino/crash', label: 'Aviator', icon: GiRocketFlight },
   { href: '/sportsbook?sport=football', label: 'Football', icon: GiSoccerBall },
