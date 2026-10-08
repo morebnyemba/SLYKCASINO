@@ -1,9 +1,10 @@
 'use client';
 
 import Link from 'next/link';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { FaShieldAlt, FaLock, FaBolt, FaChevronDown } from 'react-icons/fa';
 import { useSiteIdentity } from '@/lib/identity-context';
+import { config } from '@/lib/config';
 
 const TRUST = [
   { label: 'Licensed & regulated', icon: FaShieldAlt },
@@ -11,7 +12,19 @@ const TRUST = [
   { label: 'Fast local payouts', icon: FaBolt },
 ];
 
-const PAYMENTS = ['EcoCash', 'OneMoney', 'Visa', 'Mastercard', 'USDT', 'Innbucks'];
+/** Payment method names the operator shows in the footer (Admin → Payment methods). */
+function usePaymentNames(): string[] {
+  const [names, setNames] = useState<string[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`${config.apiUrl}/wallet/payment-methods/`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { footer?: string[] } | null) => { if (!cancelled && d?.footer) setNames(d.footer); })
+      .catch(() => { /* footer just goes without the row */ });
+    return () => { cancelled = true; };
+  }, []);
+  return names;
+}
 
 /** Footer column: an accordion on phones, always open from `sm` up. */
 function FooterSection({ title, children }: { title: string; children: React.ReactNode }) {
@@ -33,6 +46,7 @@ function FooterSection({ title, children }: { title: string; children: React.Rea
 
 export function SiteFooter() {
   const identity = useSiteIdentity();
+  const payments = usePaymentNames();
   return (
     <footer className="mt-10 border-t border-border bg-sidebar sm:mt-12">
       <div className="mx-auto max-w-[1440px] px-4 py-6 text-sm text-muted-foreground sm:px-5 sm:py-8">
@@ -73,14 +87,16 @@ export function SiteFooter() {
           </FooterSection>
         </div>
 
-        <div className="mt-5 flex flex-wrap items-center gap-2 sm:mt-6 sm:border-t sm:border-border sm:pt-6">
-          <span className="w-full text-xs font-semibold text-foreground sm:w-auto">Payments</span>
-          {PAYMENTS.map((p) => (
-            <span key={p} className="rounded-md bg-chip px-2 py-1 text-xs text-muted-foreground">
-              {p}
-            </span>
-          ))}
-        </div>
+        {payments.length > 0 && (
+          <div className="mt-5 flex flex-wrap items-center gap-2 sm:mt-6 sm:border-t sm:border-border sm:pt-6">
+            <span className="w-full text-xs font-semibold text-foreground sm:w-auto">Payments</span>
+            {payments.map((p) => (
+              <span key={p} className="rounded-md bg-chip px-2 py-1 text-xs text-muted-foreground">
+                {p}
+              </span>
+            ))}
+          </div>
+        )}
 
         <div className="mt-5 flex flex-col gap-3 border-t border-border pt-5 text-xs text-muted-foreground/70 sm:mt-6 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:pt-6">
           <div className="flex items-center gap-2">

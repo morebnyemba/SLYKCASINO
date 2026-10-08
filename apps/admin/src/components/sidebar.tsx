@@ -7,7 +7,7 @@ import type { IconType } from 'react-icons';
 import {
   BsActivity, BsBroadcast, BsCalendar2Week, BsCashStack, BsChatDots, BsClockHistory, BsGift, BsGrid1X2,
   BsImages, BsList, BsMoonStars, BsPalette, BsPeople, BsPersonBadge, BsBoxArrowRight, BsSun, BsTicketPerforated,
-  BsTrophy, BsXLg, BsDiagram3, BsDatabase,
+  BsTrophy, BsXLg, BsDiagram3, BsDatabase, BsCreditCard2Front,
 } from 'react-icons/bs';
 import { GiPerspectiveDiceSixFacesRandom } from 'react-icons/gi';
 import { useAuth } from '@/lib/auth-context';
@@ -39,6 +39,7 @@ export const NAV: NavSection[] = [
   ] },
   { title: 'Money', items: [
     { href: '/transactions', label: 'Transactions', icon: BsCashStack },
+    { href: '/payment-methods', label: 'Payment methods', icon: BsCreditCard2Front },
     { href: '/affiliates', label: 'Affiliates', icon: BsDiagram3, badge: 'commissions' },
   ] },
   { title: 'Marketing', items: [

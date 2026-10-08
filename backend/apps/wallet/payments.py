@@ -13,7 +13,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from . import paynow, services
-from .models import PaymentTransaction
+from .models import PaymentMethod, PaymentTransaction
 
 logger = logging.getLogger(__name__)
 
@@ -27,10 +27,35 @@ def gateway_enabled() -> bool:
     return getattr(settings, 'PSP_PROVIDER', 'stub') == 'paynow'
 
 
+def gateway_supports(code: str) -> bool:
+    """Whether the live gateway can take this method. The stub test processor
+    takes anything; Paynow takes its own methods only."""
+    return code in paynow.METHODS if gateway_enabled() else True
+
+
+def offered_methods() -> list[PaymentMethod]:
+    """Deposit methods to show players: switched on in the admin and
+    processable by the live gateway, in the admin's order."""
+    return [m for m in PaymentMethod.objects.filter(deposit_enabled=True) if gateway_supports(m.code)]
+
+
 def deposit_methods() -> list[str]:
-    if gateway_enabled():
-        return list(paynow.METHODS)
-    return ['ecocash', 'onemoney', 'innbucks', 'card', 'usdt']
+    return [m.code for m in offered_methods()]
+
+
+def check_deposit(method: str, amount: Decimal) -> None:
+    """Raise ValueError unless `method` is offered and `amount` is within its
+    limits. A blank method is allowed on the stub processor only (older
+    clients credit without choosing one)."""
+    if not method and not gateway_enabled():
+        return
+    pm = next((m for m in offered_methods() if m.code == method), None)
+    if pm is None:
+        raise ValueError('That payment method is not available.')
+    if amount < pm.min_deposit:
+        raise ValueError(f'The minimum {pm.name} deposit is ${pm.min_deposit:.2f}.')
+    if pm.max_deposit is not None and amount > pm.max_deposit:
+        raise ValueError(f'The maximum {pm.name} deposit is ${pm.max_deposit:.2f}.')
 
 
 def start_deposit(*, player_id: int, amount: Decimal, method: str, phone: str = '', currency: str = 'USD') -> PaymentTransaction:
