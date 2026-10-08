@@ -45,7 +45,7 @@ export function AgeGate() {
           <>
             <h2 className="mb-2 text-lg font-bold">Are you 18 or older?</h2>
             <p className="mb-5 text-sm text-muted-foreground">
-              {identity.site_name} is a real-money gambling site licensed in Zimbabwe. You must confirm you are of legal
+              {identity.site_name} is a real-money gambling site licensed in Curaçao. You must confirm you are of legal
               age to continue. Please play responsibly.
             </p>
             <div className="flex gap-3">

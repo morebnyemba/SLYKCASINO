@@ -31,7 +31,7 @@ const DEFAULT_IDENTITY: IdentityResponse = {
   site_name: 'BetBlits',
   tagline: 'Bet smart. Brag often.',
   logo_url: '',
-  license_text: 'Licensed and regulated by the Lotteries and Gaming Board of Zimbabwe. Licence No. LGB/BETBLITS/2026 (demo).',
+  license_text: 'Operated under a gaming licence issued by the Curaçao Gaming Authority (CGA).',
 };
 
 // Keep in sync with backend/apps/branding/tokens.py.
@@ -279,6 +279,9 @@ function IdentitySection() {
                 rows={3}
                 className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
               />
+              <p className="text-xs text-muted-foreground">
+                Shown in the site footer. Add your licence number exactly as issued, e.g. “Licensed by the Curaçao Gaming Authority (CGA), licence no. OGL/2024/…”.
+              </p>
             </div>
           </div>
         )}
