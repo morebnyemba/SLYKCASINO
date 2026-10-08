@@ -135,6 +135,22 @@ class FeedParsingTests(SimpleTestCase):
         self.assertEqual(parse_markets([bet])[0].kind, 'manual')
         self.assertEqual(parse_markets([bet], include_manual=False), [])
 
+    def test_client_imports_every_bet_type_by_default(self):
+        raw = {'fixture': {'id': 9}, 'bookmakers': [
+            {'bets': [
+                {'name': 'Match Winner', 'values': [
+                    {'value': 'Home', 'odd': '2.1'}, {'value': 'Draw', 'odd': '3.2'}, {'value': 'Away', 'odd': '3.4'},
+                ]},
+                {'name': 'Total ShotOnGoal', 'values': [{'value': 'Over 8.5', 'odd': '1.9'}, {'value': 'Under 8.5', 'odd': '1.8'}]},
+            ]},
+            # A bet type only the second bookmaker prices is still picked up.
+            {'bets': [{'name': 'Player to be Booked', 'values': [{'value': 'J. Smith', 'odd': '4.5'}]}]},
+        ]}
+        snapshot = ApiFootballClient._normalize_odds(ApiFootballClient.__new__(ApiFootballClient), raw)
+        names = {m.name for m in snapshot.markets}
+        self.assertEqual(names, {'Total ShotOnGoal', 'Player to be Booked'})
+        self.assertTrue(all(m.kind == 'manual' for m in snapshot.markets))
+
     def test_client_normalize_odds_returns_markets(self):
         raw = {'fixture': {'id': 9}, 'bookmakers': [{'bets': [
             {'name': 'Match Winner', 'values': [

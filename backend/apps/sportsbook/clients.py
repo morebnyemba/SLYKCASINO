@@ -420,7 +420,10 @@ class ApiFootballClient:
         teams = raw.get('teams') or {}
         flags = raw.get('status') or {}
         first_half = long_status.strip().lower() in ('first half', '1st half')
-        one_x_two, markets = parse_live_odds(raw.get('odds') or [], first_half=first_half)
+        one_x_two, markets = parse_live_odds(
+            raw.get('odds') or [], first_half=first_half,
+            include_manual=getattr(settings, 'SPORTSBOOK_IMPORT_MANUAL_MARKETS', True),
+        )
 
         def goals(side: str) -> Optional[int]:
             value = (teams.get(side) or {}).get('goals')
@@ -564,7 +567,7 @@ class ApiFootballClient:
                     continue
         if snapshot is None:
             return None
-        include_manual = getattr(settings, 'SPORTSBOOK_IMPORT_MANUAL_MARKETS', False)
+        include_manual = getattr(settings, 'SPORTSBOOK_IMPORT_MANUAL_MARKETS', True)
         markets = parse_markets(list(bets_by_name.values()), include_manual=include_manual)
         return OddsSnapshot(
             external_id=snapshot.external_id, odds_home=snapshot.odds_home,
