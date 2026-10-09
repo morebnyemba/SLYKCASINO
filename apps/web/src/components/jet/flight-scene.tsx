@@ -50,6 +50,9 @@ const PLANE_SRC = '/aviator/plane.png';
 // Where the plane's tail sits in the image, as a fraction of its size — the
 // curve's tip is drawn there so the plane looks like it's pulling the line.
 const TAIL = { x: 0.1, y: 0.78 };
+// The artwork is drawn climbing ~15°; turn it most of the way level so the
+// plane flies almost horizontally, nose just a touch up, as in the original game.
+const LEVEL = 0.2;
 
 function drawPlaneImage(ctx: CanvasRenderingContext2D, img: HTMLImageElement, tipX: number, tipY: number, width: number, tilt: number) {
   const height = width * (img.naturalHeight / img.naturalWidth);
@@ -157,10 +160,13 @@ export function FlightScene({ round, rate, bettingSeconds, now, name }: {
       // Glow, easing toward the multiplier's colour band.
       const target = crashed ? [229, 5, 57] as [number, number, number] : flying ? bandColor(m) : [229, 5, 57] as [number, number, number];
       glow = glow.map((c, i) => c + (target[i] - c) * Math.min(1, dt * 2.5)) as [number, number, number];
-      const gx = flying ? w * 0.62 : w / 2, gy = flying ? h * 0.42 : h / 2;
-      const rg = ctx.createRadialGradient(gx, gy, 0, gx, gy, Math.max(w, h) * 0.75);
-      rg.addColorStop(0, `rgba(${glow.map(Math.round).join(',')},${flying ? 0.28 : 0.14})`);
-      rg.addColorStop(1, 'rgba(0,0,0,0)');
+      // A big soft orb of light in the middle of the sky, as in the original.
+      const gx = w / 2, gy = h * 0.55;
+      const rg = ctx.createRadialGradient(gx, gy, 0, gx, gy, Math.max(w, h) * 0.55);
+      const rgb = glow.map(Math.round).join(',');
+      rg.addColorStop(0, `rgba(${rgb},${flying ? 0.5 : 0.16})`);
+      rg.addColorStop(0.45, `rgba(${rgb},${flying ? 0.2 : 0.07})`);
+      rg.addColorStop(1, `rgba(${rgb},0)`);
       ctx.fillStyle = rg;
       ctx.fillRect(0, 0, w, h);
 
@@ -201,16 +207,20 @@ export function FlightScene({ round, rate, bettingSeconds, now, name }: {
         const py = (x: number) => h - ((x - 1) / (mMax - 1)) * plotH;
 
         if (!crashed) {
+          const tipX = px(elapsed), tipY = py(Math.exp(rate * elapsed));
+          // Once the plane reaches its spot it floats there, drifting gently up
+          // and down; the end of the line bends smoothly to stay on its tail.
+          const pinned = tipX >= maxTipX - 1 || tipY <= minTipY + 1;
+          const bob = pinned ? Math.sin(t / 650) * 6 : Math.sin(t / 400) * 2;
           const steps = 90;
           const trace = () => {
             ctx.beginPath();
             ctx.moveTo(px(0), py(1));
             for (let i = 1; i <= steps; i++) {
               const s = (elapsed * i) / steps;
-              ctx.lineTo(px(s), py(Math.exp(rate * s)));
+              ctx.lineTo(px(s), py(Math.exp(rate * s)) + bob * (i / steps) ** 4);
             }
           };
-          const tipX = px(elapsed), tipY = py(Math.exp(rate * elapsed));
           trace();
           ctx.lineTo(tipX, h);
           ctx.lineTo(px(0), h);
@@ -230,10 +240,8 @@ export function FlightScene({ round, rate, bettingSeconds, now, name }: {
           ctx.stroke();
           ctx.restore();
 
-
-          const bob = Math.sin(t / 260) * 3;
           if (planeReady()) {
-            drawPlaneImage(ctx, plane, tipX, tipY + bob, pw, Math.sin(t / 700) * 0.03);
+            drawPlaneImage(ctx, plane, tipX, tipY + bob, pw, LEVEL + Math.sin(t / 900) * 0.025);
           } else {
             const back = Math.max(0, elapsed - 0.3);
             const slope = Math.atan2(py(Math.exp(rate * back)) - tipY, tipX - px(back));
@@ -261,7 +269,7 @@ export function FlightScene({ round, rate, bettingSeconds, now, name }: {
             ctx.save();
             ctx.globalAlpha = 1 - away;
             if (planeReady()) {
-              drawPlaneImage(ctx, plane, fromX + away * w * 0.6, fromY - away * h * 0.6, pw, -0.12 * away);
+              drawPlaneImage(ctx, plane, fromX + away * w * 0.6, fromY - away * h * 0.6, pw, LEVEL - 0.25 * away);
             } else {
               ctx.translate(fromX + away * w * 0.5, fromY - away * h * 0.5);
               ctx.rotate(-0.35);
