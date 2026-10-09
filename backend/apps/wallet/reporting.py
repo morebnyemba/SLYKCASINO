@@ -58,6 +58,20 @@ def first_deposits(player_ids: Optional[Iterable[int]] = None) -> dict[int, date
     }
 
 
+def first_deposit_amounts(player_ids: Iterable[int]) -> dict[int, Decimal]:
+    """The amount of each player's first deposit (never-deposited players absent)."""
+    out: dict[int, Decimal] = {}
+    rows = (LedgerEntry.objects.filter(kind='deposit', wallet__player_id__in=list(player_ids))
+            .order_by('wallet__player_id', 'created_at', 'id').values_list('wallet__player_id', 'amount'))
+    for pid, amount in rows:
+        out.setdefault(pid, amount)
+    return out
+
+
+def deposit_count(player_id: int) -> int:
+    return LedgerEntry.objects.filter(kind='deposit', wallet__player_id=player_id).count()
+
+
 def _ftd_count(player_ids, start, end) -> int:
     firsts = first_deposits(player_ids)
     return sum(1 for t in firsts.values() if (start is None or t >= start) and t < end)

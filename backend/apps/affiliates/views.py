@@ -15,7 +15,7 @@ from common.timeframes import TimeframeError
 
 from . import services
 from .models import Affiliate, Commission
-from .serializers import AdminAffiliateSerializer, AffiliateSerializer, CommissionSerializer
+from .serializers import AdminAffiliateSerializer, AffiliateSerializer, CommissionSerializer, ProgrammeSerializer
 
 
 def _player_or_403(request):
@@ -38,6 +38,7 @@ class MyAffiliateView(APIView):
         if affiliate is None:
             return Response({'detail': 'not an affiliate'}, status=status.HTTP_404_NOT_FOUND)
         data = AffiliateSerializer(affiliate).data
+        data['programme'] = _public_programme()
         if affiliate.status == Affiliate.Status.ACTIVE:
             data['stats'] = services.dashboard(affiliate)
             data['commissions'] = CommissionSerializer(affiliate.commissions.all()[:50], many=True).data
@@ -85,17 +86,52 @@ class MyAffiliateAnalyticsView(APIView):
         return _analytics_response(request, affiliate)
 
 
+def _public_programme() -> dict:
+    """What affiliates (and would-be affiliates) are told about the programme."""
+    p = services.get_programme()
+    return {
+        'welcome_bonus_percent': str(p.welcome_bonus_percent), 'welcome_bonus_cap': str(p.welcome_bonus_cap),
+        'welcome_bonus_wagering': str(p.welcome_bonus_wagering), 'welcome_bonus_min_deposit': str(p.welcome_bonus_min_deposit),
+        'cpa_min_turnover_multiple': str(p.cpa_min_turnover_multiple), 'negative_carryover': p.negative_carryover,
+    }
+
+
 class TermsView(APIView):
-    """Public: the programme's default terms, for the join page."""
+    """Public: the programme's default terms (for the join page) and the
+    welcome bonus referred players get."""
     permission_classes = [AllowAny]
 
     def get(self, request):
-        from django.conf import settings
+        p = services.get_programme()
         return Response({
-            'revshare_percent': str(getattr(settings, 'AFFILIATE_DEFAULT_REVSHARE', 25)),
-            'cpa_amount': str(getattr(settings, 'AFFILIATE_DEFAULT_CPA', 0)),
-            'cpa_min_deposit': str(getattr(settings, 'AFFILIATE_DEFAULT_CPA_MIN_DEPOSIT', 20)),
+            'revshare_percent': str(p.default_revshare_percent),
+            'cpa_amount': str(p.default_cpa_amount),
+            'cpa_min_deposit': str(p.default_cpa_min_deposit),
+            'cpa_percent': str(p.default_cpa_percent),
+            'cpa_cap': str(p.default_cpa_cap),
+            'programme': _public_programme(),
         })
+
+
+class AdminProgrammeView(APIView):
+    """GET/PUT /api/admin/affiliate-programme/ — programme-wide settings:
+    referred players' welcome bonus, new affiliates' default terms, deposit
+    commission qualification and losing-month carry-over."""
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        return Response(ProgrammeSerializer(services.get_programme()).data)
+
+    def put(self, request):
+        fields = [*services.PROGRAMME_FIELDS, 'negative_carryover']
+        try:
+            programme = services.update_programme(**{f: request.data.get(f) for f in fields})
+        except (services.AffiliateError, ArithmeticError, ValueError) as exc:
+            return Response({'detail': str(exc) or 'invalid value'}, status=status.HTTP_400_BAD_REQUEST)
+        data = ProgrammeSerializer(programme).data
+        accounts_services.audit(None, 'affiliate_programme', request,
+                                **{k: str(v) for k, v in data.items() if k != 'updated_at'})
+        return Response(data)
 
 
 class ClickView(APIView):
@@ -150,7 +186,7 @@ class AdminAffiliateViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, vi
 
     @action(detail=True, methods=['post'], url_path='terms')
     def terms(self, request, pk=None):
-        fields = ('code', 'revshare_percent', 'cpa_amount', 'cpa_min_deposit', 'note')
+        fields = ('code', 'revshare_percent', 'cpa_amount', 'cpa_min_deposit', 'cpa_percent', 'cpa_cap', 'note')
         try:
             affiliate = services.update_terms(int(pk), **{f: request.data.get(f) for f in fields})
         except (services.AffiliateError, ArithmeticError, ValueError) as exc:

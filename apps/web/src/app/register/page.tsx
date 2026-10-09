@@ -9,6 +9,7 @@ import { RegisterError } from '@/lib/auth';
 import { AccountCreatedError, useAuth } from '@/lib/auth-context';
 import { getReferral, setReferral } from '@/lib/referral';
 import { Spinner } from '@slyk/ui/components/spinner';
+import { useApi } from '@/lib/use-api';
 
 /** Mirrors the backend's normalize_username: lowercase, a-z0-9_ only. */
 function normalizeUsername(raw: string) {
@@ -50,6 +51,7 @@ export default function RegisterPage() {
   const [terms, setTerms] = useState(false);
   const [refCode, setRefCode] = useState('');
   const [refOpen, setRefOpen] = useState(false);
+  const { data: welcome } = useApi<{ programme?: { welcome_bonus_percent: string; welcome_bonus_cap: string } }>('/affiliates/terms/', { public: true });
   const [errors, setErrors] = useState<Partial<Record<Field, string>>>({});
   const [formError, setFormError] = useState('');
   const [accountCreated, setAccountCreated] = useState(false);
@@ -219,6 +221,12 @@ export default function RegisterPage() {
           <FieldError id="confirm" message={errors.confirm} />
         </div>
 
+        {refCode && Number(welcome?.programme?.welcome_bonus_percent ?? 0) > 0 && (
+          <p className="rounded-lg bg-win/10 px-3 py-2 text-xs font-semibold text-win">
+            🎁 Joining with code {refCode} gets you a {Number(welcome!.programme!.welcome_bonus_percent)}% bonus on your first deposit
+            {Number(welcome!.programme!.welcome_bonus_cap) > 0 ? ` (up to $${Number(welcome!.programme!.welcome_bonus_cap)})` : ''}.
+          </p>
+        )}
         {refOpen ? (
           <div className="flex flex-col gap-1">
             <label className="text-xs font-bold text-muted-foreground" htmlFor="ref">

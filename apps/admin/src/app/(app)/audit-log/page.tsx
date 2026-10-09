@@ -29,7 +29,7 @@ const EVENT_TYPES = [
   'promo_claim', 'self_exclude', 'limit_set', 'email_verified', 'password_reset',
   'data_export', 'account_deleted', 'kyc_submitted', 'kyc_approved', 'kyc_rejected',
   'player_suspended', 'player_unsuspended', 'balance_adjusted',
-  'affiliate_applied', 'affiliate_status', 'affiliate_terms', 'affiliate_commission_paid',
+  'affiliate_applied', 'affiliate_status', 'affiliate_terms', 'affiliate_programme', 'affiliate_commission_paid',
   'theme_updated', 'identity_updated', 'feed_settings_changed',
   'payment_settings', 'cashout_settings', 'jet_settings',
 ];

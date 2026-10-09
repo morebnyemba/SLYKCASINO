@@ -32,6 +32,7 @@ class AuditLog(models.Model):
         AFFILIATE_APPLIED = 'affiliate_applied', 'Affiliate applied'
         AFFILIATE_STATUS = 'affiliate_status', 'Affiliate status changed'
         AFFILIATE_TERMS = 'affiliate_terms', 'Affiliate terms changed'
+        AFFILIATE_PROGRAMME = 'affiliate_programme', 'Affiliate programme settings changed'
         AFFILIATE_COMMISSION_PAID = 'affiliate_commission_paid', 'Affiliate commission paid'
         FEED_SETTINGS_CHANGED = 'feed_settings_changed', 'Odds feed settings changed'
         EVENT_EDITED = 'event_edited', 'Match edited by staff'

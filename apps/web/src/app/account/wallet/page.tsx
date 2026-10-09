@@ -12,6 +12,9 @@ import { LoadingState, Spinner } from '@slyk/ui/components/spinner';
 interface Wallet {
   balance?: string;
   currency?: string;
+  bonus_locked?: string;
+  wagering_remaining?: string;
+  withdrawable?: string;
 }
 
 interface LedgerEntry {
@@ -104,6 +107,12 @@ export default function WalletPage() {
           ) : (
             <p className="mt-1 text-3xl font-bold text-white">
               {balance} <span className="text-base font-normal text-white/60">{currency}</span>
+            </p>
+          )}
+          {Number(wallet?.bonus_locked ?? 0) > 0 && (
+            <p className="mt-2 text-xs text-white/75">
+              Includes <b className="text-gold">{wallet!.bonus_locked}</b> bonus — bet <b>{wallet!.wagering_remaining}</b> more to make it withdrawable.
+              You can withdraw up to <b>{wallet!.withdrawable}</b> now.
             </p>
           )}
         </div>
