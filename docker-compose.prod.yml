@@ -111,6 +111,19 @@ services:
     networks: [edge]
 
   # ---------------------------------------------------------------------------
+  # Jet crash game — the round runner (exactly one instance)
+  # ---------------------------------------------------------------------------
+  jet:
+    <<: *restart
+    image: slykcasino/django:latest
+    env_file: .env.prod
+    command: python manage.py run_jet
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis:    { condition: service_healthy }
+    networks: [edge]
+
+  # ---------------------------------------------------------------------------
   # Backend — Erlang realtime engine
   # ---------------------------------------------------------------------------
   erlang:

@@ -42,6 +42,10 @@ websocket_init(#{channel := Channel} = State) ->
 %% keepalive) is dropped.
 websocket_handle({text, _Msg}, #{channel := <<"odds", _/binary>>} = State) ->
     {ok, State};
+%% The Jet crash game is publish-only too: rounds, multipliers and cash-outs
+%% come from Django, never from another player's browser.
+websocket_handle({text, _Msg}, #{channel := <<"jet", _/binary>>} = State) ->
+    {ok, State};
 %% Inbound message from this client -> broadcast to everyone on the channel.
 websocket_handle({text, Msg}, #{channel := Channel} = State) ->
     broadcast(Channel, Msg),

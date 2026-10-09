@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { Suspense } from 'react';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { BsLayoutSidebarInset, BsXLg } from 'react-icons/bs';
-import { GiTrophy } from 'react-icons/gi';
+import { GiJetFighter, GiTrophy } from 'react-icons/gi';
 import { FaGift, FaHandshake, FaRegCommentDots, FaShieldAlt } from 'react-icons/fa';
 import type { IconType } from 'react-icons';
 import { SPORT_CATEGORIES } from '@/components/sports-sidebar';
@@ -23,6 +23,10 @@ interface NavItem {
 const SPORTS_ITEMS: NavItem[] = [
   { href: '/sportsbook?tab=live', label: 'Live now', icon: GiTrophy, live: true },
   ...SPORT_CATEGORIES.map((s) => ({ href: `/sportsbook?sport=${s.id}`, label: s.label, icon: s.icon })),
+];
+
+const GAME_ITEMS: NavItem[] = [
+  { href: '/jet', label: 'Jet', icon: GiJetFighter, live: true },
 ];
 
 const MORE_ITEMS: NavItem[] = [
@@ -141,6 +145,7 @@ function SidebarNav({ query, variant }: { query: URLSearchParams | null; variant
 
       <nav className="no-scrollbar flex-1 space-y-1 overflow-y-auto px-2 py-2">
         <Section title="Sports" items={SPORTS_ITEMS} {...sectionProps} />
+        <Section title="Games" items={GAME_ITEMS} {...sectionProps} />
         <div className="mx-3 border-t border-border" />
         <Section title="More" items={MORE_ITEMS} {...sectionProps} />
       </nav>

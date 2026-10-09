@@ -127,6 +127,23 @@ services:
     networks: [edge]
 
   # ---------------------------------------------------------------------------
+  # Jet crash game — the round runner (exactly one instance)
+  # ---------------------------------------------------------------------------
+  jet:
+    <<: *restart
+    build:
+      context: ./backend
+    command: python manage.py run_jet
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: redis://redis:6379/0
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis:    { condition: service_healthy }
+    networks: [edge]
+
+  # ---------------------------------------------------------------------------
   # Backend — Erlang realtime engine (WebSocket: live chat + betting feeds)
   # ---------------------------------------------------------------------------
   erlang:

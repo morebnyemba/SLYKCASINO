@@ -19,6 +19,7 @@ api_patterns = [
     path('', include('apps.notifications.urls')),  # notifications/
     path('', include('apps.branding.urls')),       # branding/theme/
     path('', include('apps.affiliates.urls')),     # affiliates/
+    path('', include('apps.jet.urls')),            # jet/ (crash game)
     path('health/', views.health),
     path('admin/stats/', views.admin_stats),
 ]
