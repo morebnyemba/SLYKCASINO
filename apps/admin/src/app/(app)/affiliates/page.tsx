@@ -9,6 +9,7 @@ import { authedPost, useApi } from '@/lib/use-api';
 import { LoadingState, Spinner } from '@slyk/ui/components/spinner';
 import { PageHeader } from '@/components/console/ui';
 import { AffiliateAnalyticsPanel } from '@/components/affiliates/affiliate-analytics';
+import { ProgrammeSettings } from '@/components/affiliates/programme-settings';
 
 interface Affiliate {
   id: number;
@@ -19,6 +20,8 @@ interface Affiliate {
   revshare_percent: string;
   cpa_amount: string;
   cpa_min_deposit: string;
+  cpa_percent: string;
+  cpa_cap: string;
   website: string;
   note: string;
   referrals_count: number;
@@ -74,7 +77,7 @@ function TermsEditor({ a, onSaved }: { a: Affiliate; onSaved: () => void }) {
   const { accessToken } = useAuth();
   const [form, setForm] = useState({
     code: a.code, revshare_percent: a.revshare_percent, cpa_amount: a.cpa_amount,
-    cpa_min_deposit: a.cpa_min_deposit, note: a.note,
+    cpa_min_deposit: a.cpa_min_deposit, cpa_percent: a.cpa_percent, cpa_cap: a.cpa_cap, note: a.note,
   });
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -103,8 +106,10 @@ function TermsEditor({ a, onSaved }: { a: Affiliate; onSaved: () => void }) {
       <div className="flex flex-wrap items-end gap-3">
         {field('code', 'Code', 'w-36')}
         {field('revshare_percent', 'Revenue share %')}
-        {field('cpa_amount', 'CPA amount')}
-        {field('cpa_min_deposit', 'CPA min. deposit')}
+        {field('cpa_percent', 'Deposit commission %')}
+        {field('cpa_cap', 'Deposit comm. cap')}
+        {field('cpa_amount', 'Flat CPA')}
+        {field('cpa_min_deposit', 'CPA min. deposits')}
         {field('note', 'Internal note', 'w-64')}
         <button onClick={save} disabled={busy} className="rounded-md bg-gold px-3 py-1.5 text-xs font-bold text-gold-foreground disabled:opacity-60">
           {busy ? <span className="inline-flex items-center justify-center gap-2"><Spinner size={14} />Saving…</span> : 'Save terms'}
@@ -168,6 +173,7 @@ function AffiliatesTab() {
                       <td className="px-4 py-3 font-mono text-xs">{a.code}</td>
                       <td className="px-4 py-3 text-xs">
                         {Number(a.revshare_percent)}% rev share
+                        {Number(a.cpa_percent) > 0 && <><br />{Number(a.cpa_percent)}% of 1st deposit{Number(a.cpa_cap) > 0 && ` (max ${money(a.cpa_cap)})`}</>}
                         {Number(a.cpa_amount) > 0 && <><br />{money(a.cpa_amount)} CPA ≥ {money(a.cpa_min_deposit)}</>}
                       </td>
                       <td className="px-4 py-3 tabular-nums">{a.clicks_count} / {a.referrals_count}</td>
@@ -295,12 +301,12 @@ function CommissionsTab() {
 }
 
 export default function AffiliatesPage() {
-  const [tab, setTab] = useState<'affiliates' | 'commissions'>('affiliates');
+  const [tab, setTab] = useState<'affiliates' | 'commissions' | 'programme'>('affiliates');
   return (
     <div className="space-y-6">
       <PageHeader icon={FaHandshake} eyebrow="Money" title="Affiliates" description="Approve partners, set their terms, and review and pay commissions." />
-      <Filter value={tab} onChange={(v) => setTab(v as typeof tab)} options={[['affiliates', 'Affiliates'], ['commissions', 'Commissions']]} />
-      {tab === 'affiliates' ? <AffiliatesTab /> : <CommissionsTab />}
+      <Filter value={tab} onChange={(v) => setTab(v as typeof tab)} options={[['affiliates', 'Affiliates'], ['commissions', 'Commissions'], ['programme', 'Programme settings']]} />
+      {tab === 'affiliates' ? <AffiliatesTab /> : tab === 'commissions' ? <CommissionsTab /> : <ProgrammeSettings />}
     </div>
   );
 }

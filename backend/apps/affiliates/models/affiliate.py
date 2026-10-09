@@ -20,6 +20,10 @@ class Affiliate(models.Model):
     # One-off payment per referral once their deposits reach cpa_min_deposit (0 = off).
     cpa_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     cpa_min_deposit = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    # Deposit commission: this % of a referral's FIRST deposit, paid once (with
+    # cpa_amount) when they qualify, capped per referral at cpa_cap (0 = no cap).
+    cpa_percent = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+    cpa_cap = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     website = models.CharField(max_length=200, blank=True)
     note = models.CharField(max_length=500, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -108,3 +112,66 @@ class Commission(models.Model):
 
     def __str__(self) -> str:
         return f'{self.kind} {self.amount} for {self.affiliate_id} ({self.status})'
+
+
+class AffiliateProgramme(models.Model):
+    """Programme-wide settings (one row, edited in the admin): the welcome
+    bonus referred players get on their first deposit, the terms new
+    affiliates start on, when a deposit commission qualifies, and whether a
+    losing month is carried into the next revenue share."""
+
+    # Referred players: bonus of this % of their first deposit, capped, as
+    # bonus money that must be wagered `welcome_bonus_wagering` times before
+    # it can be withdrawn. 0% = off.
+    welcome_bonus_percent = models.DecimalField(max_digits=5, decimal_places=2, default=30)
+    welcome_bonus_cap = models.DecimalField(max_digits=10, decimal_places=2, default=100)
+    welcome_bonus_wagering = models.DecimalField(max_digits=5, decimal_places=2, default=5)
+    welcome_bonus_min_deposit = models.DecimalField(max_digits=10, decimal_places=2, default=1)
+    # Terms a new affiliate starts with (each affiliate can be changed after).
+    default_revshare_percent = models.DecimalField(max_digits=5, decimal_places=2, default=25)
+    default_cpa_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    default_cpa_min_deposit = models.DecimalField(max_digits=10, decimal_places=2, default=20)
+    default_cpa_percent = models.DecimalField(max_digits=5, decimal_places=2, default=30)
+    default_cpa_cap = models.DecimalField(max_digits=10, decimal_places=2, default=100)
+    # A deposit commission is only earned once the referral has staked at
+    # least this many times their first deposit (stops deposit-and-withdraw farming).
+    cpa_min_turnover_multiple = models.DecimalField(max_digits=5, decimal_places=2, default=1)
+    # Carry a losing month (negative net revenue) into the next months'
+    # revenue share until it has been earned back.
+    negative_carryover = models.BooleanField(default=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'affiliates_programme'
+
+    @classmethod
+    def load(cls) -> 'AffiliateProgramme':
+        from django.conf import settings
+        obj, created = cls.objects.get_or_create(pk=1, defaults={
+            'default_revshare_percent': getattr(settings, 'AFFILIATE_DEFAULT_REVSHARE', 25),
+            'default_cpa_amount': getattr(settings, 'AFFILIATE_DEFAULT_CPA', 0),
+            'default_cpa_min_deposit': getattr(settings, 'AFFILIATE_DEFAULT_CPA_MIN_DEPOSIT', 20),
+        })
+        if created:
+            obj.refresh_from_db()  # in-memory defaults are ints/floats; read back proper Decimals
+        return obj
+
+
+class RevshareMonth(models.Model):
+    """One closed month of an affiliate's revenue share: the month's net
+    revenue, the losing balance carried in from before, and what is carried
+    out (negative or zero). Makes month-closing idempotent, including for
+    losing months that pay nothing."""
+
+    affiliate = models.ForeignKey(Affiliate, on_delete=models.CASCADE, related_name='revshare_months')
+    period = models.DateField()
+    ngr = models.DecimalField(max_digits=14, decimal_places=2)
+    carried_in = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    carry_out = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    commission = models.OneToOneField(Commission, null=True, blank=True, on_delete=models.SET_NULL, related_name='month')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'affiliates_revshare_month'
+        ordering = ['-period']
+        constraints = [models.UniqueConstraint(fields=['affiliate', 'period'], name='one_revshare_month_per_affiliate')]

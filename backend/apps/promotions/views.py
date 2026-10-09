@@ -63,7 +63,12 @@ class PromotionViewSet(viewsets.ModelViewSet):
     serializer_class = PromotionSerializer
 
     def get_queryset(self):
-        return services.list_promotions()
+        qs = services.list_promotions()
+        # System promotions (e.g. the referral welcome bonus) are granted
+        # automatically, never listed for players to claim.
+        if not (self.request.user and self.request.user.is_staff):
+            qs = qs.exclude(code__startswith='SYS-')
+        return qs
 
     def get_permissions(self):
         if self.action in ('create', 'update', 'partial_update', 'destroy'):

@@ -1,3 +1,3 @@
-from .affiliate import Affiliate, AffiliateClick, Commission, Referral
+from .affiliate import Affiliate, AffiliateClick, AffiliateProgramme, Commission, Referral, RevshareMonth
 
-__all__ = ['Affiliate', 'AffiliateClick', 'Commission', 'Referral']
+__all__ = ['Affiliate', 'AffiliateClick', 'AffiliateProgramme', 'Commission', 'Referral', 'RevshareMonth']

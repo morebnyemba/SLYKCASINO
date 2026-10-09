@@ -45,6 +45,12 @@ class UtilsTests(SimpleTestCase):
 class Base(TestCase):
     def setUp(self):
         self.partner = account_services.create_player(username='partner1')
+        # These tests cover the core revenue-share / flat-CPA maths; the welcome
+        # bonus, deposit-% commission, turnover rule and carry-over are switched
+        # off here and covered in test_programme.py.
+        services.update_programme(
+            welcome_bonus_percent=0, default_cpa_percent=0, cpa_min_turnover_multiple=0, negative_carryover=False,
+        )
 
     def make_affiliate(self, **terms):
         affiliate = services.apply(player_id=self.partner.id, code='PARTNER')

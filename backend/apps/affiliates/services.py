@@ -22,7 +22,7 @@ from apps.accounts import services as accounts_services
 from apps.wallet import services as wallet_services
 
 from . import helpers, utils
-from .models import Affiliate, AffiliateClick, Commission, Referral
+from .models import Affiliate, AffiliateClick, AffiliateProgramme, Commission, Referral, RevshareMonth
 from .reporting import affiliate_analytics, top_affiliates  # noqa: F401  (read-only analytics)
 
 
@@ -70,6 +70,7 @@ def apply(*, player_id: int, website: str = '', code: str = '') -> Affiliate:
     if wanted and Affiliate.objects.filter(code=wanted).exists():
         raise AffiliateError('that code is taken — try another')
     auto = _setting('AFFILIATE_AUTO_APPROVE', False)
+    programme = AffiliateProgramme.load()
     for _ in range(5):
         try:
             with transaction.atomic():
@@ -78,9 +79,11 @@ def apply(*, player_id: int, website: str = '', code: str = '') -> Affiliate:
                     code=wanted or helpers.suggested_code(player.username),
                     status=Affiliate.Status.ACTIVE if auto else Affiliate.Status.PENDING,
                     approved_at=timezone.now() if auto else None,
-                    revshare_percent=Decimal(str(_setting('AFFILIATE_DEFAULT_REVSHARE', 25))),
-                    cpa_amount=Decimal(str(_setting('AFFILIATE_DEFAULT_CPA', 0))),
-                    cpa_min_deposit=Decimal(str(_setting('AFFILIATE_DEFAULT_CPA_MIN_DEPOSIT', 20))),
+                    revshare_percent=programme.default_revshare_percent,
+                    cpa_amount=programme.default_cpa_amount,
+                    cpa_min_deposit=programme.default_cpa_min_deposit,
+                    cpa_percent=programme.default_cpa_percent,
+                    cpa_cap=programme.default_cpa_cap,
                     website=website[:200],
                 )
         except IntegrityError:
@@ -104,7 +107,8 @@ def set_status(affiliate_id: int, status: str) -> Affiliate:
 
 
 def update_terms(affiliate_id: int, **terms) -> Affiliate:
-    """Operator edits: code, revshare_percent, cpa_amount, cpa_min_deposit, note.
+    """Operator edits: code, revshare_percent, cpa_amount, cpa_min_deposit,
+    cpa_percent, cpa_cap, note.
     New rates apply to periods computed from now on."""
     affiliate = Affiliate.objects.get(pk=affiliate_id)
     fields = []
@@ -116,7 +120,8 @@ def update_terms(affiliate_id: int, **terms) -> Affiliate:
             raise AffiliateError('that code is taken')
         affiliate.code = code
         fields.append('code')
-    for name, limit in (('revshare_percent', Decimal('100')), ('cpa_amount', None), ('cpa_min_deposit', None)):
+    for name, limit in (('revshare_percent', Decimal('100')), ('cpa_amount', None), ('cpa_min_deposit', None),
+                        ('cpa_percent', Decimal('100')), ('cpa_cap', None)):
         if terms.get(name) is not None:
             value = Decimal(str(terms[name]))
             if value < 0 or (limit is not None and value > limit):
@@ -129,6 +134,66 @@ def update_terms(affiliate_id: int, **terms) -> Affiliate:
     if fields:
         affiliate.save(update_fields=fields)
     return affiliate
+
+
+# -- programme settings & the referred player's welcome bonus -------------------
+
+PROGRAMME_FIELDS = {
+    'welcome_bonus_percent': Decimal('100'), 'welcome_bonus_cap': None, 'welcome_bonus_wagering': Decimal('100'),
+    'welcome_bonus_min_deposit': None, 'default_revshare_percent': Decimal('100'), 'default_cpa_amount': None,
+    'default_cpa_min_deposit': None, 'default_cpa_percent': Decimal('100'), 'default_cpa_cap': None,
+    'cpa_min_turnover_multiple': Decimal('100'),
+}
+WELCOME_BONUS_CODE = 'SYS-REFERRAL-WELCOME'
+
+
+def get_programme() -> AffiliateProgramme:
+    return AffiliateProgramme.load()
+
+
+def update_programme(**values) -> AffiliateProgramme:
+    """Operator edits to the programme settings (any subset of fields)."""
+    programme = AffiliateProgramme.load()
+    fields = []
+    for name, limit in PROGRAMME_FIELDS.items():
+        if values.get(name) is None:
+            continue
+        value = Decimal(str(values[name]))
+        if value < 0 or (limit is not None and value > limit):
+            raise AffiliateError(f'{name} is out of range')
+        setattr(programme, name, value)
+        fields.append(name)
+    if values.get('negative_carryover') is not None:
+        programme.negative_carryover = bool(values['negative_carryover'])
+        fields.append('negative_carryover')
+    if fields:
+        programme.save(update_fields=[*fields, 'updated_at'])
+    return programme
+
+
+def on_deposit(*, player_id: int, amount: Decimal) -> None:
+    """Called by the wallet for every new deposit. A referred player's FIRST
+    deposit earns the welcome bonus (a % of it, capped), credited as bonus money
+    that must be wagered before it can be withdrawn. Once per player."""
+    if not Referral.objects.filter(player_id=player_id).exists():
+        return
+    if wallet_services.deposit_count(player_id) != 1:
+        return  # only the first deposit
+    programme = AffiliateProgramme.load()
+    bonus = utils.welcome_bonus(
+        Decimal(amount), programme.welcome_bonus_percent, programme.welcome_bonus_cap,
+        programme.welcome_bonus_min_deposit,
+    )
+    if bonus <= 0:
+        return
+    from apps.promotions import services as promotions_services
+    wagering = programme.welcome_bonus_wagering
+    promotions_services.grant_bonus(
+        player_id=player_id, amount=bonus, wagering_multiplier=wagering,
+        system_code=WELCOME_BONUS_CODE, name='Welcome bonus',
+        message=(f'{bonus} welcome bonus ({programme.welcome_bonus_percent.normalize():f}% of your first deposit) '
+                 f'is in your wallet. Bet {(bonus * wagering).quantize(Decimal("0.01"))} in total to make it withdrawable.'),
+    )
 
 
 # -- tracking ------------------------------------------------------------------
@@ -203,7 +268,11 @@ def dashboard(affiliate: Affiliate) -> dict:
         'depositors': sum(1 for s in lifetime.values() if s['deposits'] > 0),
         'active_this_month': sum(1 for s in this_month.values() if s['active']),
         'ngr_this_month': ngr,
-        'estimated_commission': utils.commission_for(ngr, affiliate.revshare_percent),
+        'carryover': carryover_balance(affiliate),
+        'estimated_commission': utils.commission_for(
+            utils.carry(ngr, carryover_balance(affiliate), AffiliateProgramme.load().negative_carryover)[0],
+            affiliate.revshare_percent,
+        ),
         'pending': (by_status.get('pending') or Decimal('0')) + (by_status.get('approved') or Decimal('0')),
         'paid': by_status.get('paid') or Decimal('0'),
         'referrals': referrals,
@@ -218,51 +287,89 @@ def _auto_pay(commission: Commission) -> Commission:
     return commission
 
 
+def carryover_balance(affiliate: Affiliate) -> Decimal:
+    """The losing balance (<= 0) the affiliate carries into the next month."""
+    last = affiliate.revshare_months.order_by('-period').first()
+    return last.carry_out if last else Decimal('0')
+
+
 def compute_revshare(affiliate: Affiliate, period: date) -> Optional[Commission]:
-    """Revenue share for one calendar month. Idempotent (one per affiliate per
-    month); a month with no positive revenue records nothing."""
+    """Revenue share for one calendar month. Idempotent (one record per
+    affiliate per month). With carry-over on, a losing month's deficit is
+    netted against the following months until earned back; otherwise a
+    losing month simply pays nothing. Returns the commission, if any."""
     period = utils.month_start(period)
+    done = affiliate.revshare_months.filter(period=period).select_related('commission').first()
+    if done is not None:
+        return done.commission
     existing = affiliate.commissions.filter(kind=Commission.Kind.REVSHARE, period=period).first()
     if existing is not None:
-        return existing
+        return existing  # closed before month records existed
     stats = referral_stats(affiliate, start=_aware(period), end=_aware(utils.next_month(period)))
     ngr = sum((s['ngr'] for s in stats.values()), Decimal('0'))
-    amount = utils.commission_for(ngr, affiliate.revshare_percent)
-    if amount <= 0:
-        return None
+    programme = AffiliateProgramme.load()
+    previous = affiliate.revshare_months.filter(period__lt=period).order_by('-period').first()
+    carried_in = previous.carry_out if previous else Decimal('0')
+    base, carry_out = utils.carry(ngr, carried_in, programme.negative_carryover)
+    amount = utils.commission_for(base, affiliate.revshare_percent)
     try:
         with transaction.atomic():
-            commission = Commission.objects.create(
-                affiliate=affiliate, kind=Commission.Kind.REVSHARE, period=period,
-                base_amount=ngr, rate=affiliate.revshare_percent, amount=amount,
-                active_players=sum(1 for s in stats.values() if s['active']),
+            commission = None
+            if amount > 0:
+                commission = Commission.objects.create(
+                    affiliate=affiliate, kind=Commission.Kind.REVSHARE, period=period,
+                    base_amount=base, rate=affiliate.revshare_percent, amount=amount,
+                    active_players=sum(1 for s in stats.values() if s['active']),
+                    note=(f'Month revenue {ngr} less {-carried_in} carried over from earlier losing months'
+                          if programme.negative_carryover and carried_in < 0 else ''),
+                )
+            RevshareMonth.objects.create(
+                affiliate=affiliate, period=period, ngr=ngr,
+                carried_in=carried_in if programme.negative_carryover else Decimal('0'),
+                carry_out=carry_out, commission=commission,
             )
     except IntegrityError:
-        return affiliate.commissions.get(kind=Commission.Kind.REVSHARE, period=period)
-    return _auto_pay(commission)
+        done = affiliate.revshare_months.filter(period=period).first()
+        return done.commission if done else None
+    return _auto_pay(commission) if commission else None
 
 
 def compute_cpa(affiliate: Affiliate) -> int:
-    """CPA for every referral whose deposits have reached the affiliate's
-    threshold (once per referral). Returns how many were created."""
-    if affiliate.cpa_amount <= 0:
+    """One-off commission per referral (flat CPA + a % of their first deposit,
+    capped) once they qualify: total deposits at least cpa_min_deposit AND
+    staked at least cpa_min_turnover_multiple × their first deposit — so a
+    deposit that's withdrawn without playing never earns anything. Once per
+    referral. Returns how many were created."""
+    if affiliate.cpa_amount <= 0 and affiliate.cpa_percent <= 0:
         return 0
     unpaid = affiliate.referrals.exclude(commissions__kind=Commission.Kind.CPA)
     ids = list(unpaid.values_list('player_id', flat=True))
     if not ids:
         return 0
     totals = wallet_services.totals_by_kind(ids)
+    firsts = wallet_services.first_deposit_amounts(ids)
+    multiple = AffiliateProgramme.load().cpa_min_turnover_multiple
     created = 0
     for referral in unpaid:
-        deposits = totals.get(referral.player_id, {}).get('deposit', Decimal('0'))
-        if deposits <= 0 or deposits < affiliate.cpa_min_deposit:
+        t = totals.get(referral.player_id, {})
+        deposits = t.get('deposit', Decimal('0'))
+        first = firsts.get(referral.player_id)
+        if first is None or deposits <= 0 or deposits < affiliate.cpa_min_deposit:
+            continue
+        turnover = -(t.get('bet_stake', Decimal('0')) + t.get('casino_debit', Decimal('0')))
+        if turnover < first * multiple:
+            continue
+        amount = utils.deposit_commission(first, affiliate.cpa_amount, affiliate.cpa_percent, affiliate.cpa_cap)
+        if amount <= 0:
             continue
         try:
             with transaction.atomic():
                 commission = Commission.objects.create(
                     affiliate=affiliate, kind=Commission.Kind.CPA, referral=referral,
-                    base_amount=deposits, rate=affiliate.cpa_amount, amount=affiliate.cpa_amount,
-                    active_players=1,
+                    base_amount=first, rate=affiliate.cpa_percent, amount=amount, active_players=1,
+                    note=f'First deposit {first}: {affiliate.cpa_percent.normalize():f}%'
+                         + (f' (cap {affiliate.cpa_cap})' if affiliate.cpa_cap > 0 else '')
+                         + (f' + {affiliate.cpa_amount} flat' if affiliate.cpa_amount > 0 else ''),
                 )
         except IntegrityError:
             continue

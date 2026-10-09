@@ -16,7 +16,7 @@ from . import helpers, utils
 from .dtos import BalanceDTO, LedgerEntryDTO
 from .models import LedgerEntry, Wallet
 from .reporting import (  # noqa: F401  (read-only analytics, re-exported)
-    earliest_entry, empty_kpis, first_deposits, ledger_kpis, ledger_series, player_breakdown, recent_activity,
+    deposit_count, earliest_entry, empty_kpis, first_deposit_amounts, first_deposits, ledger_kpis, ledger_series, player_breakdown, recent_activity,
 )
 
 
@@ -90,7 +90,21 @@ def post_entry(
     )
     wallet.balance = utils.quantize(Decimal(wallet.balance) + quantized_amount)
     wallet.save(update_fields=['balance', 'updated_at'])
+    _after_new_entry(player_id, entry)
     return entry
+
+
+def _after_new_entry(player_id: int, entry: LedgerEntry) -> None:
+    """Side effects of a NEW ledger entry (never of an idempotent replay), in
+    the same transaction: stakes count towards bonus wagering, and a deposit
+    may earn a referred player their welcome bonus. Lazy imports keep wallet
+    free of import-time dependencies on other apps."""
+    if entry.kind in ('bet_stake', 'casino_debit'):
+        from apps.promotions import services as promotions_services
+        promotions_services.record_wagering(player_id=player_id, amount=abs(entry.amount))
+    elif entry.kind == 'deposit':
+        from apps.affiliates import services as affiliate_services
+        affiliate_services.on_deposit(player_id=player_id, amount=entry.amount)
 
 
 def debit(

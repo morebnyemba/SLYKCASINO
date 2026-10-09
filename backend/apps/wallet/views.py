@@ -43,8 +43,13 @@ class WalletView(APIView):
         if err:
             return err
         dto = services.get_balance_dto(player.id)
+        from apps.promotions import services as promotions_services
+        bonus = promotions_services.bonus_status(player.id)
         return Response({
             'balance': str(dto.balance), 'currency': dto.currency,
+            # Bonus money still being wagered can be played but not withdrawn.
+            'bonus_locked': str(bonus['locked']), 'wagering_remaining': str(bonus['wagering_remaining']),
+            'withdrawable': str(max(dto.balance - bonus['locked'], Decimal('0'))),
             'deposit_methods': payments.deposit_methods(),
             'payment_methods': PaymentMethodSerializer(payments.offered_methods(), many=True).data,
             'deposit_gateway': 'paynow' if payments.gateway_enabled() else 'stub',
@@ -254,6 +259,18 @@ class WithdrawView(APIView):
                 raise ValueError('amount must be positive')
         except (InvalidOperation, ValueError) as exc:
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Bonus money can't leave until its wagering requirement is met.
+        from apps.promotions import services as promotions_services
+        bonus = promotions_services.bonus_status(player.id)
+        if bonus['locked'] > 0:
+            withdrawable = max(services.get_balance_dto(player.id).balance - bonus['locked'], Decimal('0'))
+            if amount > withdrawable:
+                return Response({
+                    'detail': f"{bonus['locked']} of your balance is bonus money — bet {bonus['wagering_remaining']} "
+                              f"more to unlock it. You can withdraw up to {withdrawable} now.",
+                    'withdrawable': str(withdrawable),
+                }, status=status.HTTP_403_FORBIDDEN)
 
         idempotency_key = request.data.get('idempotency_key') or f'withdrawal:req:{uuid.uuid4()}'
         try:

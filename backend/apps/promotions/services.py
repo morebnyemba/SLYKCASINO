@@ -81,6 +81,65 @@ def record_wagering(*, player_id: int, amount: Decimal) -> int:
     return completed
 
 
+def _system_promotion(code: str, name: str) -> Promotion:
+    """A hidden, never-claimable promotion that system-granted bonuses hang
+    their claims (and wagering) on."""
+    promo, _ = Promotion.objects.get_or_create(
+        code=code, defaults={'name': name, 'kind': Promotion.Kind.DEPOSIT, 'active': False, 'bonus_amount': 0},
+    )
+    return promo
+
+
+@transaction.atomic
+def grant_bonus(
+    *, player_id: int, amount: Decimal, wagering_multiplier: Decimal, system_code: str, name: str,
+    message: str = '',
+) -> PromotionClaim | None:
+    """Credit a system bonus of any amount (e.g. a % of a deposit) once per
+    player per programme, with a wagering requirement that keeps it from being
+    withdrawn until met. Idempotent: a second call returns the same claim."""
+    amount = utils.quantize(Decimal(amount))
+    if amount <= 0:
+        return None
+    promo = _system_promotion(system_code, name)
+    required = utils.wagering_requirement(amount, Decimal(wagering_multiplier))
+    claim, created = PromotionClaim.objects.get_or_create(
+        player_id=player_id, promotion=promo,
+        defaults={'bonus_amount': amount, 'wagering_required': required},
+    )
+    if not created:
+        return claim
+    wallet_services.credit(
+        player_id=player_id, amount=amount, kind='bonus',
+        idempotency_key=helpers.bonus_credit_key(claim.id), reference=f'claim:{claim.id}',
+    )
+    claim.bonus_credited = True
+    if required <= 0:
+        claim.status = PromotionClaim.Status.COMPLETED
+        claim.completed_at = timezone.now()
+    claim.save(update_fields=['bonus_credited', 'status', 'completed_at'])
+    from apps.notifications import services as notif_services
+    notif_services.notify(
+        player_id=player_id, kind='bonus_credited', title=f'{name} credited',
+        body=message or f'{amount} bonus has been added to your wallet.',
+    )
+    return claim
+
+
+def bonus_status(player_id: int) -> dict:
+    """Bonus money still locked by unmet wagering, and how much wagering is
+    left to unlock it all. Locked bonus can be played but not withdrawn."""
+    locked = remaining = Decimal('0')
+    for claim in PromotionClaim.objects.filter(
+        player_id=player_id, status=PromotionClaim.Status.ACTIVE, bonus_credited=True,
+    ):
+        left = claim.wagering_required - claim.wagering_progress
+        if left > 0:
+            locked += claim.bonus_amount
+            remaining += left
+    return {'locked': utils.quantize(locked), 'wagering_remaining': utils.quantize(remaining)}
+
+
 # -- tournaments / leaderboards ----------------------------------------------
 
 def list_tournaments():

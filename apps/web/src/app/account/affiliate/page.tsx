@@ -21,7 +21,17 @@ interface Commission {
   created_at: string;
 }
 
+interface Programme {
+  welcome_bonus_percent: string;
+  welcome_bonus_cap: string;
+  welcome_bonus_wagering: string;
+  welcome_bonus_min_deposit: string;
+  cpa_min_turnover_multiple: string;
+  negative_carryover: boolean;
+}
+
 interface Stats {
+  carryover: string;
   clicks_30d: number;
   clicks_total: number;
   signups: number;
@@ -40,6 +50,9 @@ interface Affiliate {
   revshare_percent: string;
   cpa_amount: string;
   cpa_min_deposit: string;
+  cpa_percent: string;
+  cpa_cap: string;
+  programme?: Programme;
   stats?: Stats;
   commissions?: Commission[];
 }
@@ -58,21 +71,44 @@ const STATUS_BADGE: Record<Commission['status'], 'default' | 'secondary' | 'dest
   pending: 'secondary', approved: 'secondary', paid: 'default', rejected: 'destructive',
 };
 
-function Terms({ a }: { a: Pick<Affiliate, 'revshare_percent' | 'cpa_amount' | 'cpa_min_deposit'> }) {
+type TermsProps = Pick<Affiliate, 'revshare_percent' | 'cpa_amount' | 'cpa_min_deposit' | 'cpa_percent' | 'cpa_cap' | 'programme'>;
+
+function Terms({ a }: { a: TermsProps }) {
+  const p = a.programme;
+  const turnover = p ? Number(p.cpa_min_turnover_multiple) : 0;
   return (
     <ul className="space-y-1.5 text-sm text-muted-foreground">
       <li><b className="text-foreground">{pct(a.revshare_percent)}</b> of the net gaming revenue of every player you refer, paid monthly.</li>
+      {Number(a.cpa_percent) > 0 && (
+        <li>
+          <b className="text-foreground">{pct(a.cpa_percent)}</b> of each referred player’s first deposit
+          {Number(a.cpa_cap) > 0 && <> (up to <b className="text-foreground">{money(a.cpa_cap)}</b> per player)</>}, paid once
+          {turnover > 0 && <> they’ve bet {turnover === 1 ? 'the amount of' : `${turnover}×`} that deposit</>}.
+        </li>
+      )}
       {Number(a.cpa_amount) > 0 && (
         <li><b className="text-foreground">{money(a.cpa_amount)}</b> for each referral who deposits {money(a.cpa_min_deposit)} or more.</li>
       )}
-      <li>Commission is paid into your wallet balance once approved. A losing month pays nothing and isn’t carried over.</li>
+      {p && Number(p.welcome_bonus_percent) > 0 && (
+        <li>
+          Your players get a <b className="text-foreground">{pct(p.welcome_bonus_percent)}</b> bonus on their first deposit
+          {Number(p.welcome_bonus_cap) > 0 && <> (up to {money(p.welcome_bonus_cap)})</>} — a reason to use your link.
+        </li>
+      )}
+      <li>
+        Commission is paid into your wallet balance once approved. When your players win overall in a month you’re paid nothing for it —
+        and nothing is ever taken from you.{' '}
+        {p?.negative_carryover
+          ? 'A losing month is carried forward and earned back from the following months before revenue share is paid again.'
+          : 'Every month starts from zero.'}
+      </li>
     </ul>
   );
 }
 
 function Apply({ onDone }: { onDone: () => void }) {
   const { accessToken } = useAuth();
-  const { data: terms } = useApi<Pick<Affiliate, 'revshare_percent' | 'cpa_amount' | 'cpa_min_deposit'>>('/affiliates/terms/', { public: true });
+  const { data: terms } = useApi<TermsProps>('/affiliates/terms/', { public: true });
   const [code, setCode] = useState('');
   const [website, setWebsite] = useState('');
   const [error, setError] = useState('');
@@ -177,7 +213,8 @@ function Dashboard({ a }: { a: Affiliate & { stats: Stats } }) {
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Stat label="This month’s revenue" value={money(s.ngr_this_month)} hint={`${s.active_this_month} active player${s.active_this_month === 1 ? '' : 's'}`} />
-        <Stat label="Estimated commission" value={money(s.estimated_commission)} hint={`${pct(a.revshare_percent)} share, paid after month end`} />
+        <Stat label="Estimated commission" value={money(s.estimated_commission)}
+          hint={Number(s.carryover) < 0 ? `after ${money(-Number(s.carryover))} still to earn back from earlier months` : `${pct(a.revshare_percent)} share, paid after month end`} />
         <Stat label="Awaiting payment" value={money(s.pending)} />
         <Stat label="Paid to your wallet" value={money(s.paid)} hint={`${s.signups} sign-ups · ${s.depositors} deposited`} />
       </div>
