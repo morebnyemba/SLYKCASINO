@@ -62,7 +62,8 @@ export function BetPanel({ slot, settings, round, bet, multiplier, loggedIn, onP
   }, [betting, round?.id, bet, queued, autoBet]);
 
   async function press() {
-    if (!loggedIn) { window.location.href = '/login'; return; }
+    // In the game frame, log in on the whole page, not inside the frame.
+    if (!loggedIn) { (window.top ?? window).location.href = '/login'; return; }
     setNote(null);
     if (bet && bet.status === 'active') {
       setBusy(true);
