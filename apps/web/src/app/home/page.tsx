@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { GiJetFighter, GiTrophy } from 'react-icons/gi';
+import { GiAirplane, GiTrophy } from 'react-icons/gi';
 import { FaShieldAlt, FaBolt, FaLock, FaHeadset } from 'react-icons/fa';
 import type { IconType } from 'react-icons';
 import { BannerSlider, type Banner } from '@/components/banner-slider';
@@ -62,7 +62,7 @@ export default async function LobbyPage() {
       <div className="grid gap-3 xl:grid-cols-[1fr_340px]">
         <BannerSlider banners={banners} />
         <div className="flex gap-3 xl:flex-col">
-          <ProductCard href="/jet" title="Jet" subtitle="Cash out before it flies away" icon={GiJetFighter} hue={340} stat="Live rounds" />
+          <ProductCard href="/aviator" title="Aviator" subtitle="Cash out before it flies away" icon={GiAirplane} hue={340} stat="Live rounds" />
           <ProductCard
             href="/sportsbook"
             title="Sports"

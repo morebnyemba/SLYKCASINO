@@ -34,7 +34,7 @@ export const NAV: NavSection[] = [
     { href: '/sportsbook/feed', label: 'Odds feed', icon: BsBroadcast },
   ] },
   { title: 'Games', items: [
-    { href: '/games/jet', label: 'Jet', icon: BsAirplane },
+    { href: '/games/jet', label: 'Aviator', icon: BsAirplane },
   ] },
   { title: 'Players', items: [
     { href: '/users', label: 'Players', icon: BsPeople, match: ['/users', '/players'] },

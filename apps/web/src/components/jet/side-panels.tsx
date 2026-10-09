@@ -16,11 +16,11 @@ export function BetsList({ bets, loggedIn }: { bets: JetBet[]; loggedIn: boolean
   );
   const total = bets.reduce((s, b) => s + Number(b.stake), 0);
   return (
-    <section className="flex min-h-0 flex-col rounded-2xl border border-white/5 bg-[#1b1530] text-white">
-      <div className="m-2 flex rounded-full bg-black/30 p-0.5 text-xs font-bold">
+    <section className="flex min-h-0 flex-col rounded-2xl border border-[#2c2d30] bg-[#1b1c1d] text-white">
+      <div className="m-2 flex rounded-full border border-[#2c2d30] bg-[#141516] p-0.5 text-xs font-bold">
         {([['all', 'All bets'], ['mine', 'My bets']] as const).map(([id, label]) => (
           <button key={id} onClick={() => setTab(id)}
-            className={`flex-1 rounded-full py-1.5 ${tab === id ? 'bg-white/15' : 'text-white/50'}`}>{label}</button>
+            className={`flex-1 rounded-full py-1.5 ${tab === id ? 'bg-[#2c2d30]' : 'text-white/60'}`}>{label}</button>
         ))}
       </div>
       {tab === 'all' ? (
@@ -36,11 +36,11 @@ export function BetsList({ bets, loggedIn }: { bets: JetBet[]; loggedIn: boolean
             {bets.length === 0 && <li className="px-2 py-6 text-center text-xs text-white/40">No bets yet this round.</li>}
             {bets.map((b) => (
               <li key={b.id} className={`grid grid-cols-[1fr_auto_auto_auto] items-center gap-x-3 rounded-lg px-2 py-1.5 text-xs ${
-                b.status === 'cashed' ? 'bg-[#22c55e]/10 ring-1 ring-[#22c55e]/30' : 'bg-black/20'
+                b.status === 'cashed' ? 'bg-[#123405] ring-1 ring-[#427f00]' : 'bg-[#101011]'
               }`}>
                 <span className="truncate font-semibold">{b.player}</span>
                 <span className="text-right tabular-nums">{money(b.stake)}</span>
-                <span className={`text-right font-bold tabular-nums ${b.cashout_multiplier ? 'text-[#a78bfa]' : 'text-white/30'}`}>
+                <span className={`text-right font-bold tabular-nums ${b.cashout_multiplier ? 'text-[#913ef8]' : 'text-white/30'}`}>
                   {b.cashout_multiplier ? fmtX(b.cashout_multiplier) : '—'}
                 </span>
                 <span className="text-right font-bold tabular-nums">{b.status === 'cashed' ? money(b.payout) : '—'}</span>
@@ -53,7 +53,7 @@ export function BetsList({ bets, loggedIn }: { bets: JetBet[]; loggedIn: boolean
           {!loggedIn && <li className="px-2 py-6 text-center text-xs text-white/40">Log in to see your bets.</li>}
           {loggedIn && (mine?.results ?? []).length === 0 && <li className="px-2 py-6 text-center text-xs text-white/40">No Jet bets yet.</li>}
           {(mine?.results ?? []).map((b) => (
-            <li key={b.id} className="grid grid-cols-[auto_1fr_auto] items-center gap-x-3 rounded-lg bg-black/20 px-2 py-1.5 text-xs">
+            <li key={b.id} className="grid grid-cols-[auto_1fr_auto] items-center gap-x-3 rounded-lg bg-[#101011] px-2 py-1.5 text-xs">
               <span className="text-white/50">{new Date(b.created_at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}</span>
               <span>{money(b.stake)}{b.cashout_multiplier ? ` · ${fmtX(b.cashout_multiplier)}` : ''}</span>
               <span className={`font-bold ${b.status === 'cashed' ? 'text-[#22c55e]' : b.status === 'lost' ? 'text-white/40' : 'text-white/70'}`}>
@@ -112,7 +112,7 @@ function FairnessModal({ roundId, settings, onClose }: { roundId: number; settin
   const matches = check && round && check.hash && Math.abs(check.crash - Number(round.crash_point)) < 0.005;
   return (
     <div className="fixed inset-0 z-[80] flex items-end justify-center bg-black/70 p-0 sm:items-center sm:p-4" onClick={onClose}>
-      <div className="w-full max-w-lg rounded-t-2xl bg-[#1b1530] p-5 text-white sm:rounded-2xl" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Fairness check">
+      <div className="w-full max-w-lg rounded-t-2xl border border-[#2c2d30] bg-[#1b1c1d] p-5 text-white sm:rounded-2xl" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Fairness check">
         <div className="mb-4 flex items-center gap-2">
           <BsShieldCheck className="text-[#22c55e]" size={18} />
           <h2 className="flex-1 font-extrabold">Round {roundId} — fairness check</h2>

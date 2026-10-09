@@ -16,6 +16,8 @@ from django.db import models
 class JetSettings(models.Model):
     """Operator settings (one row). Every limit here is shown to players."""
     enabled = models.BooleanField(default=True)
+    # The game's name as players see it (header, menus, page title).
+    display_name = models.CharField(max_length=40, default='BetBlits Aviator')
     house_edge_percent = models.DecimalField(max_digits=4, decimal_places=2, default=Decimal('3.00'))
     min_bet = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.10'))
     max_bet = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('100.00'))
