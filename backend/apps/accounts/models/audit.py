@@ -36,6 +36,7 @@ class AuditLog(models.Model):
         FEED_SETTINGS_CHANGED = 'feed_settings_changed', 'Odds feed settings changed'
         EVENT_EDITED = 'event_edited', 'Match edited by staff'
         PAYMENT_SETTINGS_CHANGED = 'payment_settings', 'Payment gateway settings changed'
+        CASHOUT_SETTINGS_CHANGED = 'cashout_settings', 'Cash-out settings changed'
 
     player_id = models.BigIntegerField(null=True, blank=True, db_index=True)
     event_type = models.CharField(max_length=30, choices=EventType.choices, db_index=True)

@@ -9,6 +9,7 @@ import {
 import { BsReceipt, BsSearch, BsTicketPerforated } from 'react-icons/bs';
 import type { IconType } from 'react-icons';
 import { useAuth } from '@/lib/auth-context';
+import { WALLET_CHANGED } from '@/components/cashout';
 import { isAuthRoute } from '@/lib/auth-routes';
 import { useApi } from '@/lib/use-api';
 import { useShell } from '@/lib/shell-context';
@@ -222,6 +223,12 @@ export function SiteHeader() {
   useEffect(() => {
     if (slipStatus && /placed|in-play/i.test(slipStatus)) refetchWallet();
   }, [slipStatus, refetchWallet]);
+  // A cash-out credits the wallet from elsewhere on the page.
+  useEffect(() => {
+    const onChange = () => refetchWallet();
+    window.addEventListener(WALLET_CHANGED, onChange);
+    return () => window.removeEventListener(WALLET_CHANGED, onChange);
+  }, [refetchWallet]);
   const { data: notifications } = useApi<Notification[]>(user ? '/notifications/' : null);
   const unreadCount = notifications?.filter((n) => !n.read).length ?? 0;
 
