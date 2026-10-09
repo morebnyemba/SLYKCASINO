@@ -1,11 +1,14 @@
 'use client';
 
 /**
- * Game sounds and background music, synthesised with Web Audio — no audio
- * files to load or license. Browsers only allow sound after the player
- * interacts with the page, so the audio context is created (or resumed) on
- * the first tap/click. Sound and music each have their own on/off switch,
- * remembered per browser.
+ * Game sounds and background music. By default everything is synthesised
+ * with Web Audio (nothing to load or license). Licensed audio files can be
+ * dropped into public/aviator/sounds/ and are used instead when present:
+ *   music.mp3 (looped) · flying.mp3 (looped in flight) · takeoff.mp3
+ *   flew-away.mp3 · cashout.mp3 · bet.mp3
+ * Browsers only allow sound after the player interacts with the page, so the
+ * audio context is created (or resumed) on the first tap/click. Sound and
+ * music each have their own on/off switch, remembered per browser.
  */
 
 const KEY = 'slyk:aviator-sound';
@@ -17,6 +20,53 @@ let musicBus: GainNode | null = null;
 let enabled = true;
 let musicOn = true;
 let engine: { stop: () => void; set: (m: number) => void } | null = null;
+
+const CLIP_FILES = {
+  music: 'music', flying: 'flying', takeoff: 'takeoff', crash: 'flew-away', cashout: 'cashout', bet: 'bet',
+} as const;
+type Clip = keyof typeof CLIP_FILES;
+const clips: Partial<Record<Clip, AudioBuffer | null>> = {};
+let clipsRequested = false;
+
+/** Fetch any audio files the site provides; missing ones fall back to the synth. */
+function loadClips(c: AudioContext) {
+  if (clipsRequested) return;
+  clipsRequested = true;
+  void fetch('/aviator/sounds')
+    .then((r) => (r.ok ? r.json() : { files: [] }))
+    .then(({ files }: { files: string[] }) => {
+      for (const [key, file] of Object.entries(CLIP_FILES) as [Clip, string][]) {
+        if (files.includes(`${file}.mp3`)) loadClip(c, key, file);
+      }
+    })
+    .catch(() => { /* no files: synth only */ });
+}
+
+function loadClip(c: AudioContext, key: Clip, file: string) {
+  fetch(`/aviator/sounds/${file}.mp3`)
+    .then((r) => (r.ok ? r.arrayBuffer() : null))
+    .then((data) => (data ? c.decodeAudioData(data) : null))
+    .then((buf) => {
+      clips[key] = buf;
+      // The music file arrived after the synth loop started: swap over.
+      if (key === 'music' && buf && music?.kind === 'synth') { stopMusic(); startMusic(); }
+    })
+    .catch(() => { clips[key] = null; });
+}
+
+function playClip(key: Clip, opts: { loop?: boolean; volume?: number; out?: AudioNode } = {}) {
+  const c = ctx;
+  const buf = clips[key];
+  if (!c || !buf || !master) return null;
+  const src = c.createBufferSource();
+  src.buffer = buf;
+  src.loop = !!opts.loop;
+  const g = c.createGain();
+  g.gain.value = opts.volume ?? 1;
+  src.connect(g).connect(opts.out ?? master);
+  src.start();
+  return { src, gain: g };
+}
 
 try {
   enabled = window.localStorage.getItem(KEY) !== 'off';
@@ -43,6 +93,7 @@ function ac(): AudioContext | null {
 export function unlockSound() {
   const c = ac();
   if (!c) return;
+  loadClips(c);
   if (c.state === 'suspended') void c.resume().then(() => { if (musicOn) startMusic(); });
   else if (musicOn) startMusic();
 }
@@ -100,80 +151,110 @@ function tone(freq: number, at: number, dur: number, vol: number, type: Oscillat
   osc.stop(t + dur + 0.02);
 }
 
-/** Bet placed / cancelled: a soft click. */
+/** Bet placed / cancelled: a short wooden click. */
 export function playBet() {
-  tone(880, 0, 0.08, 0.12, 'triangle');
-  tone(1320, 0.04, 0.1, 0.08, 'triangle');
+  if (!ready()) return;
+  if (clips.bet) { playClip('bet'); return; }
+  tone(1200, 0, 0.05, 0.14, 'square');
+  tone(1800, 0.025, 0.06, 0.08, 'triangle');
 }
 
-/** Cash-out: a rising coin chime. */
+/** Cash-out: a bright "cha-ching" with a little shimmer. */
 export function playCashout() {
-  tone(1318.5, 0, 0.25, 0.18);
-  tone(1760, 0.08, 0.35, 0.16);
-  tone(2637, 0.16, 0.5, 0.1);
+  if (!ready()) return;
+  if (clips.cashout) { playClip('cashout'); return; }
+  tone(1567.98, 0, 0.12, 0.16, 'square');
+  tone(2093, 0.07, 0.4, 0.16, 'square');
+  tone(3136, 0.07, 0.6, 0.07);
+  tone(4186, 0.12, 0.7, 0.05);
 }
 
 /** Last seconds of the countdown. */
 export function playTick() {
-  tone(660, 0, 0.06, 0.06, 'square');
+  tone(980, 0, 0.04, 0.05, 'triangle');
 }
 
-/** Take-off whoosh, then the engine hum that climbs with the multiplier. */
+/**
+ * Take-off, then the propeller drone: a low buzz chopped by the propeller
+ * that revs up as the multiplier climbs.
+ */
 export function startEngine() {
   const c = ready();
   if (!c || !master || engine) return;
   const t = c.currentTime;
 
-  // Whoosh: noise swept through a rising band-pass.
-  const whoosh = c.createBufferSource();
-  whoosh.buffer = noiseBuffer(c, 1.2);
-  const bp = c.createBiquadFilter();
-  bp.type = 'bandpass'; bp.Q.value = 1.2;
-  bp.frequency.setValueAtTime(300, t);
-  bp.frequency.exponentialRampToValueAtTime(2400, t + 1.1);
-  const wg = c.createGain();
-  wg.gain.setValueAtTime(0.0001, t);
-  wg.gain.exponentialRampToValueAtTime(0.22, t + 0.25);
-  wg.gain.exponentialRampToValueAtTime(0.0001, t + 1.2);
-  whoosh.connect(bp).connect(wg).connect(master);
-  whoosh.start(t);
+  if (clips.takeoff) playClip('takeoff');
+  const file = clips.flying ? playClip('flying', { loop: true, volume: 0.0001 }) : null;
+  if (file) {
+    file.gain.gain.exponentialRampToValueAtTime(0.9, t + 0.8);
+    engine = {
+      set(m: number) { file.src.playbackRate.setTargetAtTime(1 + Math.min(Math.log(Math.max(1, m)), 3) * 0.08, c.currentTime, 0.3); },
+      stop() { const now = c.currentTime; file.gain.gain.setTargetAtTime(0.0001, now, 0.06); file.src.stop(now + 0.4); },
+    };
+    return;
+  }
 
-  // Engine: two detuned saws through a low-pass, plus a little wind noise.
+  if (!clips.takeoff) {
+    // Rev-up: the drone's pitch swings up from idle.
+    const rev = c.createOscillator();
+    const rg = c.createGain();
+    rev.type = 'sawtooth';
+    rev.frequency.setValueAtTime(40, t);
+    rev.frequency.exponentialRampToValueAtTime(95, t + 0.9);
+    rg.gain.setValueAtTime(0.0001, t);
+    rg.gain.exponentialRampToValueAtTime(0.06, t + 0.2);
+    rg.gain.exponentialRampToValueAtTime(0.0001, t + 1);
+    const rlp = c.createBiquadFilter();
+    rlp.type = 'lowpass'; rlp.frequency.value = 900;
+    rev.connect(rlp).connect(rg).connect(master);
+    rev.start(t); rev.stop(t + 1.05);
+  }
+
+  // Drone: saw + square an octave apart, through a low-pass, amplitude-chopped
+  // by a fast LFO (the propeller), with a little air noise on top.
   const out = c.createGain();
   out.gain.setValueAtTime(0.0001, t);
-  out.gain.exponentialRampToValueAtTime(0.07, t + 0.6);
+  out.gain.exponentialRampToValueAtTime(0.085, t + 0.7);
   out.connect(master);
+  const chop = c.createGain();
+  chop.gain.value = 0.7;
+  const lfo = c.createOscillator();
+  lfo.frequency.value = 24;
+  const lfoDepth = c.createGain();
+  lfoDepth.gain.value = 0.3;
+  lfo.connect(lfoDepth).connect(chop.gain);
+  chop.connect(out);
   const lp = c.createBiquadFilter();
-  lp.type = 'lowpass'; lp.frequency.value = 500; lp.Q.value = 2;
-  lp.connect(out);
-  const oscs = [0, 7].map((detune) => {
-    const o = c.createOscillator();
-    o.type = 'sawtooth'; o.frequency.value = 80; o.detune.value = detune;
-    o.connect(lp); o.start(t);
-    return o;
-  });
-  const wind = c.createBufferSource();
-  wind.buffer = noiseBuffer(c, 2); wind.loop = true;
-  const wf = c.createBiquadFilter();
-  wf.type = 'highpass'; wf.frequency.value = 1500;
-  const wgain = c.createGain(); wgain.gain.value = 0.25;
-  wind.connect(wf).connect(wgain).connect(out);
-  wind.start(t);
+  lp.type = 'lowpass'; lp.frequency.value = 650; lp.Q.value = 3;
+  lp.connect(chop);
+  const saw = c.createOscillator();
+  saw.type = 'sawtooth'; saw.frequency.value = 95;
+  const sq = c.createOscillator();
+  sq.type = 'square'; sq.frequency.value = 47.5;
+  const sqg = c.createGain(); sqg.gain.value = 0.5;
+  saw.connect(lp); sq.connect(sqg).connect(lp);
+  const air = c.createBufferSource();
+  air.buffer = noiseBuffer(c, 2); air.loop = true;
+  const af = c.createBiquadFilter();
+  af.type = 'bandpass'; af.frequency.value = 1800; af.Q.value = 0.6;
+  const ag = c.createGain(); ag.gain.value = 0.18;
+  air.connect(af).connect(ag).connect(out);
+  [lfo, saw, sq, air].forEach((n) => n.start(t));
 
   engine = {
     set(m: number) {
       const now = c.currentTime;
-      const lift = Math.log(Math.max(1, m)); // 0 at 1x, ~2.3 at 10x
-      const f = 80 + Math.min(lift, 4) * 45;
-      oscs.forEach((o) => o.frequency.setTargetAtTime(f, now, 0.2));
-      lp.frequency.setTargetAtTime(500 + Math.min(lift, 4) * 450, now, 0.2);
+      const lift = Math.min(Math.log(Math.max(1, m)), 4); // 0 at 1x, ~2.3 at 10x
+      saw.frequency.setTargetAtTime(95 + lift * 38, now, 0.25);
+      sq.frequency.setTargetAtTime((95 + lift * 38) / 2, now, 0.25);
+      lfo.frequency.setTargetAtTime(24 + lift * 9, now, 0.25);
+      lp.frequency.setTargetAtTime(650 + lift * 420, now, 0.25);
     },
     stop() {
       const now = c.currentTime;
       out.gain.cancelScheduledValues(now);
-      out.gain.setTargetAtTime(0.0001, now, 0.08);
-      oscs.forEach((o) => o.stop(now + 0.5));
-      wind.stop(now + 0.5);
+      out.gain.setTargetAtTime(0.0001, now, 0.06);
+      [lfo, saw, sq, air].forEach((n) => n.stop(now + 0.4));
     },
   };
 }
@@ -185,33 +266,41 @@ export function stopEngine() {
   engine = null;
 }
 
-/** Flew away: the engine cuts and the plane zooms off with a falling whoosh. */
+/** Flew away: the plane zooms past and away — a buzz that drops in pitch (Doppler) under a whoosh. */
 export function playCrash() {
   stopEngine();
   const c = ready();
   if (!c || !master) return;
+  if (clips.crash) { playClip('crash'); return; }
   const t = c.currentTime;
-  const src = c.createBufferSource();
-  src.buffer = noiseBuffer(c, 1);
-  const bp = c.createBiquadFilter();
-  bp.type = 'bandpass'; bp.Q.value = 2;
-  bp.frequency.setValueAtTime(2600, t);
-  bp.frequency.exponentialRampToValueAtTime(200, t + 0.9);
-  const g = c.createGain();
-  g.gain.setValueAtTime(0.3, t);
-  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.95);
-  src.connect(bp).connect(g).connect(master);
-  src.start(t);
 
   const o = c.createOscillator();
-  o.type = 'triangle';
-  o.frequency.setValueAtTime(520, t);
-  o.frequency.exponentialRampToValueAtTime(90, t + 0.7);
+  o.type = 'sawtooth';
+  o.frequency.setValueAtTime(260, t);
+  o.frequency.exponentialRampToValueAtTime(70, t + 0.9);
+  const lp = c.createBiquadFilter();
+  lp.type = 'lowpass';
+  lp.frequency.setValueAtTime(2200, t);
+  lp.frequency.exponentialRampToValueAtTime(300, t + 0.9);
   const og = c.createGain();
-  og.gain.setValueAtTime(0.12, t);
-  og.gain.exponentialRampToValueAtTime(0.0001, t + 0.75);
-  o.connect(og).connect(master);
-  o.start(t); o.stop(t + 0.8);
+  og.gain.setValueAtTime(0.0001, t);
+  og.gain.exponentialRampToValueAtTime(0.14, t + 0.06);
+  og.gain.exponentialRampToValueAtTime(0.0001, t + 1);
+  o.connect(lp).connect(og).connect(master);
+  o.start(t); o.stop(t + 1.05);
+
+  const src = c.createBufferSource();
+  src.buffer = noiseBuffer(c, 2);
+  const bp = c.createBiquadFilter();
+  bp.type = 'bandpass'; bp.Q.value = 1.5;
+  bp.frequency.setValueAtTime(3000, t);
+  bp.frequency.exponentialRampToValueAtTime(400, t + 0.8);
+  const g = c.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.26, t + 0.05);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.85);
+  src.connect(bp).connect(g).connect(master);
+  src.start(t, 0, 0.9);
 }
 
 /* ------------------------------------------------------------------------ */
@@ -219,30 +308,34 @@ export function playCrash() {
 /* scheduled a little ahead of time so it stays in time.                    */
 /* ------------------------------------------------------------------------ */
 
-const MUSIC_VOLUME = 0.55;
-const BPM = 100;
+const MUSIC_VOLUME = 0.5;
+const BPM = 118;
 const STEP = 60 / BPM / 2; // eighth notes
-// Am9 – Fmaj7 – Cadd9 – G6, as MIDI notes.
-const CHORDS = [
-  [57, 60, 64, 67, 71],
-  [53, 57, 60, 64, 67],
-  [48, 52, 55, 59, 62],
-  [55, 59, 62, 64, 67],
+// I–V–vi–IV in C: bouncy and bright, like an arcade game's lobby loop.
+const ROOTS = [48, 43, 45, 41];
+const STABS = [[60, 64, 67], [59, 62, 67], [60, 64, 69], [60, 65, 69]];
+const LEAD: (number | null)[][] = [
+  [72, null, 76, 79, 76, null, 74, 72],
+  [71, null, 74, 79, 74, null, 71, 67],
+  [69, null, 72, 76, 72, null, 74, 76],
+  [77, 76, 74, 72, 69, null, 72, null],
 ];
-const ARP = [0, 2, 4, 2, 1, 3, 4, 3];
 const midi = (n: number) => 440 * 2 ** ((n - 69) / 12);
 
-let music: { timer: number; next: number; step: number; filter: BiquadFilterNode } | null = null;
+let music:
+  | { kind: 'synth'; timer: number; next: number; step: number; filter: BiquadFilterNode }
+  | { kind: 'file'; src: AudioBufferSourceNode; filter: BiquadFilterNode }
+  | null = null;
 let energy = 0; // 0 waiting, 1 flying — opens the filter and adds drive
 
 /** Lift the music while the plane is in the air (0–1). */
 export function setMusicEnergy(v: number) {
   energy = Math.max(0, Math.min(1, v));
-  if (music && ctx) music.filter.frequency.setTargetAtTime(1400 + energy * 2600, ctx.currentTime, 0.6);
+  if (music?.kind === 'synth' && ctx) music.filter.frequency.setTargetAtTime(2200 + energy * 3800, ctx.currentTime, 0.6);
 }
 
 function note(c: AudioContext, out: AudioNode, freq: number, at: number, dur: number, vol: number,
-  type: OscillatorType, attack = 0.01, detune = 0) {
+  type: OscillatorType, attack = 0.005, detune = 0) {
   const o = c.createOscillator();
   const g = c.createGain();
   o.type = type; o.frequency.value = freq; o.detune.value = detune;
@@ -253,58 +346,68 @@ function note(c: AudioContext, out: AudioNode, freq: number, at: number, dur: nu
   o.start(at); o.stop(at + dur + 0.05);
 }
 
-function scheduleStep(c: AudioContext, out: AudioNode, step: number, at: number) {
-  const bar = Math.floor(step / 8) % CHORDS.length;
-  const beat = step % 8;
-  const chord = CHORDS[bar];
+function hit(c: AudioContext, out: AudioNode, at: number, freq: number, q: number, vol: number, dur: number, type: BiquadFilterType = 'bandpass') {
+  const src = c.createBufferSource();
+  src.buffer = noiseBuffer(c, 2);
+  const f = c.createBiquadFilter();
+  f.type = type; f.frequency.value = freq; f.Q.value = q;
+  const g = c.createGain();
+  g.gain.setValueAtTime(vol, at);
+  g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+  src.connect(f).connect(g).connect(out);
+  src.start(at, Math.random() * 1.5, dur + 0.02);
+}
 
-  // Pad: the chord, held for the bar, softly detuned.
-  if (beat === 0) {
-    for (const n of chord.slice(0, 4)) {
-      note(c, out, midi(n), at, STEP * 8.6, 0.022, 'sawtooth', 0.5, -6);
-      note(c, out, midi(n), at, STEP * 8.6, 0.022, 'sawtooth', 0.5, 6);
-    }
-  }
-  // Arpeggio an octave up.
-  note(c, out, midi(chord[ARP[beat]] + 12), at, STEP * 1.8, 0.05 + energy * 0.02, 'triangle');
-  // Bass on beats 1 and 3, a push before the bar line.
-  if (beat === 0 || beat === 4 || beat === 7) note(c, out, midi(chord[0] - 24), at, STEP * (beat === 7 ? 0.9 : 2.5), 0.16, 'sine', 0.02);
-  // Soft kick and hats.
+function scheduleStep(c: AudioContext, out: AudioNode, step: number, at: number) {
+  const bar = Math.floor(step / 8) % ROOTS.length;
+  const beat = step % 8;
+  const root = ROOTS[bar];
+
+  // Bouncy bass: root on the beat, octave on the "and".
+  note(c, out, midi(beat % 2 === 0 ? root : root + 12), at, STEP * 0.9, 0.17, 'triangle');
+  // Off-beat chord stabs.
+  if (beat % 2 === 1) for (const n of STABS[bar]) note(c, out, midi(n), at, STEP * 0.7, 0.03, 'sawtooth', 0.005, beat === 3 ? 4 : -4);
+  // Plucky lead melody (comes in fuller while flying).
+  const lead = LEAD[bar][beat];
+  if (lead !== null) note(c, out, midi(lead), at, STEP * 1.1, 0.045 + energy * 0.02, 'square');
+  // Kick on 1 and 3, clap on 2 and 4, hats on every off-beat.
   if (beat === 0 || beat === 4) {
     const o = c.createOscillator();
     const g = c.createGain();
-    o.frequency.setValueAtTime(130, at);
-    o.frequency.exponentialRampToValueAtTime(42, at + 0.18);
-    g.gain.setValueAtTime(0.22, at);
-    g.gain.exponentialRampToValueAtTime(0.0001, at + 0.25);
+    o.frequency.setValueAtTime(150, at);
+    o.frequency.exponentialRampToValueAtTime(45, at + 0.15);
+    g.gain.setValueAtTime(0.3, at);
+    g.gain.exponentialRampToValueAtTime(0.0001, at + 0.22);
     o.connect(g).connect(out);
-    o.start(at); o.stop(at + 0.3);
+    o.start(at); o.stop(at + 0.25);
   }
-  if (beat % 2 === 1 || energy > 0.5) {
-    const src = c.createBufferSource();
-    src.buffer = noiseBuffer(c, 2);
-    const hp = c.createBiquadFilter();
-    hp.type = 'highpass'; hp.frequency.value = 7000;
-    const g = c.createGain();
-    g.gain.setValueAtTime(beat % 2 === 1 ? 0.035 : 0.018, at);
-    g.gain.exponentialRampToValueAtTime(0.0001, at + 0.05);
-    src.connect(hp).connect(g).connect(out);
-    src.start(at, Math.random() * 1.5, 0.06);
-  }
+  if (beat === 2 || beat === 6) hit(c, out, at, 1400, 0.9, 0.13, 0.14);
+  if (beat % 2 === 1) hit(c, out, at, 8000, 0.7, 0.05, 0.04, 'highpass');
+  else if (energy > 0.5) hit(c, out, at, 8000, 0.7, 0.025, 0.03, 'highpass');
 }
 
 export function startMusic() {
   const c = ac();
   if (!c || !musicBus || music || c.state !== 'running') return;
   const filter = c.createBiquadFilter();
-  filter.type = 'lowpass'; filter.frequency.value = 1400 + energy * 2600; filter.Q.value = 0.7;
+  filter.type = 'lowpass'; filter.Q.value = 0.7;
   filter.connect(musicBus);
-  const m = { timer: 0, next: c.currentTime + 0.1, step: 0, filter };
+  if (clips.music) {
+    filter.frequency.value = 20000;
+    const src = c.createBufferSource();
+    src.buffer = clips.music; src.loop = true;
+    src.connect(filter);
+    src.start();
+    music = { kind: 'file', src, filter };
+    return;
+  }
+  filter.frequency.value = 2200 + energy * 3800;
+  const m = { kind: 'synth' as const, timer: 0, next: c.currentTime + 0.1, step: 0, filter };
   m.timer = window.setInterval(() => {
     while (m.next < c.currentTime + 0.2) {
       scheduleStep(c, filter, m.step, m.next);
       m.next += STEP;
-      m.step = (m.step + 1) % (8 * CHORDS.length);
+      m.step = (m.step + 1) % (8 * ROOTS.length);
     }
   }, 50);
   music = m;
@@ -312,8 +415,9 @@ export function startMusic() {
 
 export function stopMusic() {
   if (!music) return;
-  window.clearInterval(music.timer);
   const f = music.filter;
+  if (music.kind === 'synth') window.clearInterval(music.timer);
+  else music.src.stop(ctx ? ctx.currentTime + 1.5 : 0);
   window.setTimeout(() => f.disconnect(), 3000);
   music = null;
 }
