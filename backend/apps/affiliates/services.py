@@ -23,6 +23,7 @@ from apps.wallet import services as wallet_services
 
 from . import helpers, utils
 from .models import Affiliate, AffiliateClick, Commission, Referral
+from .reporting import affiliate_analytics, top_affiliates  # noqa: F401  (read-only analytics)
 
 
 class AffiliateError(ValueError):

@@ -8,6 +8,7 @@ import { useAuth } from '@/lib/auth-context';
 import { authedPost, useApi } from '@/lib/use-api';
 import { LoadingState, Spinner } from '@slyk/ui/components/spinner';
 import { PageHeader } from '@/components/console/ui';
+import { AffiliateAnalyticsPanel } from '@/components/affiliates/affiliate-analytics';
 
 interface Affiliate {
   id: number;
@@ -120,6 +121,7 @@ function AffiliatesTab() {
   const [status, setStatus] = useState('pending');
   const { data, loading, refetch } = useApi<Page<Affiliate>>(`/admin/affiliates/?status=${status}&page_size=100`);
   const [open, setOpen] = useState<number | null>(null);
+  const [stats, setStats] = useState<number | null>(null);
   const [error, setError] = useState('');
   const rows = rowsOf(data);
 
@@ -176,10 +178,16 @@ function AffiliatesTab() {
                           {a.status === 'pending' && action('Reject', () => setAffiliateStatus(a.id, 'rejected'), 'text-red-500')}
                           {a.status === 'active' && action('Suspend', () => setAffiliateStatus(a.id, 'suspended'), 'text-red-500')}
                           {(a.status === 'suspended' || a.status === 'rejected') && action('Activate', () => setAffiliateStatus(a.id, 'active'))}
+                          {action(stats === a.id ? 'Hide analytics' : 'Analytics', () => setStats(stats === a.id ? null : a.id))}
                           {action(open === a.id ? 'Close' : 'Terms', () => setOpen(open === a.id ? null : a.id))}
                         </div>
                       </td>
                     </tr>
+                    {stats === a.id && (
+                      <tr className="border-b border-border">
+                        <td colSpan={6} className="p-0"><AffiliateAnalyticsPanel id={a.id} /></td>
+                      </tr>
+                    )}
                     {open === a.id && (
                       <tr className="border-b border-border">
                         <td colSpan={6} className="p-0"><TermsEditor a={a} onSaved={() => { setOpen(null); refetch(); }} /></td>

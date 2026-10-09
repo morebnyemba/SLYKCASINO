@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useEffect, useState } from 'react';
 import type { IconType } from 'react-icons';
 import {
   BsAirplane, BsArrowRight, BsBroadcast, BsCalendar2Week, BsCashCoin, BsCashStack, BsDiagram3, BsGraphUpArrow, BsGrid1X2,
@@ -9,6 +10,7 @@ import {
 import { RealtimeFeed } from '@/components/realtime-feed';
 import { Badge, Panel, PageHeader, StatTile, cx, money } from '@/components/console/ui';
 import { useApi } from '@/lib/use-api';
+import { LiveIndicator, usePolling } from '@slyk/ui/components/analytics';
 
 interface Stats {
   today?: { deposits: string; withdrawals: string; stakes: string; payouts: string; ggr: string; bonuses: string; new_players: number };
@@ -80,8 +82,13 @@ function QueueRow({ icon: Icon, label, count, href, hint }: {
 }
 
 export default function DashboardPage() {
-  const { data: s, loading } = useApi<Stats>('/admin/stats/');
-  const { data: aviator } = useApi<{ today: { ggr: string; rounds: number; bets: number }; players_today: number }>('/admin/jet/stats/');
+  const { data: s, loading: fetching, refetch } = useApi<Stats>('/admin/stats/');
+  const { data: aviator, refetch: refetchAviator } = useApi<{ today: { ggr: string; rounds: number; bets: number }; players_today: number }>('/admin/jet/stats/');
+  // Live: refresh every 10 seconds while the tab is open (tiles keep their values meanwhile).
+  const loading = fetching && !s;
+  const [updatedAt, setUpdatedAt] = useState<number | null>(null);
+  usePolling(() => { refetch(); refetchAviator(); }, 10000, [refetch, refetchAviator]);
+  useEffect(() => { if (s) setUpdatedAt(Date.now()); }, [s]);
   const t = s?.today;
   const q = s?.queues;
   const sb = s?.sportsbook;
@@ -95,7 +102,10 @@ export default function DashboardPage() {
         eyebrow={date}
         title="Operations dashboard"
         description="Today's money, what needs a person, and the sportsbook at a glance."
-        actions={attention > 0 ? <Badge tone="gold" dot>{attention} item{attention === 1 ? ' needs' : 's need'} attention</Badge> : <Badge tone="green" dot>All queues clear</Badge>}
+        actions={<div className="flex flex-wrap items-center gap-3">
+          <LiveIndicator updatedAt={updatedAt} intervalMs={10000} />
+          {attention > 0 ? <Badge tone="gold" dot>{attention} item{attention === 1 ? ' needs' : 's need'} attention</Badge> : <Badge tone="green" dot>All queues clear</Badge>}
+        </div>}
       />
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-6">

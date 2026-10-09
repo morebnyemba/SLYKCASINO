@@ -7,7 +7,7 @@ import type { IconType } from 'react-icons';
 import {
   BsActivity, BsBroadcast, BsCalendar2Week, BsCashStack, BsChatDots, BsClockHistory, BsGift, BsGrid1X2,
   BsImages, BsList, BsMoonStars, BsPalette, BsPeople, BsPersonBadge, BsBoxArrowRight, BsSun, BsTicketPerforated,
-  BsTrophy, BsXLg, BsDiagram3, BsDatabase, BsCreditCard2Front, BsAirplane,
+  BsTrophy, BsXLg, BsDiagram3, BsDatabase, BsCreditCard2Front, BsAirplane, BsPieChart,
 } from 'react-icons/bs';
 import { GiPerspectiveDiceSixFacesRandom } from 'react-icons/gi';
 import { useAuth } from '@/lib/auth-context';
@@ -25,6 +25,7 @@ interface NavSection { title: string; items: NavItem[] }
 export const NAV: NavSection[] = [
   { title: 'Operations', items: [
     { href: '/', label: 'Dashboard', icon: BsGrid1X2 },
+    { href: '/analytics', label: 'Analytics', icon: BsPieChart },
     { href: '/livechat', label: 'Live chat', icon: BsChatDots },
   ] },
   { title: 'Sportsbook', items: [

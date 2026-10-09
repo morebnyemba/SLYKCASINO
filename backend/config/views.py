@@ -101,3 +101,89 @@ def admin_stats(request):
         },
         'week': [{'day': d.isoformat(), 'deposits': str(v['deposits']), 'ggr': str(v['ggr'])} for d, v in days.items()],
     })
+
+
+@api_view(['GET'])
+@permission_classes([IsAdminUser])
+def admin_analytics(request):
+    """GET /api/admin/analytics/?frame=…[&start=&end=] — platform analytics for
+    any timeframe (live hour … all time, or a custom range): money and play
+    KPIs, the sportsbook / casino split, signups and first deposits, a chart
+    series, top affiliates, and what is happening right now. Polled by the
+    admin for a live view; every figure comes straight from the ledger."""
+    from collections import defaultdict
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from apps.accounts import services as accounts_services
+    from apps.affiliates import services as affiliate_services
+    from apps.affiliates.models import Referral
+    from apps.jet.models import JetBet, JetRound
+    from apps.sportsbook.models import BetSlip, Event
+    from apps.sportsbook.services import LIVE_STATUSES
+    from apps.wallet import services as wallet_services
+    from common import timeframes
+
+    q = request.query_params
+    now = timezone.now()
+    earliest = min(
+        [t for t in (wallet_services.earliest_entry(), accounts_services.first_signup_at()) if t is not None],
+        default=None,
+    )
+    try:
+        window = timeframes.resolve(q.get('frame') or 'today', start=q.get('start'), end=q.get('end'),
+                                    now=now, earliest=earliest)
+    except timeframes.TimeframeError as exc:
+        return Response({'detail': str(exc)}, status=400)
+    s, e = window.start, window.end
+
+    kpis = wallet_services.ledger_kpis(None, s, e)
+    signup_times = accounts_services.signup_times(start=s, end=e)
+    kpis['signups'] = len(signup_times)
+    kpis['ftd_rate'] = f"{kpis['ftds'] / len(signup_times) * 100:.1f}" if signup_times else None
+    referred = list(Referral.objects.values_list('player_id', flat=True))
+    aff = wallet_services.ledger_kpis(referred, s, e) if referred else wallet_services.empty_kpis()
+    kpis['affiliate'] = {
+        'deposits': aff['deposits'], 'ngr': aff['ngr'], 'active_players': aff['active_players'],
+        'signups': Referral.objects.filter(created_at__lt=e, **({'created_at__gte': s} if s else {})).count(),
+    }
+
+    series = wallet_services.ledger_series(None, s, e, window.bucket)
+    joins: dict[str, int] = defaultdict(int)
+    for t in signup_times:
+        joins[timeframes.bucket_key(t, window.bucket)] += 1
+    firsts = wallet_services.first_deposits()
+    ftds: dict[str, int] = defaultdict(int)
+    for t in firsts.values():
+        if (s is None or t >= s) and t < e:
+            ftds[timeframes.bucket_key(t, window.bucket)] += 1
+    keys = [timeframes.bucket_key(b, window.bucket) for b in timeframes.bucket_starts(window)] or sorted(series)
+    empty = {'deposits': '0.00', 'withdrawals': '0.00', 'stakes': '0.00', 'wins': '0.00', 'ggr': '0.00',
+             'ngr': '0.00', 'plays': 0}
+    points = [{'t': k, **(series.get(k) or empty), 'signups': joins.get(k, 0), 'ftds': ftds.get(k, 0)} for k in keys]
+
+    activity = wallet_services.recent_activity(limit=30)
+    names = accounts_services.usernames_for([a['player_id'] for a in activity])
+    for a in activity:
+        a['player'] = names.get(a.pop('player_id'), '?')
+
+    hour = wallet_services.ledger_kpis(None, now - timedelta(hours=1), now)
+    rnd = JetRound.objects.order_by('-id').first()
+    right_now = {
+        'last_hour': {k: hour[k] for k in ('deposits', 'plays', 'stakes', 'ggr', 'active_players')},
+        'live_matches': Event.objects.filter(status__in=LIVE_STATUSES).count(),
+        'open_bets': Bet.objects.filter(status__in=('open', 'accepting')).count()
+        + BetSlip.objects.filter(status__in=('open', 'accepting')).count(),
+        'aviator': {
+            'round': rnd.id if rnd else None, 'status': rnd.status if rnd else None,
+            'players': JetBet.objects.filter(round=rnd).count() if rnd else 0,
+        },
+        'signups_last_hour': len(accounts_services.signup_times(start=now - timedelta(hours=1), end=now)),
+    }
+    return Response({
+        'frame': window.frame, 'label': window.label, 'bucket': window.bucket,
+        'start': window.start, 'end': window.end, 'generated_at': now,
+        'kpis': kpis, 'series': points, 'activity': activity, 'right_now': right_now,
+        'top_affiliates': affiliate_services.top_affiliates(s, e),
+    })

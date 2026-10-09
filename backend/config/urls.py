@@ -22,6 +22,7 @@ api_patterns = [
     path('', include('apps.jet.urls')),            # jet/ (crash game)
     path('health/', views.health),
     path('admin/stats/', views.admin_stats),
+    path('admin/analytics/', views.admin_analytics),
 ]
 
 urlpatterns = [

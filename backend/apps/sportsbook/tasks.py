@@ -78,3 +78,12 @@ def confirm_live_bet(kind: str, obj_id: int) -> str:
     acceptance delay. Still ACCEPTING (feed not refreshed yet) is left for the
     sync_live_odds sweep."""
     return services.confirm_live_bet(kind, obj_id)
+
+
+@shared_task(name='apps.sportsbook.tasks.auto_resolve_markets')
+def auto_resolve_markets() -> dict:
+    """Backstop so every market on a finished match gets settled: a final pass
+    from the match facts, then anything still undecidable is voided (refunded)
+    after SPORTSBOOK_AUTO_VOID_AFTER_HOURS; matches never played are voided after
+    SPORTSBOOK_UNPLAYED_VOID_HOURS. Works for manually-scored events too."""
+    return services.auto_resolve_markets()
