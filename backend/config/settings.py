@@ -221,6 +221,13 @@ API_FOOTBALL_ODDS_MAX_PAGES = int(os.environ.get('API_FOOTBALL_ODDS_MAX_PAGES', 
 # come in as manual markets an operator settles from the admin match page.
 # Set to false to offer only the automatically-settled bet types.
 SPORTSBOOK_IMPORT_MANUAL_MARKETS = os.environ.get('SPORTSBOOK_IMPORT_MANUAL_MARKETS', 'true').lower() == 'true'
+# Settlement backstop (sportsbook.tasks.auto_resolve_markets, every 10 min):
+# hours after kick-off at which any market on a finished match that the match
+# facts still can't decide is voided (stake refunded) — operators can settle it
+# by hand before then; and hours after kick-off at which a match that never
+# finished (postponed/abandoned/feed silent) is voided whole. 0 turns a step off.
+SPORTSBOOK_AUTO_VOID_AFTER_HOURS = int(os.environ.get('SPORTSBOOK_AUTO_VOID_AFTER_HOURS', '6'))
+SPORTSBOOK_UNPLAYED_VOID_HOURS = int(os.environ.get('SPORTSBOOK_UNPLAYED_VOID_HOURS', '72'))
 # Affiliate programme defaults (each affiliate's terms can be changed in admin).
 # Revenue share is a % of referred players' monthly net gaming revenue (a losing
 # month pays nothing, no carry-over); CPA is a one-off per referral once their
@@ -283,6 +290,11 @@ CELERY_BEAT_SCHEDULE = {
         # Every 5 min: settles finished matches (the live poll loses them at FT)
         # and retries until corners/cards/scorer stats are published.
         'schedule': 300.0,
+    },
+    'sportsbook-auto-resolve-markets': {
+        'task': 'apps.sportsbook.tasks.auto_resolve_markets',
+        # Every 10 min: no finished match keeps an unsettled market.
+        'schedule': 600.0,
     },
     'sportsbook-sync-live-odds': {
         'task': 'apps.sportsbook.tasks.sync_live_odds',

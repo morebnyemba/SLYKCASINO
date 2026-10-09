@@ -15,6 +15,9 @@ from django.db import transaction
 from . import helpers, utils
 from .dtos import BalanceDTO, LedgerEntryDTO
 from .models import LedgerEntry, Wallet
+from .reporting import (  # noqa: F401  (read-only analytics, re-exported)
+    earliest_entry, empty_kpis, first_deposits, ledger_kpis, ledger_series, player_breakdown, recent_activity,
+)
 
 
 class InsufficientFunds(Exception):

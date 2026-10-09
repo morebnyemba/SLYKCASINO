@@ -40,6 +40,21 @@ def usernames_for(player_ids: list[int]) -> dict[int, str]:
     return dict(Player.objects.filter(pk__in=player_ids).values_list('id', 'username'))
 
 
+def signup_times(*, start=None, end=None) -> list:
+    """Read-only: when players registered in [start, end), for analytics."""
+    qs = Player.objects.all()
+    if start is not None:
+        qs = qs.filter(created_at__gte=start)
+    if end is not None:
+        qs = qs.filter(created_at__lt=end)
+    return list(qs.values_list('created_at', flat=True))
+
+
+def first_signup_at():
+    """When the first player registered (None on an empty site)."""
+    return Player.objects.order_by('created_at').values_list('created_at', flat=True).first()
+
+
 def get_current_player(request) -> Optional[Player]:
     """Resolve the acting player from the authenticated request user."""
     user = getattr(request, 'user', None)

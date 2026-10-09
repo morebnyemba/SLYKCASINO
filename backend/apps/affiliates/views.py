@@ -11,6 +11,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.accounts import services as accounts_services
+from common.timeframes import TimeframeError
 
 from . import services
 from .models import Affiliate, Commission
@@ -55,6 +56,33 @@ class MyAffiliateView(APIView):
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         accounts_services.audit(player.id, 'affiliate_applied', request, code=affiliate.code)
         return Response(AffiliateSerializer(affiliate).data, status=status.HTTP_201_CREATED)
+
+
+def _analytics_response(request, affiliate):
+    q = request.query_params
+    try:
+        data = services.affiliate_analytics(
+            affiliate, q.get('frame') or 'today', start=q.get('start'), end=q.get('end'),
+        )
+    except TimeframeError as exc:
+        return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+    return Response(data)
+
+
+class MyAffiliateAnalyticsView(APIView):
+    """GET /affiliates/me/analytics/?frame=today|live|yesterday|7d|30d|90d|this_month|
+    last_month|this_year|all[&start=YYYY-MM-DD&end=YYYY-MM-DD for frame=custom] —
+    live KPIs, chart series, campaigns, top players and recent activity."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        player, denied = _player_or_403(request)
+        if denied:
+            return denied
+        affiliate = services.get_for_player(player.id)
+        if affiliate is None or affiliate.status not in (Affiliate.Status.ACTIVE, Affiliate.Status.SUSPENDED):
+            return Response({'detail': 'not an active affiliate'}, status=status.HTTP_404_NOT_FOUND)
+        return _analytics_response(request, affiliate)
 
 
 class TermsView(APIView):
@@ -106,6 +134,10 @@ class AdminAffiliateViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, vi
         data = self.get_serializer(affiliate).data
         data['stats'] = services.dashboard(affiliate)
         return Response(data)
+
+    @action(detail=True, methods=['get'], url_path='analytics')
+    def analytics(self, request, pk=None):
+        return _analytics_response(request, self.get_object())
 
     @action(detail=True, methods=['post'], url_path='status')
     def set_status(self, request, pk=None):

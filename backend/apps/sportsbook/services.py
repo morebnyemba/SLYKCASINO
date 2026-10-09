@@ -1088,6 +1088,76 @@ def settle_finished_fixtures(*, now=None) -> int:
     return len(fixtures)
 
 
+def _hours_setting(name: str, default: int) -> int:
+    from django.conf import settings
+    try:
+        return int(getattr(settings, name, default))
+    except (TypeError, ValueError):
+        return default
+
+
+def auto_resolve_markets(*, now=None) -> dict:
+    """The settlement backstop: every market on every finished match ends up
+    settled, and nothing waits on an operator forever.
+
+    1. Finished matches (FT/AET/PEN, score known) whose kick-off was more than
+       SPORTSBOOK_AUTO_VOID_AFTER_HOURS ago and still have anything open get one
+       more pass from the stored facts (1X2 and every market the facts decide);
+       any outcome still undecided after that — a bet type that can't be read
+       from the match facts, stats the feed never published, an ambiguous player
+       name — is VOIDED: the stake is refunded and a multiple counts that leg at
+       1.00. Operators can still settle such markets by hand before then.
+    2. Matches that never finished (postponed, abandoned, the feed went silent)
+       more than SPORTSBOOK_UNPLAYED_VOID_HOURS after kick-off are voided whole.
+    Either setting at 0 turns that step off. Idempotent; returns counts."""
+    from datetime import timedelta
+    from django.db.models import Q
+
+    now = now or timezone.now()
+    report = {'finished_events': 0, 'markets_settled': 0, 'markets_voided': 0, 'unplayed_voided': 0}
+    open_stuff = (
+        Q(markets__settled=False)
+        | Q(bets__status__in=(Bet.Status.OPEN, Bet.Status.PENDING))
+        | Q(legs__result=BetLeg.Result.PENDING)
+    )
+
+    grace = _hours_setting('SPORTSBOOK_AUTO_VOID_AFTER_HOURS', 6)
+    if grace > 0:
+        finished = Event.objects.filter(
+            status__in=FINISHED_STATUSES, score_home__isnull=False, score_away__isnull=False,
+            starts_at__lte=now - timedelta(hours=grace),
+        ).filter(open_stuff).distinct()
+        for event in finished:
+            report['finished_events'] += 1
+            with transaction.atomic():
+                home, away = event.score_home, event.score_away
+                settle_event(event.id, 'home' if home > away else 'away' if away > home else 'draw')
+                score = score_for_event(event)
+                if score is not None:
+                    before = Market.objects.filter(event=event, settled=False).count()
+                    settle_event_markets(event.id, score, final=False)
+                    report['markets_settled'] += before - Market.objects.filter(event=event, settled=False).count()
+                voided = 0
+                for market in Market.objects.filter(event=event, settled=False).prefetch_related('outcomes'):
+                    pending = {o.id: 'void' for o in market.outcomes.all() if o.result == MarketOutcome.Result.PENDING}
+                    _settle_market(market, pending)
+                    voided += 1
+            if voided:
+                report['markets_voided'] += voided
+                logger.info('auto-voided %s undecidable market(s) on event %s', voided, event.id)
+
+    unplayed = _hours_setting('SPORTSBOOK_UNPLAYED_VOID_HOURS', 72)
+    if unplayed > 0:
+        stale = Event.objects.filter(starts_at__lte=now - timedelta(hours=unplayed)).exclude(
+            status__in=FINISHED_STATUSES,
+        ).filter(open_stuff).distinct()
+        for event in stale:
+            settle_event(event.id, 'void')
+            Event.objects.filter(pk=event.pk).update(is_open=False)
+            report['unplayed_voided'] += 1
+    return report
+
+
 def _create_event_from_fixture(fixture: FixtureUpdate) -> Optional[Event]:
     """Create a new Event for a fixture that has no linked Event yet. No-op
     (returns None) if a linked Event already exists or the fixture is already

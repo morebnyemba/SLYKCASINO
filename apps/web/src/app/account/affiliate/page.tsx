@@ -7,6 +7,7 @@ import { Badge } from '@slyk/ui/components/badge';
 import { useAuth } from '@/lib/auth-context';
 import { authedPost, useApi } from '@/lib/use-api';
 import { LoadingState, Spinner } from '@slyk/ui/components/spinner';
+import { AffiliateAnalytics } from '@/components/affiliate/analytics';
 
 interface Commission {
   id: number;
@@ -175,15 +176,13 @@ function Dashboard({ a }: { a: Affiliate & { stats: Stats } }) {
       </Card>
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Stat label="Clicks (30 days)" value={s.clicks_30d} hint={`${s.clicks_total} all time`} />
-        <Stat label="Sign-ups" value={s.signups} hint={`${s.depositors} deposited`} />
         <Stat label="This month’s revenue" value={money(s.ngr_this_month)} hint={`${s.active_this_month} active player${s.active_this_month === 1 ? '' : 's'}`} />
         <Stat label="Estimated commission" value={money(s.estimated_commission)} hint={`${pct(a.revshare_percent)} share, paid after month end`} />
-      </div>
-      <div className="grid grid-cols-2 gap-3">
         <Stat label="Awaiting payment" value={money(s.pending)} />
-        <Stat label="Paid to your wallet" value={money(s.paid)} />
+        <Stat label="Paid to your wallet" value={money(s.paid)} hint={`${s.signups} sign-ups · ${s.depositors} deposited`} />
       </div>
+
+      <AffiliateAnalytics />
 
       <Card className="rounded-2xl">
         <CardHeader><CardTitle className="text-base">Your terms</CardTitle></CardHeader>
