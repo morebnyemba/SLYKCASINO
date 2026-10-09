@@ -2,10 +2,11 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { BsChevronDoubleRight, BsReceipt, BsTicketPerforated } from 'react-icons/bs';
 import { SlipBody } from '@/components/betslip-panel';
 import { BetTicket, sortTickets, ticketFromBet, ticketFromSlip, type ApiBet, type ApiSlip } from '@/components/bet-ticket';
+import { useCashoutOffers } from '@/components/cashout';
 import { useAuth } from '@/lib/auth-context';
 import { isAuthRoute } from '@/lib/auth-routes';
 import { useBetslip } from '@/lib/betslip-context';
@@ -38,6 +39,12 @@ function MyBets() {
     if (status && /placed|in-play/i.test(status)) { refetchBets(); refetchSlips(); }
   }, [status, refetchBets, refetchSlips]);
 
+  const rows = useMemo(() => sortTickets([
+    ...(bets?.results ?? []).map(ticketFromBet),
+    ...(slips?.results ?? []).map(ticketFromSlip),
+  ]), [bets, slips]);
+  const offers = useCashoutOffers(rows);
+
   if (!user) {
     return (
       <div className="my-auto px-6 text-center">
@@ -47,11 +54,6 @@ function MyBets() {
       </div>
     );
   }
-
-  const rows = sortTickets([
-    ...(bets?.results ?? []).map(ticketFromBet),
-    ...(slips?.results ?? []).map(ticketFromSlip),
-  ]);
 
   // A failed request must not read as "no bets" (or a partial list as complete).
   if (betsError || slipsError) {
@@ -85,7 +87,9 @@ function MyBets() {
     <div className="min-h-0 flex-1 overflow-y-auto">
       <ul className="space-y-2 p-3">
         {rows.map((t) => (
-          <li key={t.key}><BetTicket ticket={t} compact /></li>
+          <li key={t.key}>
+            <BetTicket ticket={t} compact offer={offers[t.key]} onChanged={() => { refetchBets(); refetchSlips(); }} />
+          </li>
         ))}
       </ul>
       <Link href="/account/bets" className="block pb-4 text-center text-xs font-bold text-secondary hover:underline">

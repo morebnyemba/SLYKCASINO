@@ -99,14 +99,36 @@ class _OutcomeLabelsMixin(serializers.Serializer):
     match = BetMatchSerializer(source='event_ref', read_only=True, default=None)
 
 
-class BetSerializer(_OutcomeLabelsMixin, serializers.ModelSerializer):
+class _CashoutMixin(serializers.Serializer):
+    """The live cash-out offer on an open ticket (null once it's settled)."""
+    cashout = serializers.SerializerMethodField()
+
+    def _cashout_settings(self):
+        from .models import CashoutSettings
+        cache = self.context.setdefault('_cashout_settings', [])
+        if not cache:
+            cache.append(CashoutSettings.load())
+        return cache[0]
+
+    def get_cashout(self, obj):
+        if obj.status != 'open' or not obj.player_id:
+            return None
+        from . import cashout
+        offer = (cashout.bet_offer if isinstance(obj, Bet) else cashout.slip_offer)(obj, self._cashout_settings())
+        return offer.as_dict()
+
+
+CASHOUT_FIELDS = ['cashout', 'cashout_paid', 'stake_cashed_out', 'cashed_out_at']
+
+
+class BetSerializer(_CashoutMixin, _OutcomeLabelsMixin, serializers.ModelSerializer):
     class Meta:
         model = Bet
         fields = [
             'id', 'event', 'selection', 'outcome_ref', 'market_name', 'outcome_label', 'match',
-            'stake', 'odds', 'status', 'payout', 'placed_at',
+            'stake', 'odds', 'status', 'payout', 'placed_at', *CASHOUT_FIELDS,
         ]
-        read_only_fields = ['status', 'payout', 'placed_at', 'outcome_ref']
+        read_only_fields = ['status', 'payout', 'placed_at', 'outcome_ref', *CASHOUT_FIELDS]
 
 
 class BetLegSerializer(_OutcomeLabelsMixin, serializers.ModelSerializer):
@@ -115,13 +137,14 @@ class BetLegSerializer(_OutcomeLabelsMixin, serializers.ModelSerializer):
         fields = ['id', 'event', 'selection', 'outcome_ref', 'market_name', 'outcome_label', 'match', 'odds', 'result']
 
 
-class BetSlipSerializer(serializers.ModelSerializer):
+class BetSlipSerializer(_CashoutMixin, serializers.ModelSerializer):
     legs = BetLegSerializer(many=True, read_only=True)
 
     class Meta:
         model = BetSlip
         fields = [
             'id', 'stake', 'combined_odds', 'status', 'payout', 'bonus_percent', 'bonus',
-            'placed_at', 'settled_at', 'legs',
+            'placed_at', 'settled_at', 'legs', *CASHOUT_FIELDS,
         ]
-        read_only_fields = ['combined_odds', 'status', 'payout', 'bonus_percent', 'bonus', 'placed_at', 'settled_at']
+        read_only_fields = ['combined_odds', 'status', 'payout', 'bonus_percent', 'bonus', 'placed_at', 'settled_at',
+                            *CASHOUT_FIELDS]

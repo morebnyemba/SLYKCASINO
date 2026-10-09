@@ -13,6 +13,7 @@ from apps.accounts import services as accounts_services
 from apps.wallet.services import InsufficientFunds
 
 from . import booking as booking_services
+from . import cashout as cashout_services
 from . import services
 from .dtos import AccumulatorRequestDTO, BetRequestDTO
 from .models import Bet, BetLeg, BetSlip, Event, Market
@@ -133,6 +134,38 @@ class EventViewSet(viewsets.ModelViewSet):
         return Response({'event': int(pk), 'result': result, 'bets_settled': count})
 
 
+def _cash_out_response(request, kind: str, pk):
+    """POST …/<id>/cashout/ {expected, amount?} — take the cash-out offer."""
+    from decimal import Decimal, InvalidOperation
+    player = accounts_services.get_current_player(request)
+    if player is None:
+        return Response({'detail': 'Player not found.'}, status=status.HTTP_404_NOT_FOUND)
+    try:
+        expected = Decimal(str(request.data.get('expected')))
+        raw_amount = request.data.get('amount')
+        amount = Decimal(str(raw_amount)) if raw_amount not in (None, '') else None
+        if expected <= 0 or (amount is not None and amount <= 0):
+            raise InvalidOperation
+    except (InvalidOperation, ValueError, TypeError):
+        return Response({'detail': 'Send the cash-out value you accepted.'}, status=status.HTTP_400_BAD_REQUEST)
+    try:
+        ticket, record = cashout_services.cash_out(
+            kind=kind, ticket_id=int(pk), player_id=player.id, expected=expected, amount=amount,
+        )
+    except cashout_services.CashoutChanged as exc:
+        return Response({'detail': str(exc), 'code': 'cashout_changed', 'value': str(exc.value)},
+                        status=status.HTTP_409_CONFLICT)
+    except cashout_services.CashoutUnavailable as exc:
+        return Response({'detail': str(exc), 'code': 'cashout_unavailable'}, status=status.HTTP_409_CONFLICT)
+    serializer = BetSerializer if kind == 'bet' else BetSlipSerializer
+    from apps.wallet import services as wallet_services
+    return Response({
+        'paid': str(record.amount), 'full': record.full,
+        'balance': str(wallet_services.get_balance_dto(player.id).balance),
+        'ticket': serializer(ticket, context={'request': request}).data,
+    })
+
+
 class BetViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.CreateModelMixin, viewsets.GenericViewSet):
     serializer_class = BetSerializer
     permission_classes = [IsAuthenticated]
@@ -183,6 +216,10 @@ class BetViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.Create
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(self.get_serializer(bet).data, status=status.HTTP_201_CREATED)
 
+    @action(detail=True, methods=['post'])
+    def cashout(self, request, pk=None):
+        return _cash_out_response(request, 'bet', pk)
+
 
 class BetSlipViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.CreateModelMixin, viewsets.GenericViewSet):
     """Accumulator slips for the authenticated player."""
@@ -230,6 +267,10 @@ class BetSlipViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.Cr
         except (ValueError, Exception) as exc:  # noqa: BLE001
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(self.get_serializer(slip).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['post'])
+    def cashout(self, request, pk=None):
+        return _cash_out_response(request, 'slip', pk)
 
 
 class AdminBetViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
@@ -298,3 +339,83 @@ class MultiBetBonusView(APIView):
 
     def get(self, request):
         return Response(services.multibet_bonus_info())
+
+
+class CashoutOffersView(APIView):
+    """GET /api/cashout/offers/?bets=1,2&slips=3 — current cash-out offers on
+    the player's open tickets, polled while a ticket is on screen."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from .models import CashoutSettings
+        player = accounts_services.get_current_player(request)
+        if player is None:
+            return Response({'bets': {}, 'slips': {}})
+
+        def ids(name):
+            return [int(v) for v in request.query_params.get(name, '').split(',') if v.strip().isdigit()][:50]
+
+        cfg = CashoutSettings.load()
+        bets = Bet.objects.filter(player_id=player.id, pk__in=ids('bets')).select_related(
+            'event_ref', 'outcome_ref__market__event')
+        slips = BetSlip.objects.filter(player_id=player.id, pk__in=ids('slips')).prefetch_related(
+            Prefetch('legs', queryset=BetLeg.objects.select_related('event_ref', 'outcome_ref__market__event')))
+        return Response({
+            'bets': {b.id: cashout_services.bet_offer(b, cfg).as_dict() for b in bets},
+            'slips': {sl.id: cashout_services.slip_offer(sl, cfg).as_dict() for sl in slips},
+        })
+
+
+class AdminCashoutSettingsView(APIView):
+    """GET/PUT /api/admin/sportsbook/cashout/ — cash-out switches and margin,
+    plus what has been cashed out (today and all time)."""
+    permission_classes = [IsAdminUser]
+
+    def _payload(self):
+        from django.db.models import Sum
+        from django.utils import timezone
+        from .models import Cashout, CashoutSettings
+        cfg = CashoutSettings.load()
+        today = timezone.localdate()
+        agg = lambda qs: qs.aggregate(n=Count('id'), total=Sum('amount'))  # noqa: E731
+        t, a = agg(Cashout.objects.filter(created_at__date=today)), agg(Cashout.objects.all())
+        return {
+            'enabled': cfg.enabled, 'allow_partial': cfg.allow_partial, 'in_play': cfg.in_play,
+            'margin_percent': f'{cfg.margin_percent:.2f}', 'min_amount': f'{cfg.min_amount:.2f}',
+            'updated_at': cfg.updated_at,
+            'stats': {
+                'today': {'count': t['n'], 'total': str(t['total'] or 0)},
+                'all_time': {'count': a['n'], 'total': str(a['total'] or 0)},
+            },
+        }
+
+    def get(self, request):
+        return Response(self._payload())
+
+    def put(self, request):
+        from decimal import Decimal, InvalidOperation
+        from .models import CashoutSettings
+        cfg = CashoutSettings.load()
+        data = request.data
+        for flag in ('enabled', 'allow_partial', 'in_play'):
+            if flag in data:
+                setattr(cfg, flag, bool(data[flag]))
+        try:
+            if 'margin_percent' in data:
+                margin = Decimal(str(data['margin_percent']))
+                if not Decimal('0') <= margin <= Decimal('50'):
+                    raise ValueError('The margin must be between 0% and 50%.')
+                cfg.margin_percent = margin
+            if 'min_amount' in data:
+                minimum = Decimal(str(data['min_amount']))
+                if minimum < Decimal('0.01'):
+                    raise ValueError('The minimum must be at least $0.01.')
+                cfg.min_amount = minimum
+        except InvalidOperation:
+            return Response({'detail': 'Enter numbers for the margin and minimum.'}, status=status.HTTP_400_BAD_REQUEST)
+        except ValueError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        cfg.save()
+        accounts_services.audit(None, 'cashout_settings', request,
+                                enabled=cfg.enabled, margin=str(cfg.margin_percent))
+        return Response(self._payload())

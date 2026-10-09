@@ -10,6 +10,7 @@ import { useApi, authedPost } from '@/lib/use-api';
 import { useAuth } from '@/lib/auth-context';
 import { LoadingState } from '@slyk/ui/components/spinner';
 import { PageHeader } from '@/components/console/ui';
+import { CashoutSettingsPanel } from '@/components/sportsbook/cashout-panel';
 
 interface Bet {
   id: number;
@@ -29,6 +30,7 @@ const STATUS_VARIANT: Record<string, 'default' | 'secondary' | 'destructive'> = 
   lost: 'destructive',
   void: 'secondary',
   pending: 'secondary',
+  cashed_out: 'default',
 };
 
 export default function BettingFeedsPage() {
@@ -48,6 +50,8 @@ export default function BettingFeedsPage() {
   return (
     <div className="space-y-6">
       <PageHeader icon={FaChartLine} eyebrow="Sportsbook" title="Bets & tickets" description="Monitor incoming bets and odds movements across markets." />
+
+      <CashoutSettingsPanel />
 
       {/* Live WebSocket streams */}
       <div className="grid gap-5 lg:grid-cols-2">
@@ -87,7 +91,7 @@ export default function BettingFeedsPage() {
                   <TableCell>{b.odds}</TableCell>
                   <TableCell>{b.payout || '—'}</TableCell>
                   <TableCell>
-                    <Badge variant={STATUS_VARIANT[b.status] ?? 'secondary'}>{b.status}</Badge>
+                    <Badge variant={STATUS_VARIANT[b.status] ?? 'secondary'}>{b.status.replace('_', ' ')}</Badge>
                   </TableCell>
                   <TableCell className="text-xs text-muted-foreground">
                     {new Date(b.placed_at).toLocaleString()}

@@ -7,6 +7,7 @@ import {
   BetTicket, isSettled, money, sortTickets, ticketFromBet, ticketFromSlip, type ApiBet, type ApiSlip,
 } from '@/components/bet-ticket';
 import { useApi } from '@/lib/use-api';
+import { useCashoutOffers } from '@/components/cashout';
 import { LoadingState } from '@slyk/ui/components/spinner';
 
 type Tab = 'all' | 'open' | 'settled';
@@ -18,8 +19,8 @@ const TABS: { key: Tab; label: string }[] = [
 ];
 
 export default function MyBetsPage() {
-  const { data, loading, error } = useApi<{ results?: ApiBet[] }>('/bets/', { allPages: true });
-  const { data: slipsData, loading: slipsLoading, error: slipsError } = useApi<{ results?: ApiSlip[] }>('/betslips/', { allPages: true });
+  const { data, loading, error, refetch } = useApi<{ results?: ApiBet[] }>('/bets/', { allPages: true });
+  const { data: slipsData, loading: slipsLoading, error: slipsError, refetch: refetchSlips } = useApi<{ results?: ApiSlip[] }>('/betslips/', { allPages: true });
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   const [tab, setTab] = useState<Tab>('all');
@@ -36,14 +37,18 @@ export default function MyBetsPage() {
     if (toDate && d > toDate) return false;
     return true;
   });
+  const offers = useCashoutOffers(all);
+  const reload = () => { refetch(); refetchSlips(); };
   const tickets = inRange.filter((t) => tab === 'all' || (tab === 'settled') === isSettled(t.status));
   const openCount = inRange.filter((t) => !isSettled(t.status)).length;
 
   const stats = useMemo(() => {
-    const totalStaked = inRange.reduce((sum, t) => sum + t.stake, 0);
+    const totalStaked = inRange.reduce((sum, t) => sum + (t.status === 'cashed_out' ? t.stakeCashedOut : t.stake + t.stakeCashedOut), 0);
     const decided = inRange.filter((t) => t.status === 'won' || t.status === 'lost');
     const won = inRange.filter((t) => t.status === 'won');
-    const totalPayout = won.reduce((sum, t) => sum + (t.payout ?? 0), 0);
+    // Returns: winnings plus everything taken through cash-out.
+    const totalPayout = inRange.reduce((sum, t) => sum + (t.status === 'won' ? (t.payout ?? 0) + t.bonus : 0)
+      + (t.status === 'cashed_out' ? (t.payout ?? 0) : t.cashoutPaid), 0);
     const winRate = decided.length > 0 ? (won.length / decided.length) * 100 : 0;
     return { totalStaked, totalPayout, winRate };
   }, [inRange]);
@@ -55,7 +60,8 @@ export default function MyBetsPage() {
       [
         `${t.kind === 'single' ? 'S' : 'M'}${t.id}`, t.kind,
         t.legs.map((l) => `${l.match} - ${l.pick} @ ${l.odds.toFixed(2)}`).join(' | '),
-        t.stake.toFixed(2), t.odds.toFixed(2), t.payout?.toFixed(2) ?? '', t.status, t.placedAt,
+        (t.status === 'cashed_out' ? t.stakeCashedOut : t.stake + t.stakeCashedOut).toFixed(2), t.odds.toFixed(2),
+        t.payout?.toFixed(2) ?? '', t.status, t.placedAt,
       ].map(esc).join(','),
     );
     const blob = new Blob([header + rows.join('\n')], { type: 'text/csv' });
@@ -67,7 +73,8 @@ export default function MyBetsPage() {
     URL.revokeObjectURL(url);
   }
 
-  if (loading || slipsLoading) return <LoadingState />;
+  // Only the first load blanks the page; a reload after a cash-out keeps the tickets on screen.
+  if ((loading && !data) || (slipsLoading && !slipsData)) return <LoadingState />;
   if (error || slipsError) return <p className="text-sm text-destructive">{error || slipsError}</p>;
 
   return (
@@ -147,7 +154,7 @@ export default function MyBetsPage() {
         </Card>
       ) : (
         <div className="grid items-start gap-3 md:grid-cols-2">
-          {tickets.map((t) => <BetTicket key={t.key} ticket={t} />)}
+          {tickets.map((t) => <BetTicket key={t.key} ticket={t} offer={offers[t.key]} onChanged={reload} />)}
         </div>
       )}
     </div>

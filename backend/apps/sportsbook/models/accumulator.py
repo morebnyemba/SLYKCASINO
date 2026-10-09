@@ -19,6 +19,8 @@ class BetSlip(models.Model):
         LOST = 'lost', 'Lost'
         VOID = 'void', 'Void'
         REJECTED = 'rejected', 'Rejected (in-play)'
+        # The player took the cash-out offer; `payout` holds what was paid.
+        CASHED_OUT = 'cashed_out', 'Cashed out'
 
     player_id = models.BigIntegerField(null=True, blank=True, db_index=True)
     stake = models.DecimalField(max_digits=12, decimal_places=2)
@@ -29,6 +31,12 @@ class BetSlip(models.Model):
     # on top of `payout` when the slip wins.
     bonus_percent = models.DecimalField(max_digits=5, decimal_places=2, default=0)
     bonus = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    # Cash-out: what has been paid out early, and the part of the original
+    # stake that bought it. A partial cash-out lowers `stake` (the part still
+    # riding) by `stake_cashed_out`; a full one ends the ticket as CASHED_OUT.
+    cashout_paid = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    stake_cashed_out = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    cashed_out_at = models.DateTimeField(null=True, blank=True)
     placed_at = models.DateTimeField(auto_now_add=True)
     settled_at = models.DateTimeField(null=True, blank=True)
 

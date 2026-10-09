@@ -1,7 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { BsCheckCircleFill, BsChevronDown, BsCircle, BsDashCircle, BsXCircleFill } from 'react-icons/bs';
+import { BsCashCoin, BsCheckCircleFill, BsChevronDown, BsCircle, BsDashCircle, BsXCircleFill } from 'react-icons/bs';
+import { CashoutPanel, type CashoutOffer } from '@/components/cashout';
 
 /** The match a bet or leg is on, as the API returns it (null for legacy free-text bets). */
 export interface BetMatch {
@@ -26,6 +27,9 @@ export interface ApiBet {
   status: string;
   payout: string | null;
   placed_at: string;
+  cashout?: CashoutOffer | null;
+  cashout_paid?: string;
+  stake_cashed_out?: string;
 }
 
 export interface ApiSlipLeg {
@@ -49,6 +53,9 @@ export interface ApiSlip {
   bonus?: string;
   placed_at: string;
   legs: ApiSlipLeg[];
+  cashout?: CashoutOffer | null;
+  cashout_paid?: string;
+  stake_cashed_out?: string;
 }
 
 interface TicketLeg {
@@ -73,6 +80,11 @@ export interface Ticket {
   bonus: number;
   placedAt: string;
   legs: TicketLeg[];
+  /** The cash-out offer as listed (kept fresh by useCashoutOffers). */
+  cashout: CashoutOffer | null;
+  /** Paid out early so far, and the part of the original stake it bought. */
+  cashoutPaid: number;
+  stakeCashedOut: number;
 }
 
 const SELECTION_LABEL: Record<string, string> = { home: 'Home', draw: 'Draw', away: 'Away' };
@@ -97,6 +109,7 @@ export function ticketFromBet(b: ApiBet): Ticket {
     status: b.status, payout: b.payout == null ? null : Number(b.payout), placedAt: b.placed_at,
     bonusPercent: 0, bonus: 0,
     legs: [toLeg(b, singleResult(b.status))],
+    cashout: b.cashout ?? null, cashoutPaid: Number(b.cashout_paid ?? 0), stakeCashedOut: Number(b.stake_cashed_out ?? 0),
   };
 }
 
@@ -106,6 +119,7 @@ export function ticketFromSlip(s: ApiSlip): Ticket {
     status: s.status, payout: s.payout == null ? null : Number(s.payout), placedAt: s.placed_at,
     bonusPercent: Number(s.bonus_percent ?? 0), bonus: Number(s.bonus ?? 0),
     legs: s.legs.map((l) => toLeg(l, l.result ?? 'pending')),
+    cashout: s.cashout ?? null, cashoutPaid: Number(s.cashout_paid ?? 0), stakeCashedOut: Number(s.stake_cashed_out ?? 0),
   };
 }
 
@@ -116,7 +130,7 @@ export function sortTickets(tickets: Ticket[]) {
 }
 
 export function isSettled(status: string) {
-  return status === 'won' || status === 'lost' || status === 'void' || status === 'rejected';
+  return status === 'won' || status === 'lost' || status === 'void' || status === 'rejected' || status === 'cashed_out';
 }
 
 export function money(v: number) {
@@ -131,6 +145,7 @@ const STATUS: Record<string, { label: string; className: string; bar: string }> 
   lost: { label: 'Lost', className: 'bg-destructive/10 text-destructive', bar: 'bg-destructive' },
   void: { label: 'Void', className: 'bg-muted text-muted-foreground', bar: 'bg-muted-foreground/40' },
   rejected: { label: 'Rejected', className: 'bg-muted text-muted-foreground', bar: 'bg-muted-foreground/40' },
+  cashed_out: { label: 'Cashed out', className: 'bg-gold/15 text-gold', bar: 'bg-gold' },
 };
 
 function ResultIcon({ result }: { result: string }) {
@@ -166,7 +181,13 @@ function matchLine(m: BetMatch | null) {
  * status; every selection with its match, pick, odds and result; then a
  * perforated footer with stake, odds and the (potential) return.
  */
-export function BetTicket({ ticket, compact = false }: { ticket: Ticket; compact?: boolean }) {
+export function BetTicket({ ticket, compact = false, offer, onChanged }: {
+  ticket: Ticket; compact?: boolean;
+  /** Live cash-out offer (from useCashoutOffers); falls back to the listed one. */
+  offer?: CashoutOffer | null;
+  /** Called after a cash-out so the list reloads. */
+  onChanged?: () => void;
+}) {
   const t = ticket;
   const s = STATUS[t.status] ?? STATUS.pending;
   // In the narrow rail a long multiple starts folded to its first legs.
@@ -184,6 +205,11 @@ export function BetTicket({ ticket, compact = false }: { ticket: Ticket; compact
   if (t.status === 'won') { returnLabel = 'Paid out'; returnValue = money(t.payout != null ? t.payout + t.bonus : potential); }
   else if (t.status === 'lost') { returnLabel = 'Return'; returnValue = money(0); returnClass = 'text-muted-foreground'; }
   else if (t.status === 'void' || t.status === 'rejected') { returnLabel = 'Refunded'; returnValue = money(t.payout ?? t.stake); returnClass = 'text-foreground'; }
+  else if (t.status === 'cashed_out') { returnLabel = 'Cashed out'; returnValue = money(t.payout ?? t.cashoutPaid); returnClass = 'text-gold'; }
+  // After a partial cash-out a win pays the remaining stake plus what was taken early.
+  if (t.status === 'won' && t.cashoutPaid > 0) returnValue = money((t.payout ?? 0) + t.bonus + t.cashoutPaid);
+  // The stake the player put down: what's riding plus what was cashed out.
+  const originalStake = t.status === 'cashed_out' ? t.stakeCashedOut : t.stake + t.stakeCashedOut;
 
   const pad = compact ? 'px-3' : 'px-4';
 
@@ -246,7 +272,7 @@ export function BetTicket({ ticket, compact = false }: { ticket: Ticket; compact
       <footer className={`grid grid-cols-3 gap-2 ${pad} pb-3 pt-1 text-[11px]`}>
         <div>
           <p className="text-muted-foreground">Stake</p>
-          <p className="text-[13px] font-bold">{money(t.stake)}</p>
+          <p className="text-[13px] font-bold">{money(originalStake || t.stake)}</p>
         </div>
         <div>
           <p className="text-muted-foreground">{t.kind === 'single' ? 'Odds' : 'Total odds'}</p>
@@ -257,6 +283,19 @@ export function BetTicket({ ticket, compact = false }: { ticket: Ticket; compact
           <p className={`text-[13px] font-extrabold ${returnClass}`}>{returnValue}</p>
         </div>
       </footer>
+      {t.cashoutPaid > 0 && t.status !== 'cashed_out' && (
+        <p className={`flex items-center gap-1.5 ${pad} pb-2.5 text-[11.5px] font-semibold text-gold`}>
+          <BsCashCoin size={12} /> {money(t.cashoutPaid)} cashed out · {money(t.stake)} still riding
+        </p>
+      )}
+      {t.status === 'open' && (
+        <CashoutPanel
+          kind={t.kind} id={t.id} stake={t.stake} odds={t.odds}
+          offer={offer !== undefined ? offer : t.cashout}
+          onDone={() => onChanged?.()}
+          compact={compact}
+        />
+      )}
     </article>
   );
 }
