@@ -8,6 +8,7 @@ import { Badge } from '@slyk/ui/components/badge';
 import { useAuth } from '@/lib/auth-context';
 import { useApi, authedPost } from '@/lib/use-api';
 import { LoadingState } from '@slyk/ui/components/spinner';
+import { DeletePlayer } from '@/components/players/delete-player';
 
 type PageProps = { params: Promise<{ id: string }> };
 
@@ -144,7 +145,7 @@ export default function PlayerDetailPage({ params }: PageProps) {
         <Card className="overflow-hidden rounded-2xl border-border/70">
           <CardContent className="p-4">
             <p className="text-xs text-muted-foreground">KYC status</p>
-            <p className="text-xl font-bold"><Badge variant="outline">{player.kyc_status}</Badge></p>
+            <div className="text-xl font-bold"><Badge variant="outline">{player.kyc_status}</Badge></div>
           </CardContent>
         </Card>
         <Card className="overflow-hidden rounded-2xl border-border/70">
@@ -312,6 +313,8 @@ export default function PlayerDetailPage({ params }: PageProps) {
           )}
         </CardContent>
       </Card>
+
+      <DeletePlayer playerId={player.id} />
     </div>
   );
 }

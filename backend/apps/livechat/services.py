@@ -36,3 +36,7 @@ def post_message(*, body: str, channel: str = 'lobby', player_id: Optional[int] 
         message.delivered = True
         message.save(update_fields=['delivered'])
     return message
+
+
+def erase_player_data(player_id: int) -> int:
+    return ChatMessage.objects.filter(player_id=player_id).delete()[0]

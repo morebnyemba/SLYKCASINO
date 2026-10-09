@@ -23,3 +23,7 @@ def mark_read(player_id: int, notification_id: int) -> bool:
 def mark_all_read(player_id: int) -> int:
     """Bulk-mark all unread notifications for a player as read. Returns count updated."""
     return Notification.objects.filter(player_id=player_id, read=False).update(read=True)
+
+
+def erase_player_data(player_id: int) -> int:
+    return Notification.objects.filter(player_id=player_id).delete()[0]

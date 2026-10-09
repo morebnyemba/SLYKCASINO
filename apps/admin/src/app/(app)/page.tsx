@@ -15,7 +15,7 @@ import { LiveIndicator, usePolling } from '@slyk/ui/components/analytics';
 interface Stats {
   today?: { deposits: string; withdrawals: string; stakes: string; payouts: string; ggr: string; bonuses: string; new_players: number };
   players?: { total: number; verified: number; suspended: number };
-  queues?: { kyc_pending: number; payments_pending: number; affiliates_pending: number; commissions_pending: number; markets_to_settle: number };
+  queues?: { kyc_pending: number; payments_pending: number; affiliates_pending: number; commissions_pending: number; payouts_pending?: number; markets_to_settle: number };
   sportsbook?: { live: number; upcoming: number; unpriced: number; open_bets: number; open_slips: number };
   week?: { day: string; deposits: string; ggr: string }[];
   open_chats?: number;
@@ -92,7 +92,7 @@ export default function DashboardPage() {
   const t = s?.today;
   const q = s?.queues;
   const sb = s?.sportsbook;
-  const attention = (q?.kyc_pending ?? 0) + (q?.markets_to_settle ?? 0) + (q?.commissions_pending ?? 0) + (q?.affiliates_pending ?? 0);
+  const attention = (q?.kyc_pending ?? 0) + (q?.markets_to_settle ?? 0) + (q?.commissions_pending ?? 0) + (q?.affiliates_pending ?? 0) + (q?.payouts_pending ?? 0);
   const date = new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
 
   return (
@@ -132,6 +132,7 @@ export default function DashboardPage() {
             <QueueRow icon={BsPersonBadge} label="KYC documents" count={q?.kyc_pending ?? 0} href="/kyc" hint="Identity checks waiting for review" />
             <QueueRow icon={BsExclamationTriangle} label="Markets to settle" count={q?.markets_to_settle ?? 0} href="/sportsbook/matches?state=finished" hint="Finished matches the feed couldn't settle" />
             <QueueRow icon={BsDiagram3} label="Affiliate commissions" count={q?.commissions_pending ?? 0} href="/affiliates" hint={`${q?.affiliates_pending ?? 0} affiliate applications pending`} />
+            <QueueRow icon={BsCashStack} label="Affiliate payouts to send" count={q?.payouts_pending ?? 0} href="/affiliates" hint="Mobile money and bank payouts waiting for you" />
             <QueueRow icon={BsWallet2} label="Payments in progress" count={q?.payments_pending ?? 0} href="/transactions" hint="Paynow deposits awaiting confirmation" />
           </div>
         </Panel>

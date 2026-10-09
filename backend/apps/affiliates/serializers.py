@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from rest_framework import serializers
 
-from .models import Affiliate, AffiliateProgramme, Commission
+from .models import Affiliate, AffiliateProgramme, Commission, Payout
 
 
 class AffiliateSerializer(serializers.ModelSerializer):
@@ -47,6 +47,35 @@ class ProgrammeSerializer(serializers.ModelSerializer):
         fields = [
             'welcome_bonus_percent', 'welcome_bonus_cap', 'welcome_bonus_wagering', 'welcome_bonus_min_deposit',
             'default_revshare_percent', 'default_cpa_amount', 'default_cpa_min_deposit', 'default_cpa_percent',
-            'default_cpa_cap', 'cpa_min_turnover_multiple', 'negative_carryover', 'updated_at',
+            'default_cpa_cap', 'cpa_min_turnover_multiple', 'negative_carryover', 'min_payout', 'external_payouts',
+            'updated_at',
         ]
         read_only_fields = fields
+
+
+class PayoutSerializer(serializers.ModelSerializer):
+    method_label = serializers.CharField(source='get_method_display', read_only=True)
+
+    class Meta:
+        model = Payout
+        fields = [
+            'id', 'amount', 'method', 'method_label', 'account_name', 'account_number', 'bank_name', 'status',
+            'reference', 'note', 'created_at', 'decided_at',
+        ]
+        read_only_fields = fields
+
+
+class AdminPayoutSerializer(PayoutSerializer):
+    affiliate_code = serializers.CharField(source='affiliate.code', read_only=True)
+    username = serializers.SerializerMethodField()
+    kyc_status = serializers.SerializerMethodField()
+
+    class Meta(PayoutSerializer.Meta):
+        fields = PayoutSerializer.Meta.fields + ['affiliate', 'affiliate_code', 'username', 'kyc_status']
+        read_only_fields = fields
+
+    def get_username(self, obj) -> str:
+        return self.context.get('players', {}).get(obj.affiliate.player_id, ('', ''))[0]
+
+    def get_kyc_status(self, obj) -> str:
+        return self.context.get('players', {}).get(obj.affiliate.player_id, ('', ''))[1]

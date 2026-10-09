@@ -346,3 +346,99 @@ def audit(player_id, event_type, request=None, **metadata):
         ip_address=ip or None,
         metadata=metadata,
     )
+
+
+# -- permanent deletion ------------------------------------------------------------
+
+class DeletionBlocked(ValueError):
+    """The player can't be deleted as things stand (shown to the operator)."""
+
+
+def deletion_check(player_id: int) -> dict:
+    """What deleting this player would throw away — shown before confirming."""
+    from apps.affiliates import services as affiliate_services
+    from apps.sportsbook import services as sportsbook_services
+    from apps.wallet import services as wallet_services
+    player = Player.objects.select_related('user').get(pk=player_id)
+    return {
+        'username': player.username,
+        'balance': wallet_services.get_balance_dto(player_id).balance,
+        'open_bets': sportsbook_services.open_bets_count(player_id),
+        'affiliate_owed': affiliate_services.money_owed_to(player_id),
+        'is_staff': bool(player.user and (player.user.is_staff or player.user.is_superuser)),
+    }
+
+
+@transaction.atomic
+def delete_player(player_id: int, *, confirm_username: str, force: bool = False, deleted_by: str = '', request=None) -> dict:
+    """Permanently delete a player and everything tied to them across every app:
+    login, profile, KYC documents (files too), wallet and ledger, payments,
+    bets, multiples, cash-outs, Aviator bets, bonuses, affiliate account,
+    notifications, chat and audit history. Irreversible.
+
+    Refused for staff accounts, without the exact username as confirmation,
+    and — unless `force` — while the player still has money (balance or
+    affiliate earnings) or open bets, so nobody's funds vanish by accident.
+    One audit entry records the deletion itself."""
+    from apps.affiliates import services as affiliate_services
+    from apps.casino import services as casino_services
+    from apps.jet import services as jet_services
+    from apps.livechat import services as livechat_services
+    from apps.notifications import services as notification_services
+    from apps.promotions import services as promotion_services
+    from apps.sportsbook import services as sportsbook_services
+    from apps.wallet import services as wallet_services
+    from .models import AuditLog
+
+    Player.objects.select_for_update().get(pk=player_id)
+    check = deletion_check(player_id)
+    if check['is_staff']:
+        raise DeletionBlocked('staff accounts can’t be deleted here')
+    if (confirm_username or '').strip() != check['username']:
+        raise DeletionBlocked('type the player’s username exactly to confirm')
+    if not force:
+        problems = []
+        if check['balance'] != 0:
+            problems.append(f"a balance of {check['balance']}")
+        if check['open_bets']:
+            problems.append(f"{check['open_bets']} open bet(s)")
+        if check['affiliate_owed'] > 0:
+            problems.append(f"{check['affiliate_owed']} of affiliate earnings")
+        if problems:
+            raise DeletionBlocked('this player still has ' + ', '.join(problems)
+                                  + ' — settle or pay it out first, or delete anyway to discard it')
+
+    rows = {
+        'sportsbook': sportsbook_services.erase_player_data(player_id),
+        'aviator': jet_services.erase_player_data(player_id),
+        'casino': casino_services.erase_player_data(player_id),
+        'promotions': promotion_services.erase_player_data(player_id),
+        'affiliates': affiliate_services.erase_player_data(player_id),
+        'notifications': notification_services.erase_player_data(player_id),
+        'chat': livechat_services.erase_player_data(player_id),
+        'wallet': wallet_services.erase_player_data(player_id),
+    }
+    player = Player.objects.select_related('user').get(pk=player_id)
+    files = [k.file.name for k in player.kyc_submissions.all() if k.file]
+    rows['kyc'] = player.kyc_submissions.all().delete()[0]
+    rows['audit'] = AuditLog.objects.filter(player_id=player_id).delete()[0]
+    user = player.user
+    player.delete()
+    if user is not None:
+        user.delete()
+
+    # KYC files are removed once the database changes are committed.
+    from django.core.files.storage import default_storage
+
+    def remove_files():
+        for name in files:
+            try:
+                default_storage.delete(name)
+            except Exception:  # noqa: BLE001 — a missing file must not undo the deletion
+                pass
+    transaction.on_commit(remove_files)
+
+    audit(None, 'player_deleted', request, deleted_player_id=player_id, username=check['username'],
+          deleted_by=deleted_by, forced=bool(force), balance_discarded=str(check['balance']),
+          open_bets_discarded=check['open_bets'], rows=rows)
+    return {'username': check['username'], 'rows': rows, 'forced': bool(force)}

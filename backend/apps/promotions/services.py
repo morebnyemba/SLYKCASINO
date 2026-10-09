@@ -183,3 +183,8 @@ def record_tournament_play(*, player_id: int, wagered: Decimal) -> int:
         entry.save(update_fields=['score', 'updated_at'])
         updated += 1
     return updated
+
+
+def erase_player_data(player_id: int) -> int:
+    return (PromotionClaim.objects.filter(player_id=player_id).delete()[0]
+            + TournamentEntry.objects.filter(player_id=player_id).delete()[0])

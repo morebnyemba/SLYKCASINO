@@ -421,6 +421,33 @@ class PlayerViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.G
             'balance': str(wallet_services.get_balance(int(pk))),
         })
 
+    @action(detail=True, methods=['get'], url_path='deletion-check')
+    def deletion_check(self, request, pk=None):
+        """What permanently deleting this player would discard (balance, open
+        bets, affiliate earnings), and whether the current admin may do it."""
+        check = services.deletion_check(int(self.get_object().pk))
+        return Response({
+            **{k: str(v) if not isinstance(v, (bool, int)) else v for k, v in check.items()},
+            'can_delete': bool(request.user.is_superuser) and not check['is_staff'],
+        })
+
+    @action(detail=True, methods=['post'], url_path='delete')
+    def delete_permanently(self, request, pk=None):
+        """POST {confirm: <username>, force?: bool} — superusers only. Deletes
+        the player and all their data for good."""
+        if not request.user.is_superuser:
+            return Response({'detail': 'Only a superuser can permanently delete players.'},
+                            status=status.HTTP_403_FORBIDDEN)
+        player = self.get_object()
+        try:
+            result = services.delete_player(
+                player.pk, confirm_username=str(request.data.get('confirm') or ''),
+                force=bool(request.data.get('force')), deleted_by=request.user.get_username(), request=request,
+            )
+        except services.DeletionBlocked as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_409_CONFLICT)
+        return Response(result)
+
     @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
     def me(self, request):
         player = services.get_current_player(request)

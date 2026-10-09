@@ -1,13 +1,14 @@
 'use client';
 
 import Link from 'next/link';
+import { useEffect, useState } from 'react';
 import { FaUsers } from 'react-icons/fa';
 import { Card } from '@slyk/ui/components/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@slyk/ui/components/table';
 import { Badge } from '@slyk/ui/components/badge';
 import { useApi } from '@/lib/use-api';
 import { LoadingState } from '@slyk/ui/components/spinner';
-import { PageHeader } from '@/components/console/ui';
+import { Notice, PageHeader } from '@/components/console/ui';
 
 interface Player {
   id: string | number;
@@ -27,10 +28,17 @@ interface PlayersResponse {
 export default function UsersPage() {
   const { data, loading, error } = useApi<PlayersResponse>('/players/');
   const players = data?.results ?? [];
+  // Set after a permanent deletion (read on mount to avoid a Suspense boundary for useSearchParams).
+  const [deleted, setDeleted] = useState<string | null>(null);
+  useEffect(() => {
+    const name = new URLSearchParams(window.location.search).get('deleted');
+    if (name) { setDeleted(name); window.history.replaceState(null, '', window.location.pathname); }
+  }, []);
 
   return (
     <div>
       <PageHeader icon={FaUsers} eyebrow="Players" title="Players" description="Operator view of registered players." />
+      {deleted && <div className="mb-3"><Notice tone="green" onClose={() => setDeleted(null)}>Player {deleted} and all their data were permanently deleted.</Notice></div>}
       {error && <p className="mb-3 text-sm text-destructive">{error}</p>}
       <Card className="rounded-2xl border-border/70 p-2">
         <Table>
