@@ -45,6 +45,21 @@ function drawPlane(ctx: CanvasRenderingContext2D, scale: number, spin: number) {
   ctx.restore();
 }
 
+/** The plane artwork from the purchased game package (nose up and to the right). */
+const PLANE_SRC = '/aviator/plane.png';
+// Where the plane's tail sits in the image, as a fraction of its size — the
+// curve's tip is drawn there so the plane looks like it's pulling the line.
+const TAIL = { x: 0.1, y: 0.78 };
+
+function drawPlaneImage(ctx: CanvasRenderingContext2D, img: HTMLImageElement, tipX: number, tipY: number, width: number, tilt: number) {
+  const height = width * (img.naturalHeight / img.naturalWidth);
+  ctx.save();
+  ctx.translate(tipX, tipY);
+  ctx.rotate(tilt);
+  ctx.drawImage(img, -width * TAIL.x, -height * TAIL.y, width, height);
+  ctx.restore();
+}
+
 /** A big two-blade propeller for the waiting screen. */
 function drawPropeller(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, angle: number) {
   ctx.save();
@@ -86,6 +101,11 @@ export function FlightScene({ round, rate, bettingSeconds, now }: {
     if (!canvas || !ctx) return;
     let raf = 0;
     let lastLabel = '';
+    const plane = new Image();
+    plane.src = PLANE_SRC;
+    const planeReady = () => plane.complete && plane.naturalWidth > 0;
+    // Plane width on screen: about 190px on a wide game, smaller on phones.
+    const planeWidth = (w: number, h: number) => Math.max(110, Math.min(200, Math.min(w / 3.8, h / 1.9)));
     let crashSeenAt = 0;
     let crashId = 0;
 
@@ -172,23 +192,33 @@ export function FlightScene({ round, rate, bettingSeconds, now }: {
           ctx.lineCap = 'round';
           ctx.stroke();
 
-          const back = Math.max(0, elapsed - 0.3);
-          const slope = Math.atan2(py(Math.exp(rate * back)) - tipY, tipX - px(back));
-          ctx.save();
-          ctx.translate(tipX + 6, tipY - 10 + Math.sin(t / 220) * 2);
-          ctx.rotate(-Math.max(0.06, Math.min(0.7, slope)) * 0.6);
-          drawPlane(ctx, Math.max(0.9, Math.min(1.5, w / 560)), t / 18);
-          ctx.restore();
+          const bob = Math.sin(t / 260) * 3;
+          if (planeReady()) {
+            drawPlaneImage(ctx, plane, tipX, tipY + bob, planeWidth(w, h), Math.sin(t / 700) * 0.03);
+          } else {
+            const back = Math.max(0, elapsed - 0.3);
+            const slope = Math.atan2(py(Math.exp(rate * back)) - tipY, tipX - px(back));
+            ctx.save();
+            ctx.translate(tipX + 6, tipY - 10 + bob);
+            ctx.rotate(-Math.max(0.06, Math.min(0.7, slope)) * 0.6);
+            drawPlane(ctx, Math.max(0.9, Math.min(1.5, w / 560)), t / 18);
+            ctx.restore();
+          }
         } else {
           // Flew away: the plane leaves the screen, the curve is gone.
           if (crashId !== r.id) { crashId = r.id; crashSeenAt = t; }
           const away = Math.min(1, (t - crashSeenAt) / 600);
           if (away < 1) {
+            const fromX = px(elapsed), fromY = py(Math.exp(rate * elapsed));
             ctx.save();
             ctx.globalAlpha = 1 - away;
-            ctx.translate(px(tMax * 0.82) + away * w * 0.5, py(mMax * 0.8) - away * h * 0.5);
-            ctx.rotate(-0.35);
-            drawPlane(ctx, Math.max(0.9, Math.min(1.5, w / 560)), t / 18);
+            if (planeReady()) {
+              drawPlaneImage(ctx, plane, fromX + away * w * 0.6, fromY - away * h * 0.6, planeWidth(w, h), -0.12 * away);
+            } else {
+              ctx.translate(fromX + away * w * 0.5, fromY - away * h * 0.5);
+              ctx.rotate(-0.35);
+              drawPlane(ctx, Math.max(0.9, Math.min(1.5, w / 560)), t / 18);
+            }
             ctx.restore();
           }
         }
