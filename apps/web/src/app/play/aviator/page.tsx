@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { BsInfoCircle, BsVolumeMuteFill, BsVolumeUpFill } from 'react-icons/bs';
+import { BsInfoCircle, BsMusicNoteBeamed, BsVolumeMuteFill, BsVolumeUpFill } from 'react-icons/bs';
 import { BetPanel } from '@/components/jet/bet-panel';
 import { FlightScene } from '@/components/jet/flight-scene';
 import { BetsList, HistoryStrip } from '@/components/jet/side-panels';
@@ -13,6 +13,7 @@ import * as sound from '@/lib/jet-sound';
 function useGameSounds(round: JetRound | null, multiplier: number, myBets: JetBet[], now: () => number) {
   const lastStatus = useRef<string | null>(null);
   const cashed = useRef<Set<number> | null>(null);
+  const [toast, setToast] = useState<{ key: number; x: string; win: string } | null>(null);
 
   // Audio may only start after the player touches the page.
   useEffect(() => {
@@ -23,8 +24,12 @@ function useGameSounds(round: JetRound | null, multiplier: number, myBets: JetBe
       window.removeEventListener('pointerdown', unlock);
       window.removeEventListener('keydown', unlock);
       sound.stopEngine();
+      sound.stopMusic();
     };
   }, []);
+
+  // The music lifts while the plane is in the air.
+  useEffect(() => { sound.setMusicEnergy(round?.status === 'flying' ? 1 : 0); }, [round?.status]);
 
   useEffect(() => {
     const status = round?.status ?? null;
@@ -56,19 +61,60 @@ function useGameSounds(round: JetRound | null, multiplier: number, myBets: JetBe
     const done = myBets.filter((b) => b.status === 'cashed').map((b) => b.id);
     if (cashed.current === null) { cashed.current = new Set(done); return; }
     for (const id of done) {
-      if (!cashed.current.has(id)) { cashed.current.add(id); sound.playCashout(); }
+      if (!cashed.current.has(id)) {
+        cashed.current.add(id);
+        sound.playCashout();
+        const b = myBets.find((x) => x.id === id)!;
+        setToast({ key: id, x: Number(b.cashout_multiplier ?? 0).toFixed(2), win: Number(b.payout).toFixed(2) });
+      }
     }
   }, [myBets]);
+
+  useEffect(() => {
+    if (!toast) return;
+    const t = window.setTimeout(() => setToast(null), 3200);
+    return () => window.clearTimeout(t);
+  }, [toast]);
+
+  return toast;
 }
 
-function SoundToggle() {
-  const [on, setOn] = useState(true);
-  useEffect(() => setOn(sound.soundEnabled()), []);
+/** Aviator's green "You have cashed out!" banner over the game screen. */
+function CashoutToast({ toast }: { toast: { key: number; x: string; win: string } | null }) {
+  if (!toast) return null;
   return (
-    <button onClick={() => { sound.setSoundEnabled(!on); setOn(!on); }} aria-label={on ? 'Mute sound' : 'Turn sound on'} title={on ? 'Mute' : 'Sound on'}
-      className="flex h-8 w-8 items-center justify-center rounded-full bg-[#141516] text-white/80 hover:text-white">
-      {on ? <BsVolumeUpFill size={15} /> : <BsVolumeMuteFill size={15} />}
-    </button>
+    <div className="pointer-events-none absolute inset-x-0 top-3 z-10 flex justify-center px-3">
+      <div key={toast.key} className="flex animate-[jet-toast_3.2s_ease-in-out_forwards] items-center gap-4 rounded-full border border-[#4ce42e]/60 bg-gradient-to-r from-[#123d0b] to-[#1d6110] py-1.5 pl-5 pr-1.5 text-white shadow-[0_8px_30px_rgba(40,169,9,0.45)]">
+        <span className="leading-tight">
+          <span className="block text-[11px] font-semibold text-white/75">You have cashed out!</span>
+          <span className="text-xl font-black tabular-nums">{toast.x}x</span>
+        </span>
+        <span className="rounded-full bg-[#28a909] px-4 py-1.5 text-center leading-tight">
+          <span className="block text-[10px] font-semibold uppercase text-white/80">Win, USD</span>
+          <span className="text-lg font-black tabular-nums">{toast.win}</span>
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function SoundToggles() {
+  const [sfx, setSfx] = useState(true);
+  const [music, setMusic] = useState(true);
+  useEffect(() => { setSfx(sound.soundEnabled()); setMusic(sound.musicEnabled()); }, []);
+  const cls = 'relative flex h-8 w-8 items-center justify-center rounded-full bg-[#141516] hover:text-white';
+  return (
+    <>
+      <button onClick={() => { sound.setSoundEnabled(!sfx); setSfx(!sfx); }} aria-label={sfx ? 'Mute sound' : 'Turn sound on'} title={sfx ? 'Sound: on' : 'Sound: off'}
+        className={`${cls} ${sfx ? 'text-white/85' : 'text-white/35'}`}>
+        {sfx ? <BsVolumeUpFill size={15} /> : <BsVolumeMuteFill size={15} />}
+      </button>
+      <button onClick={() => { sound.setMusicEnabled(!music); setMusic(!music); }} aria-label={music ? 'Turn music off' : 'Turn music on'} title={music ? 'Music: on' : 'Music: off'}
+        className={`${cls} ${music ? 'text-white/85' : 'text-white/35'}`}>
+        <BsMusicNoteBeamed size={14} />
+        {!music && <span className="absolute h-[1.5px] w-5 rotate-45 rounded bg-current" />}
+      </button>
+    </>
   );
 }
 
@@ -103,7 +149,7 @@ export default function AviatorPage() {
     return () => window.clearInterval(timer);
   }, [round?.status, round?.started_at, now, rate]);
 
-  useGameSounds(round, multiplier, state?.my_bets ?? EMPTY, now);
+  const toast = useGameSounds(round, multiplier, state?.my_bets ?? EMPTY, now);
 
   if (!state) {
     return (
@@ -127,9 +173,9 @@ export default function AviatorPage() {
         )}
         <button onClick={() => setRulesOpen((v) => !v)} aria-label="How to play"
           className={`${state.balance == null ? 'ml-auto' : ''} flex items-center gap-1.5 rounded-full bg-[#141516] px-3 py-1.5 text-xs font-bold text-white/80 hover:text-white`}>
-          <BsInfoCircle size={13} /> How to play
+          <BsInfoCircle size={13} /> <span className="hidden sm:inline">How to play</span>
         </button>
-        <SoundToggle />
+        <SoundToggles />
       </header>
 
       {rulesOpen && (
@@ -163,7 +209,10 @@ export default function AviatorPage() {
         </div>
         <div className="order-1 min-w-0 space-y-3 lg:order-2">
           <HistoryStrip history={state.history} settings={s} />
-          <FlightScene round={round} rate={rate} bettingSeconds={s.betting_seconds} now={now} />
+          <div className="relative">
+            <FlightScene round={round} rate={rate} bettingSeconds={s.betting_seconds} now={now} name={s.display_name} />
+            <CashoutToast toast={toast} />
+          </div>
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             {[1, 2].map((slot) => (
               <BetPanel
