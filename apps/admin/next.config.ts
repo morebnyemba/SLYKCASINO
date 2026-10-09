@@ -12,6 +12,10 @@ const nextConfig: NextConfig = {
   // Player app's /_next/*. assetPrefix keeps static asset URLs consistent.
   basePath: '/admin-portal',
   assetPrefix: '/admin-portal',
+  async redirects() {
+    // The crash game's admin page moved with its rename to Aviator.
+    return [{ source: '/games/jet', destination: '/games/aviator', permanent: true }];
+  },
 };
 
 export default nextConfig;

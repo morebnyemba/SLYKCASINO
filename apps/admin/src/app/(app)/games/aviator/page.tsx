@@ -1,11 +1,14 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { BsActivity, BsAirplane, BsCashCoin, BsGraphUpArrow, BsPauseFill, BsPeople, BsPlayFill, BsShieldCheck } from 'react-icons/bs';
+import {
+  BsActivity, BsAirplane, BsBoxArrowUpRight, BsCashCoin, BsGraphUpArrow, BsPauseFill, BsPeople, BsPlayFill, BsShieldCheck,
+} from 'react-icons/bs';
 import {
   Badge, Btn, Field, Notice, PageHeader, Panel, StatTile, TextInput, cx, money, tableClass, tdClass, thClass, trClass,
 } from '@/components/console/ui';
 import { useAuth } from '@/lib/auth-context';
+import { config } from '@/lib/config';
 import { authedRequest, useApi } from '@/lib/use-api';
 
 interface Settings {
@@ -73,12 +76,18 @@ export default function CrashGameAdminPage() {
         eyebrow="Games"
         title={settings?.display_name ?? 'Aviator'}
         description="The multiplayer crash game: takings, the round in the air, limits and every round’s fairness proof."
-        actions={settings && (settings.enabled
+        actions={settings && (<div className="flex flex-wrap gap-2">
+          <a href={`${config.playerUrl}/aviator`} target="_blank" rel="noreferrer"
+            className="inline-flex h-10 items-center gap-2 rounded-xl border border-border bg-card px-4 text-sm font-semibold hover:border-secondary/60 hover:bg-muted/60">
+            <BsBoxArrowUpRight size={13} /> Open game
+          </a>
+          {settings.enabled
           ? <Btn variant="danger" icon={BsPauseFill} busy={busy === 'toggle'}
               onClick={() => confirm('Pause the game? The round in the air finishes; no new rounds start.') && put({ enabled: false }, 'Paused — the current round finishes, then no new rounds start.', 'toggle')}>
               Pause game
             </Btn>
-          : <Btn variant="success" icon={BsPlayFill} busy={busy === 'toggle'} onClick={() => put({ enabled: true }, 'The game is live again.', 'toggle')}>Resume game</Btn>)}
+          : <Btn variant="success" icon={BsPlayFill} busy={busy === 'toggle'} onClick={() => put({ enabled: true }, 'The game is live again.', 'toggle')}>Resume game</Btn>}
+        </div>)}
       />
       {notice && <Notice tone={notice.tone} onClose={() => setNotice(null)}>{notice.text}</Notice>}
 
@@ -92,6 +101,19 @@ export default function CrashGameAdminPage() {
         <StatTile loading={!stats} icon={BsPeople} tone="slate" label="Players today" value={stats?.players_today ?? 0}
           hint={stats ? `7 days: ${money(stats.week.ggr)} GGR · all time ${money(stats.all_time.ggr)}` : undefined} />
       </div>
+
+      <Panel
+        title="Live game"
+        description="The game exactly as players see it, live (you watch as a guest — staff can’t bet from here)."
+        padded={false}
+      >
+        <iframe
+          src={`${config.playerUrl}/play/aviator`}
+          title="Live game"
+          loading="lazy"
+          className="block h-[560px] w-full rounded-b-2xl border-0 bg-[#0e0e0e]"
+        />
+      </Panel>
 
       <div className="grid gap-6 xl:grid-cols-[1fr_1.3fr]">
         <Panel title="In the air now" description="The live round. Its crash point stays secret until it crashes — for staff too."

@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import type { IconType } from 'react-icons';
 import {
-  BsArrowRight, BsBroadcast, BsCalendar2Week, BsCashCoin, BsCashStack, BsDiagram3, BsGraphUpArrow, BsGrid1X2,
+  BsAirplane, BsArrowRight, BsBroadcast, BsCalendar2Week, BsCashCoin, BsCashStack, BsDiagram3, BsGraphUpArrow, BsGrid1X2,
   BsPersonBadge, BsPersonPlus, BsReceipt, BsTicketPerforated, BsWallet2, BsExclamationTriangle,
 } from 'react-icons/bs';
 import { RealtimeFeed } from '@/components/realtime-feed';
@@ -81,6 +81,7 @@ function QueueRow({ icon: Icon, label, count, href, hint }: {
 
 export default function DashboardPage() {
   const { data: s, loading } = useApi<Stats>('/admin/stats/');
+  const { data: aviator } = useApi<{ today: { ggr: string; rounds: number; bets: number }; players_today: number }>('/admin/jet/stats/');
   const t = s?.today;
   const q = s?.queues;
   const sb = s?.sportsbook;
@@ -113,7 +114,7 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[1.6fr_1fr]">
-        <Panel title="Last 7 days" description="Deposits and gross gaming revenue (stakes minus payouts), sportsbook and casino.">
+        <Panel title="Last 7 days" description="Deposits and gross gaming revenue (stakes minus payouts), sportsbook and Aviator.">
           {s?.week ? <WeekChart week={s.week} /> : <div className="h-44 animate-pulse rounded-xl bg-muted/50" />}
         </Panel>
         <Panel title="Needs attention" description="Queues waiting on a person.">
@@ -126,11 +127,16 @@ export default function DashboardPage() {
         </Panel>
       </div>
 
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-5">
         <StatTile loading={loading} icon={BsBroadcast} tone="red" label="Live now" value={sb?.live ?? 0} href="/sportsbook/matches?state=live" hint="Matches in play" />
         <StatTile loading={loading} icon={BsCalendar2Week} tone="indigo" label="Upcoming, priced" value={sb?.upcoming ?? 0} href="/sportsbook/matches" />
         <StatTile loading={loading} icon={BsExclamationTriangle} tone="gold" label="Awaiting odds" value={sb?.unpriced ?? 0} href="/sportsbook/matches?state=unpriced" hint="Hidden from players until priced" />
         <StatTile loading={loading} icon={BsTicketPerforated} tone="slate" label="Open bets" value={(sb?.open_bets ?? 0) + (sb?.open_slips ?? 0)} href="/betting-feeds" hint={sb ? `${sb.open_bets} singles · ${sb.open_slips} multiples` : undefined} />
+        <StatTile
+          loading={!aviator} icon={BsAirplane} tone={Number(aviator?.today.ggr ?? 0) < 0 ? 'red' : 'green'} label="Aviator GGR today"
+          value={money(aviator?.today.ggr)} href="/games/aviator"
+          hint={aviator ? `${aviator.today.rounds} rounds · ${aviator.players_today} players` : undefined}
+        />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">

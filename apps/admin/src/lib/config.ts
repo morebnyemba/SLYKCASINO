@@ -3,6 +3,8 @@ export const config = {
   apiUrl: process.env.NEXT_PUBLIC_API_URL || 'http://localhost/api',
   wsUrl: process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost/ws',
   siteUrl: process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost/admin-portal',
+  // The player site. Empty = the same domain (production: one domain, admin under /admin-portal).
+  playerUrl: (process.env.NEXT_PUBLIC_PLAYER_URL || '').replace(/\/$/, ''),
 };
 
 export interface ApiResult<T = unknown> {
