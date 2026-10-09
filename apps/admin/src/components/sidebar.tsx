@@ -62,7 +62,7 @@ export function isActive(pathname: string, item: NavItem) {
 }
 
 interface NavStats {
-  queues?: { kyc_pending?: number; commissions_pending?: number; markets_to_settle?: number };
+  queues?: { kyc_pending?: number; commissions_pending?: number; payouts_pending?: number; markets_to_settle?: number };
   sportsbook?: { live?: number };
 }
 
@@ -72,7 +72,7 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
   const counts: Record<Badge, number> = {
     kyc: data?.queues?.kyc_pending ?? 0,
     live: data?.sportsbook?.live ?? 0,
-    commissions: data?.queues?.commissions_pending ?? 0,
+    commissions: (data?.queues?.commissions_pending ?? 0) + (data?.queues?.payouts_pending ?? 0),
     settle: data?.queues?.markets_to_settle ?? 0,
   };
   return (

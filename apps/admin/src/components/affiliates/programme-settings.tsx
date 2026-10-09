@@ -9,9 +9,10 @@ import { authedRequest, useApi } from '@/lib/use-api';
 interface Programme {
   welcome_bonus_percent: string; welcome_bonus_cap: string; welcome_bonus_wagering: string; welcome_bonus_min_deposit: string;
   default_revshare_percent: string; default_cpa_amount: string; default_cpa_min_deposit: string; default_cpa_percent: string;
-  default_cpa_cap: string; cpa_min_turnover_multiple: string; negative_carryover: boolean; updated_at: string;
+  default_cpa_cap: string; cpa_min_turnover_multiple: string; negative_carryover: boolean; min_payout: string;
+  external_payouts: boolean; updated_at: string;
 }
-type NumKey = Exclude<keyof Programme, 'negative_carryover' | 'updated_at'>;
+type NumKey = Exclude<keyof Programme, 'negative_carryover' | 'external_payouts' | 'updated_at'>;
 
 const n = (v: string) => Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 });
 
@@ -86,6 +87,19 @@ export function ProgrammeSettings() {
             </p>
           </div>
           <Switch checked={form.negative_carryover} onChange={(v) => setForm({ ...form, negative_carryover: v })} label="Carry losing months forward" />
+        </div>
+      </Panel>
+
+      <Panel title="Payouts" description="Affiliates withdraw their approved commissions. To their betting wallet it’s instant; to mobile money or a bank you send it and mark it paid under Payouts.">
+        <div className="grid gap-6 sm:grid-cols-2">
+          {num('min_payout', 'Minimum payout to mobile money / bank ($)', 'Moving earnings into the betting wallet has no minimum.')}
+          <div className="flex items-start justify-between gap-4">
+            <div className="text-sm">
+              <p className="font-semibold">Offer mobile money and bank payouts</p>
+              <p className="mt-1 text-muted-foreground">Off: affiliates can only move earnings into their betting wallet (then withdraw as players, with KYC).</p>
+            </div>
+            <Switch checked={form.external_payouts} onChange={(v) => setForm({ ...form, external_payouts: v })} label="Offer mobile money and bank payouts" />
+          </div>
         </div>
       </Panel>
 

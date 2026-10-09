@@ -10,6 +10,7 @@ import { LoadingState, Spinner } from '@slyk/ui/components/spinner';
 import { PageHeader } from '@/components/console/ui';
 import { AffiliateAnalyticsPanel } from '@/components/affiliates/affiliate-analytics';
 import { ProgrammeSettings } from '@/components/affiliates/programme-settings';
+import { PayoutsTab } from '@/components/affiliates/payouts-tab';
 
 interface Affiliate {
   id: number;
@@ -220,11 +221,11 @@ function CommissionsTab() {
 
   async function act(id: number, verb: 'approve' | 'reject') {
     if (!accessToken) return;
-    if (verb === 'approve' && !window.confirm('Pay this commission into the affiliate’s wallet?')) return;
+    if (verb === 'approve' && !window.confirm('Approve this commission? It joins the affiliate’s balance, which they can withdraw.')) return;
     setBusy(id); setMessage('');
     const res = await authedPost(`/admin/affiliate-commissions/${id}/${verb}/`, {}, accessToken);
     setBusy(null);
-    setMessage(res.error ? `Error: ${res.error}` : verb === 'approve' ? 'Commission paid.' : 'Commission rejected.');
+    setMessage(res.error ? `Error: ${res.error}` : verb === 'approve' ? 'Commission approved — now in the affiliate’s balance.' : 'Commission rejected.');
     refetch();
   }
 
@@ -240,7 +241,7 @@ function CommissionsTab() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
-        <Filter value={status} onChange={setStatus} options={[['pending', 'To review'], ['paid', 'Paid'], ['rejected', 'Rejected'], ['', 'All']]} />
+        <Filter value={status} onChange={setStatus} options={[['pending', 'To review'], ['approved', 'Approved'], ['paid', 'Paid (before payouts)'], ['rejected', 'Rejected'], ['', 'All']]} />
         <button
           onClick={runNow}
           disabled={busy === 'run'}
@@ -301,12 +302,13 @@ function CommissionsTab() {
 }
 
 export default function AffiliatesPage() {
-  const [tab, setTab] = useState<'affiliates' | 'commissions' | 'programme'>('affiliates');
+  const [tab, setTab] = useState<'affiliates' | 'commissions' | 'payouts' | 'programme'>('affiliates');
   return (
     <div className="space-y-6">
       <PageHeader icon={FaHandshake} eyebrow="Money" title="Affiliates" description="Approve partners, set their terms, and review and pay commissions." />
-      <Filter value={tab} onChange={(v) => setTab(v as typeof tab)} options={[['affiliates', 'Affiliates'], ['commissions', 'Commissions'], ['programme', 'Programme settings']]} />
-      {tab === 'affiliates' ? <AffiliatesTab /> : tab === 'commissions' ? <CommissionsTab /> : <ProgrammeSettings />}
+      <Filter value={tab} onChange={(v) => setTab(v as typeof tab)} options={[['affiliates', 'Affiliates'], ['commissions', 'Commissions'], ['payouts', 'Payouts'], ['programme', 'Programme settings']]} />
+      {tab === 'affiliates' ? <AffiliatesTab /> : tab === 'commissions' ? <CommissionsTab />
+        : tab === 'payouts' ? <PayoutsTab /> : <ProgrammeSettings />}
     </div>
   );
 }

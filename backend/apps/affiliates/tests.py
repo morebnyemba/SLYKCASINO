@@ -169,16 +169,17 @@ class CommissionTests(Base):
         self.assertEqual(services.run_commissions(today=utils.next_month(self.month))['revshare'], 1)
         self.assertEqual(Commission.objects.filter(kind='revshare').count(), 1)
 
-    def test_approve_pays_wallet_once_and_reject(self):
+    def test_approve_adds_to_balance_once_and_reject(self):
         a = self.referred('alice', self.affiliate)
         self.play(a, staked=100, won=0)
         c = services.compute_revshare(self.affiliate, self.month)
-        before = wallet_services.get_balance(self.partner.id)
+        self.assertEqual(services.balance(self.affiliate)['pending'], D('25.00'))
         services.approve(c.id)
         services.approve(c.id)
-        self.assertEqual(wallet_services.get_balance(self.partner.id) - before, D('25.00'))
+        self.assertEqual(services.balance(self.affiliate)['available'], D('25.00'))
+        self.assertEqual(wallet_services.get_balance(self.partner.id), D('0'))  # not paid until requested
         c.refresh_from_db()
-        self.assertEqual(c.status, Commission.Status.PAID)
+        self.assertEqual(c.status, Commission.Status.APPROVED)
         with self.assertRaises(services.AffiliateError):
             services.reject(c.id)
 
@@ -186,19 +187,23 @@ class CommissionTests(Base):
     def test_auto_pay(self):
         a = self.referred('alice', self.affiliate)
         self.play(a, staked=100, won=0)
-        self.assertEqual(services.compute_revshare(self.affiliate, self.month).status, Commission.Status.PAID)
+        self.assertEqual(services.compute_revshare(self.affiliate, self.month).status, Commission.Status.APPROVED)
+        self.assertEqual(services.balance(self.affiliate)['available'], D('25.00'))
 
-    def test_recovery_pays_stuck_approved(self):
+    def test_recovery_completes_stuck_wallet_payout(self):
+        from apps.affiliates.models import Payout
         a = self.referred('alice', self.affiliate)
         self.play(a, staked=100, won=0)
-        c = services.compute_revshare(self.affiliate, self.month)
-        Commission.objects.filter(pk=c.pk).update(
-            status=Commission.Status.APPROVED, decided_at=timezone.now() - timedelta(hours=1),
-        )
+        services.approve(services.compute_revshare(self.affiliate, self.month).id)
+        # A wallet payout whose credit never happened (crash between the two writes).
+        stuck = Payout.objects.create(affiliate=self.affiliate, amount=D('25.00'), method=Payout.Method.WALLET)
+        Payout.objects.filter(pk=stuck.pk).update(created_at=timezone.now() - timedelta(hours=1))
         report = RecoveryManager().run()
         self.assertTrue(report.ok)
-        c.refresh_from_db()
-        self.assertEqual(c.status, Commission.Status.PAID)
+        stuck.refresh_from_db()
+        self.assertEqual(stuck.status, Payout.Status.PAID)
+        self.assertEqual(wallet_services.get_balance(self.partner.id), D('25.00'))
+        self.assertTrue(RecoveryManager().run().ok)
         self.assertEqual(wallet_services.get_balance(self.partner.id), D('25.00'))
 
     def test_dashboard(self):

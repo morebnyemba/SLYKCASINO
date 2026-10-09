@@ -135,3 +135,8 @@ def _record_tournament_play(player_id: int, wagered: Decimal) -> None:
         promo_services.record_tournament_play(player_id=player_id, wagered=wagered)
     except Exception:  # noqa: BLE001 — scoring is non-critical to the game outcome
         pass
+
+
+def erase_player_data(player_id: int) -> int:
+    return (GameRound.objects.filter(player_id=player_id).delete()[0]
+            + CrashRound.objects.filter(player_id=player_id).delete()[0])

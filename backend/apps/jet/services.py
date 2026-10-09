@@ -341,3 +341,8 @@ def recover(*, now=None) -> int:
 
 def flight_seconds(rnd: JetRound) -> float:
     return engine.seconds_to(rnd.crash_point)
+
+
+def erase_player_data(player_id: int) -> int:
+    """Permanently delete a player's Aviator bets (round totals are kept)."""
+    return JetBet.objects.filter(player_id=player_id).delete()[0]

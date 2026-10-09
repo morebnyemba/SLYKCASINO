@@ -26,3 +26,8 @@ def suggested_code(username: str) -> str:
 def commission_payout_key(commission_id: int) -> str:
     """Deterministic key for a commission's wallet credit — recovery re-drives it safely."""
     return make_key('wallet:affiliate', commission_id, 'payout')
+
+
+def payout_wallet_key(payout_id: int) -> str:
+    """Deterministic key for a payout into the betting wallet — paid at most once."""
+    return make_key('wallet:affiliate-payout', payout_id, 'credit')

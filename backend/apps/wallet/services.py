@@ -199,3 +199,12 @@ def withdrawal(
         body=f'{utils.quantize(amount)} has been withdrawn from your wallet.',
     )
     return entry
+
+
+def erase_player_data(player_id: int) -> int:
+    """Permanently delete a player's wallet, every ledger entry and payment
+    record (account deletion). Returns rows deleted."""
+    from .models import PaymentTransaction
+    deleted = PaymentTransaction.objects.filter(player_id=player_id).delete()[0]
+    deleted += Wallet.objects.filter(player_id=player_id).delete()[0]  # cascades to ledger entries
+    return deleted

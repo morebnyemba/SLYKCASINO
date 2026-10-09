@@ -3,13 +3,15 @@
 Flow: a visitor lands on `/?ref=CODE` (click logged), registers (the referral is
 fixed to that affiliate), and plays. Each month the affiliate earns their
 revenue-share percentage of the net gaming revenue (NGR) of every player they
-referred, read from the wallet ledger; optionally a one-off CPA once a referral
-has deposited enough. Commissions are paid into the affiliate's own wallet with
-a deterministic idempotency key, after operator approval (or automatically when
-AFFILIATE_AUTO_PAY is on).
+referred, read from the wallet ledger; plus a one-off deposit commission once a
+referral has deposited and played enough. Approved commissions (by an operator,
+or automatically when AFFILIATE_AUTO_PAY is on) build up the affiliate's
+balance, which they withdraw with a payout request: into their betting wallet
+at once, or to mobile money / a bank once an operator has sent the money.
 """
 from __future__ import annotations
 
+import re
 from datetime import date, datetime, time
 from decimal import Decimal
 from typing import Optional
@@ -22,7 +24,7 @@ from apps.accounts import services as accounts_services
 from apps.wallet import services as wallet_services
 
 from . import helpers, utils
-from .models import Affiliate, AffiliateClick, AffiliateProgramme, Commission, Referral, RevshareMonth
+from .models import Affiliate, AffiliateClick, AffiliateProgramme, Commission, Payout, Referral, RevshareMonth
 from .reporting import affiliate_analytics, top_affiliates  # noqa: F401  (read-only analytics)
 
 
@@ -139,6 +141,7 @@ def update_terms(affiliate_id: int, **terms) -> Affiliate:
 # -- programme settings & the referred player's welcome bonus -------------------
 
 PROGRAMME_FIELDS = {
+    'min_payout': None,
     'welcome_bonus_percent': Decimal('100'), 'welcome_bonus_cap': None, 'welcome_bonus_wagering': Decimal('100'),
     'welcome_bonus_min_deposit': None, 'default_revshare_percent': Decimal('100'), 'default_cpa_amount': None,
     'default_cpa_min_deposit': None, 'default_cpa_percent': Decimal('100'), 'default_cpa_cap': None,
@@ -163,9 +166,10 @@ def update_programme(**values) -> AffiliateProgramme:
             raise AffiliateError(f'{name} is out of range')
         setattr(programme, name, value)
         fields.append(name)
-    if values.get('negative_carryover') is not None:
-        programme.negative_carryover = bool(values['negative_carryover'])
-        fields.append('negative_carryover')
+    for flag in ('negative_carryover', 'external_payouts'):
+        if values.get(flag) is not None:
+            setattr(programme, flag, bool(values[flag]))
+            fields.append(flag)
     if fields:
         programme.save(update_fields=[*fields, 'updated_at'])
     return programme
@@ -240,16 +244,12 @@ def dashboard(affiliate: Affiliate) -> dict:
     """What an affiliate (or an operator) sees: link stats, this month's
     running revenue and estimated commission, and money earned."""
     from datetime import timedelta
-    from django.db.models import Sum
 
     today = timezone.localdate()
     month = utils.month_start(today)
     this_month = referral_stats(affiliate, start=_aware(month))
     lifetime = referral_stats(affiliate)
     ngr = sum((s['ngr'] for s in this_month.values()), Decimal('0'))
-    by_status = dict(
-        affiliate.commissions.values('status').annotate(total=Sum('amount')).values_list('status', 'total'),
-    )
     names = accounts_services.usernames_for(list(lifetime))
     referrals = [
         {
@@ -273,8 +273,8 @@ def dashboard(affiliate: Affiliate) -> dict:
             utils.carry(ngr, carryover_balance(affiliate), AffiliateProgramme.load().negative_carryover)[0],
             affiliate.revshare_percent,
         ),
-        'pending': (by_status.get('pending') or Decimal('0')) + (by_status.get('approved') or Decimal('0')),
-        'paid': by_status.get('paid') or Decimal('0'),
+        **{k: money for k, money in balance(affiliate).items() if k != 'carryover'},
+        'paid': balance(affiliate)['paid_out'],
         'referrals': referrals,
     }
 
@@ -391,36 +391,170 @@ def run_commissions(*, today: Optional[date] = None) -> dict:
     return {'period': period.isoformat(), 'revshare': revshare, 'cpa': cpa}
 
 
+def _notify(affiliate: Affiliate, title: str, body: str) -> None:
+    from apps.notifications import services as notif_services
+    notif_services.notify(player_id=affiliate.player_id, kind='account_alert', title=title, body=body)
+
+
 @transaction.atomic
 def approve(commission_id: int) -> Commission:
-    """Approve and pay: credit the affiliate's wallet with a keyed entry, then
-    mark PAID. Safe to repeat; recovery re-drives APPROVED ones."""
+    """Approve a commission: its amount joins the affiliate's balance, ready
+    to withdraw. Idempotent."""
     commission = Commission.objects.select_for_update().select_related('affiliate').get(pk=commission_id)
-    if commission.status in (Commission.Status.PAID, Commission.Status.REJECTED):
+    if commission.status != Commission.Status.PENDING:
         return commission
-    if commission.status == Commission.Status.PENDING:
-        commission.status = Commission.Status.APPROVED
-        commission.decided_at = timezone.now()
-        commission.save(update_fields=['status', 'decided_at'])
-    return _pay(commission)
-
-
-def _pay(commission: Commission) -> Commission:
-    wallet_services.credit(
-        player_id=commission.affiliate.player_id, amount=commission.amount, kind='affiliate',
-        idempotency_key=helpers.commission_payout_key(commission.id),
-        reference=f'affiliate:{commission.id}',
-    )
-    commission.status = Commission.Status.PAID
-    commission.paid_at = timezone.now()
-    commission.save(update_fields=['status', 'paid_at'])
-    from apps.notifications import services as notif_services
+    commission.status = Commission.Status.APPROVED
+    commission.decided_at = timezone.now()
+    commission.save(update_fields=['status', 'decided_at'])
     label = commission.period.strftime('%B %Y') if commission.period else 'a new depositing referral'
-    notif_services.notify(
-        player_id=commission.affiliate.player_id, kind='account_alert', title='Affiliate commission paid',
-        body=f'{commission.amount} for {label} has been added to your balance.',
-    )
+    _notify(commission.affiliate, 'Affiliate commission approved',
+            f'{commission.amount} for {label} is in your affiliate balance — request a payout any time.')
     return commission
+
+
+# -- balance & payouts -------------------------------------------------------------
+
+def _sum(qs) -> Decimal:
+    from django.db.models import Sum
+    return (qs.aggregate(v=Sum('amount'))['v'] or Decimal('0')).quantize(Decimal('0.01'))
+
+
+def balance(affiliate: Affiliate) -> dict:
+    """The affiliate's money: approved commissions not yet paid out are
+    `available`; `pending` awaits approval; `in_payout` is requested but not
+    yet sent; `paid_out` is everything paid (including commissions paid
+    straight to the wallet before payouts existed)."""
+    approved = _sum(affiliate.commissions.filter(status=Commission.Status.APPROVED))
+    requested = _sum(affiliate.payouts.filter(status=Payout.Status.REQUESTED))
+    paid = _sum(affiliate.payouts.filter(status=Payout.Status.PAID))
+    legacy = _sum(affiliate.commissions.filter(status=Commission.Status.PAID))
+    return {
+        'available': max(approved - requested - paid, Decimal('0.00')),
+        'pending': _sum(affiliate.commissions.filter(status=Commission.Status.PENDING)),
+        'in_payout': requested,
+        'paid_out': paid + legacy,
+        'carryover': carryover_balance(affiliate),
+    }
+
+
+MOBILE_MONEY = (Payout.Method.ECOCASH, Payout.Method.ONEMONEY, Payout.Method.INNBUCKS)
+
+
+def payout_options(affiliate: Affiliate) -> dict:
+    programme = AffiliateProgramme.load()
+    player = accounts_services.get_player(affiliate.player_id)
+    methods = [Payout.Method.WALLET]
+    if programme.external_payouts:
+        methods += [*MOBILE_MONEY, Payout.Method.BANK]
+    return {
+        'methods': [{'id': m.value, 'label': m.label} for m in methods],
+        'min_payout': str(programme.min_payout),
+        'kyc_verified': bool(player and player.kyc_status == player.Kyc.VERIFIED),
+    }
+
+
+@transaction.atomic
+def request_payout(
+    *, affiliate_id: int, amount, method: str, account_name: str = '', account_number: str = '', bank_name: str = '',
+) -> Payout:
+    """Withdraw from the affiliate balance. To the betting wallet it's paid at
+    once; mobile money and bank payouts wait for an operator. Locked per
+    affiliate so two requests can never spend the same balance."""
+    affiliate = Affiliate.objects.select_for_update().get(pk=affiliate_id)
+    if affiliate.status != Affiliate.Status.ACTIVE:
+        raise AffiliateError('only active affiliates can request payouts')
+    try:
+        amount = Decimal(str(amount)).quantize(Decimal('0.01'))
+    except (ArithmeticError, ValueError):
+        raise AffiliateError('enter a valid amount')
+    if amount <= 0:
+        raise AffiliateError('enter a valid amount')
+    if method not in Payout.Method.values:
+        raise AffiliateError('choose how you want to be paid')
+    programme = AffiliateProgramme.load()
+    external = method != Payout.Method.WALLET
+    if external:
+        if not programme.external_payouts:
+            raise AffiliateError('payouts to mobile money and banks are switched off — choose your betting wallet')
+        if amount < programme.min_payout:
+            raise AffiliateError(f'the minimum payout to {Payout.Method(method).label} is {programme.min_payout}')
+        player = accounts_services.get_player(affiliate.player_id)
+        if not player or player.kyc_status != player.Kyc.VERIFIED:
+            raise AffiliateError('verify your identity before requesting a payout to mobile money or a bank')
+        number = re.sub(r'[^0-9+]', '', account_number or '')
+        if method in MOBILE_MONEY and not re.fullmatch(r'\+?\d{9,13}', number):
+            raise AffiliateError('enter the mobile number to pay, e.g. 0771234567')
+        if method == Payout.Method.BANK and (len(account_number.strip()) < 5 or not bank_name.strip() or not account_name.strip()):
+            raise AffiliateError('enter the bank, account name and account number')
+        account_number = number if method in MOBILE_MONEY else account_number.strip()
+    available = balance(affiliate)['available']
+    if amount > available:
+        raise AffiliateError(f'you can withdraw up to {available}')
+    payout = Payout.objects.create(
+        affiliate=affiliate, amount=amount, method=method,
+        account_name=account_name.strip()[:120] if external else '',
+        account_number=account_number[:60] if external else '',
+        bank_name=bank_name.strip()[:80] if method == Payout.Method.BANK else '',
+    )
+    if not external:
+        return complete_wallet_payout(payout.id)
+    _notify(affiliate, 'Payout requested',
+            f'We’ve received your request for {amount} to {payout.get_method_display()}. You’ll be notified when it’s sent.')
+    return payout
+
+
+@transaction.atomic
+def complete_wallet_payout(payout_id: int) -> Payout:
+    """Move a wallet payout into the affiliate's betting wallet (keyed, so a
+    retry or recovery can never pay twice), then mark it paid."""
+    payout = Payout.objects.select_for_update().select_related('affiliate').get(pk=payout_id)
+    if payout.status != Payout.Status.REQUESTED or payout.method != Payout.Method.WALLET:
+        return payout
+    wallet_services.credit(
+        player_id=payout.affiliate.player_id, amount=payout.amount, kind='affiliate',
+        idempotency_key=helpers.payout_wallet_key(payout.id), reference=f'affiliate-payout:{payout.id}',
+    )
+    payout.status = Payout.Status.PAID
+    payout.decided_at = timezone.now()
+    payout.save(update_fields=['status', 'decided_at'])
+    _notify(payout.affiliate, 'Affiliate earnings moved to your wallet',
+            f'{payout.amount} from your affiliate balance is now in your betting wallet.')
+    return payout
+
+
+@transaction.atomic
+def mark_payout_paid(payout_id: int, *, reference: str = '', note: str = '') -> Payout:
+    """Operator: the money has been sent (EcoCash/bank) — record the reference."""
+    payout = Payout.objects.select_for_update().select_related('affiliate').get(pk=payout_id)
+    if payout.status != Payout.Status.REQUESTED:
+        raise AffiliateError(f'this payout is already {payout.status}')
+    if payout.method == Payout.Method.WALLET:
+        return complete_wallet_payout(payout.id)
+    payout.status = Payout.Status.PAID
+    payout.reference = reference.strip()[:100]
+    payout.note = note.strip()[:500]
+    payout.decided_at = timezone.now()
+    payout.save(update_fields=['status', 'reference', 'note', 'decided_at'])
+    _notify(payout.affiliate, 'Payout sent',
+            f'{payout.amount} has been sent to your {payout.get_method_display()} ({payout.account_number})'
+            + (f' — reference {payout.reference}.' if payout.reference else '.'))
+    return payout
+
+
+@transaction.atomic
+def reject_payout(payout_id: int, *, note: str = '') -> Payout:
+    """Operator: decline a payout request; the amount returns to the balance."""
+    payout = Payout.objects.select_for_update().select_related('affiliate').get(pk=payout_id)
+    if payout.status != Payout.Status.REQUESTED:
+        raise AffiliateError(f'this payout is already {payout.status}')
+    payout.status = Payout.Status.REJECTED
+    payout.note = note.strip()[:500]
+    payout.decided_at = timezone.now()
+    payout.save(update_fields=['status', 'note', 'decided_at'])
+    _notify(payout.affiliate, 'Payout not sent',
+            f'Your payout of {payout.amount} was declined' + (f': {payout.note}' if payout.note else '.')
+            + ' The amount is back in your affiliate balance.')
+    return payout
 
 
 @transaction.atomic
@@ -433,3 +567,33 @@ def reject(commission_id: int, note: str = '') -> Commission:
     commission.note = note[:500]
     commission.save(update_fields=['status', 'decided_at', 'note'])
     return commission
+
+
+# -- account deletion ---------------------------------------------------------------
+
+def money_owed_to(player_id: int) -> Decimal:
+    """Affiliate earnings a player still has (available or being paid out)."""
+    affiliate = get_for_player(player_id)
+    if affiliate is None:
+        return Decimal('0')
+    b = balance(affiliate)
+    return b['available'] + b['in_payout']
+
+
+def erase_player_data(player_id: int) -> int:
+    """Permanently delete a player's affiliate side: their own affiliate account
+    (clicks, commissions, payouts, months; the players they referred simply stop
+    being attributed) and their record as someone else's referral (that
+    affiliate keeps any commission already earned on them)."""
+    deleted = 0
+    referral = Referral.objects.filter(player_id=player_id).first()
+    if referral is not None:
+        Commission.objects.filter(referral=referral).update(referral=None)
+        deleted += Referral.objects.filter(pk=referral.pk).delete()[0]
+    affiliate = get_for_player(player_id)
+    if affiliate is not None:
+        RevshareMonth.objects.filter(affiliate=affiliate).delete()
+        deleted += Payout.objects.filter(affiliate=affiliate).delete()[0]
+        Commission.objects.filter(affiliate=affiliate).delete()
+        deleted += Affiliate.objects.filter(pk=affiliate.pk).delete()[0]
+    return deleted

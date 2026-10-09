@@ -1,16 +1,17 @@
-"""affiliates fault-tolerance — commission payouts.
+"""affiliates fault-tolerance — payouts into the betting wallet.
 
 Recovery strategy
 -----------------
-A commission can be left APPROVED if payment is interrupted between approval
-and the wallet credit. Past a grace window, the credit is re-driven with the
-commission's deterministic key `wallet:affiliate:<id>:payout`, then the
-commission is marked PAID.
+A payout to the betting wallet is credited as soon as it's requested. If that
+is interrupted (the request row exists but is still REQUESTED), past a grace
+window the credit is re-driven with the payout's deterministic key
+`wallet:affiliate-payout:<id>:credit`, then the payout is marked PAID.
+Mobile-money and bank payouts wait for an operator and are never touched.
 
 Idempotency
 -----------
-The credit is keyed per commission, so it can never land twice; only
-APPROVED -> PAID transitions happen, so repeat runs are no-ops.
+The credit is keyed per payout, so it can never land twice; only
+REQUESTED -> PAID transitions happen, so repeat runs are no-ops.
 """
 from __future__ import annotations
 
@@ -21,7 +22,7 @@ from django.utils import timezone
 from common.recovery import BaseRecoveryManager
 
 from . import services
-from .models import Commission
+from .models import Payout
 
 GRACE = timedelta(minutes=5)
 
@@ -31,14 +32,16 @@ class RecoveryManager(BaseRecoveryManager):
 
     def reconcile(self) -> None:
         cutoff = timezone.now() - GRACE
-        stuck = Commission.objects.filter(status=Commission.Status.APPROVED, decided_at__lt=cutoff)
-        for commission in stuck.iterator():
+        stuck = Payout.objects.filter(
+            status=Payout.Status.REQUESTED, method=Payout.Method.WALLET, created_at__lt=cutoff,
+        )
+        for payout in stuck.iterator():
             self.mark_scanned()
             if self.dry_run:
-                self.mark_skipped(f'would pay commission {commission.id}')
+                self.mark_skipped(f'would complete wallet payout {payout.id}')
                 continue
             try:
-                services.approve(commission.id)
-                self.mark_repaired(f'commission {commission.id}: payout re-driven')
+                services.complete_wallet_payout(payout.id)
+                self.mark_repaired(f'payout {payout.id}: wallet credit re-driven')
             except Exception as exc:  # noqa: BLE001
-                self.mark_failed(f'commission {commission.id}: {exc!r}')
+                self.mark_failed(f'payout {payout.id}: {exc!r}')

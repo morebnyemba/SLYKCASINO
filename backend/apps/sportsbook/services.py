@@ -1486,3 +1486,20 @@ def publish_event_markets(event: Event) -> None:
         RealtimePublisherClient().publish(f'odds:{event.id}', payload)
     except Exception:  # noqa: BLE001 — realtime must never break a sync
         pass
+
+
+def open_bets_count(player_id: int) -> int:
+    open_states = (Bet.Status.OPEN, Bet.Status.PENDING, Bet.Status.ACCEPTING)
+    return (Bet.objects.filter(player_id=player_id, status__in=open_states).count()
+            + BetSlip.objects.filter(player_id=player_id, status__in=open_states).count())
+
+
+def erase_player_data(player_id: int) -> int:
+    """Permanently delete a player's bets, multiples (with legs and cash-outs)
+    and booking codes (account deletion). Returns rows deleted."""
+    from .models import BookingCode, Cashout
+    deleted = Cashout.objects.filter(player_id=player_id).delete()[0]
+    deleted += Bet.objects.filter(player_id=player_id).delete()[0]
+    deleted += BetSlip.objects.filter(player_id=player_id).delete()[0]
+    deleted += BookingCode.objects.filter(player_id=player_id).delete()[0]
+    return deleted

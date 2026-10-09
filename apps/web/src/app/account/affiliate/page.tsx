@@ -1,13 +1,16 @@
 'use client';
 
 import { useState } from 'react';
-import { FaCheck, FaCopy, FaHandshake } from 'react-icons/fa';
+import { FaHandshake } from 'react-icons/fa';
+import { FaArrowRight, FaClockRotateLeft } from 'react-icons/fa6';
 import { Card, CardContent, CardHeader, CardTitle } from '@slyk/ui/components/card';
 import { Badge } from '@slyk/ui/components/badge';
 import { useAuth } from '@/lib/auth-context';
 import { authedPost, useApi } from '@/lib/use-api';
 import { LoadingState, Spinner } from '@slyk/ui/components/spinner';
 import { AffiliateAnalytics } from '@/components/affiliate/analytics';
+import { PayoutDialog, type PayoutOptions } from '@/components/affiliate/payout-dialog';
+import { ShareLink } from '@/components/affiliate/share-link';
 
 interface Commission {
   id: number;
@@ -44,6 +47,19 @@ interface Stats {
   referrals: { player: string; joined: string; campaign: string; deposited: boolean; ngr_this_month: string }[];
 }
 
+interface Payout {
+  id: number;
+  amount: string;
+  method: string;
+  method_label: string;
+  account_number: string;
+  status: 'requested' | 'paid' | 'rejected';
+  reference: string;
+  note: string;
+  created_at: string;
+  decided_at: string | null;
+}
+
 interface Affiliate {
   code: string;
   status: 'pending' | 'active' | 'suspended' | 'rejected';
@@ -54,6 +70,9 @@ interface Affiliate {
   cpa_cap: string;
   programme?: Programme;
   stats?: Stats;
+  balance?: { available: string; pending: string; in_payout: string; paid_out: string; carryover: string };
+  payouts?: Payout[];
+  payout_options?: PayoutOptions;
   commissions?: Commission[];
 }
 
@@ -68,8 +87,15 @@ function monthLabel(period: string | null) {
 }
 
 const STATUS_BADGE: Record<Commission['status'], 'default' | 'secondary' | 'destructive'> = {
-  pending: 'secondary', approved: 'secondary', paid: 'default', rejected: 'destructive',
+  pending: 'secondary', approved: 'default', paid: 'default', rejected: 'destructive',
 };
+const STATUS_LABEL: Record<Commission['status'], string> = {
+  pending: 'Awaiting approval', approved: 'In your balance', paid: 'Paid', rejected: 'Rejected',
+};
+const PAYOUT_BADGE: Record<Payout['status'], 'default' | 'secondary' | 'destructive'> = {
+  requested: 'secondary', paid: 'default', rejected: 'destructive',
+};
+const PAYOUT_LABEL: Record<Payout['status'], string> = { requested: 'Being sent', paid: 'Paid', rejected: 'Declined' };
 
 type TermsProps = Pick<Affiliate, 'revshare_percent' | 'cpa_amount' | 'cpa_min_deposit' | 'cpa_percent' | 'cpa_cap' | 'programme'>;
 
@@ -167,102 +193,135 @@ function Apply({ onDone }: { onDone: () => void }) {
   );
 }
 
-function Stat({ label, value, hint }: { label: string; value: string | number; hint?: string }) {
+function HeroStat({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
-    <div className="rounded-xl border border-border bg-card p-4">
-      <p className="text-xs font-semibold text-muted-foreground">{label}</p>
-      <p className="mt-1 text-xl font-extrabold tabular-nums">{value}</p>
-      {hint && <p className="mt-0.5 text-[11px] text-muted-foreground">{hint}</p>}
+    <div className="rounded-xl bg-white/10 px-3.5 py-3 backdrop-blur-sm">
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-white/60">{label}</p>
+      <p className="mt-0.5 text-lg font-extrabold tabular-nums">{value}</p>
+      {hint && <p className="text-[11px] text-white/60">{hint}</p>}
     </div>
   );
 }
 
-function Dashboard({ a }: { a: Affiliate & { stats: Stats } }) {
-  const s = a.stats;
-  const origin = typeof window !== 'undefined' ? window.location.origin : '';
-  const [campaign, setCampaign] = useState('');
-  const link = `${origin}/?ref=${a.code}${campaign ? `&campaign=${encodeURIComponent(campaign)}` : ''}`;
-  const [copied, setCopied] = useState(false);
+type Tab = 'payouts' | 'commissions' | 'players' | 'terms';
 
-  async function copy() {
-    try { await navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { /* no clipboard */ }
-  }
+function Dashboard({ a, refetch }: { a: Affiliate & { stats: Stats }; refetch: () => void }) {
+  const s = a.stats;
+  const b = a.balance ?? { available: '0', pending: '0', in_payout: '0', paid_out: '0', carryover: '0' };
+  const [payOpen, setPayOpen] = useState(false);
+  const [tab, setTab] = useState<Tab>('payouts');
+  const p = a.programme;
+  const welcome = p && Number(p.welcome_bonus_percent) > 0
+    ? `${Number(p.welcome_bonus_percent)}%${Number(p.welcome_bonus_cap) > 0 ? ` (up to ${money(p.welcome_bonus_cap)})` : ''}` : undefined;
+  const payouts = a.payouts ?? [];
+  const commissions = a.commissions ?? [];
 
   return (
     <div className="space-y-6">
-      <Card className="rounded-2xl">
-        <CardContent className="space-y-3 pt-6">
-          <p className="text-sm font-bold">Your referral link</p>
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <code className="min-w-0 flex-1 truncate rounded-lg border border-border bg-input px-3 py-2.5 text-sm">{link}</code>
-            <button onClick={copy} className="flex items-center justify-center gap-2 rounded-lg bg-secondary px-4 py-2.5 text-sm font-bold text-white">
-              {copied ? <FaCheck size={12} /> : <FaCopy size={12} />} {copied ? 'Copied' : 'Copy link'}
-            </button>
+      <section className="overflow-hidden rounded-2xl bg-gradient-to-br from-primary via-primary to-secondary/80 p-5 text-white shadow-lg sm:p-6">
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/60">Affiliate balance · code {a.code}</p>
+            <p className="mt-1 text-4xl font-extrabold tabular-nums sm:text-5xl">{money(b.available)}</p>
+            <p className="mt-1 text-sm text-white/70">Ready to withdraw — to your betting wallet instantly, or to mobile money or your bank.</p>
           </div>
-          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-            <span>Code <b className="text-foreground">{a.code}</b> — players can also enter it at sign-up.</span>
-            <input
-              value={campaign}
-              onChange={(e) => setCampaign(e.target.value.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 50))}
-              placeholder="campaign tag (optional)"
-              className="ml-auto rounded-md border border-border bg-input px-2 py-1 text-xs outline-none"
-            />
-          </div>
-        </CardContent>
-      </Card>
+          <button
+            onClick={() => setPayOpen(true)}
+            disabled={!(Number(b.available) > 0) || !a.payout_options}
+            className="flex items-center gap-2 rounded-xl bg-win px-5 py-3 text-sm font-extrabold text-win-foreground shadow transition-transform hover:scale-[1.02] disabled:opacity-50 disabled:hover:scale-100"
+          >
+            Request payout <FaArrowRight size={12} />
+          </button>
+        </div>
+        <div className="mt-5 grid grid-cols-2 gap-2.5 lg:grid-cols-4">
+          <HeroStat label="Awaiting approval" value={money(b.pending)} hint="joins your balance once approved" />
+          <HeroStat label="Being paid out" value={money(b.in_payout)} />
+          <HeroStat label="Paid to you" value={money(b.paid_out)} hint="all time" />
+          <HeroStat label="This month (est.)" value={money(s.estimated_commission)}
+            hint={`${money(s.ngr_this_month)} revenue · ${s.active_this_month} active`} />
+        </div>
+        {Number(b.carryover) < 0 && (
+          <p className="mt-3 rounded-lg bg-black/20 px-3 py-2 text-xs text-white/80">
+            {money(-Number(b.carryover))} from earlier losing months is earned back before revenue share pays again.
+          </p>
+        )}
+      </section>
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Stat label="This month’s revenue" value={money(s.ngr_this_month)} hint={`${s.active_this_month} active player${s.active_this_month === 1 ? '' : 's'}`} />
-        <Stat label="Estimated commission" value={money(s.estimated_commission)}
-          hint={Number(s.carryover) < 0 ? `after ${money(-Number(s.carryover))} still to earn back from earlier months` : `${pct(a.revshare_percent)} share, paid after month end`} />
-        <Stat label="Awaiting payment" value={money(s.pending)} />
-        <Stat label="Paid to your wallet" value={money(s.paid)} hint={`${s.signups} sign-ups · ${s.depositors} deposited`} />
-      </div>
+      <Card className="rounded-2xl">
+        <CardHeader className="pb-2"><CardTitle className="text-base">Share your link</CardTitle></CardHeader>
+        <CardContent><ShareLink code={a.code} welcome={welcome} /></CardContent>
+      </Card>
 
       <AffiliateAnalytics />
 
       <Card className="rounded-2xl">
-        <CardHeader><CardTitle className="text-base">Your terms</CardTitle></CardHeader>
-        <CardContent><Terms a={a} /></CardContent>
-      </Card>
-
-      <Card className="rounded-2xl">
-        <CardHeader><CardTitle className="text-base">Commissions</CardTitle></CardHeader>
-        <CardContent>
-          {(a.commissions ?? []).length === 0 ? (
-            <p className="text-sm text-muted-foreground">No commissions yet — revenue share is calculated after each month closes.</p>
+        <CardHeader className="pb-0">
+          <div className="-mx-1 flex gap-1 overflow-x-auto px-1" role="tablist">
+            {([['payouts', `Payouts (${payouts.length})`], ['commissions', `Commissions (${commissions.length})`],
+              ['players', `Referred players (${s.signups})`], ['terms', 'Your terms']] as [Tab, string][]).map(([id, label]) => (
+              <button key={id} role="tab" aria-selected={tab === id} onClick={() => setTab(id)}
+                className={`shrink-0 border-b-2 px-3 py-2 text-sm font-bold transition-colors ${tab === id ? 'border-secondary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}>
+                {label}
+              </button>
+            ))}
+          </div>
+        </CardHeader>
+        <CardContent className="pt-4">
+          {tab === 'payouts' && (payouts.length === 0 ? (
+            <p className="flex items-center gap-2 py-4 text-sm text-muted-foreground"><FaClockRotateLeft /> No payouts yet — once a commission is approved you can withdraw it here.</p>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+              <table className="w-full min-w-[520px] text-sm">
                 <thead className="text-left text-xs text-muted-foreground">
-                  <tr><th className="py-2">For</th><th>Based on</th><th className="text-right">Amount</th><th className="text-right">Status</th></tr>
+                  <tr><th className="py-2">Requested</th><th>To</th><th className="text-right">Amount</th><th className="text-right">Status</th></tr>
                 </thead>
                 <tbody>
-                  {a.commissions!.map((c) => (
-                    <tr key={c.id} className="border-t border-border">
-                      <td className="py-2.5">{c.kind === 'cpa' ? 'New depositor (CPA)' : monthLabel(c.period)}</td>
-                      <td className="text-muted-foreground">
-                        {c.kind === 'cpa' ? `${money(c.base_amount)} deposited` : `${money(c.base_amount)} revenue × ${pct(c.rate)}`}
+                  {payouts.map((po) => (
+                    <tr key={po.id} className="border-t border-border">
+                      <td className="py-2.5 text-muted-foreground">{new Date(po.created_at).toLocaleDateString()}</td>
+                      <td>
+                        <span className="font-semibold">{po.method_label}</span>
+                        {po.account_number && <span className="ml-1.5 font-mono text-xs text-muted-foreground">···{po.account_number.slice(-4)}</span>}
+                        {(po.reference || po.note) && <span className="block text-xs text-muted-foreground">{po.status === 'paid' ? `Ref ${po.reference}` : po.note}</span>}
                       </td>
-                      <td className="text-right font-bold tabular-nums">{money(c.amount)}</td>
-                      <td className="text-right"><Badge variant={STATUS_BADGE[c.status]}>{c.status}</Badge></td>
+                      <td className="text-right font-bold tabular-nums">{money(po.amount)}</td>
+                      <td className="text-right"><Badge variant={PAYOUT_BADGE[po.status]}>{PAYOUT_LABEL[po.status]}</Badge></td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-          )}
-        </CardContent>
-      </Card>
+          ))}
 
-      <Card className="rounded-2xl">
-        <CardHeader><CardTitle className="text-base">Referred players</CardTitle></CardHeader>
-        <CardContent>
-          {s.referrals.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Nobody has signed up through your link yet.</p>
+          {tab === 'commissions' && (commissions.length === 0 ? (
+            <p className="py-4 text-sm text-muted-foreground">No commissions yet — deposit commissions appear once your players qualify; revenue share after each month closes.</p>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+              <table className="w-full min-w-[520px] text-sm">
+                <thead className="text-left text-xs text-muted-foreground">
+                  <tr><th className="py-2">For</th><th>Based on</th><th className="text-right">Amount</th><th className="text-right">Status</th></tr>
+                </thead>
+                <tbody>
+                  {commissions.map((c) => (
+                    <tr key={c.id} className="border-t border-border">
+                      <td className="py-2.5">{c.kind === 'cpa' ? 'New depositor' : monthLabel(c.period)}</td>
+                      <td className="text-muted-foreground">
+                        {c.kind === 'cpa' ? `${money(c.base_amount)} first deposit × ${pct(c.rate)}` : `${money(c.base_amount)} revenue × ${pct(c.rate)}`}
+                      </td>
+                      <td className="text-right font-bold tabular-nums">{money(c.amount)}</td>
+                      <td className="text-right"><Badge variant={STATUS_BADGE[c.status]}>{STATUS_LABEL[c.status]}</Badge></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ))}
+
+          {tab === 'players' && (s.referrals.length === 0 ? (
+            <p className="py-4 text-sm text-muted-foreground">Nobody has signed up through your link yet — share it above.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[520px] text-sm">
                 <thead className="text-left text-xs text-muted-foreground">
                   <tr><th className="py-2">Player</th><th>Joined</th><th>Campaign</th><th>Deposited</th><th className="text-right">Revenue this month</th></tr>
                 </thead>
@@ -279,9 +338,15 @@ function Dashboard({ a }: { a: Affiliate & { stats: Stats } }) {
                 </tbody>
               </table>
             </div>
-          )}
+          ))}
+
+          {tab === 'terms' && <Terms a={a} />}
         </CardContent>
       </Card>
+
+      {a.payout_options && (
+        <PayoutDialog open={payOpen} onClose={() => setPayOpen(false)} available={b.available} options={a.payout_options} onDone={refetch} />
+      )}
     </div>
   );
 }
@@ -292,7 +357,7 @@ export default function AffiliatePage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">Refer &amp; earn</h1>
+      <h1 className="text-2xl font-bold">Affiliate dashboard</h1>
       {loading && !data ? (
         <LoadingState />
       ) : notJoined ? (
@@ -300,7 +365,7 @@ export default function AffiliatePage() {
       ) : error ? (
         <p className="text-sm text-destructive">Couldn’t load your affiliate account. <button onClick={refetch} className="underline">Retry</button></p>
       ) : data?.status === 'active' && data.stats ? (
-        <Dashboard a={data as Affiliate & { stats: Stats }} />
+        <Dashboard a={data as Affiliate & { stats: Stats }} refetch={refetch} />
       ) : data ? (
         <Card className="rounded-2xl">
           <CardContent className="space-y-2 pt-6">

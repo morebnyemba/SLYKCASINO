@@ -139,6 +139,11 @@ class AffiliateProgramme(models.Model):
     # Carry a losing month (negative net revenue) into the next months'
     # revenue share until it has been earned back.
     negative_carryover = models.BooleanField(default=True)
+    # Payouts: the smallest cash-out an affiliate can request to mobile money /
+    # bank (moving earnings into their betting wallet has no minimum), and
+    # whether those external payouts are offered at all.
+    min_payout = models.DecimalField(max_digits=10, decimal_places=2, default=10)
+    external_payouts = models.BooleanField(default=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -175,3 +180,43 @@ class RevshareMonth(models.Model):
         db_table = 'affiliates_revshare_month'
         ordering = ['-period']
         constraints = [models.UniqueConstraint(fields=['affiliate', 'period'], name='one_revshare_month_per_affiliate')]
+
+
+class Payout(models.Model):
+    """An affiliate's request to take money out of their affiliate balance
+    (approved commissions). To the betting wallet it completes at once; to
+    mobile money or a bank it waits for an operator to send the money and mark
+    it paid (with the transaction reference) — or reject it, which returns the
+    amount to the balance."""
+
+    class Method(models.TextChoices):
+        WALLET = 'wallet', 'Betting wallet'
+        ECOCASH = 'ecocash', 'EcoCash'
+        ONEMONEY = 'onemoney', 'OneMoney'
+        INNBUCKS = 'innbucks', 'InnBucks'
+        BANK = 'bank', 'Bank transfer'
+
+    class Status(models.TextChoices):
+        REQUESTED = 'requested', 'Requested'
+        PAID = 'paid', 'Paid'
+        REJECTED = 'rejected', 'Rejected'
+
+    affiliate = models.ForeignKey(Affiliate, on_delete=models.PROTECT, related_name='payouts')
+    amount = models.DecimalField(max_digits=14, decimal_places=2)
+    method = models.CharField(max_length=10, choices=Method.choices)
+    account_name = models.CharField(max_length=120, blank=True)
+    account_number = models.CharField(max_length=60, blank=True)   # phone number or bank account
+    bank_name = models.CharField(max_length=80, blank=True)
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.REQUESTED)
+    reference = models.CharField(max_length=100, blank=True)       # e.g. the EcoCash transaction ID
+    note = models.CharField(max_length=500, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    decided_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'affiliates_payout'
+        ordering = ['-created_at']
+        indexes = [models.Index(fields=['status', 'created_at'])]
+
+    def __str__(self) -> str:
+        return f'payout {self.amount} via {self.method} for {self.affiliate_id} ({self.status})'

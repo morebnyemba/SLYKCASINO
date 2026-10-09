@@ -14,8 +14,11 @@ from apps.accounts import services as accounts_services
 from common.timeframes import TimeframeError
 
 from . import services
-from .models import Affiliate, Commission
-from .serializers import AdminAffiliateSerializer, AffiliateSerializer, CommissionSerializer, ProgrammeSerializer
+from .models import Affiliate, Commission, Payout
+from .serializers import (
+    AdminAffiliateSerializer, AdminPayoutSerializer, AffiliateSerializer, CommissionSerializer, PayoutSerializer,
+    ProgrammeSerializer,
+)
 
 
 def _player_or_403(request):
@@ -42,6 +45,10 @@ class MyAffiliateView(APIView):
         if affiliate.status == Affiliate.Status.ACTIVE:
             data['stats'] = services.dashboard(affiliate)
             data['commissions'] = CommissionSerializer(affiliate.commissions.all()[:50], many=True).data
+        if affiliate.status in (Affiliate.Status.ACTIVE, Affiliate.Status.SUSPENDED):
+            data['balance'] = {k: str(v) for k, v in services.balance(affiliate).items()}
+            data['payouts'] = PayoutSerializer(affiliate.payouts.all()[:50], many=True).data
+            data['payout_options'] = services.payout_options(affiliate)
         return Response(data)
 
     def post(self, request):
@@ -68,6 +75,77 @@ def _analytics_response(request, affiliate):
     except TimeframeError as exc:
         return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
     return Response(data)
+
+
+class MyPayoutsView(APIView):
+    """POST /api/affiliates/me/payouts/ {amount, method, account_name?, account_number?, bank_name?}
+    — withdraw from the affiliate balance (wallet: instant; mobile money/bank:
+    sent by an operator)."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        player, denied = _player_or_403(request)
+        if denied:
+            return denied
+        affiliate = services.get_for_player(player.id)
+        if affiliate is None:
+            return Response({'detail': 'not an affiliate'}, status=status.HTTP_404_NOT_FOUND)
+        d = request.data
+        try:
+            payout = services.request_payout(
+                affiliate_id=affiliate.id, amount=d.get('amount'), method=str(d.get('method') or ''),
+                account_name=str(d.get('account_name') or ''), account_number=str(d.get('account_number') or ''),
+                bank_name=str(d.get('bank_name') or ''),
+            )
+        except services.AffiliateError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({
+            'payout': PayoutSerializer(payout).data,
+            'balance': {k: str(v) for k, v in services.balance(affiliate).items()},
+        }, status=status.HTTP_201_CREATED)
+
+
+class AdminPayoutViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
+    """Staff: affiliate payout requests (?status=requested|paid|rejected), with
+    mark-paid ({reference, note}) and reject ({note})."""
+    serializer_class = AdminPayoutSerializer
+    permission_classes = [IsAdminUser]
+
+    def get_queryset(self):
+        qs = Payout.objects.select_related('affiliate').order_by('-created_at')
+        wanted = self.request.query_params.get('status')
+        return qs.filter(status=wanted) if wanted else qs
+
+    def get_serializer_context(self):
+        from apps.accounts.models import Player
+        ctx = super().get_serializer_context()
+        ids = list(Affiliate.objects.values_list('player_id', flat=True))
+        ctx['players'] = {p[0]: (p[1], p[2]) for p in Player.objects.filter(pk__in=ids).values_list('id', 'username', 'kyc_status')}
+        return ctx
+
+    def _done(self, payout):
+        return Response(self.get_serializer(payout).data)
+
+    @action(detail=True, methods=['post'], url_path='mark-paid')
+    def mark_paid(self, request, pk=None):
+        try:
+            payout = services.mark_payout_paid(int(pk), reference=str(request.data.get('reference') or ''),
+                                               note=str(request.data.get('note') or ''))
+        except services.AffiliateError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        accounts_services.audit(payout.affiliate.player_id, 'affiliate_payout_paid', request, payout=payout.id,
+                                amount=str(payout.amount), method=payout.method, reference=payout.reference)
+        return self._done(payout)
+
+    @action(detail=True, methods=['post'])
+    def reject(self, request, pk=None):
+        try:
+            payout = services.reject_payout(int(pk), note=str(request.data.get('note') or ''))
+        except services.AffiliateError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        accounts_services.audit(payout.affiliate.player_id, 'affiliate_payout_rejected', request, payout=payout.id,
+                                amount=str(payout.amount), note=payout.note)
+        return self._done(payout)
 
 
 class MyAffiliateAnalyticsView(APIView):
