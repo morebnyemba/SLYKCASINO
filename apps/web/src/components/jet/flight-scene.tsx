@@ -86,14 +86,11 @@ function bandColor(m: number): [number, number, number] {
   return [52, 180, 255];
 }
 
-interface Star { x: number; y: number; r: number; tw: number; depth: number }
-interface Puff { x: number; y: number; vx: number; vy: number; born: number; size: number }
-
 /**
  * The flight, Aviator-style: a dark sky with a turning sunburst and a glow that
- * changes colour with the multiplier, drifting stars for speed, the glowing
- * red curve with the plane (and its exhaust trail) on the tip, the multiplier
- * on top, and a red flash when it flies away. Everything comes from the server
+ * changes colour with the multiplier, the glowing red curve with the plane on
+ * its tip (always kept fully inside the frame), the multiplier on top, and a
+ * red flash when it flies away. Everything comes from the server
  * clock (`now`) and the round's start time, so every player sees the same flight.
  */
 export function FlightScene({ round, rate, bettingSeconds, now, name }: {
@@ -122,10 +119,6 @@ export function FlightScene({ round, rate, bettingSeconds, now, name }: {
     let lastT = 0;
     let rayAngle = 0;
     let glow: [number, number, number] = [52, 180, 255];
-    const stars: Star[] = Array.from({ length: 70 }, () => ({
-      x: Math.random(), y: Math.random(), r: Math.random() * 1.3 + 0.3, tw: Math.random() * Math.PI * 2, depth: Math.random() * 0.8 + 0.2,
-    }));
-    let puffs: Puff[] = [];
 
     const frame = () => {
       const r = roundRef.current;
@@ -153,7 +146,6 @@ export function FlightScene({ round, rate, bettingSeconds, now, name }: {
           elapsed = Math.min(elapsed, Math.log(Math.max(m, 1)) / rate);
         } else m = multiplierAt(elapsed, rate);
       }
-      const speed = flying ? Math.min(3, 0.6 + Math.log(m) * 1.2) : crashed ? 0.15 : 0.08;
 
       // Sky.
       const bg = ctx.createLinearGradient(0, 0, 0, h);
@@ -191,41 +183,22 @@ export function FlightScene({ round, rate, bettingSeconds, now, name }: {
       ctx.fill();
       ctx.restore();
 
-      // Stars drifting left and down: the faster the climb, the faster they pass.
-      for (const st of stars) {
-        st.x -= dt * speed * 0.06 * st.depth;
-        st.y += dt * speed * 0.025 * st.depth;
-        if (st.x < 0) st.x += 1;
-        if (st.y > 1) st.y -= 1;
-        const a = (0.35 + 0.45 * Math.sin(t / 600 + st.tw)) * st.depth;
-        ctx.fillStyle = `rgba(255,255,255,${a.toFixed(3)})`;
-        ctx.beginPath(); ctx.arc(st.x * w, st.y * h, st.r, 0, Math.PI * 2); ctx.fill();
-      }
-
-      const padL = 28, padB = 26, padT = 24, padR = 28;
-      const plotW = w - padL - padR, plotH = h - padB - padT;
-      ctx.strokeStyle = 'rgba(255,255,255,0.14)';
-      ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.moveTo(padL, padT); ctx.lineTo(padL, h - padB); ctx.lineTo(w - padR, h - padB); ctx.stroke();
+      // The curve starts in the bottom-left corner and uses the whole frame.
+      const plotW = w, plotH = h;
 
       let big = '', small = '', tone: 'fly' | 'crash' | 'wait' | 'idle' = 'idle', progress = 0;
       if (r && r.status !== 'betting' && r.started_at) {
-        const tMax = Math.max(9, elapsed * 1.2);
-        const mMax = Math.max(1.8, m * 1.25);
-        const px = (s: number) => padL + (s / tMax) * plotW;
-        const py = (x: number) => h - padB - ((x - 1) / (mMax - 1)) * plotH;
-
-        // Axis dots that slide as the scale grows: one per second / per step.
-        ctx.fillStyle = 'rgba(255,255,255,0.4)';
-        const secStep = Math.max(1, Math.ceil(tMax / 9));
-        for (let s = secStep; s < tMax; s += secStep) {
-          ctx.beginPath(); ctx.arc(px(s), h - padB + 11, 1.5, 0, Math.PI * 2); ctx.fill();
-        }
-        ctx.fillStyle = '#34b4ff';
-        const mStep = mMax > 20 ? 10 : mMax > 6 ? 2 : mMax > 3 ? 0.5 : 0.2;
-        for (let x = 1 + mStep; x < mMax; x += mStep) {
-          ctx.beginPath(); ctx.arc(padL - 12, py(x), 1.5, 0, Math.PI * 2); ctx.fill();
-        }
+        // Scale so the whole plane (it sits ahead of and above the tip) stays
+        // inside the frame: the tip never passes maxTipX / above minTipY.
+        const pw = planeWidth(w, h);
+        const ph = pw * (planeReady() ? plane.naturalHeight / plane.naturalWidth : 0.5);
+        const maxTipX = Math.min(w - pw * (1 - TAIL.x) - 24, w * 0.7);
+        const minTipY = Math.max(ph * TAIL.y + 24, h * 0.3);
+        const tipM = Math.exp(rate * elapsed);
+        const tMax = Math.max(9, elapsed / Math.max(0.2, maxTipX / plotW));
+        const mMax = Math.max(1.8, 1 + (tipM - 1) / Math.max(0.2, (h - minTipY) / plotH));
+        const px = (s: number) => (s / tMax) * plotW;
+        const py = (x: number) => h - ((x - 1) / (mMax - 1)) * plotH;
 
         if (!crashed) {
           const steps = 90;
@@ -239,10 +212,10 @@ export function FlightScene({ round, rate, bettingSeconds, now, name }: {
           };
           const tipX = px(elapsed), tipY = py(Math.exp(rate * elapsed));
           trace();
-          ctx.lineTo(tipX, h - padB);
-          ctx.lineTo(px(0), h - padB);
+          ctx.lineTo(tipX, h);
+          ctx.lineTo(px(0), h);
           ctx.closePath();
-          const fill = ctx.createLinearGradient(0, tipY, 0, h - padB);
+          const fill = ctx.createLinearGradient(0, tipY, 0, h);
           fill.addColorStop(0, 'rgba(229,5,57,0.55)');
           fill.addColorStop(1, 'rgba(229,5,57,0.12)');
           ctx.fillStyle = fill;
@@ -257,28 +230,10 @@ export function FlightScene({ round, rate, bettingSeconds, now, name }: {
           ctx.stroke();
           ctx.restore();
 
-          // Exhaust puffs from the tail.
-          if (flying && dt > 0) {
-            puffs.push({ x: tipX, y: tipY, vx: -40 - Math.random() * 30, vy: 10 + Math.random() * 20, born: t, size: 3 + Math.random() * 3 });
-          }
-          puffs = puffs.filter((p) => t - p.born < 700);
-          for (const p of puffs) {
-            const age = (t - p.born) / 700;
-            p.x += p.vx * dt; p.y += p.vy * dt;
-            ctx.fillStyle = `rgba(255,255,255,${(0.22 * (1 - age)).toFixed(3)})`;
-            ctx.beginPath(); ctx.arc(p.x, p.y, p.size * (1 + age * 2), 0, Math.PI * 2); ctx.fill();
-          }
-
-          // Glow on the tip.
-          const tg = ctx.createRadialGradient(tipX, tipY, 0, tipX, tipY, 26);
-          tg.addColorStop(0, 'rgba(255,90,120,0.9)');
-          tg.addColorStop(1, 'rgba(255,90,120,0)');
-          ctx.fillStyle = tg;
-          ctx.beginPath(); ctx.arc(tipX, tipY, 26, 0, Math.PI * 2); ctx.fill();
 
           const bob = Math.sin(t / 260) * 3;
           if (planeReady()) {
-            drawPlaneImage(ctx, plane, tipX, tipY + bob, planeWidth(w, h), Math.sin(t / 700) * 0.03);
+            drawPlaneImage(ctx, plane, tipX, tipY + bob, pw, Math.sin(t / 700) * 0.03);
           } else {
             const back = Math.max(0, elapsed - 0.3);
             const slope = Math.atan2(py(Math.exp(rate * back)) - tipY, tipX - px(back));
@@ -290,7 +245,7 @@ export function FlightScene({ round, rate, bettingSeconds, now, name }: {
           }
         } else {
           // Flew away: a red flash, and the plane leaves the screen.
-          if (crashId !== r.id) { crashId = r.id; crashSeenAt = t; puffs = []; }
+          if (crashId !== r.id) { crashId = r.id; crashSeenAt = t; }
           const since = t - crashSeenAt;
           const flash = Math.max(0, 1 - since / 700);
           if (flash > 0) {
@@ -306,7 +261,7 @@ export function FlightScene({ round, rate, bettingSeconds, now, name }: {
             ctx.save();
             ctx.globalAlpha = 1 - away;
             if (planeReady()) {
-              drawPlaneImage(ctx, plane, fromX + away * w * 0.6, fromY - away * h * 0.6, planeWidth(w, h), -0.12 * away);
+              drawPlaneImage(ctx, plane, fromX + away * w * 0.6, fromY - away * h * 0.6, pw, -0.12 * away);
             } else {
               ctx.translate(fromX + away * w * 0.5, fromY - away * h * 0.5);
               ctx.rotate(-0.35);
