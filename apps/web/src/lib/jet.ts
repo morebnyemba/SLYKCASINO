@@ -194,6 +194,8 @@ export function useJet() {
         };
       });
       window.dispatchEvent(new Event('slyk:wallet-changed'));
+      // Played inside the /aviator frame: let the page around it refresh its balance too.
+      if (window.parent !== window) window.parent.postMessage({ type: 'slyk:wallet-changed' }, window.location.origin);
     }
     return { error: res.error };
   }, [accessToken]);

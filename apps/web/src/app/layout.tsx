@@ -1,17 +1,8 @@
-import { Suspense } from 'react';
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import { Providers } from '@/components/providers';
-import { SiteHeader } from '@/components/site-header';
-import { SiteFooter } from '@/components/site-footer';
-import { BottomNav } from '@/components/bottom-nav';
-import { AppSidebar, MobileMenu } from '@/components/app-sidebar';
-import { BetslipDrawer } from '@/components/betslip-panel';
-import { ReferralTracker } from '@/components/referral-tracker';
-import { NavigationLoader, SiteSplash } from '@/components/site-loader';
-import { BetRail } from '@/components/bet-rail';
-import { GlobalSearch } from '@/components/global-search';
-import { MobileQuickNav } from '@/components/mobile-quick-nav';
+import { SiteSplash } from '@/components/site-loader';
+import { AppShell } from '@/components/app-shell';
 import { AgeGate } from '@/components/age-gate';
 import { ServiceWorkerRegistration } from '@/components/service-worker-registration';
 import { fetchSiteThemeCss } from '@/lib/site-theme';
@@ -78,30 +69,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           <ServiceWorkerRegistration />
           <AgeGate />
           <Providers>
-            <div className="flex min-h-screen">
-              <AppSidebar />
-              <div className="flex min-w-0 flex-1 flex-col">
-                <SiteHeader />
-                <MobileQuickNav />
-                {/* Desktop: content column + bet-slip rail, both under the header. */}
-                <div className="flex min-w-0 flex-1">
-                  <div className="flex min-w-0 flex-1 flex-col">
-                    <main className="mx-auto w-full max-w-[1600px] flex-1 px-3 py-4 sm:px-5 sm:py-6 xl:px-6">{children}</main>
-                    <SiteFooter />
-                    {/* Keeps the footer clear of the fixed mobile tab bar. */}
-                    <div className="h-20 lg:hidden" />
-                  </div>
-                  <BetRail />
-                </div>
-              </div>
-            </div>
-            <MobileMenu />
-            <GlobalSearch />
-            <BetslipDrawer />
-            <ReferralTracker />
-            {/* useSearchParams needs a Suspense boundary. */}
-            <Suspense><NavigationLoader /></Suspense>
-            <BottomNav />
+            <AppShell>{children}</AppShell>
           </Providers>
         </IdentityProvider>
       </body>
