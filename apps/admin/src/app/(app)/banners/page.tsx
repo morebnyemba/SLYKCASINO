@@ -170,7 +170,7 @@ export default function BannersPage() {
     { label: 'Sort order', key: 'sort_order', type: 'number', placeholder: '0' },
     { label: 'Subtitle', key: 'subtitle', type: 'text', placeholder: 'Cash out before the crash', full: true },
     { label: 'Image URL (or upload a design above)', key: 'image_url', type: 'text', placeholder: 'https://…/banner.jpg', full: true },
-    { label: 'Link URL', key: 'link_url', type: 'text', placeholder: '/casino/crash' },
+    { label: 'Link URL', key: 'link_url', type: 'text', placeholder: '/aviator' },
     { label: 'CTA label', key: 'cta_label', type: 'text', placeholder: 'Play now' },
     { label: 'Starts at (optional)', key: 'starts_at', type: 'datetime-local', placeholder: '' },
     { label: 'Ends at (optional)', key: 'ends_at', type: 'datetime-local', placeholder: '' },

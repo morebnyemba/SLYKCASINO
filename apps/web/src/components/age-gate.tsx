@@ -14,6 +14,13 @@ export function AgeGate() {
   const [state, setState] = useState<'checking' | 'ask' | 'ok' | 'denied'>('checking');
 
   useEffect(() => {
+    // A game embedded in one of our own pages (the /aviator launcher, the admin
+    // preview): the page around it does the asking. Other sites can't frame us
+    // (X-Frame-Options: SAMEORIGIN), so this can't be used to skip the gate.
+    if (window.self !== window.top && window.location.pathname.startsWith('/play/')) {
+      setState('ok');
+      return;
+    }
     try {
       setState(window.localStorage.getItem(STORAGE_KEY) === '1' ? 'ok' : 'ask');
     } catch {

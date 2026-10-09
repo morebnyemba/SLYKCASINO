@@ -25,9 +25,13 @@ interface AuditLogResponse {
 
 const EVENT_TYPES = [
   '', 'login', 'logout', 'register', 'deposit', 'withdrawal', 'bet_placed', 'bet_settled',
-  'casino_spin', 'promo_claim', 'self_exclude', 'limit_set', 'email_verified', 'password_reset',
+  'event_settled', 'event_settled_score', 'market_settled', 'event_edited',
+  'promo_claim', 'self_exclude', 'limit_set', 'email_verified', 'password_reset',
   'data_export', 'account_deleted', 'kyc_submitted', 'kyc_approved', 'kyc_rejected',
   'player_suspended', 'player_unsuspended', 'balance_adjusted',
+  'affiliate_applied', 'affiliate_status', 'affiliate_terms', 'affiliate_commission_paid',
+  'theme_updated', 'identity_updated', 'feed_settings_changed',
+  'payment_settings', 'cashout_settings', 'jet_settings',
 ];
 
 const PAGE_SIZE = 25;
@@ -52,7 +56,7 @@ export default function AuditLogPage() {
           onChange={(e) => { setEventType(e.target.value); setPage(1); }}
           className="rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
         >
-          {EVENT_TYPES.map((t) => <option key={t} value={t}>{t || 'All event types'}</option>)}
+          {EVENT_TYPES.map((t) => <option key={t} value={t}>{t ? (t === 'jet_settings' ? 'aviator settings' : t.replace(/_/g, ' ')) : 'All event types'}</option>)}
         </select>
         <input
           type="text"

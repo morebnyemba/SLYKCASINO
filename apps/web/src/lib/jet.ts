@@ -106,16 +106,24 @@ export function useJet() {
 
   const load = useCallback(async () => {
     try {
-      const res = await fetch(`${config.apiUrl}/jet/state/`, {
-        headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {}, cache: 'no-store',
+      const get = (token: string | null) => fetch(`${config.apiUrl}/jet/state/`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {}, cache: 'no-store',
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      let res = await get(accessToken);
+      // An expired login makes the API refuse even this public read — still show the game.
+      if (res.status === 401 && accessToken) res = await get(null);
+      if (!res.ok) {
+        setError(res.status === 404
+          ? 'The game isn’t switched on yet — check back soon.'
+          : `The game is having a moment (error ${res.status}) — retrying…`);
+        return;
+      }
       const data = (await res.json()) as JetState;
       offset.current = Date.parse(data.server_time) - Date.now();
       setState(data);
       setError(null);
     } catch {
-      setError('Can’t reach the game right now — retrying…');
+      setError('Can’t reach the game right now — check your connection. Retrying…');
     }
   }, [accessToken]);
 
