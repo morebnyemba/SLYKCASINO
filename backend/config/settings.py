@@ -44,6 +44,7 @@ DOMAIN_APPS = [
     'apps.notifications',
     'apps.branding',
     'apps.affiliates',
+    'apps.jet',
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + DOMAIN_APPS

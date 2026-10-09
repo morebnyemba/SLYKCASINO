@@ -2,12 +2,13 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { GiSoccerBall, GiBasketballBall, GiTennisRacket } from 'react-icons/gi';
+import { GiJetFighter, GiSoccerBall, GiBasketballBall, GiTennisRacket } from 'react-icons/gi';
 import { FaGift } from 'react-icons/fa';
 import type { IconType } from 'react-icons';
 
 const ITEMS: { href: string; label: string; icon?: IconType; live?: boolean }[] = [
   { href: '/sportsbook?tab=live', label: 'Live', live: true },
+  { href: '/jet', label: 'Jet', icon: GiJetFighter },
   { href: '/sportsbook?sport=football', label: 'Football', icon: GiSoccerBall },
   { href: '/sportsbook?sport=basketball', label: 'Basketball', icon: GiBasketballBall },
   { href: '/sportsbook?sport=tennis', label: 'Tennis', icon: GiTennisRacket },

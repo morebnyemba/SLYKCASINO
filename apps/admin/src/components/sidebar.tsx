@@ -7,7 +7,7 @@ import type { IconType } from 'react-icons';
 import {
   BsActivity, BsBroadcast, BsCalendar2Week, BsCashStack, BsChatDots, BsClockHistory, BsGift, BsGrid1X2,
   BsImages, BsList, BsMoonStars, BsPalette, BsPeople, BsPersonBadge, BsBoxArrowRight, BsSun, BsTicketPerforated,
-  BsTrophy, BsXLg, BsDiagram3, BsDatabase, BsCreditCard2Front,
+  BsTrophy, BsXLg, BsDiagram3, BsDatabase, BsCreditCard2Front, BsAirplane,
 } from 'react-icons/bs';
 import { GiPerspectiveDiceSixFacesRandom } from 'react-icons/gi';
 import { useAuth } from '@/lib/auth-context';
@@ -32,6 +32,9 @@ export const NAV: NavSection[] = [
     { href: '/sportsbook/leagues', label: 'Leagues', icon: BsTrophy },
     { href: '/betting-feeds', label: 'Bets & tickets', icon: BsTicketPerforated, badge: 'settle' },
     { href: '/sportsbook/feed', label: 'Odds feed', icon: BsBroadcast },
+  ] },
+  { title: 'Games', items: [
+    { href: '/games/jet', label: 'Jet', icon: BsAirplane },
   ] },
   { title: 'Players', items: [
     { href: '/users', label: 'Players', icon: BsPeople, match: ['/users', '/players'] },
