@@ -104,3 +104,15 @@
   text-decoration: underline;
   text-underline-offset: 2px;
 }
+
+/* Aviator: "Flew away!" pop and the cash-out toast. */
+@keyframes jet-pop {
+  0% { transform: scale(0.6); opacity: 0; }
+  70% { transform: scale(1.08); opacity: 1; }
+  100% { transform: scale(1); }
+}
+@keyframes jet-toast {
+  0% { transform: translateY(-120%); opacity: 0; }
+  12%, 85% { transform: translateY(0); opacity: 1; }
+  100% { transform: translateY(-120%); opacity: 0; }
+}
