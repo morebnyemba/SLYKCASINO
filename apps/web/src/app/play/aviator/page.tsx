@@ -1,12 +1,76 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { BsInfoCircle } from 'react-icons/bs';
+import { useEffect, useRef, useState } from 'react';
+import { BsInfoCircle, BsVolumeMuteFill, BsVolumeUpFill } from 'react-icons/bs';
 import { BetPanel } from '@/components/jet/bet-panel';
 import { FlightScene } from '@/components/jet/flight-scene';
 import { BetsList, HistoryStrip } from '@/components/jet/side-panels';
 import { useAuth } from '@/lib/auth-context';
-import { multiplierAt, useJet } from '@/lib/jet';
+import { multiplierAt, useJet, type JetBet, type JetRound } from '@/lib/jet';
+import * as sound from '@/lib/jet-sound';
+
+/** Plays the game's sounds from state changes: take-off, engine, countdown, crash and the player's cash-outs. */
+function useGameSounds(round: JetRound | null, multiplier: number, myBets: JetBet[], now: () => number) {
+  const lastStatus = useRef<string | null>(null);
+  const cashed = useRef<Set<number> | null>(null);
+
+  // Audio may only start after the player touches the page.
+  useEffect(() => {
+    const unlock = () => sound.unlockSound();
+    window.addEventListener('pointerdown', unlock);
+    window.addEventListener('keydown', unlock);
+    return () => {
+      window.removeEventListener('pointerdown', unlock);
+      window.removeEventListener('keydown', unlock);
+      sound.stopEngine();
+    };
+  }, []);
+
+  useEffect(() => {
+    const status = round?.status ?? null;
+    const prev = lastStatus.current;
+    lastStatus.current = status;
+    if (prev === null) { if (status === 'flying') sound.startEngine(); return; }
+    if (status === prev) return;
+    if (status === 'flying') sound.startEngine();
+    else if (status === 'crashed') sound.playCrash();
+    else sound.stopEngine();
+  }, [round?.status, round?.id]);
+
+  useEffect(() => { if (round?.status === 'flying') sound.updateEngine(multiplier); }, [multiplier, round?.status]);
+
+  // Ticks over the last three seconds of the countdown.
+  useEffect(() => {
+    if (round?.status !== 'betting') return;
+    const ends = Date.parse(round.betting_ends_at);
+    let last = -1;
+    const timer = window.setInterval(() => {
+      const left = Math.ceil((ends - now()) / 1000);
+      if (left >= 1 && left <= 3 && left !== last) { last = left; sound.playTick(); }
+    }, 100);
+    return () => window.clearInterval(timer);
+  }, [round?.status, round?.betting_ends_at, now]);
+
+  // Chime once per bet that cashes out — by tap, auto cash-out or the max-win cap.
+  useEffect(() => {
+    const done = myBets.filter((b) => b.status === 'cashed').map((b) => b.id);
+    if (cashed.current === null) { cashed.current = new Set(done); return; }
+    for (const id of done) {
+      if (!cashed.current.has(id)) { cashed.current.add(id); sound.playCashout(); }
+    }
+  }, [myBets]);
+}
+
+function SoundToggle() {
+  const [on, setOn] = useState(true);
+  useEffect(() => setOn(sound.soundEnabled()), []);
+  return (
+    <button onClick={() => { sound.setSoundEnabled(!on); setOn(!on); }} aria-label={on ? 'Mute sound' : 'Turn sound on'} title={on ? 'Mute' : 'Sound on'}
+      className="flex h-8 w-8 items-center justify-center rounded-full bg-[#141516] text-white/80 hover:text-white">
+      {on ? <BsVolumeUpFill size={15} /> : <BsVolumeMuteFill size={15} />}
+    </button>
+  );
+}
 
 /** The game's wordmark: a small brand line over the big red italic title. */
 function GameLogo({ name }: { name: string }) {
@@ -19,6 +83,8 @@ function GameLogo({ name }: { name: string }) {
     </span>
   );
 }
+
+const EMPTY: JetBet[] = [];
 
 /** The multiplayer crash game (named in the admin; BetBlits Aviator by default). */
 export default function AviatorPage() {
@@ -36,6 +102,8 @@ export default function AviatorPage() {
     const timer = window.setInterval(() => setMultiplier(multiplierAt((now() - start) / 1000, rate)), 100);
     return () => window.clearInterval(timer);
   }, [round?.status, round?.started_at, now, rate]);
+
+  useGameSounds(round, multiplier, state?.my_bets ?? EMPTY, now);
 
   if (!state) {
     return (
@@ -61,6 +129,7 @@ export default function AviatorPage() {
           className={`${state.balance == null ? 'ml-auto' : ''} flex items-center gap-1.5 rounded-full bg-[#141516] px-3 py-1.5 text-xs font-bold text-white/80 hover:text-white`}>
           <BsInfoCircle size={13} /> How to play
         </button>
+        <SoundToggle />
       </header>
 
       {rulesOpen && (
@@ -100,8 +169,8 @@ export default function AviatorPage() {
               <BetPanel
                 key={slot} slot={slot} settings={s} round={round} bet={myBet(slot)} multiplier={multiplier}
                 loggedIn={!!user}
-                onPlace={(stake, auto) => placeBet(slot, stake, auto)}
-                onCancel={cancelBet}
+                onPlace={async (stake, auto) => { const r = await placeBet(slot, stake, auto); if (!r.error) sound.playBet(); return r; }}
+                onCancel={async (id) => { const r = await cancelBet(id); if (!r.error) sound.playBet(); return r; }}
                 onCashOut={cashOut}
               />
             ))}
