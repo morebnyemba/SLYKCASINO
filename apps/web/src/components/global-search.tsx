@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { BsSearch, BsXLg, BsChevronRight } from 'react-icons/bs';
-import { GiBasketballBall, GiJetFighter, GiSoccerBall, GiTennisRacket, GiTrophy } from 'react-icons/gi';
+import { GiBasketballBall, GiAirplane, GiSoccerBall, GiTennisRacket, GiTrophy } from 'react-icons/gi';
 import type { IconType } from 'react-icons';
 import { LiveClock, TeamBadge } from '@/components/event-row';
 import { config } from '@/lib/config';
@@ -13,7 +13,7 @@ import { dayLabel, isLive, kickoffTime, teamNames, type EventItem } from '@/lib/
 
 const SHORTCUTS: { href: string; label: string; icon: IconType }[] = [
   { href: '/sportsbook?tab=live', label: 'Live betting', icon: GiTrophy },
-  { href: '/jet', label: 'Jet', icon: GiJetFighter },
+  { href: '/aviator', label: 'Aviator', icon: GiAirplane },
   { href: '/sportsbook?sport=football', label: 'Football', icon: GiSoccerBall },
   { href: '/sportsbook?sport=basketball', label: 'Basketball', icon: GiBasketballBall },
   { href: '/sportsbook?sport=tennis', label: 'Tennis', icon: GiTennisRacket },

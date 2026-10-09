@@ -40,7 +40,7 @@ export function BetPanel({ slot, settings, round, bet, multiplier, loggedIn, onP
   const betting = round?.status === 'betting';
   const flying = round?.status === 'flying';
   const stakeNum = Number(stake) || 0;
-  const quick = [min, 1, 5, 10, 20, 50].filter((v, i, a) => v >= min && v <= max && a.indexOf(v) === i).slice(0, 4);
+  const quick = [1, 2, 5, 10, 20, 50, 100].filter((v) => v >= min && v <= max).slice(0, 4);
 
   async function place() {
     if (!round) return;
@@ -81,19 +81,19 @@ export function BetPanel({ slot, settings, round, bet, multiplier, loggedIn, onP
   const active = bet?.status === 'active';
   let label: React.ReactNode;
   let sub = '';
-  let cls = 'bg-[#22c55e] hover:bg-[#16a34a] text-white';
+  let cls = 'bg-[#28a909] border border-[#b2f2a3] text-white shadow-[inset_0_1px_1px_rgba(255,255,255,0.5)] hover:brightness-110';
   if (active && flying) {
     const value = Math.min(Number(bet!.stake) * multiplier, Number(settings.max_win));
     label = <>Cash out <span className="block text-2xl font-black tabular-nums">{money(value)}</span></>;
-    cls = 'bg-[#f59e0b] hover:bg-[#d97706] text-black';
+    cls = 'bg-[#d07206] border border-[#ffbd71] text-white shadow-[inset_0_1px_1px_rgba(255,255,255,0.5)] hover:brightness-110';
   } else if (active) {
     label = 'Cancel';
     sub = `${money(Number(bet!.stake))} on this round`;
-    cls = 'bg-[#ef4444] hover:bg-[#dc2626] text-white';
+    cls = 'bg-[#cb011a] border border-[#ff7d8c] text-white shadow-[inset_0_1px_1px_rgba(255,255,255,0.5)] hover:brightness-110';
   } else if (queued) {
     label = 'Cancel';
     sub = 'Waiting for next round';
-    cls = 'bg-[#ef4444] hover:bg-[#dc2626] text-white';
+    cls = 'bg-[#cb011a] border border-[#ff7d8c] text-white shadow-[inset_0_1px_1px_rgba(255,255,255,0.5)] hover:brightness-110';
   } else {
     label = <>Bet <span className="block text-2xl font-black tabular-nums">{money(stakeNum)}</span></>;
     if (!betting) sub = 'Goes on the next round';
@@ -101,11 +101,11 @@ export function BetPanel({ slot, settings, round, bet, multiplier, loggedIn, onP
   const locked = active || queued;
 
   return (
-    <section className="rounded-2xl border border-white/5 bg-[#1b1530] p-3 text-white">
-      <div className="mx-auto mb-3 flex w-fit rounded-full bg-black/30 p-0.5 text-xs font-bold">
+    <section className="rounded-2xl border border-[#2c2d30] bg-[#1b1c1d] p-3 text-white">
+      <div className="mx-auto mb-3 flex w-fit rounded-full border border-[#2c2d30] bg-[#141516] p-0.5 text-xs font-bold">
         {(['bet', 'auto'] as const).map((t) => (
           <button key={t} onClick={() => setTab(t)}
-            className={`rounded-full px-5 py-1 capitalize transition-colors ${tab === t ? 'bg-white/15 text-white' : 'text-white/50'}`}>
+            className={`w-24 rounded-full py-1 capitalize transition-colors ${tab === t ? 'bg-[#2c2d30] text-white' : 'text-white/60'}`}>
             {t}
           </button>
         ))}
@@ -113,9 +113,9 @@ export function BetPanel({ slot, settings, round, bet, multiplier, loggedIn, onP
 
       <div className="flex gap-3">
         <div className="w-[46%] min-w-0 space-y-2">
-          <div className="flex items-center rounded-full bg-black/40 px-1.5 py-1">
+          <div className="flex items-center rounded-full bg-[#141516] px-1.5 py-1">
             <button disabled={locked} aria-label="Less" onClick={() => setStake((v) => Math.max(min, (Number(v) || 0) - 1).toFixed(2))}
-              className="flex h-7 w-7 items-center justify-center rounded-full bg-white/10 disabled:opacity-40"><BsDash /></button>
+              className="flex h-7 w-7 items-center justify-center rounded-full border border-white/30 text-white/80 disabled:opacity-40"><BsDash /></button>
             <input
               value={stake} disabled={locked} inputMode="decimal" aria-label={`Bet ${slot} stake`}
               onChange={(e) => setStake(e.target.value.replace(/[^0-9.]/g, ''))}
@@ -123,20 +123,20 @@ export function BetPanel({ slot, settings, round, bet, multiplier, loggedIn, onP
               className="min-w-0 flex-1 bg-transparent text-center text-base font-extrabold tabular-nums outline-none disabled:opacity-60"
             />
             <button disabled={locked} aria-label="More" onClick={() => setStake((v) => Math.min(max, (Number(v) || 0) + 1).toFixed(2))}
-              className="flex h-7 w-7 items-center justify-center rounded-full bg-white/10 disabled:opacity-40"><BsPlus /></button>
+              className="flex h-7 w-7 items-center justify-center rounded-full border border-white/30 text-white/80 disabled:opacity-40"><BsPlus /></button>
           </div>
           <div className="grid grid-cols-2 gap-1.5">
             {quick.map((v) => (
               <button key={v} disabled={locked} onClick={() => setStake(v.toFixed(2))}
-                className="rounded-full bg-black/30 py-1 text-xs font-bold text-white/70 hover:text-white disabled:opacity-40">
-                {money(v)}
+                className="rounded-full bg-[#141516] py-1 text-xs font-bold text-white/60 hover:text-white disabled:opacity-40">
+                {v.toFixed(0)}
               </button>
             ))}
           </div>
         </div>
         <button
           onClick={press} disabled={busy}
-          className={`flex min-h-[86px] flex-1 flex-col items-center justify-center rounded-2xl px-2 text-center text-base font-extrabold uppercase shadow-lg transition-colors disabled:opacity-70 ${cls}`}
+          className={`flex min-h-[86px] flex-1 flex-col items-center justify-center rounded-[20px] px-2 text-center text-lg font-medium uppercase transition-all disabled:opacity-70 ${cls}`}
         >
           {busy ? <Spinner size={18} /> : label}
           {sub && <span className="mt-0.5 text-[10.5px] font-semibold normal-case opacity-90">{sub}</span>}
@@ -144,7 +144,7 @@ export function BetPanel({ slot, settings, round, bet, multiplier, loggedIn, onP
       </div>
 
       {tab === 'auto' && (
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-white/5 pt-3 text-xs font-bold text-white/70">
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-[#2c2d30] pt-3 text-xs font-bold text-white/70">
           <label className="flex items-center gap-2">
             <input type="checkbox" checked={autoBet} onChange={(e) => setAutoBet(e.target.checked)} className="h-4 w-4 accent-[#22c55e]" />
             Auto bet
@@ -155,7 +155,7 @@ export function BetPanel({ slot, settings, round, bet, multiplier, loggedIn, onP
             <input
               value={autoAt} disabled={!autoCash || locked} inputMode="decimal" aria-label="Auto cash-out multiplier"
               onChange={(e) => setAutoAt(e.target.value.replace(/[^0-9.]/g, ''))}
-              className="w-16 rounded-full bg-black/40 px-2 py-1 text-center text-white outline-none disabled:opacity-40"
+              className="w-16 rounded-full bg-[#141516] px-2 py-1 text-center text-white outline-none disabled:opacity-40"
             />
             x
           </label>

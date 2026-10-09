@@ -151,6 +151,8 @@ class AdminSettingsView(APIView):
             return Response({'detail': 'Enter numbers for every limit.'}, status=status.HTTP_400_BAD_REQUEST)
         if 'enabled' in data:
             cfg.enabled = bool(data['enabled'])
+        if 'display_name' in data:
+            cfg.display_name = str(data['display_name'] or '').strip()[:40] or 'BetBlits Aviator'
         problems = []
         if not Decimal('0') <= cfg.house_edge_percent <= Decimal('10'):
             problems.append('House edge must be between 0% and 10%.')

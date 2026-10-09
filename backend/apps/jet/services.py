@@ -90,7 +90,8 @@ def bet_payload(bet: JetBet, *, mine: bool = False) -> dict:
 
 def settings_payload(cfg: JetSettings) -> dict:
     return {
-        'enabled': cfg.enabled, 'house_edge_percent': str(cfg.house_edge_percent),
+        'enabled': cfg.enabled, 'display_name': cfg.display_name,
+        'house_edge_percent': str(cfg.house_edge_percent),
         'rtp_percent': str(Decimal('100') - cfg.house_edge_percent),
         'min_bet': str(cfg.min_bet), 'max_bet': str(cfg.max_bet), 'max_win': str(cfg.max_win),
         'max_multiplier': str(cfg.max_multiplier), 'round_stake_limit': str(cfg.round_stake_limit),

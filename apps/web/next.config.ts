@@ -19,6 +19,8 @@ const nextConfig: NextConfig = {
       { source: '/account/casino', destination: '/account', permanent: false },
       // Tournaments only scored casino play.
       { source: '/tournaments', destination: '/promotions', permanent: false },
+      // The crash game's old address.
+      { source: '/jet', destination: '/aviator', permanent: true },
     ];
   },
 };

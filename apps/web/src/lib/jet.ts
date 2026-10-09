@@ -8,6 +8,7 @@ import { authedPost } from '@/lib/use-api';
 
 export interface JetSettings {
   enabled: boolean;
+  display_name: string;
   house_edge_percent: string;
   rtp_percent: string;
   min_bet: string;
@@ -65,9 +66,9 @@ export function fmtX(v: number | string | null | undefined): string {
 
 /** Colour band for a crash point, as crash games show history. */
 export function crashTone(x: number): string {
-  if (x >= 10) return 'text-[#e879f9] bg-[#e879f9]/10';
-  if (x >= 2) return 'text-[#a78bfa] bg-[#a78bfa]/10';
-  return 'text-[#38bdf8] bg-[#38bdf8]/10';
+  if (x >= 10) return 'text-[#c017b4] bg-black/50';
+  if (x >= 2) return 'text-[#913ef8] bg-black/50';
+  return 'text-[#34b4ff] bg-black/50';
 }
 
 /**

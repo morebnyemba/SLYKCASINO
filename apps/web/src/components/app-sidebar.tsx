@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { Suspense } from 'react';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { BsLayoutSidebarInset, BsXLg } from 'react-icons/bs';
-import { GiJetFighter, GiTrophy } from 'react-icons/gi';
+import { GiAirplane, GiTrophy } from 'react-icons/gi';
 import { FaGift, FaHandshake, FaRegCommentDots, FaShieldAlt } from 'react-icons/fa';
 import type { IconType } from 'react-icons';
 import { SPORT_CATEGORIES } from '@/components/sports-sidebar';
@@ -26,7 +26,7 @@ const SPORTS_ITEMS: NavItem[] = [
 ];
 
 const GAME_ITEMS: NavItem[] = [
-  { href: '/jet', label: 'Jet', icon: GiJetFighter, live: true },
+  { href: '/aviator', label: 'Aviator', icon: GiAirplane, live: true },
 ];
 
 const MORE_ITEMS: NavItem[] = [

@@ -9,8 +9,20 @@ import { BetsList, HistoryStrip } from '@/components/jet/side-panels';
 import { useAuth } from '@/lib/auth-context';
 import { multiplierAt, useJet } from '@/lib/jet';
 
-/** Jet — the multiplayer crash game. */
-export default function JetPage() {
+/** The game's wordmark: a small brand line over the big red italic title. */
+function GameLogo({ name }: { name: string }) {
+  const [brand, ...rest] = name.split(' ');
+  const title = rest.length ? rest.join(' ') : brand;
+  return (
+    <span className="flex flex-col leading-none">
+      {rest.length > 0 && <span className="text-[10px] font-extrabold uppercase tracking-[0.2em] text-white/70">{brand}</span>}
+      <span className="text-[26px] font-black italic tracking-tight text-[#e50539] [text-shadow:0_2px_10px_rgba(229,5,57,0.45)]">{title}</span>
+    </span>
+  );
+}
+
+/** The multiplayer crash game (named in the admin; BetBlits Aviator by default). */
+export default function AviatorPage() {
   const { user } = useAuth();
   const { state, error, now, placeBet, cancelBet, cashOut } = useJet();
   const [multiplier, setMultiplier] = useState(1);
@@ -29,7 +41,7 @@ export default function JetPage() {
   if (!state) {
     return (
       <div className="flex h-[60vh] items-center justify-center text-sm text-muted-foreground">
-        {error ?? 'Loading Jet…'}
+        {error ?? 'Loading…'}
       </div>
     );
   }
@@ -38,25 +50,22 @@ export default function JetPage() {
   const myBet = (slot: number) => state.my_bets.find((b) => b.slot === slot && b.round === round?.id);
 
   return (
-    <div className="-mx-3 -mt-3 bg-[#0e0a1c] p-3 sm:mx-0 sm:mt-0 sm:rounded-3xl lg:p-4">
-      <header className="mb-3 flex items-center gap-3 text-white">
-        <h1 className="text-xl font-black italic tracking-tight">
-          <span className="text-[#ff3b6b]">Jet</span>
-        </h1>
-        <span className="rounded-full bg-white/10 px-2 py-0.5 text-[11px] font-bold text-white/70">RTP {Number(s.rtp_percent).toFixed(0)}%</span>
+    <div className="-mx-3 -mt-3 bg-[#0e0e0e] p-3 sm:mx-0 sm:mt-0 sm:rounded-3xl sm:border sm:border-[#2c2d30] lg:p-4">
+      <header className="-mx-3 -mt-3 mb-3 flex items-center gap-3 border-b border-[#2c2d30] bg-[#1b1c1d] px-3 py-2 text-white sm:-mx-4 sm:-mt-4 sm:rounded-t-3xl sm:px-4">
+        <GameLogo name={s.display_name} />
         {state.balance != null && (
-          <span className="ml-auto rounded-full bg-black/40 px-3 py-1 text-sm font-extrabold tabular-nums text-[#22c55e]">
-            ${Number(state.balance).toFixed(2)}
+          <span className="ml-auto text-base font-extrabold tabular-nums text-[#28a909]">
+            {Number(state.balance).toFixed(2)} <span className="text-xs font-bold text-white/60">USD</span>
           </span>
         )}
         <button onClick={() => setRulesOpen((v) => !v)} aria-label="How to play"
-          className={`${state.balance == null ? 'ml-auto' : ''} rounded-full p-2 text-white/70 hover:bg-white/10`}>
-          <BsInfoCircle size={16} />
+          className={`${state.balance == null ? 'ml-auto' : ''} flex items-center gap-1.5 rounded-full bg-[#141516] px-3 py-1.5 text-xs font-bold text-white/80 hover:text-white`}>
+          <BsInfoCircle size={13} /> How to play
         </button>
       </header>
 
       {rulesOpen && (
-        <div className="mb-3 rounded-2xl border border-white/10 bg-[#1b1530] p-4 text-sm leading-relaxed text-white/80">
+        <div className="mb-3 rounded-2xl border border-[#2c2d30] bg-[#1b1c1d] p-4 text-sm leading-relaxed text-white/80">
           <p className="mb-2 font-bold text-white">How to play</p>
           <ol className="list-decimal space-y-1 pl-5">
             <li>Place one or two bets during the countdown.</li>
@@ -72,11 +81,11 @@ export default function JetPage() {
       )}
 
       {!s.enabled && (
-        <p className="mb-3 rounded-xl bg-[#f59e0b]/15 px-4 py-2.5 text-sm font-semibold text-[#fbbf24]">Jet is paused for a moment — bets will open again shortly.</p>
+        <p className="mb-3 rounded-xl bg-[#f59e0b]/15 px-4 py-2.5 text-sm font-semibold text-[#fbbf24]">{s.display_name} is paused for a moment — bets will open again shortly.</p>
       )}
       {!user && (
         <p className="mb-3 rounded-xl bg-white/5 px-4 py-2.5 text-sm text-white/70">
-          You’re watching. <Link href="/login" className="font-bold text-[#22c55e] underline-offset-2 hover:underline">Log in</Link> to place bets.
+          You’re watching. <Link href="/login" className="font-bold text-[#28a909] underline-offset-2 hover:underline">Log in</Link> to place bets.
         </p>
       )}
 

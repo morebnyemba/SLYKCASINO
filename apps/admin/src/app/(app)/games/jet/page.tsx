@@ -9,7 +9,7 @@ import { useAuth } from '@/lib/auth-context';
 import { authedRequest, useApi } from '@/lib/use-api';
 
 interface Settings {
-  enabled: boolean; house_edge_percent: string; rtp_percent: string; min_bet: string; max_bet: string;
+  enabled: boolean; display_name: string; house_edge_percent: string; rtp_percent: string; min_bet: string; max_bet: string;
   max_win: string; max_multiplier: string; round_stake_limit: string; betting_seconds: number;
 }
 interface Totals { rounds: number; bets: number; stake: string; payout: string; ggr: string; rtp_percent: string | null }
@@ -30,17 +30,21 @@ const FIELDS: { key: keyof Settings; label: string; hint: string; suffix?: strin
   { key: 'betting_seconds', label: 'Countdown (seconds)', hint: 'Betting window before each take-off (3–30).' },
 ];
 
-/** Jet — takings, the live round, limits and the round log. No crash-point controls exist by design. */
-export default function JetAdminPage() {
+/** The crash game — takings, the live round, limits and the round log. No crash-point controls exist by design. */
+export default function CrashGameAdminPage() {
   const { accessToken } = useAuth();
   const { data: settings, refetch: refetchSettings } = useApi<Settings>('/admin/jet/settings/');
   const { data: stats, refetch: refetchStats } = useApi<Stats>('/admin/jet/stats/');
   const [form, setForm] = useState<Record<string, string>>({});
+  const [name, setName] = useState('');
   const [busy, setBusy] = useState<'save' | 'toggle' | null>(null);
   const [notice, setNotice] = useState<{ tone: 'green' | 'red'; text: string } | null>(null);
 
   useEffect(() => {
-    if (settings) setForm(Object.fromEntries(FIELDS.map((f) => [f.key, String(settings[f.key])])));
+    if (settings) {
+      setForm(Object.fromEntries(FIELDS.map((f) => [f.key, String(settings[f.key])])));
+      setName(settings.display_name);
+    }
   }, [settings]);
 
   // Live round and takings refresh every few seconds.
@@ -58,7 +62,7 @@ export default function JetAdminPage() {
     if (!res.error) { refetchSettings(); refetchStats(); }
   }
 
-  const dirty = settings && FIELDS.some((f) => Number(form[f.key]) !== Number(settings[f.key]));
+  const dirty = settings && (name.trim() !== settings.display_name || FIELDS.some((f) => Number(form[f.key]) !== Number(settings[f.key])));
   const live = stats?.live;
   const t = stats?.today;
 
@@ -67,14 +71,14 @@ export default function JetAdminPage() {
       <PageHeader
         icon={BsAirplane}
         eyebrow="Games"
-        title="Jet"
+        title={settings?.display_name ?? 'Aviator'}
         description="The multiplayer crash game: takings, the round in the air, limits and every round’s fairness proof."
         actions={settings && (settings.enabled
           ? <Btn variant="danger" icon={BsPauseFill} busy={busy === 'toggle'}
-              onClick={() => confirm('Pause Jet? The round in the air finishes; no new rounds start.') && put({ enabled: false }, 'Jet paused — the current round finishes, then no new rounds start.', 'toggle')}>
+              onClick={() => confirm('Pause the game? The round in the air finishes; no new rounds start.') && put({ enabled: false }, 'Paused — the current round finishes, then no new rounds start.', 'toggle')}>
               Pause game
             </Btn>
-          : <Btn variant="success" icon={BsPlayFill} busy={busy === 'toggle'} onClick={() => put({ enabled: true }, 'Jet is live again.', 'toggle')}>Resume game</Btn>)}
+          : <Btn variant="success" icon={BsPlayFill} busy={busy === 'toggle'} onClick={() => put({ enabled: true }, 'The game is live again.', 'toggle')}>Resume game</Btn>)}
       />
       {notice && <Notice tone={notice.tone} onClose={() => setNotice(null)}>{notice.text}</Notice>}
 
@@ -107,8 +111,11 @@ export default function JetAdminPage() {
           </p>
         </Panel>
 
-        <Panel title="Limits & house edge" description="Shown to players in the game’s rules. Changes apply from the next round.">
+        <Panel title="Name, limits & house edge" description="Shown to players in the game’s rules. Changes apply from the next round.">
           <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Game name" hint="Shown in the game header and page title, e.g. “BetBlits Aviator”." className="sm:col-span-2">
+              <TextInput value={name} maxLength={40} onChange={(e) => setName(e.target.value)} />
+            </Field>
             {FIELDS.map((f) => (
               <Field key={f.key} label={f.label} hint={f.hint}>
                 <TextInput inputMode="decimal" value={form[f.key] ?? ''} onChange={(e) => setForm((v) => ({ ...v, [f.key]: e.target.value.replace(/[^0-9.]/g, '') }))} />
@@ -117,7 +124,7 @@ export default function JetAdminPage() {
           </div>
           <div className="mt-4 flex justify-end">
             <Btn variant="primary" busy={busy === 'save'} disabled={!dirty}
-              onClick={() => put(Object.fromEntries(FIELDS.map((f) => [f.key, f.key === 'betting_seconds' ? Number(form[f.key]) : form[f.key]])), 'Limits saved — they apply from the next round.', 'save')}>
+              onClick={() => put({ display_name: name.trim(), ...Object.fromEntries(FIELDS.map((f) => [f.key, f.key === 'betting_seconds' ? Number(form[f.key]) : form[f.key]])) }, 'Saved — limits apply from the next round.', 'save')}>
               Save limits
             </Btn>
           </div>
