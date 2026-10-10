@@ -13,7 +13,7 @@ from rest_framework.views import APIView
 from apps.accounts import services as accounts_services
 from apps.wallet.services import InsufficientFunds, get_balance_dto
 
-from . import engine, services
+from . import bots, engine, services
 from .models import JetBet, JetRound, JetSettings
 
 
@@ -36,12 +36,16 @@ class StateView(APIView):
         rnd = services.current_round() or JetRound.objects.order_by('-id').first()
         bets = list(JetBet.objects.filter(round=rnd).exclude(status=JetBet.Status.REFUNDED)) if rnd else []
         player = _player(request)
+        listed = [services.bet_payload(b) for b in bets]
+        if rnd:
+            # Simulated players are added for display only — never stored or counted.
+            listed += bots.snapshot(rnd, timezone.now(), cfg)
         return Response({
             'settings': services.settings_payload(cfg),
             'round': services.round_payload(rnd) if rnd else None,
             'server_time': services.iso(timezone.now()),
             'history': services.history(),
-            'bets': [services.bet_payload(b) for b in sorted(bets, key=lambda b: -b.stake)],
+            'bets': sorted(listed, key=lambda b: -Decimal(b['stake'])),
             'my_bets': [services.bet_payload(b, mine=True) for b in bets if player and b.player_id == player.id],
             'balance': _balance(player.id) if player else None,
         })
@@ -136,7 +140,7 @@ class AdminSettingsView(APIView):
     permission_classes = [IsAdminUser]
 
     def get(self, request):
-        return Response(services.settings_payload(JetSettings.load()))
+        return Response(_admin_settings(JetSettings.load()))
 
     def put(self, request):
         cfg = JetSettings.load()
@@ -151,6 +155,13 @@ class AdminSettingsView(APIView):
             return Response({'detail': 'Enter numbers for every limit.'}, status=status.HTTP_400_BAD_REQUEST)
         if 'enabled' in data:
             cfg.enabled = bool(data['enabled'])
+        if 'bots_enabled' in data:
+            cfg.bots_enabled = bool(data['bots_enabled'])
+        if 'bot_count' in data:
+            try:
+                cfg.bot_count = int(data['bot_count'])
+            except (TypeError, ValueError):
+                return Response({'detail': 'Enter a whole number of simulated players.'}, status=status.HTTP_400_BAD_REQUEST)
         if 'display_name' in data:
             cfg.display_name = str(data['display_name'] or '').strip()[:40] or 'BetBlits Aviator'
         problems = []
@@ -166,13 +177,20 @@ class AdminSettingsView(APIView):
             problems.append('The round limit must be at least the max bet.')
         if not 3 <= cfg.betting_seconds <= 30:
             problems.append('The countdown must be 3–30 seconds.')
+        if not 0 <= cfg.bot_count <= bots.MAX_BOTS:
+            problems.append(f'Simulated players must be 0–{bots.MAX_BOTS} per round.')
         if problems:
             return Response({'detail': ' '.join(problems)}, status=status.HTTP_400_BAD_REQUEST)
         cfg.updated_by = request.user.get_username()[:150]
         cfg.save()
         accounts_services.audit(None, 'jet_settings', request, enabled=cfg.enabled,
-                                house_edge=str(cfg.house_edge_percent), max_bet=str(cfg.max_bet))
-        return Response(services.settings_payload(cfg))
+                                house_edge=str(cfg.house_edge_percent), max_bet=str(cfg.max_bet),
+                                bots_enabled=cfg.bots_enabled, bot_count=cfg.bot_count)
+        return Response(_admin_settings(cfg))
+
+
+def _admin_settings(cfg: JetSettings) -> dict:
+    return {**services.settings_payload(cfg), 'bot_count': cfg.bot_count}
 
 
 def _totals(qs) -> dict:
@@ -213,6 +231,11 @@ class AdminStatsView(APIView):
                  'ggr': str(r.total_stake - r.total_payout)}
                 for r in crashed.order_by('-id')[:30]
             ],
+            # Shown apart from every figure above, which are real players only.
+            'bots': {
+                'enabled': cfg.bots_enabled, 'per_round': cfg.bot_count,
+                'live_round': len(bots.plan(live, cfg)) if live else 0,
+            },
             'players_today': JetBet.objects.filter(created_at__date=timezone.localdate())
                 .values('player_id').distinct().count(),
         })

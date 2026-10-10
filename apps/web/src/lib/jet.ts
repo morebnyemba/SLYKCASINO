@@ -18,6 +18,8 @@ export interface JetSettings {
   round_stake_limit: string;
   betting_seconds: number;
   rate: number;
+  /** Simulated players appear in the live bets list (display only). */
+  bots_enabled?: boolean;
 }
 
 export interface JetRound {
@@ -131,12 +133,35 @@ export function useJet() {
 
   // Realtime frames.
   useEffect(() => subscribeChannel('jet', (raw) => {
-    let msg: { type: string; round?: JetRound; bet?: JetBet | number; server_time?: string };
+    let msg: {
+      type: string; round?: JetRound | number; bet?: JetBet | number; server_time?: string;
+      bets?: [number, string, string][];
+    };
     try { msg = JSON.parse(raw); } catch { return; }
     lastFrame.current = Date.now();
     if (msg.server_time) offset.current = Date.parse(msg.server_time) - Date.now();
     setState((prev) => {
       if (!prev) return prev;
+      // Simulated players joining ([id, name, stake]) or cashing out ([id, x, payout]).
+      if ((msg.type === 'bots' || msg.type === 'bot_cashouts') && msg.bets && msg.round === prev.round?.id) {
+        const roundId = msg.round as number;
+        if (msg.type === 'bots') {
+          const known = new Set(prev.bets.map((b) => b.id));
+          const fresh: JetBet[] = msg.bets.filter(([id]) => !known.has(id)).map(([id, player, stake]) => ({
+            id, round: roundId, player, slot: 1, stake, status: 'active', cashout_multiplier: null, payout: '0',
+          }));
+          return { ...prev, bets: [...prev.bets, ...fresh].sort((a, b) => Number(b.stake) - Number(a.stake)) };
+        }
+        const done = new Map(msg.bets.map(([id, x, payout]) => [id, { x, payout }]));
+        return {
+          ...prev,
+          bets: prev.bets.map((b) => {
+            const d = done.get(b.id);
+            return d ? { ...b, status: 'cashed' as const, cashout_multiplier: d.x, payout: d.payout } : b;
+          }),
+        };
+      }
+      if (typeof msg.round === 'number') return prev;
       if (msg.type === 'round' && msg.round) {
         const fresh = msg.round.id !== prev.round?.id;
         return { ...prev, round: msg.round, bets: fresh ? [] : prev.bets, my_bets: fresh ? [] : prev.my_bets };

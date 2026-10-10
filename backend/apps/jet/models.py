@@ -5,8 +5,9 @@ at; one still riding at the crash loses.
 
 Fairness: each round's crash point comes from a secret server seed whose
 SHA-256 hash is published before any bet is taken and the seed itself after the
-crash (see engine.crash_point). There are no automated players and no way to
-set a crash point by hand.
+crash (see engine.crash_point). There is no way to set a crash point by hand.
+Optional simulated players (bots.py) only appear in the live bets list: they
+never stake money, are never stored, and can't affect a round.
 """
 from decimal import Decimal
 
@@ -28,6 +29,9 @@ class JetSettings(models.Model):
     # Total stakes one round accepts; later bets are refused ("round full").
     round_stake_limit = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('5000.00'))
     betting_seconds = models.PositiveSmallIntegerField(default=6)
+    # Simulated players in the live bets list (display only, see bots.py).
+    bots_enabled = models.BooleanField(default=False)
+    bot_count = models.PositiveSmallIntegerField(default=300)
     updated_at = models.DateTimeField(auto_now=True)
     updated_by = models.CharField(max_length=150, blank=True)
 

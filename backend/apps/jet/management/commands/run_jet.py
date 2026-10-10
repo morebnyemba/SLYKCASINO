@@ -14,7 +14,7 @@ from django.core.management.base import BaseCommand
 from django.db import close_old_connections
 from django.utils import timezone
 
-from apps.jet import services
+from apps.jet import bots, services
 from apps.jet.models import JetSettings
 
 logger = logging.getLogger(__name__)
@@ -22,23 +22,22 @@ logger = logging.getLogger(__name__)
 TICK = 0.2
 
 
-def _sleep_until(when) -> None:
-    while True:
-        left = (when - timezone.now()).total_seconds()
-        if left <= 0:
-            return
-        time.sleep(min(left, 0.5))
-
-
 def run_round() -> None:
     rnd = services.open_round()
-    _sleep_until(rnd.betting_ends_at)
+    feed = bots.Feed(rnd)  # simulated players: display only, never money
+    while timezone.now() < rnd.betting_ends_at:
+        feed.tick(timezone.now())
+        time.sleep(min(0.5, max(0.0, (rnd.betting_ends_at - timezone.now()).total_seconds())))
     rnd = services.start_flight(rnd.id)
+    feed.take_off(rnd)
     crash_at = rnd.started_at + timezone.timedelta(seconds=services.flight_seconds(rnd))
     while timezone.now() < crash_at:
         services.settle_auto_cashouts(rnd.id)
+        feed.tick(timezone.now())
         time.sleep(min(TICK, max(0.0, (crash_at - timezone.now()).total_seconds())))
-    services.crash_round(rnd.id)
+    rnd = services.crash_round(rnd.id)
+    feed.rnd = rnd
+    feed.tick(timezone.now())  # bots whose target was right at the crash point
     time.sleep(services.COOLDOWN_SECONDS)
 
 

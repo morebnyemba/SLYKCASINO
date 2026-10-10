@@ -96,6 +96,7 @@ def settings_payload(cfg: JetSettings) -> dict:
         'min_bet': str(cfg.min_bet), 'max_bet': str(cfg.max_bet), 'max_win': str(cfg.max_win),
         'max_multiplier': str(cfg.max_multiplier), 'round_stake_limit': str(cfg.round_stake_limit),
         'betting_seconds': cfg.betting_seconds, 'rate': engine.RATE,
+        'bots_enabled': cfg.bots_enabled,
     }
 
 

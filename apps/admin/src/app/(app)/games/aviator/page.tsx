@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import {
-  BsActivity, BsAirplane, BsBoxArrowUpRight, BsCashCoin, BsGraphUpArrow, BsPauseFill, BsPeople, BsPlayFill, BsShieldCheck,
+  BsActivity, BsAirplane, BsRobot, BsBoxArrowUpRight, BsCashCoin, BsGraphUpArrow, BsPauseFill, BsPeople, BsPlayFill, BsShieldCheck,
 } from 'react-icons/bs';
 import {
   Badge, Btn, Field, Notice, PageHeader, Panel, StatTile, TextInput, cx, money, tableClass, tdClass, thClass, trClass,
@@ -14,10 +14,12 @@ import { authedRequest, useApi } from '@/lib/use-api';
 interface Settings {
   enabled: boolean; display_name: string; house_edge_percent: string; rtp_percent: string; min_bet: string; max_bet: string;
   max_win: string; max_multiplier: string; round_stake_limit: string; betting_seconds: number;
+  bots_enabled: boolean; bot_count: number;
 }
 interface Totals { rounds: number; bets: number; stake: string; payout: string; ggr: string; rtp_percent: string | null }
 interface Stats {
   today: Totals; week: Totals; all_time: Totals; players_today: number;
+  bots: { enabled: boolean; per_round: number; live_round: number };
   live: { round: number | null; status: string | null; bets: number; stake: string; riding: number; max_exposure: string };
   rounds: { id: number; crash_point: string; bet_count: number; total_stake: string; total_payout: string; ggr: string;
     seed_hash: string; server_seed: string; crashed_at: string }[];
@@ -40,13 +42,15 @@ export default function CrashGameAdminPage() {
   const { data: stats, refetch: refetchStats } = useApi<Stats>('/admin/jet/stats/');
   const [form, setForm] = useState<Record<string, string>>({});
   const [name, setName] = useState('');
-  const [busy, setBusy] = useState<'save' | 'toggle' | null>(null);
+  const [busy, setBusy] = useState<'save' | 'toggle' | 'bots' | null>(null);
+  const [botCount, setBotCount] = useState('');
   const [notice, setNotice] = useState<{ tone: 'green' | 'red'; text: string } | null>(null);
 
   useEffect(() => {
     if (settings) {
       setForm(Object.fromEntries(FIELDS.map((f) => [f.key, String(settings[f.key])])));
       setName(settings.display_name);
+      setBotCount(String(settings.bot_count));
     }
   }, [settings]);
 
@@ -56,7 +60,7 @@ export default function CrashGameAdminPage() {
     return () => window.clearInterval(t);
   }, [refetchStats]);
 
-  async function put(body: Record<string, unknown>, ok: string, kind: 'save' | 'toggle') {
+  async function put(body: Record<string, unknown>, ok: string, kind: 'save' | 'toggle' | 'bots') {
     if (!accessToken) return;
     setBusy(kind); setNotice(null);
     const res = await authedRequest('PUT', '/admin/jet/settings/', accessToken, body);
@@ -129,7 +133,7 @@ export default function CrashGameAdminPage() {
           <p className="mt-4 flex items-start gap-2 rounded-xl bg-muted/40 p-3 text-xs text-muted-foreground">
             <BsShieldCheck className="mt-0.5 shrink-0 text-win" />
             Outcomes are provably fair: each round’s seed hash is shown to players before betting and the seed after the crash.
-            There are no automated players and no way to set a crash point — risk is managed only with the limits below.
+            There is no way to set a crash point — risk is managed only with the limits below.
           </p>
         </Panel>
 
@@ -152,6 +156,33 @@ export default function CrashGameAdminPage() {
           </div>
         </Panel>
       </div>
+
+      <Panel
+        title="Simulated players"
+        description="Fill the live bets list so the game feels busy. Display only: they never stake money and aren’t stored, so every figure on this page, the analytics, GGR and affiliate reports count real players only."
+        actions={settings?.bots_enabled ? <Badge tone="green" dot>On</Badge> : <Badge tone="slate">Off</Badge>}
+      >
+        <div className="flex flex-wrap items-end gap-4">
+          <Field label="Players per round (0–1000)" hint="Each round gets 70–100% of this, joining through the countdown." className="w-64">
+            <TextInput inputMode="numeric" value={botCount} onChange={(e) => setBotCount(e.target.value.replace(/[^0-9]/g, ''))} />
+          </Field>
+          <Btn variant="primary" icon={BsRobot} busy={busy === 'bots'}
+            disabled={!settings || Number(botCount) === settings.bot_count || botCount === ''}
+            onClick={() => put({ bot_count: Number(botCount) }, 'Saved — applies from the next round.', 'bots')}>
+            Save count
+          </Btn>
+          {settings && (settings.bots_enabled
+            ? <Btn variant="danger" busy={busy === 'bots'} onClick={() => put({ bots_enabled: false }, 'Simulated players are off from the next round.', 'bots')}>Turn off</Btn>
+            : <Btn variant="success" busy={busy === 'bots'} onClick={() => put({ bots_enabled: true, bot_count: Number(botCount) || settings.bot_count }, 'Simulated players are on from the next round.', 'bots')}>Turn on</Btn>)}
+        </div>
+        {stats?.bots.enabled && (
+          <p className="mt-3 text-xs text-muted-foreground">Round in play: {stats.bots.live_round} simulated players alongside {stats.live.bets} real bet{stats.live.bets === 1 ? '' : 's'}.</p>
+        )}
+        <p className="mt-3 flex items-start gap-2 rounded-xl bg-muted/40 p-3 text-xs text-muted-foreground">
+          <BsShieldCheck className="mt-0.5 shrink-0 text-win" />
+          While on, the game’s “How to play” tells players the list includes simulated players. They can’t change a round — its crash point is fixed before betting opens.
+        </p>
+      </Panel>
 
       <Panel title="Recent rounds" description="Every finished round with its seed, so any result can be re-checked." padded={false}>
         <div className="overflow-x-auto">
