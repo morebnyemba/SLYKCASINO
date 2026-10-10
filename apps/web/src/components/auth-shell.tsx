@@ -2,9 +2,20 @@
 
 import { FaBolt, FaGift, FaLock } from 'react-icons/fa';
 import { useSiteIdentity } from '@/lib/identity-context';
+import { useApi } from '@/lib/use-api';
+
+interface WelcomeTerms { programme?: { welcome_bonus_percent: string; welcome_bonus_cap: string } }
+
+/** The real referral welcome offer from the programme settings, e.g. "30% … (up to $100)"; null when it's off. */
+export function useWelcomeOffer(): string | null {
+  const { data } = useApi<WelcomeTerms>('/affiliates/terms/', { public: true });
+  const pct = Number(data?.programme?.welcome_bonus_percent ?? 0);
+  if (!(pct > 0)) return null;
+  const cap = Number(data?.programme?.welcome_bonus_cap ?? 0);
+  return `${pct}% bonus on your first deposit${cap > 0 ? ` (up to $${cap})` : ''}`;
+}
 
 const PERKS = [
-  { icon: FaGift, text: '200% welcome bonus up to $1,000' },
   { icon: FaBolt, text: 'Instant EcoCash & card payouts' },
   { icon: FaLock, text: 'Secure, licensed & encrypted' },
 ];
@@ -17,6 +28,9 @@ export const authButtonClass =
 /** Two-panel sign-in/sign-up layout: brand promo on the left, form on the right. */
 export function AuthShell({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
   const identity = useSiteIdentity();
+  const offer = useWelcomeOffer();
+  // Only shown once loaded and only while the bonus is on — never a made-up offer.
+  const perks = offer ? [{ icon: FaGift, text: `${offer} with a friend’s referral code` }, ...PERKS] : PERKS;
   return (
     <div className="flex min-h-[70vh] items-center justify-center py-4">
       <div className="grid w-full max-w-3xl overflow-hidden rounded-3xl border border-border bg-card shadow-2xl md:grid-cols-2">
@@ -27,11 +41,11 @@ export function AuthShell({ title, subtitle, children }: { title: string; subtit
             <p className="mt-3 text-3xl font-black leading-tight">{identity.tagline || 'Bet smart. Brag often.'}</p>
           </div>
           <ul className="space-y-3 text-sm font-semibold">
-            {PERKS.map((p) => {
+            {perks.map((p) => {
               const Icon = p.icon;
               return (
                 <li key={p.text} className="flex items-center gap-3">
-                  <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/15"><Icon size={13} /></span>
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/15"><Icon size={13} /></span>
                   {p.text}
                 </li>
               );
