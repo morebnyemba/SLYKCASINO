@@ -8,7 +8,10 @@ import { crashTone, fmtX, verifyRound, type JetBet, type JetSettings } from '@/l
 
 const money = (v: number | string) => `$${Number(v).toFixed(2)}`;
 
-/** The round's bets (real players only) or the player's own history. */
+// Rows drawn at once; the header still counts every bet.
+const LIST_LIMIT = 150;
+
+/** The round's bets or the player's own history. */
 export function BetsList({ bets, loggedIn }: { bets: JetBet[]; loggedIn: boolean }) {
   const [tab, setTab] = useState<'all' | 'mine'>('all');
   const { data: mine } = useApi<{ results: (JetBet & { created_at: string; crash_point: string | null })[] }>(
@@ -34,7 +37,7 @@ export function BetsList({ bets, loggedIn }: { bets: JetBet[]; loggedIn: boolean
           </div>
           <ul className="min-h-0 flex-1 space-y-1 overflow-y-auto px-2 pb-2">
             {bets.length === 0 && <li className="px-2 py-6 text-center text-xs text-white/40">No bets yet this round.</li>}
-            {bets.map((b) => (
+            {bets.slice(0, LIST_LIMIT).map((b) => (
               <li key={b.id} className={`grid grid-cols-[1fr_auto_auto_auto] items-center gap-x-3 rounded-lg px-2 py-1.5 text-xs ${
                 b.status === 'cashed' ? 'bg-[#123405] ring-1 ring-[#427f00]' : 'bg-[#101011]'
               }`}>

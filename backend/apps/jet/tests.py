@@ -14,7 +14,7 @@ from rest_framework.test import APIClient
 from apps.accounts import services as account_services
 from apps.wallet import services as wallet_services
 
-from . import engine, services
+from . import bots, engine, services
 from .models import JetBet, JetRound, JetSettings
 
 D = Decimal
@@ -255,3 +255,73 @@ class ApiTests(TestCase):
         self.assertEqual(stats['live']['round'], self.rnd.id)
         self.assertNotIn('5.00', str(stats['live']))  # never the live crash point
         self.assertEqual(self.api.get('/api/admin/jet/stats/').status_code, 403)
+
+
+class BotTests(TestCase):
+    """Simulated players fill the live list but are never money: nothing is
+    stored, so no report, total or analytics figure can include them."""
+
+    def setUp(self):
+        cfg = JetSettings.load()
+        cfg.bots_enabled, cfg.bot_count = True, 1000
+        cfg.save()
+        self.player, user = _player('realone')
+        self.api = APIClient()
+        self.api.force_authenticate(user)
+
+    def test_off_by_default_and_when_disabled(self):
+        JetSettings.objects.all().delete()
+        self.assertEqual(bots.plan(_round()), ())
+
+    def test_deterministic_capped_and_within_limits(self):
+        rnd = _round()
+        plan = bots.plan(rnd)
+        self.assertEqual(plan, bots.plan(rnd))
+        self.assertTrue(700 <= len(plan) <= 1000)
+        cfg = JetSettings.load()
+        self.assertTrue(all(cfg.min_bet <= b.stake <= cfg.max_bet and b.id < 0 for b in plan))
+        self.assertEqual(len({b.id for b in plan}), len(plan))
+
+    def test_bots_never_touch_money_or_records(self):
+        from apps.wallet.models import LedgerEntry
+        from apps.wallet import reporting
+        ledger_before = LedgerEntry.objects.count()
+        rnd = _round(crash='3.00')
+        res = self.api.post('/api/jet/bets/', {'stake': '2', 'slot': 1, 'auto_cashout': '2'}, format='json')
+        self.assertEqual(res.status_code, 201, res.content)
+
+        # Betting: bots arrive over the countdown and appear in the list.
+        later = rnd.created_at + timedelta(seconds=10)
+        state_bets = bots.snapshot(rnd, later)
+        self.assertGreater(len(state_bets), 500)
+        listed = APIClient().get('/api/jet/state/').json()['bets']
+        self.assertIn('r***e', [b['player'] for b in listed])
+
+        services.start_flight(rnd.id)
+        services.crash_round(rnd.id)
+        rnd.refresh_from_db()
+        done = bots.snapshot(rnd, timezone.now())
+        cashed = [b for b in done if b['status'] == 'cashed']
+        self.assertTrue(cashed and all(D(b['cashout_multiplier']) <= D('3.00') for b in cashed))
+        self.assertTrue(all(b['status'] in ('cashed', 'lost') for b in done))
+
+        # Only the real player's bet exists anywhere that counts.
+        self.assertEqual(JetBet.objects.count(), 1)
+        self.assertEqual((rnd.bet_count, rnd.total_stake, rnd.total_payout), (1, D('2.00'), D('4.00')))
+        self.assertEqual(LedgerEntry.objects.count(), ledger_before + 2)  # stake + payout
+        kpis = reporting.ledger_kpis(None, None, timezone.now() + timedelta(seconds=1))
+        self.assertEqual((kpis['casino']['plays'], kpis['casino']['stakes'], kpis['casino']['ggr']), (1, '2.00', '-2.00'))
+
+        admin = APIClient()
+        admin.force_authenticate(User.objects.create_superuser('ops', 'o@example.com', 'pw'))
+        stats = admin.get('/api/admin/jet/stats/').json()
+        self.assertEqual((stats['today']['bets'], D(stats['today']['stake']), stats['players_today']), (1, D('2'), 1))
+        self.assertTrue(stats['bots']['enabled'])
+
+    def test_admin_controls(self):
+        admin = APIClient()
+        admin.force_authenticate(User.objects.create_superuser('ops2', 'o2@example.com', 'pw'))
+        self.assertEqual(admin.put('/api/admin/jet/settings/', {'bot_count': 1001}, format='json').status_code, 400)
+        res = admin.put('/api/admin/jet/settings/', {'bots_enabled': False, 'bot_count': 250}, format='json').json()
+        self.assertEqual((res['bots_enabled'], res['bot_count']), (False, 250))
+        self.assertFalse(APIClient().get('/api/jet/state/').json()['settings']['bots_enabled'])
