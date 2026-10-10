@@ -5,6 +5,9 @@ import { AutoRefresh } from '@/components/auto-refresh';
 import { EventMarkets } from '@/components/event-markets';
 import { apiGet } from '@/lib/config';
 import { isLive, type EventItem } from '@/lib/sports';
+import { eventDescription, eventJsonLd, eventTitle, jsonLdHtml, social } from '@/lib/seo';
+
+const FINISHED = ['FT', 'AET', 'PEN', 'CANC', 'ABD', 'AWD', 'WO'];
 
 // Next 16: route params are async — they must be awaited.
 type PageProps = {
@@ -21,7 +24,19 @@ async function fetchEvent(id: string): Promise<EventItem | null> {
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { event } = await params;
   const ev = await fetchEvent(event);
-  return { title: `${ev?.name ?? `Event ${event}`} — BetBlits` };
+  if (!ev) return { title: 'Match not found', robots: { index: false, follow: true } };
+  const title = eventTitle(ev);
+  const description = eventDescription(ev);
+  const path = `/sportsbook/${ev.id}`;
+  return {
+    title,
+    description,
+    alternates: { canonical: path },
+    // A finished match has nothing left to bet on: keep it out of results, keep following links.
+    ...(FINISHED.includes(ev.status ?? '') ? { robots: { index: false, follow: true } } : {}),
+    // The match's own preview card (teams, kick-off, odds) — see opengraph-image.tsx.
+    ...social(title, description, path, `${path}/opengraph-image`),
+  };
 }
 
 export default async function EventPage({ params }: PageProps) {
@@ -42,6 +57,8 @@ export default async function EventPage({ params }: PageProps) {
 
   return (
     <div className="mx-auto max-w-5xl">
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdHtml(eventJsonLd(ev)) }} />
+      <h1 className="sr-only">{ev.name} betting odds{ev.league?.name ? ` — ${ev.league.name}` : ''}</h1>
       {isLive(ev) && <AutoRefresh seconds={10} />}
       <section className="min-w-0 space-y-4">
         <EventMarkets ev={ev} />

@@ -3,7 +3,8 @@ import Link from 'next/link';
 import { LegalLayout } from '@/components/legal-layout';
 
 export const metadata: Metadata = {
-  title: 'Responsible Gambling — BetBlits',
+  title: 'Responsible Gambling',
+  alternates: { canonical: '/legal/responsible-gambling' },
   description: 'Tools, resources, and support for safer, controlled play.',
 };
 

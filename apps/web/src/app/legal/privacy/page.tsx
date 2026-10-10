@@ -2,7 +2,8 @@ import type { Metadata } from 'next';
 import { LegalLayout } from '@/components/legal-layout';
 
 export const metadata: Metadata = {
-  title: 'Privacy Policy — BetBlits',
+  title: 'Privacy Policy',
+  alternates: { canonical: '/legal/privacy' },
   description: 'How BetBlits collects, uses, and protects your personal data.',
 };
 

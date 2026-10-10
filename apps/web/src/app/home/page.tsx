@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import Link from 'next/link';
 import { GiAirplane, GiTrophy } from 'react-icons/gi';
 import { FaShieldAlt, FaBolt, FaLock, FaHeadset } from 'react-icons/fa';
@@ -41,6 +42,9 @@ function ProductCard({ href, title, subtitle, icon: Icon, hue, stat }: {
     </Link>
   );
 }
+
+// The promo lobby: reachable, but /sportsbook is the landing page search engines should show.
+export const metadata: Metadata = { title: 'Welcome', robots: { index: false, follow: true } };
 
 export default async function LobbyPage() {
   const [featuredData, eventsData, bannersData] = await Promise.all([

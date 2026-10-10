@@ -8,12 +8,32 @@ import { ServiceWorkerRegistration } from '@/components/service-worker-registrat
 import { fetchSiteThemeCss } from '@/lib/site-theme';
 import { fetchSiteIdentity } from '@/lib/site-identity';
 import { IdentityProvider } from '@/lib/identity-context';
+import { DEFAULT_DESCRIPTION, SITE_URL, jsonLdHtml, siteJsonLd } from '@/lib/seo';
 
 export async function generateMetadata(): Promise<Metadata> {
   const identity = await fetchSiteIdentity();
+  const name = identity.site_name;
   return {
-    title: `${identity.site_name} — Player`,
-    description: 'Real-time betting & livechat platform',
+    metadataBase: new URL(SITE_URL),
+    // Pages set their own title; it's shown as "<page> | <site>".
+    title: { default: `${name} — Sports Betting, Live Odds & Aviator`, template: `%s | ${name}` },
+    description: DEFAULT_DESCRIPTION,
+    applicationName: name,
+    keywords: [
+      'sports betting', 'online betting Zimbabwe', 'football betting', 'live betting', 'betting odds',
+      'Aviator', 'EcoCash betting', 'cash out', name,
+    ],
+    category: 'sports',
+    formatDetection: { telephone: false },
+    robots: { index: true, follow: true, googleBot: { index: true, follow: true, 'max-image-preview': 'large', 'max-snippet': -1 } },
+    openGraph: {
+      type: 'website',
+      siteName: name,
+      locale: 'en_ZW',
+      title: `${name} — Sports Betting, Live Odds & Aviator`,
+      description: DEFAULT_DESCRIPTION,
+    },
+    twitter: { card: 'summary_large_image', title: `${name} — Sports Betting, Live Odds & Aviator`, description: DEFAULT_DESCRIPTION },
     manifest: '/manifest.json',
     appleWebApp: {
       capable: true,
@@ -21,7 +41,10 @@ export async function generateMetadata(): Promise<Metadata> {
       title: identity.site_name,
     },
     icons: {
-      icon: '/icons/icon-192.png',
+      icon: [
+        { url: '/icons/favicon-32.png', sizes: '32x32', type: 'image/png' },
+        { url: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' },
+      ],
       apple: '/icons/apple-touch-icon.png',
     },
   };
@@ -64,6 +87,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
       </head>
       <body className="min-h-screen bg-background text-foreground antialiased">
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdHtml(siteJsonLd(identity.site_name, identity.logo_url)) }} />
         <IdentityProvider value={identity}>
           <SiteSplash />
           <ServiceWorkerRegistration />

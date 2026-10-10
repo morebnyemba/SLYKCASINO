@@ -1,7 +1,7 @@
 {
   "name": "BetBlits",
   "short_name": "BetBlits",
-  "description": "Sportsbook, casino games, promotions, and live chat — all in one place.",
+  "description": "Sports betting with live odds, in-play betting and cash out, plus BetBlits Aviator. Fast EcoCash, OneMoney and InnBucks payments.",
   "start_url": "/sportsbook",
   "scope": "/",
   "display": "standalone",
@@ -9,8 +9,27 @@
   "theme_color": "#4ab8e8",
   "orientation": "portrait-primary",
   "icons": [
-    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
-    { "src": "/icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "categories": [
+    "sports",
+    "entertainment"
   ]
 }

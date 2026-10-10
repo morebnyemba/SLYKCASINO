@@ -2,7 +2,8 @@ import type { Metadata } from 'next';
 import { LegalLayout } from '@/components/legal-layout';
 
 export const metadata: Metadata = {
-  title: 'Terms & Conditions — BetBlits',
+  title: 'Terms & Conditions',
+  alternates: { canonical: '/legal/terms' },
   description: 'Terms and conditions governing use of the BetBlits platform.',
 };
 
