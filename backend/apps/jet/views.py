@@ -13,7 +13,7 @@ from rest_framework.views import APIView
 from apps.accounts import services as accounts_services
 from apps.wallet.services import InsufficientFunds, get_balance_dto
 
-from . import bots, engine, services, social
+from . import bot_chat, bots, engine, services, social
 from .models import JetBet, JetChatMessage, JetRound, JetSettings
 
 
@@ -159,8 +159,8 @@ class RoundsView(APIView):
 
 SETTING_FIELDS = ('house_edge_percent', 'min_bet', 'max_bet', 'max_win', 'max_multiplier', 'round_stake_limit',
                   'rain_amount', 'rain_daily_budget')
-INT_FIELDS = ('betting_seconds', 'bot_count', 'rain_players', 'rain_every_minutes')
-BOOL_FIELDS = ('enabled', 'bots_enabled', 'chat_enabled', 'rain_enabled')
+INT_FIELDS = ('betting_seconds', 'bot_count', 'rain_players', 'rain_every_minutes', 'bot_chat_per_minute')
+BOOL_FIELDS = ('enabled', 'bots_enabled', 'chat_enabled', 'rain_enabled', 'bot_chat_enabled')
 
 
 class AdminSettingsView(APIView):
@@ -202,6 +202,8 @@ class AdminSettingsView(APIView):
             problems.append('The countdown must be 3–30 seconds.')
         if not 0 <= cfg.bot_count <= bots.MAX_BOTS:
             problems.append(f'Simulated players must be 0–{bots.MAX_BOTS} per round.')
+        if not 0 <= cfg.bot_chat_per_minute <= bot_chat.MAX_PER_MINUTE:
+            problems.append(f'Bot chat can be 0–{bot_chat.MAX_PER_MINUTE} lines a minute.')
         if not (Decimal('0.10') <= cfg.rain_amount <= Decimal('100')):
             problems.append('Each rain free bet must be $0.10–$100.')
         if not 1 <= cfg.rain_players <= 100:
@@ -219,7 +221,8 @@ class AdminSettingsView(APIView):
                                 bots_enabled=cfg.bots_enabled, bot_count=cfg.bot_count,
                                 chat_enabled=cfg.chat_enabled, rain_enabled=cfg.rain_enabled,
                                 rain_amount=str(cfg.rain_amount), rain_players=cfg.rain_players,
-                                rain_every_minutes=cfg.rain_every_minutes, rain_daily_budget=str(cfg.rain_daily_budget))
+                                rain_every_minutes=cfg.rain_every_minutes, rain_daily_budget=str(cfg.rain_daily_budget),
+                                bot_chat_enabled=cfg.bot_chat_enabled, bot_chat_per_minute=cfg.bot_chat_per_minute)
         return Response(_admin_settings(cfg))
 
 
@@ -229,6 +232,7 @@ def _admin_settings(cfg: JetSettings) -> dict:
         'rain_enabled': cfg.rain_enabled, 'rain_amount': str(cfg.rain_amount), 'rain_players': cfg.rain_players,
         'rain_every_minutes': cfg.rain_every_minutes, 'rain_daily_budget': str(cfg.rain_daily_budget),
         'rain_given_today': str(social.given_today()),
+        'bot_chat_enabled': cfg.bot_chat_enabled, 'bot_chat_per_minute': cfg.bot_chat_per_minute,
         'last_rain_at': services.iso(cfg.last_rain_at),
     }
 

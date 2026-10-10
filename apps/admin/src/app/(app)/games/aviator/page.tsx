@@ -14,7 +14,7 @@ import { authedRequest, useApi } from '@/lib/use-api';
 interface Settings {
   enabled: boolean; display_name: string; house_edge_percent: string; rtp_percent: string; min_bet: string; max_bet: string;
   max_win: string; max_multiplier: string; round_stake_limit: string; betting_seconds: number;
-  bots_enabled: boolean; bot_count: number;
+  bots_enabled: boolean; bot_count: number; bot_chat_enabled: boolean; bot_chat_per_minute: number;
   chat_enabled: boolean; rain_enabled: boolean; rain_amount: string; rain_players: number; rain_every_minutes: number;
   rain_daily_budget: string; rain_given_today: string; last_rain_at: string | null;
 }
@@ -54,6 +54,7 @@ export default function CrashGameAdminPage() {
   const [name, setName] = useState('');
   const [busy, setBusy] = useState<'save' | 'toggle' | 'bots' | null>(null);
   const [botCount, setBotCount] = useState('');
+  const [botChatRate, setBotChatRate] = useState('');
   const [rainForm, setRainForm] = useState<Record<string, string>>({});
   const { data: chatLog, refetch: refetchChat } = useApi<{ results: ChatRow[] }>('/admin/jet/chat/');
   const [notice, setNotice] = useState<{ tone: 'green' | 'red'; text: string } | null>(null);
@@ -63,6 +64,7 @@ export default function CrashGameAdminPage() {
       setForm(Object.fromEntries(FIELDS.map((f) => [f.key, String(settings[f.key])])));
       setName(settings.display_name);
       setBotCount(String(settings.bot_count));
+      setBotChatRate(String(settings.bot_chat_per_minute));
       setRainForm(Object.fromEntries(RAIN_FIELDS.map((f) => [f.key, String(settings[f.key])])));
     }
   }, [settings]);
@@ -196,12 +198,25 @@ export default function CrashGameAdminPage() {
             ? <Btn variant="danger" busy={busy === 'bots'} onClick={() => put({ bots_enabled: false }, 'Simulated players are off from the next round.', 'bots')}>Turn off</Btn>
             : <Btn variant="success" busy={busy === 'bots'} onClick={() => put({ bots_enabled: true, bot_count: Number(botCount) || settings.bot_count }, 'Simulated players are on from the next round.', 'bots')}>Turn on</Btn>)}
         </div>
+        <div className="mt-5 flex flex-wrap items-end gap-4 border-t border-border pt-4">
+          <Field label="Bot chat (lines a minute, 0–10)" hint="Short greetings and reactions to the round only — bots never claim wins or money, never urge anyone to bet, and go quiet while real players are talking." className="w-80">
+            <TextInput inputMode="numeric" value={botChatRate} onChange={(e) => setBotChatRate(e.target.value.replace(/[^0-9]/g, ''))} />
+          </Field>
+          <Btn variant="primary" busy={busy === 'bots'}
+            disabled={!settings || botChatRate === '' || Number(botChatRate) === settings.bot_chat_per_minute}
+            onClick={() => put({ bot_chat_per_minute: Number(botChatRate) }, 'Saved — bot chat rate updated.', 'bots')}>
+            Save rate
+          </Btn>
+          {settings && (settings.bot_chat_enabled
+            ? <Btn variant="danger" busy={busy === 'bots'} onClick={() => put({ bot_chat_enabled: false }, 'Bot chat is off.', 'bots')}>Turn bot chat off</Btn>
+            : <Btn variant="success" busy={busy === 'bots'} onClick={() => put({ bot_chat_enabled: true }, 'Bot chat is on (needs simulated players and chat on).', 'bots')}>Turn bot chat on</Btn>)}
+        </div>
         {stats?.bots.enabled && (
           <p className="mt-3 text-xs text-muted-foreground">Round in play: {stats.bots.live_round} simulated players alongside {stats.live.bets} real bet{stats.live.bets === 1 ? '' : 's'}.</p>
         )}
         <p className="mt-3 flex items-start gap-2 rounded-xl bg-muted/40 p-3 text-xs text-muted-foreground">
           <BsShieldCheck className="mt-0.5 shrink-0 text-win" />
-          While on, the game’s “How to play” tells players the bets list and the chat’s win shout-outs include simulated players. They can’t change a round — its crash point is fixed before betting opens.
+          While on, the game’s “How to play” tells players the bets list and the chat include simulated players. They can’t change a round — its crash point is fixed before betting opens.
         </p>
       </Panel>
 
@@ -259,7 +274,7 @@ export default function CrashGameAdminPage() {
               <li key={m.id} className={cx('flex items-start gap-3 px-4 py-2.5 text-sm', m.hidden && 'opacity-50')}>
                 <div className="min-w-0 flex-1">
                   <p className="text-xs text-muted-foreground">
-                    <b className="text-foreground">{m.name}</b> {m.kind !== 'chat' && <Badge tone={m.kind === 'rain' ? 'indigo' : 'gold'}>{m.kind}</Badge>}
+                    <b className="text-foreground">{m.name}</b> {m.kind !== 'chat' && <Badge tone={m.kind === 'rain' ? 'indigo' : m.kind === 'bot' ? 'slate' : 'gold'}>{m.kind === 'bot' ? 'simulated' : m.kind}</Badge>}
                     {m.player_id && <> · player #{m.player_id}</>} · {new Date(m.at).toLocaleTimeString()} {m.hidden && '· hidden'}
                   </p>
                   <p className="break-words">{m.body}</p>

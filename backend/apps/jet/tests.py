@@ -14,7 +14,7 @@ from rest_framework.test import APIClient
 from apps.accounts import services as account_services
 from apps.wallet import services as wallet_services
 
-from . import bots, engine, services, social
+from . import bot_chat, bots, engine, services, social
 from .models import JetBet, JetChatMessage, JetFreeBet, JetRound, JetSettings
 
 D = Decimal
@@ -449,3 +449,60 @@ class ChatAndRainTests(TestCase):
         res = admin.post('/api/admin/jet/rain/', {'players': 5, 'amount': '0.50'}, format='json')
         self.assertEqual((res.status_code, res.json()['given']), (200, 1))
         self.assertEqual(self.api.post('/api/admin/jet/rain/', {}, format='json').status_code, 403)
+
+
+class BotChatTests(TestCase):
+    """Simulated players' chatter and its guardrails."""
+
+    def setUp(self):
+        cfg = JetSettings.load()
+        cfg.bots_enabled, cfg.bot_count, cfg.bot_chat_enabled, cfg.bot_chat_per_minute = True, 200, True, 6
+        cfg.save()
+        self.rnd = _round(crash='15.00')
+
+    def test_off_unless_every_switch_is_on(self):
+        JetSettings.objects.update(bot_chat_enabled=False)
+        self.assertEqual(bot_chat.speak(self.rnd, 'betting', 600), [])
+        JetSettings.objects.update(bot_chat_enabled=True, bots_enabled=False)
+        self.assertEqual(bot_chat.speak(self.rnd, 'betting', 600), [])
+
+    def test_rate_kind_and_names(self):
+        said = bot_chat.speak(self.rnd, 'betting', 60, rng=random.Random(3))
+        self.assertEqual(len(said), 6)  # 6 a minute
+        names = {b.name for b in bots.plan(self.rnd)}
+        for m in said:
+            self.assertEqual((m.kind, m.player_id), ('bot', None))
+            self.assertIn(m.name, names)
+            self.assertIn(m.body, bot_chat.GREETINGS)
+        services.start_flight(self.rnd.id)
+        rnd = services.crash_round(self.rnd.id)
+        self.assertTrue(all(m.body in bot_chat.HIGH for m in bot_chat.speak(rnd, 'crashed', 60)))
+        JetSettings.objects.update(bot_chat_per_minute=500)
+        self.assertLessEqual(len(bot_chat.speak(rnd, 'crashed', 60)), bot_chat.MAX_PER_MINUTE)
+
+    def test_real_chat_comes_first(self):
+        player, _ = _player('talker')
+        for i in range(3):
+            JetChatMessage.objects.create(player_id=player.id, name='t***r', body=f'hello {i}')
+        self.assertEqual(bot_chat.speak(self.rnd, 'betting', 120), [])
+        JetChatMessage.objects.filter(body__in=['hello 1', 'hello 2']).delete()
+        cfg = JetSettings.load()
+        self.assertEqual(bot_chat.lines_due(cfg, 60, real=1), 3.0)  # halved
+
+    def test_lines_never_push_play_claim_money_or_name_anyone(self):
+        banned = ('deposit', 'bet ', 'bet!', 'more', 'bigger', 'go big', 'all in', 'won', 'win', '$', 'balance',
+                  'cash out', 'chase', 'profit', 'up ', '@')
+        for line in bot_chat.ALL_LINES:
+            low = line.lower()
+            self.assertFalse(any(word in low for word in banned), line)
+            self.assertNotIn('***', line)
+
+    def test_prune_and_moderation_label(self):
+        msg = JetChatMessage.objects.create(kind='bot', name='a***b', body='gl all')
+        JetChatMessage.objects.filter(pk=msg.pk).update(created_at=timezone.now() - timedelta(hours=7))
+        self.assertEqual(bot_chat.prune(), 1)
+        bot_chat.speak(self.rnd, 'betting', 30)
+        admin = APIClient()
+        admin.force_authenticate(User.objects.create_superuser('mod2', 'm2@example.com', 'pw'))
+        rows = admin.get('/api/admin/jet/chat/').json()['results']
+        self.assertTrue(rows and all((r['kind'], r['player_id']) == ('bot', None) for r in rows))
