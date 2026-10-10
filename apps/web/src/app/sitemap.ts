@@ -3,7 +3,8 @@ import { apiGetAll } from '@/lib/config';
 import { SEO_SPORTS, absolute } from '@/lib/seo';
 import { isPriced, type EventItem } from '@/lib/sports';
 
-// Regenerated at most hourly: new fixtures appear, finished ones drop out.
+// Kept fresh: it follows the match list's own short cache (apiGet), so new
+// fixtures appear and finished ones drop out within seconds of a request.
 export const revalidate = 3600;
 
 /** /sitemap.xml — the main sections, each sport, and every upcoming priced match. */
