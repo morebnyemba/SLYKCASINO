@@ -216,7 +216,7 @@ export default function CrashGameAdminPage() {
         )}
         <p className="mt-3 flex items-start gap-2 rounded-xl bg-muted/40 p-3 text-xs text-muted-foreground">
           <BsShieldCheck className="mt-0.5 shrink-0 text-win" />
-          While on, the game’s “How to play” tells players the bets list and the chat include simulated players. They can’t change a round — its crash point is fixed before betting opens.
+          While on, the game’s “How to play” notes “Includes simulated players for atmosphere.” They can’t change a round — its crash point is fixed before betting opens.
         </p>
       </Panel>
 
