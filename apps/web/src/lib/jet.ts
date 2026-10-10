@@ -51,7 +51,7 @@ export interface JetBet {
 
 export interface FreeBet { id: number; amount: string; expires_at: string }
 
-export interface ChatMessage { id: number; kind: 'chat' | 'win' | 'rain' | 'system'; name: string; body: string; at: string }
+export interface ChatMessage { id: number; kind: 'chat' | 'bot' | 'win' | 'rain' | 'system'; name: string; body: string; at: string }
 
 interface JetState {
   settings: JetSettings;

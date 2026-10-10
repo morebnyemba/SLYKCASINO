@@ -32,6 +32,9 @@ class JetSettings(models.Model):
     # Simulated players in the live bets list (display only, see bots.py).
     bots_enabled = models.BooleanField(default=False)
     bot_count = models.PositiveSmallIntegerField(default=300)
+    # Simulated players also say short, neutral things in the chat (see bot_chat.py).
+    bot_chat_enabled = models.BooleanField(default=False)
+    bot_chat_per_minute = models.PositiveSmallIntegerField(default=3)
     # Chat lobby, and "rain": free bets dropped on active real players.
     chat_enabled = models.BooleanField(default=True)
     rain_enabled = models.BooleanField(default=False)
@@ -145,6 +148,7 @@ class JetChatMessage(models.Model):
         WIN = 'win', 'Big win'
         RAIN = 'rain', 'Rain'
         SYSTEM = 'system', 'Notice'
+        BOT = 'bot', 'Simulated player'
 
     kind = models.CharField(max_length=8, choices=Kind.choices, default=Kind.CHAT)
     # Empty for messages from the game itself (wins, rain, notices).

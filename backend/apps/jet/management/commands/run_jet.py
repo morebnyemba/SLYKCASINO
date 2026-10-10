@@ -14,17 +14,30 @@ from django.core.management.base import BaseCommand
 from django.db import close_old_connections
 from django.utils import timezone
 
-from apps.jet import bots, services, social
+from apps.jet import bot_chat, bots, services, social
 from apps.jet.models import JetSettings
 
 logger = logging.getLogger(__name__)
 
 TICK = 0.2
+# When simulated players last had a chance to chat (they speak twice a round).
+_last_chat = {'at': None}
+
+
+def _bot_chat(rnd, phase: str) -> None:
+    now = timezone.now()
+    seconds = (now - _last_chat['at']).total_seconds() if _last_chat['at'] else 10.0
+    _last_chat['at'] = now
+    try:
+        bot_chat.speak(rnd, phase, min(seconds, 120.0), now=now)
+    except Exception:  # noqa: BLE001 — background chatter must never stop the game
+        logger.exception('jet bot chat failed')
 
 
 def run_round() -> None:
     rnd = services.open_round()
     feed = bots.Feed(rnd)  # simulated players: display only, never money
+    _bot_chat(rnd, 'betting')
     while timezone.now() < rnd.betting_ends_at:
         feed.tick(timezone.now())
         time.sleep(min(0.5, max(0.0, (rnd.betting_ends_at - timezone.now()).total_seconds())))
@@ -38,7 +51,8 @@ def run_round() -> None:
     rnd = services.crash_round(rnd.id)
     feed.rnd = rnd
     feed.tick(timezone.now())  # bots whose target was right at the crash point
-    for extra in (lambda: social.announce_round(rnd), social.maybe_auto_rain):
+    _bot_chat(rnd, 'crashed')
+    for extra in (lambda: social.announce_round(rnd), social.maybe_auto_rain, bot_chat.prune):
         try:
             extra()
         except Exception:  # noqa: BLE001 — chat and rain must never stop the game

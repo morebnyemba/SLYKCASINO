@@ -209,8 +209,8 @@ export default function AviatorPage() {
           </p>
           {s.bots_enabled && (
             <p className="mt-2 text-white/60">
-              The live bets list and the chat’s win shout-outs include simulated players. They don’t stake real money and
-              can’t affect a round — the crash point is fixed before betting opens.
+              The live bets list and the chat include simulated players. They don’t stake real money and can’t affect a
+              round — the crash point is fixed before betting opens.
             </p>
           )}
           <p className="mt-2 text-white/60">
