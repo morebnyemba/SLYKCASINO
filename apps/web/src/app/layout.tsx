@@ -65,7 +65,8 @@ const THEME_INIT_SCRIPT = `
     var raw = window.localStorage.getItem('slyk:settings');
     var s = raw ? JSON.parse(raw) : null;
     document.documentElement.dataset.theme = (s && s.theme) || 'dark';
-    if (s && s.accent) {
+    // '#6C63E8' was the old saved default: it now means "follow the site colours".
+    if (s && s.accent && s.accent !== '#6C63E8') {
       document.documentElement.style.setProperty('--secondary', s.accent);
       document.documentElement.style.setProperty('--ring', s.accent);
     }

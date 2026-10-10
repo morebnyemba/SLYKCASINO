@@ -2,6 +2,7 @@
 
 import { FaBolt, FaGift, FaLock } from 'react-icons/fa';
 import { useSiteIdentity } from '@/lib/identity-context';
+import { BRAND_WORDMARK } from '@/components/logo';
 import { useApi } from '@/lib/use-api';
 
 interface WelcomeTerms { programme?: { welcome_bonus_percent: string; welcome_bonus_cap: string } }
@@ -37,7 +38,13 @@ export function AuthShell({ title, subtitle, children }: { title: string; subtit
         <div className="relative hidden flex-col justify-between overflow-hidden bg-gradient-to-br from-secondary via-primary to-[#0f0a2b] p-8 text-white md:flex">
           <div className="pointer-events-none absolute -right-10 -top-10 h-48 w-48 rounded-full bg-white/10 blur-2xl" />
           <div>
-            <p className="text-xs font-bold uppercase tracking-widest text-white/60">{identity.site_name}</p>
+            {identity.logo_url ? (
+              <p className="text-xs font-bold uppercase tracking-widest text-white/60">{identity.site_name}</p>
+            ) : (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={BRAND_WORDMARK.src} alt={identity.site_name} width={BRAND_WORDMARK.width} height={BRAND_WORDMARK.height}
+                className="-ml-1 h-12 w-auto drop-shadow-[0_4px_14px_rgba(0,0,0,0.35)]" />
+            )}
             <p className="mt-3 text-3xl font-black leading-tight">{identity.tagline || 'Bet smart. Brag often.'}</p>
           </div>
           <ul className="space-y-3 text-sm font-semibold">

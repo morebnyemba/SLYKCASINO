@@ -51,6 +51,8 @@ const DEFAULT_LIGHT: Tokens = {
   win: '#15924E', win_foreground: '#FFFFFF',
   down: '#DC2626',
   chip: '#ECEDF8', chip_foreground: '#1A1538',
+  sidebar: '#FFFFFF', sidebar_foreground: '#1A1538',
+  odds: '#EEEFFA', odds_hover: '#E0E1F6',
 };
 
 const DEFAULT_DARK: Tokens = {
@@ -69,6 +71,42 @@ const DEFAULT_DARK: Tokens = {
   win: '#36D399', win_foreground: '#0C0820',
   down: '#FF6B6B',
   chip: '#1E1850', chip_foreground: '#F2F1FB',
+  sidebar: '#110B2E', sidebar_foreground: '#F2F1FB',
+  odds: '#241D5C', odds_hover: '#2F2772',
+};
+
+// "Logo colours": green, near-black and gold to match the BetBlits logo.
+// Buttons use a deeper green so white text on them stays readable.
+const LOGO_LIGHT: Tokens = {
+  ...DEFAULT_LIGHT,
+  background: '#F3F8F4', foreground: '#0B1F10',
+  card: '#FFFFFF', card_foreground: '#0B1F10',
+  primary: '#0E3B17', primary_foreground: '#FFFFFF',
+  secondary: '#15803D', secondary_foreground: '#FFFFFF',
+  muted: '#E3F0E6', muted_foreground: '#4F6B56',
+  accent: '#16A34A', accent_foreground: '#FFFFFF',
+  gold: '#B8860B', gold_foreground: '#FFFFFF',
+  ring: '#15803D', border: '#C8DDCD', input: '#EAF3EC',
+  win: '#15924E', win_foreground: '#FFFFFF',
+  chip: '#EAF3EC', chip_foreground: '#0B1F10',
+  sidebar: '#FFFFFF', sidebar_foreground: '#0B1F10',
+  odds: '#E6F2E9', odds_hover: '#D5EADB',
+};
+
+const LOGO_DARK: Tokens = {
+  ...DEFAULT_DARK,
+  background: '#060F08', foreground: '#EEF8EF',
+  card: '#0E1C11', card_foreground: '#EEF8EF',
+  primary: '#0E3B17', primary_foreground: '#FFFFFF',
+  secondary: '#16A34A', secondary_foreground: '#FFFFFF',
+  muted: '#13281A', muted_foreground: '#93B39A',
+  accent: '#22C55E', accent_foreground: '#04150A',
+  gold: '#F5B400', gold_foreground: '#1A1200',
+  ring: '#22C55E', border: 'rgba(255, 255, 255, 0.09)', input: '#13281A',
+  win: '#4ADE80', win_foreground: '#04150A',
+  chip: '#13281A', chip_foreground: '#EEF8EF',
+  sidebar: '#081509', sidebar_foreground: '#EEF8EF',
+  odds: '#143A1C', odds_hover: '#1B4A25',
 };
 
 const GROUPS: { title: string; keys: (keyof Tokens)[] }[] = [
@@ -79,6 +117,7 @@ const GROUPS: { title: string; keys: (keyof Tokens)[] }[] = [
   { title: 'Live / Win / Down / Destructive', keys: ['live', 'live_foreground', 'win', 'win_foreground', 'down', 'destructive'] },
   { title: 'Loyalty Tiers', keys: ['tier_bronze', 'tier_bronze_foreground', 'tier_silver', 'tier_silver_foreground'] },
   { title: 'Chips & Pills', keys: ['chip', 'chip_foreground'] },
+  { title: 'Header, Menu & Odds Buttons', keys: ['sidebar', 'sidebar_foreground', 'odds', 'odds_hover'] },
 ];
 
 function labelFor(key: string): string {
@@ -301,8 +340,9 @@ export default function BrandingPage() {
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
-    if (data?.light) setLight(data.light);
-    if (data?.dark) setDark(data.dark);
+    // Themes saved before a token existed fall back to its default.
+    if (data?.light) setLight({ ...DEFAULT_LIGHT, ...data.light });
+    if (data?.dark) setDark({ ...DEFAULT_DARK, ...data.dark });
   }, [data]);
 
   async function handleSave() {
@@ -344,6 +384,25 @@ export default function BrandingPage() {
           {saving ? <span className="inline-flex items-center justify-center gap-2"><Spinner size={14} />Saving…</span> : 'Save theme'}
         </button>
       </div>
+
+      {!loading && (
+        <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-border/70 bg-card p-4">
+          <div className="min-w-0 flex-1 text-sm">
+            <p className="font-semibold">Presets</p>
+            <p className="text-muted-foreground">Fill both themes at once, then adjust anything and press Save theme.</p>
+          </div>
+          <button onClick={() => { setLight(LOGO_LIGHT); setDark(LOGO_DARK); }}
+            className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs font-bold hover:bg-muted">
+            <span className="flex">{['#0E3B17', '#16A34A', '#22C55E', '#F5B400'].map((c) => <span key={c} className="-ml-1 h-4 w-4 rounded-full ring-2 ring-card first:ml-0" style={{ background: c }} />)}</span>
+            Logo colours (green &amp; gold)
+          </button>
+          <button onClick={() => { setLight(DEFAULT_LIGHT); setDark(DEFAULT_DARK); }}
+            className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs font-bold hover:bg-muted">
+            <span className="flex">{['#312783', '#4338CA', '#6C63E8', '#E6B84C'].map((c) => <span key={c} className="-ml-1 h-4 w-4 rounded-full ring-2 ring-card first:ml-0" style={{ background: c }} />)}</span>
+            Original (indigo)
+          </button>
+        </div>
+      )}
 
       {loading && <LoadingState label="Loading current theme…" />}
       {error && <p className="text-sm text-red-500">Failed to load theme: {error}</p>}
