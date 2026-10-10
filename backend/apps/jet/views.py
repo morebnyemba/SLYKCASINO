@@ -13,8 +13,8 @@ from rest_framework.views import APIView
 from apps.accounts import services as accounts_services
 from apps.wallet.services import InsufficientFunds, get_balance_dto
 
-from . import bots, engine, services
-from .models import JetBet, JetRound, JetSettings
+from . import bots, engine, services, social
+from .models import JetBet, JetChatMessage, JetRound, JetSettings
 
 
 def _player(request):
@@ -48,6 +48,7 @@ class StateView(APIView):
             'bets': sorted(listed, key=lambda b: -Decimal(b['stake'])),
             'my_bets': [services.bet_payload(b, mine=True) for b in bets if player and b.player_id == player.id],
             'balance': _balance(player.id) if player else None,
+            'free_bets': social.free_bets_for(player.id) if player else [],
         })
 
 
@@ -71,10 +72,12 @@ class BetView(APIView):
             slot = 0
         try:
             bet = services.place_bet(player=player, stake=request.data.get('stake'), slot=slot,
-                                     auto_cashout=request.data.get('auto_cashout'))
+                                     auto_cashout=request.data.get('auto_cashout'),
+                                     free_bet_id=request.data.get('free_bet_id'))
         except (services.JetError, InsufficientFunds) as exc:
             return _error(exc)
-        return Response({'bet': services.bet_payload(bet, mine=True), 'balance': _balance(player.id)},
+        return Response({'bet': services.bet_payload(bet, mine=True), 'balance': _balance(player.id),
+                         'free_bets': social.free_bets_for(player.id)},
                         status=status.HTTP_201_CREATED)
 
 
@@ -92,7 +95,29 @@ class BetActionView(APIView):
             bet = fn(player_id=player.id, bet_id=int(pk))
         except services.JetError as exc:
             return _error(exc)
-        return Response({'bet': services.bet_payload(bet, mine=True), 'balance': _balance(player.id)})
+        return Response({'bet': services.bet_payload(bet, mine=True), 'balance': _balance(player.id),
+                         'free_bets': social.free_bets_for(player.id)})
+
+
+class ChatView(APIView):
+    """GET /api/jet/chat/ — the latest messages; POST {body} — say something."""
+
+    def get_permissions(self):
+        return [AllowAny()] if self.request.method == 'GET' else [IsAuthenticated()]
+
+    def get(self, request):
+        cfg = JetSettings.load()
+        return Response({'enabled': cfg.chat_enabled, 'messages': social.recent() if cfg.chat_enabled else []})
+
+    def post(self, request):
+        player = _player(request)
+        if player is None:
+            return Response({'detail': 'Player not found.'}, status=status.HTTP_404_NOT_FOUND)
+        try:
+            msg = social.post(player=player, body=request.data.get('body', ''))
+        except social.ChatError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_409_CONFLICT)
+        return Response({'message': social.message_payload(msg)}, status=status.HTTP_201_CREATED)
 
 
 class MyBetsView(APIView):
@@ -132,7 +157,10 @@ class RoundsView(APIView):
 
 # -- operator console -----------------------------------------------------------
 
-SETTING_FIELDS = ('house_edge_percent', 'min_bet', 'max_bet', 'max_win', 'max_multiplier', 'round_stake_limit')
+SETTING_FIELDS = ('house_edge_percent', 'min_bet', 'max_bet', 'max_win', 'max_multiplier', 'round_stake_limit',
+                  'rain_amount', 'rain_daily_budget')
+INT_FIELDS = ('betting_seconds', 'bot_count', 'rain_players', 'rain_every_minutes')
+BOOL_FIELDS = ('enabled', 'bots_enabled', 'chat_enabled', 'rain_enabled')
 
 
 class AdminSettingsView(APIView):
@@ -149,19 +177,14 @@ class AdminSettingsView(APIView):
             for field in SETTING_FIELDS:
                 if field in data:
                     setattr(cfg, field, Decimal(str(data[field])).quantize(engine.CENT))
-            if 'betting_seconds' in data:
-                cfg.betting_seconds = int(data['betting_seconds'])
+            for field in INT_FIELDS:
+                if field in data:
+                    setattr(cfg, field, int(data[field]))
         except (ArithmeticError, ValueError, TypeError):
-            return Response({'detail': 'Enter numbers for every limit.'}, status=status.HTTP_400_BAD_REQUEST)
-        if 'enabled' in data:
-            cfg.enabled = bool(data['enabled'])
-        if 'bots_enabled' in data:
-            cfg.bots_enabled = bool(data['bots_enabled'])
-        if 'bot_count' in data:
-            try:
-                cfg.bot_count = int(data['bot_count'])
-            except (TypeError, ValueError):
-                return Response({'detail': 'Enter a whole number of simulated players.'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'detail': 'Enter numbers for every setting.'}, status=status.HTTP_400_BAD_REQUEST)
+        for field in BOOL_FIELDS:
+            if field in data:
+                setattr(cfg, field, bool(data[field]))
         if 'display_name' in data:
             cfg.display_name = str(data['display_name'] or '').strip()[:40] or 'BetBlits Aviator'
         problems = []
@@ -179,18 +202,35 @@ class AdminSettingsView(APIView):
             problems.append('The countdown must be 3–30 seconds.')
         if not 0 <= cfg.bot_count <= bots.MAX_BOTS:
             problems.append(f'Simulated players must be 0–{bots.MAX_BOTS} per round.')
+        if not (Decimal('0.10') <= cfg.rain_amount <= Decimal('100')):
+            problems.append('Each rain free bet must be $0.10–$100.')
+        if not 1 <= cfg.rain_players <= 100:
+            problems.append('Rain can reach 1–100 players at a time.')
+        if cfg.rain_daily_budget < 0:
+            problems.append('The daily rain budget can’t be negative.')
+        if cfg.rain_every_minutes and cfg.rain_every_minutes < 5:
+            problems.append('Automatic rain can run at most every 5 minutes (0 turns it off).')
         if problems:
             return Response({'detail': ' '.join(problems)}, status=status.HTTP_400_BAD_REQUEST)
         cfg.updated_by = request.user.get_username()[:150]
         cfg.save()
         accounts_services.audit(None, 'jet_settings', request, enabled=cfg.enabled,
                                 house_edge=str(cfg.house_edge_percent), max_bet=str(cfg.max_bet),
-                                bots_enabled=cfg.bots_enabled, bot_count=cfg.bot_count)
+                                bots_enabled=cfg.bots_enabled, bot_count=cfg.bot_count,
+                                chat_enabled=cfg.chat_enabled, rain_enabled=cfg.rain_enabled,
+                                rain_amount=str(cfg.rain_amount), rain_players=cfg.rain_players,
+                                rain_every_minutes=cfg.rain_every_minutes, rain_daily_budget=str(cfg.rain_daily_budget))
         return Response(_admin_settings(cfg))
 
 
 def _admin_settings(cfg: JetSettings) -> dict:
-    return {**services.settings_payload(cfg), 'bot_count': cfg.bot_count}
+    return {
+        **services.settings_payload(cfg), 'bot_count': cfg.bot_count, 'chat_enabled': cfg.chat_enabled,
+        'rain_enabled': cfg.rain_enabled, 'rain_amount': str(cfg.rain_amount), 'rain_players': cfg.rain_players,
+        'rain_every_minutes': cfg.rain_every_minutes, 'rain_daily_budget': str(cfg.rain_daily_budget),
+        'rain_given_today': str(social.given_today()),
+        'last_rain_at': services.iso(cfg.last_rain_at),
+    }
 
 
 def _totals(qs) -> dict:
@@ -239,3 +279,47 @@ class AdminStatsView(APIView):
             'players_today': JetBet.objects.filter(created_at__date=timezone.localdate())
                 .values('player_id').distinct().count(),
         })
+
+
+class AdminRainView(APIView):
+    """POST /api/admin/jet/rain/ {players?, amount?} — make it rain now (within the daily budget)."""
+    permission_classes = [IsAdminUser]
+
+    def post(self, request):
+        try:
+            result = social.rain(players=request.data.get('players'), amount=request.data.get('amount'))
+        except (ArithmeticError, ValueError, TypeError):
+            return Response({'detail': 'Enter a number of players and an amount.'}, status=status.HTTP_400_BAD_REQUEST)
+        accounts_services.audit(None, 'jet_rain', request, **result)
+        if result['reason']:
+            return Response({'detail': result['reason'], **result}, status=status.HTTP_409_CONFLICT)
+        return Response(result)
+
+
+class AdminChatView(APIView):
+    """GET /api/admin/jet/chat/ — recent messages incl. hidden ones and who sent them.
+    POST /api/admin/jet/chat/<id>/hide/ and /api/admin/jet/chat/mute/ {player_id, hours}."""
+    permission_classes = [IsAdminUser]
+    action = 'list'
+
+    def get(self, request):
+        rows = JetChatMessage.objects.order_by('-id')[:100]
+        return Response({'results': [
+            {**social.message_payload(m), 'player_id': m.player_id, 'hidden': m.hidden} for m in rows
+        ]})
+
+    def post(self, request, pk: int | None = None):
+        if self.action == 'hide':
+            if not social.hide(int(pk)):
+                return Response({'detail': 'Message not found or already hidden.'}, status=status.HTTP_404_NOT_FOUND)
+            accounts_services.audit(None, 'jet_chat_hide', request, message_id=int(pk))
+            return Response({'hidden': True})
+        try:
+            player_id, hours = int(request.data.get('player_id')), int(request.data.get('hours') or 24)
+        except (TypeError, ValueError):
+            return Response({'detail': 'Choose a player and how long.'}, status=status.HTTP_400_BAD_REQUEST)
+        if not 1 <= hours <= 24 * 365:
+            return Response({'detail': 'Mute for 1 hour to a year.'}, status=status.HTTP_400_BAD_REQUEST)
+        mute = social.mute(player_id, hours, by=request.user.get_username())
+        accounts_services.audit(player_id, 'jet_chat_mute', request, hours=hours)
+        return Response({'player_id': player_id, 'until': services.iso(mute.until)})

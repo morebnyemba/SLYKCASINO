@@ -21,7 +21,7 @@ from django.utils import timezone
 from apps.wallet import services as wallet_services
 
 from . import engine
-from .models import JetBet, JetRound, JetSettings
+from .models import JetBet, JetChatMessage, JetChatMute, JetFreeBet, JetRound, JetSettings
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +85,7 @@ def bet_payload(bet: JetBet, *, mine: bool = False) -> dict:
     }
     if mine:
         data['auto_cashout'] = str(bet.auto_cashout) if bet.auto_cashout else None
+        data['is_free'] = bet.is_free
     return data
 
 
@@ -96,7 +97,7 @@ def settings_payload(cfg: JetSettings) -> dict:
         'min_bet': str(cfg.min_bet), 'max_bet': str(cfg.max_bet), 'max_win': str(cfg.max_win),
         'max_multiplier': str(cfg.max_multiplier), 'round_stake_limit': str(cfg.round_stake_limit),
         'betting_seconds': cfg.betting_seconds, 'rate': engine.RATE,
-        'bots_enabled': cfg.bots_enabled,
+        'bots_enabled': cfg.bots_enabled, 'chat_enabled': cfg.chat_enabled,
     }
 
 
@@ -120,9 +121,10 @@ def _money(value, field: str) -> Decimal:
 
 
 @transaction.atomic
-def place_bet(*, player, stake, slot: int = 1, auto_cashout=None, now=None) -> JetBet:
-    """Bet on the round that is taking bets. Raises JetError (shown to the
-    player) or wallet_services.InsufficientFunds."""
+def place_bet(*, player, stake=None, slot: int = 1, auto_cashout=None, free_bet_id=None, now=None) -> JetBet:
+    """Bet on the round that is taking bets — with money, or with one of the
+    player's free bets (free_bet_id; its amount is the stake). Raises JetError
+    (shown to the player) or wallet_services.InsufficientFunds."""
     from apps.accounts import services as accounts_services
 
     now = now or timezone.now()
@@ -135,8 +137,15 @@ def place_bet(*, player, stake, slot: int = 1, auto_cashout=None, now=None) -> J
         raise JetError(str(exc))
     if slot not in (1, 2):
         raise JetError('Choose bet 1 or bet 2.')
+    free = None
+    if free_bet_id not in (None, ''):
+        free = (JetFreeBet.objects.select_for_update()
+                .filter(pk=free_bet_id, player_id=player.id, status=JetFreeBet.Status.AVAILABLE, expires_at__gt=now).first())
+        if free is None:
+            raise JetError('That free bet has been used or has expired.')
+        stake = free.amount
     stake = _money(stake, 'stake')
-    if stake < cfg.min_bet or stake > cfg.max_bet:
+    if free is None and (stake < cfg.min_bet or stake > cfg.max_bet):
         raise JetError(f'Bets are ${cfg.min_bet:.2f} to ${cfg.max_bet:.2f}.')
     auto = None
     if auto_cashout not in (None, ''):
@@ -150,18 +159,23 @@ def place_bet(*, player, stake, slot: int = 1, auto_cashout=None, now=None) -> J
         raise JetError('Bets for this round are closed — wait for the next one.')
     if JetBet.objects.filter(round=rnd, player_id=player.id, slot=slot).exists():
         raise JetError('You already have a bet in this slot.')
-    if rnd.total_stake + stake > cfg.round_stake_limit:
+    if free is None and rnd.total_stake + stake > cfg.round_stake_limit:
         raise JetError('This round is full — try the next one.')
 
     bet = JetBet.objects.create(
         round=rnd, player_id=player.id, display_name=engine.mask_name(player.username),
-        slot=slot, stake=stake, auto_cashout=auto,
+        slot=slot, stake=stake, auto_cashout=auto, is_free=free is not None,
     )
-    wallet_services.debit(
-        player_id=player.id, amount=stake, kind='casino_debit',
-        idempotency_key=f'jet:stake:{bet.id}', reference=f'jet:round:{rnd.id}:bet:{bet.id}',
-    )
-    JetRound.objects.filter(pk=rnd.pk).update(total_stake=F('total_stake') + stake, bet_count=F('bet_count') + 1)
+    if free is not None:
+        # No money moves and the round's (real-money) totals are untouched.
+        free.status, free.bet = JetFreeBet.Status.USED, bet
+        free.save(update_fields=['status', 'bet'])
+    else:
+        wallet_services.debit(
+            player_id=player.id, amount=stake, kind='casino_debit',
+            idempotency_key=f'jet:stake:{bet.id}', reference=f'jet:round:{rnd.id}:bet:{bet.id}',
+        )
+        JetRound.objects.filter(pk=rnd.pk).update(total_stake=F('total_stake') + stake, bet_count=F('bet_count') + 1)
     publish({'type': 'bet', 'bet': bet_payload(bet)})
     return bet
 
@@ -177,16 +191,21 @@ def cancel_bet(*, player_id: int, bet_id: int, now=None) -> JetBet:
     if bet.status != JetBet.Status.ACTIVE or rnd.status != JetRound.Status.BETTING or now >= rnd.betting_ends_at:
         raise JetError('This bet can no longer be cancelled.')
     _refund(bet, now)
-    JetRound.objects.filter(pk=rnd.pk).update(total_stake=F('total_stake') - bet.stake, bet_count=F('bet_count') - 1)
+    if not bet.is_free:
+        JetRound.objects.filter(pk=rnd.pk).update(total_stake=F('total_stake') - bet.stake, bet_count=F('bet_count') - 1)
     publish({'type': 'cancel', 'bet': bet.id, 'round': rnd.id})
     return bet
 
 
 def _refund(bet: JetBet, now) -> None:
-    wallet_services.credit(
-        player_id=bet.player_id, amount=bet.stake, kind='casino_credit',
-        idempotency_key=f'jet:refund:{bet.id}', reference=f'jet:round:{bet.round_id}:bet:{bet.id}:refund',
-    )
+    if bet.is_free:
+        # The free bet goes back to the player, ready for another round.
+        JetFreeBet.objects.filter(bet=bet).update(status=JetFreeBet.Status.AVAILABLE, bet=None)
+    else:
+        wallet_services.credit(
+            player_id=bet.player_id, amount=bet.stake, kind='casino_credit',
+            idempotency_key=f'jet:refund:{bet.id}', reference=f'jet:round:{bet.round_id}:bet:{bet.id}:refund',
+        )
     bet.status = JetBet.Status.REFUNDED
     bet.settled_at = now
     bet.save(update_fields=['status', 'settled_at'])
@@ -195,16 +214,27 @@ def _refund(bet: JetBet, now) -> None:
 def _pay(bet: JetBet, multiplier: Decimal, cfg: JetSettings, now) -> JetBet:
     """Cash a riding bet out at `multiplier` (caller holds the row lock)."""
     payout = engine.payout_for(bet.stake, multiplier, cfg.max_win)
-    wallet_services.credit(
-        player_id=bet.player_id, amount=payout, kind='casino_credit',
-        idempotency_key=f'jet:payout:{bet.id}', reference=f'jet:round:{bet.round_id}:bet:{bet.id}:cashout',
-    )
+    if bet.is_free:
+        # Stake not returned: the winnings are paid as a bonus (a promo cost in
+        # NGR), never as a casino win, and stay out of the round's totals.
+        payout = max(payout - bet.stake, Decimal('0'))
+        if payout > 0:
+            wallet_services.credit(
+                player_id=bet.player_id, amount=payout, kind='bonus',
+                idempotency_key=f'jet:freewin:{bet.id}', reference=f'jet:round:{bet.round_id}:bet:{bet.id}:free-bet-win',
+            )
+    else:
+        wallet_services.credit(
+            player_id=bet.player_id, amount=payout, kind='casino_credit',
+            idempotency_key=f'jet:payout:{bet.id}', reference=f'jet:round:{bet.round_id}:bet:{bet.id}:cashout',
+        )
     bet.status = JetBet.Status.CASHED
     bet.cashout_multiplier = multiplier
     bet.payout = payout
     bet.settled_at = now
     bet.save(update_fields=['status', 'cashout_multiplier', 'payout', 'settled_at'])
-    JetRound.objects.filter(pk=bet.round_id).update(total_payout=F('total_payout') + payout)
+    if not bet.is_free:
+        JetRound.objects.filter(pk=bet.round_id).update(total_payout=F('total_payout') + payout)
     publish({'type': 'cashout', 'bet': bet_payload(bet)})
     return bet
 
@@ -345,5 +375,8 @@ def flight_seconds(rnd: JetRound) -> float:
 
 
 def erase_player_data(player_id: int) -> int:
-    """Permanently delete a player's Aviator bets (round totals are kept)."""
-    return JetBet.objects.filter(player_id=player_id).delete()[0]
+    """Permanently delete a player's Aviator bets, free bets and chat (round totals are kept)."""
+    n = JetFreeBet.objects.filter(player_id=player_id).delete()[0]
+    n += JetChatMessage.objects.filter(player_id=player_id).delete()[0]
+    n += JetChatMute.objects.filter(player_id=player_id).delete()[0]
+    return n + JetBet.objects.filter(player_id=player_id).delete()[0]

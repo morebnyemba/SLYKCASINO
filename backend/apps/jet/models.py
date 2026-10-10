@@ -32,6 +32,16 @@ class JetSettings(models.Model):
     # Simulated players in the live bets list (display only, see bots.py).
     bots_enabled = models.BooleanField(default=False)
     bot_count = models.PositiveSmallIntegerField(default=300)
+    # Chat lobby, and "rain": free bets dropped on active real players.
+    chat_enabled = models.BooleanField(default=True)
+    rain_enabled = models.BooleanField(default=False)
+    rain_amount = models.DecimalField(max_digits=8, decimal_places=2, default=Decimal('1.00'))
+    rain_players = models.PositiveSmallIntegerField(default=10)
+    # Minutes between automatic rains (0: only when staff press the button).
+    rain_every_minutes = models.PositiveSmallIntegerField(default=30)
+    # Most the rains may give away per day, in free-bet value.
+    rain_daily_budget = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('50.00'))
+    last_rain_at = models.DateTimeField(null=True, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
     updated_by = models.CharField(max_length=150, blank=True)
 
@@ -90,6 +100,8 @@ class JetBet(models.Model):
     status = models.CharField(max_length=8, choices=Status.choices, default=Status.ACTIVE, db_index=True)
     cashout_multiplier = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     payout = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    # Placed with a free bet: no stake was taken and it's left out of round totals.
+    is_free = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     settled_at = models.DateTimeField(null=True, blank=True)
 
@@ -102,3 +114,55 @@ class JetBet(models.Model):
 
     def __str__(self) -> str:
         return f'{self.stake} on round {self.round_id} ({self.status})'
+
+
+class JetFreeBet(models.Model):
+    """A free bet (e.g. from a chat rain). Placing it costs the player nothing;
+    a win pays the winnings only (stake not returned) as a bonus credit, so it
+    shows up as a bonus cost in NGR and never as gaming turnover or GGR."""
+
+    class Status(models.TextChoices):
+        AVAILABLE = 'available', 'Available'
+        USED = 'used', 'Used'
+        EXPIRED = 'expired', 'Expired'
+
+    player_id = models.BigIntegerField(db_index=True)
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    source = models.CharField(max_length=20, default='rain')
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.AVAILABLE, db_index=True)
+    expires_at = models.DateTimeField()
+    bet = models.OneToOneField(JetBet, null=True, blank=True, on_delete=models.SET_NULL, related_name='free_bet')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'jet_free_bet'
+        ordering = ['expires_at', 'id']
+
+
+class JetChatMessage(models.Model):
+    class Kind(models.TextChoices):
+        CHAT = 'chat', 'Player message'
+        WIN = 'win', 'Big win'
+        RAIN = 'rain', 'Rain'
+        SYSTEM = 'system', 'Notice'
+
+    kind = models.CharField(max_length=8, choices=Kind.choices, default=Kind.CHAT)
+    # Empty for messages from the game itself (wins, rain, notices).
+    player_id = models.BigIntegerField(null=True, blank=True, db_index=True)
+    name = models.CharField(max_length=20)
+    body = models.CharField(max_length=200)
+    hidden = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        db_table = 'jet_chat_message'
+        ordering = ['-id']
+
+
+class JetChatMute(models.Model):
+    player_id = models.BigIntegerField(unique=True)
+    until = models.DateTimeField()
+    by = models.CharField(max_length=150, blank=True)
+
+    class Meta:
+        db_table = 'jet_chat_mute'

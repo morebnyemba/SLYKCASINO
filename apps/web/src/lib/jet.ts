@@ -20,6 +20,7 @@ export interface JetSettings {
   rate: number;
   /** Simulated players appear in the live bets list (display only). */
   bots_enabled?: boolean;
+  chat_enabled?: boolean;
 }
 
 export interface JetRound {
@@ -45,7 +46,12 @@ export interface JetBet {
   cashout_multiplier: string | null;
   payout: string;
   auto_cashout?: string | null;
+  is_free?: boolean;
 }
+
+export interface FreeBet { id: number; amount: string; expires_at: string }
+
+export interface ChatMessage { id: number; kind: 'chat' | 'win' | 'rain' | 'system'; name: string; body: string; at: string }
 
 interface JetState {
   settings: JetSettings;
@@ -55,6 +61,7 @@ interface JetState {
   bets: JetBet[];
   my_bets: JetBet[];
   balance: string | null;
+  free_bets?: FreeBet[];
 }
 
 /** Multiplier after `seconds` of flight — the same curve the server pays on. */
@@ -194,7 +201,8 @@ export function useJet() {
       if (msg.type === 'paused') return { ...prev, settings: { ...prev.settings, enabled: false } };
       return prev;
     });
-    if (msg.type === 'round' || msg.type === 'crash') void load();
+    // A rain may have dropped a free bet on this player.
+    if (msg.type === 'round' || msg.type === 'crash' || msg.type === 'rain') void load();
   }), [load]);
 
   // Safety net: poll faster while flying if realtime has gone quiet.
@@ -211,9 +219,9 @@ export function useJet() {
 
   const act = useCallback(async (path: string, body: unknown = {}) => {
     if (!accessToken) return { error: 'Log in to play.' };
-    const res = await authedPost<{ bet: JetBet; balance: string }>(path, body, accessToken);
+    const res = await authedPost<{ bet: JetBet; balance: string; free_bets?: FreeBet[] }>(path, body, accessToken);
     if (res.data) {
-      const { bet, balance } = res.data;
+      const { bet, balance, free_bets: freeBets } = res.data;
       setState((prev) => {
         if (!prev) return prev;
         const upsert = (list: JetBet[]) => (list.some((b) => b.id === bet.id)
@@ -221,7 +229,7 @@ export function useJet() {
           : [...list, bet]);
         const drop = bet.status === 'refunded';
         return {
-          ...prev, balance,
+          ...prev, balance, free_bets: freeBets ?? prev.free_bets,
           my_bets: drop ? prev.my_bets.filter((b) => b.id !== bet.id) : upsert(prev.my_bets),
           bets: drop ? prev.bets.filter((b) => b.id !== bet.id) : upsert(prev.bets),
         };
@@ -235,9 +243,57 @@ export function useJet() {
 
   return {
     state, error, now, reload: load,
-    placeBet: (slot: number, stake: string, autoCashout: string | null) =>
-      act('/jet/bets/', { slot, stake, ...(autoCashout ? { auto_cashout: autoCashout } : {}) }),
+    placeBet: (slot: number, stake: string, autoCashout: string | null, freeBetId?: number) =>
+      act('/jet/bets/', {
+        slot, stake, ...(autoCashout ? { auto_cashout: autoCashout } : {}), ...(freeBetId ? { free_bet_id: freeBetId } : {}),
+      }),
     cancelBet: (id: number) => act(`/jet/bets/${id}/cancel/`),
     cashOut: (id: number) => act(`/jet/bets/${id}/cashout/`),
   };
+}
+
+/** The game's chat lobby: recent messages, then live ones from the `jet` channel. */
+export function useJetChat() {
+  const { accessToken } = useAuth();
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [enabled, setEnabled] = useState(true);
+
+  const load = useCallback(async () => {
+    try {
+      const res = await fetch(`${config.apiUrl}/jet/chat/`, { cache: 'no-store' });
+      if (!res.ok) return;
+      const data = (await res.json()) as { enabled: boolean; messages: ChatMessage[] };
+      setEnabled(data.enabled);
+      setMessages(data.messages);
+    } catch { /* the next poll retries */ }
+  }, []);
+
+  useEffect(() => {
+    void load();
+    const t = window.setInterval(() => { if (document.visibilityState === 'visible') void load(); }, 20000);
+    return () => window.clearInterval(t);
+  }, [load]);
+
+  useEffect(() => subscribeChannel('jet', (raw) => {
+    let msg: { type: string; message?: ChatMessage; id?: number };
+    try { msg = JSON.parse(raw); } catch { return; }
+    if (msg.type === 'chat' && msg.message) {
+      const m = msg.message;
+      setMessages((prev) => (prev.some((x) => x.id === m.id) ? prev : [...prev, m].slice(-100)));
+    } else if (msg.type === 'chat_hide') {
+      setMessages((prev) => prev.filter((x) => x.id !== msg.id));
+    }
+  }), []);
+
+  const send = useCallback(async (body: string): Promise<{ error?: string }> => {
+    if (!accessToken) return { error: 'Log in to chat.' };
+    const res = await authedPost<{ message: ChatMessage }>('/jet/chat/', { body }, accessToken);
+    if (res.data) {
+      const m = res.data.message;
+      setMessages((prev) => (prev.some((x) => x.id === m.id) ? prev : [...prev, m].slice(-100)));
+    }
+    return { error: res.error };
+  }, [accessToken]);
+
+  return { messages, enabled, send };
 }

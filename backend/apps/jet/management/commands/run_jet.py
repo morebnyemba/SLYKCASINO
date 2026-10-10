@@ -14,7 +14,7 @@ from django.core.management.base import BaseCommand
 from django.db import close_old_connections
 from django.utils import timezone
 
-from apps.jet import bots, services
+from apps.jet import bots, services, social
 from apps.jet.models import JetSettings
 
 logger = logging.getLogger(__name__)
@@ -38,6 +38,11 @@ def run_round() -> None:
     rnd = services.crash_round(rnd.id)
     feed.rnd = rnd
     feed.tick(timezone.now())  # bots whose target was right at the crash point
+    for extra in (lambda: social.announce_round(rnd), social.maybe_auto_rain):
+        try:
+            extra()
+        except Exception:  # noqa: BLE001 — chat and rain must never stop the game
+            logger.exception('jet social step failed')
     time.sleep(services.COOLDOWN_SECONDS)
 
 
