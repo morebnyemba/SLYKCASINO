@@ -208,10 +208,7 @@ export default function AviatorPage() {
             Every round is provably fair — tap any result above the game to check it.
           </p>
           {s.bots_enabled && (
-            <p className="mt-2 text-white/60">
-              The live bets list and the chat include simulated players. They don’t stake real money and can’t affect a
-              round — the crash point is fixed before betting opens.
-            </p>
+            <p className="mt-2 text-white/60">Includes simulated players for atmosphere.</p>
           )}
           <p className="mt-2 text-white/60">
             Rain: free bets are dropped on players who are playing or chatting. A free bet pays your stake × the multiplier
