@@ -8,6 +8,7 @@ export async function generateMetadata(): Promise<Metadata> {
   const identity = await fetchSiteIdentity();
   return {
     title: `${identity.site_name} — Admin`,
+    icons: { icon: '/admin-portal/favicon.ico', apple: '/admin-portal/brand/mark.png' },
     // Staff-only console: never indexed.
     robots: { index: false, follow: false, nocache: true },
     description: 'Operator command center: livechat, promotions, live betting feeds',

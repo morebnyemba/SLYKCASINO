@@ -1,4 +1,5 @@
 import { ImageResponse } from 'next/og';
+import { brandDataUrl } from '@/lib/brand-image';
 import { apiGet } from '@/lib/config';
 import type { EventItem } from '@/lib/sports';
 
@@ -39,7 +40,9 @@ export default async function MatchImage({ params }: { params: Promise<{ event: 
     ? new Date(ev.starts_at).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Africa/Harare' }) + ' CAT'
     : '';
   const odds = [['1', ev.odds], ['X', ev.odds_draw], ['2', ev.odds_away]].filter(([, o]) => o != null && Number(o) > 0) as [string, string | number][];
-  const [homeCrest, awayCrest] = await Promise.all([crestData(ev.home_team?.logo_url), crestData(ev.away_team?.logo_url)]);
+  const [homeCrest, awayCrest, wordmark] = await Promise.all([
+    crestData(ev.home_team?.logo_url), crestData(ev.away_team?.logo_url), brandDataUrl('wordmark.png'),
+  ]);
   const crest = (url?: string | null) => (url
     ? <img src={url} width={150} height={150} style={{ objectFit: 'contain' }} />
     : <div style={{ width: 150, height: 150, borderRadius: 999, background: 'rgba(255,255,255,0.12)' }} />);
@@ -52,7 +55,9 @@ export default async function MatchImage({ params }: { params: Promise<{ event: 
         background: 'linear-gradient(135deg, #110B2E 0%, #312783 60%, #4338CA 100%)',
       }}>
         <div style={{ display: 'flex', width: '100%', justifyContent: 'space-between', fontSize: 30, color: 'rgba(255,255,255,0.8)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontWeight: 800, color: 'white' }}><Bolt size={34} />BetBlits</div>
+          {wordmark
+            ? <img src={wordmark} height={72} width={241} style={{ objectFit: 'contain' }} />
+            : <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontWeight: 800, color: 'white' }}><Bolt size={34} />BetBlits</div>}
           <div>{ev.league?.name ?? 'Sportsbook'}</div>
         </div>
         <div style={{ display: 'flex', width: '100%', alignItems: 'center', justifyContent: 'space-between' }}>

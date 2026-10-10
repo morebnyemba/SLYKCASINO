@@ -12,7 +12,9 @@ export interface AccentOption {
 }
 
 // Mirrors the accent swatches offered in the Sportsbook design prototype.
+// The first option ('' = no override) follows the site theme set in the admin.
 export const ACCENT_OPTIONS: AccentOption[] = [
+  { id: 'site', label: 'Site colours', hex: '' },
   { id: 'indigo', label: 'Indigo', hex: '#6C63E8' },
   { id: 'royal', label: 'Royal blue', hex: '#4338CA' },
   { id: 'gold', label: 'Gold', hex: '#E6B84C' },
@@ -35,6 +37,7 @@ const DEFAULT_SETTINGS: Settings = {
 };
 
 const STORAGE_KEY = 'slyk:settings';
+const LEGACY_DEFAULT_ACCENT = '#6C63E8';
 
 interface SettingsContextValue extends Settings {
   setTheme: (t: ThemeMode) => void;
@@ -51,7 +54,11 @@ function loadStored(): Settings {
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) return DEFAULT_SETTINGS;
-    return { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
+    const stored = { ...DEFAULT_SETTINGS, ...JSON.parse(raw) } as Settings;
+    // Indigo used to be the default accent and was saved for everyone; treat it
+    // as "follow the site colours" so operator theme changes reach those players.
+    if (stored.accent === LEGACY_DEFAULT_ACCENT) stored.accent = '';
+    return stored;
   } catch {
     return DEFAULT_SETTINGS;
   }
@@ -70,8 +77,13 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const root = document.documentElement;
     root.dataset.theme = settings.theme;
-    root.style.setProperty('--secondary', settings.accent);
-    root.style.setProperty('--ring', settings.accent);
+    if (settings.accent) {
+      root.style.setProperty('--secondary', settings.accent);
+      root.style.setProperty('--ring', settings.accent);
+    } else {
+      root.style.removeProperty('--secondary');
+      root.style.removeProperty('--ring');
+    }
   }, [settings.theme, settings.accent]);
 
   useEffect(() => {

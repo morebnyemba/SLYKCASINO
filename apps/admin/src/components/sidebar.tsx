@@ -9,7 +9,6 @@ import {
   BsImages, BsList, BsMoonStars, BsPalette, BsPeople, BsPersonBadge, BsBoxArrowRight, BsSun, BsTicketPerforated,
   BsTrophy, BsXLg, BsDiagram3, BsDatabase, BsCreditCard2Front, BsAirplane, BsPieChart,
 } from 'react-icons/bs';
-import { GiPerspectiveDiceSixFacesRandom } from 'react-icons/gi';
 import { useAuth } from '@/lib/auth-context';
 import { useSiteIdentity } from '@/lib/identity-context';
 import { useTheme } from '@/lib/theme-context';
@@ -124,9 +123,10 @@ function Brand() {
         // eslint-disable-next-line @next/next/no-img-element
         <img src={identity.logo_url} alt={identity.site_name} className="h-8 w-auto max-w-[120px] shrink-0 object-contain" />
       ) : (
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#6C63E8] to-[#312783] text-white shadow-lg shadow-black/30 ring-1 ring-white/15">
-          <GiPerspectiveDiceSixFacesRandom size={18} />
-        </span>
+        // basePath isn't added to plain <img> src, so the brand files are addressed in full.
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src="/admin-portal/brand/mark.webp" alt="" width={256} height={256}
+          className="h-10 w-10 shrink-0 object-contain drop-shadow-[0_2px_6px_rgba(47,209,47,0.35)]" />
       )}
       <span className="min-w-0 leading-tight">
         <span className="block truncate text-[15px] font-extrabold text-white">{identity.site_name}</span>

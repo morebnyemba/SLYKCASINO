@@ -3,33 +3,38 @@
 import { useEffect, useState } from 'react';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { useSiteIdentity } from '@/lib/identity-context';
-import { BoltIcon } from '@/components/logo';
+import { BRAND_MARK, BRAND_WORDMARK } from '@/components/logo';
 
 /**
- * The one loader used across the site: the brand mark inside a spinning ring,
- * with the site name. Used for the first-load splash, page changes, and route
- * loading screens so every wait looks the same.
+ * The one loader used across the site: the "B" mark breathing inside a spinning
+ * green ring (the logo's colours), with the wordmark underneath. Used for the
+ * first-load splash, page changes and route loading screens so every wait looks
+ * the same. An operator-uploaded logo replaces the artwork.
  */
 export function SiteLoader({ caption }: { caption?: string }) {
   const identity = useSiteIdentity();
+  const custom = identity.logo_url;
   return (
-    <div role="status" aria-live="polite" className="flex flex-col items-center gap-4">
-      <div className="relative flex h-20 w-20 items-center justify-center">
-        <svg viewBox="0 0 80 80" className="absolute inset-0 animate-spin [animation-duration:1.1s]" aria-hidden>
-          <circle cx="40" cy="40" r="36" fill="none" stroke="currentColor" strokeWidth="4" className="text-muted" />
-          <path d="M76 40A36 36 0 0 0 40 4" fill="none" strokeWidth="4" strokeLinecap="round" className="stroke-secondary" />
-        </svg>
-        {identity.logo_url ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={identity.logo_url} alt="" className="h-10 w-10 rounded-xl object-contain" />
-        ) : (
-          <span className="flex h-12 w-12 animate-pulse items-center justify-center rounded-2xl bg-gradient-to-br from-secondary to-primary shadow-[0_6px_20px_color-mix(in_srgb,var(--secondary)_45%,transparent)] [animation-duration:1.6s]">
-            <BoltIcon size={26} className="text-gold" />
-          </span>
-        )}
+    <div role="status" aria-live="polite" className="flex flex-col items-center gap-3">
+      <div className="relative h-24 w-24">
+        {/* Soft glow behind the mark */}
+        <div className="absolute inset-3 rounded-full bg-[radial-gradient(circle,rgba(47,209,47,0.35),transparent_70%)] blur-md" aria-hidden />
+        {/* Track + spinning comet ring */}
+        <div className="absolute inset-0 rounded-full border-[3px] border-muted" aria-hidden />
+        <div className="brand-ring absolute inset-0 animate-spin rounded-full [animation-duration:1.1s]" aria-hidden />
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={custom || BRAND_MARK.src} alt="" width={BRAND_MARK.width} height={BRAND_MARK.height}
+          className="brand-breathe absolute inset-0 m-auto h-14 w-14 object-contain"
+        />
       </div>
-      <p className="text-sm font-black tracking-tight">{identity.site_name}</p>
-      <p className="-mt-3 text-xs font-medium text-muted-foreground">{caption ?? 'Loading…'}</p>
+      {custom ? (
+        <p className="text-sm font-black tracking-tight">{identity.site_name}</p>
+      ) : (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={BRAND_WORDMARK.src} alt={identity.site_name} width={BRAND_WORDMARK.width} height={BRAND_WORDMARK.height} className="h-8 w-auto" />
+      )}
+      <p className="text-xs font-medium text-muted-foreground">{caption ?? 'Loading…'}</p>
     </div>
   );
 }

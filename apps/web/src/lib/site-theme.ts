@@ -17,6 +17,8 @@ const TOKEN_KEYS = [
   'win', 'win_foreground',
   'down',
   'chip', 'chip_foreground',
+  'sidebar', 'sidebar_foreground',
+  'odds', 'odds_hover',
 ] as const;
 
 // Only literal CSS color syntax — this text is embedded directly into a

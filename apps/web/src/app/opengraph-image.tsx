@@ -1,4 +1,5 @@
 import { ImageResponse } from 'next/og';
+import { brandDataUrl } from '@/lib/brand-image';
 import { fetchSiteIdentity } from '@/lib/site-identity';
 
 // The link preview for the whole site (WhatsApp, Facebook, X, Google…).
@@ -17,7 +18,7 @@ function Bolt({ size }: { size: number }) {
 }
 
 export default async function OpengraphImage() {
-  const { site_name: name, tagline } = await fetchSiteIdentity();
+  const [{ site_name: name, tagline }, wordmark] = await Promise.all([fetchSiteIdentity(), brandDataUrl('wordmark.png')]);
   return new ImageResponse(
     (
       <div style={{
@@ -26,8 +27,12 @@ export default async function OpengraphImage() {
         background: 'linear-gradient(135deg, #110B2E 0%, #312783 55%, #4338CA 100%)',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
-          <div style={{ width: 72, height: 72, borderRadius: 20, background: '#6C63E8', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Bolt size={44} /></div>
-          <div style={{ fontSize: 56, fontWeight: 800, letterSpacing: -1 }}>{name}</div>
+          {wordmark
+            ? <img src={wordmark} height={120} width={401} style={{ objectFit: 'contain' }} />
+            : <>
+                <div style={{ width: 72, height: 72, borderRadius: 20, background: '#6C63E8', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Bolt size={44} /></div>
+                <div style={{ fontSize: 56, fontWeight: 800, letterSpacing: -1 }}>{name}</div>
+              </>}
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
           <div style={{ fontSize: 76, fontWeight: 800, lineHeight: 1.05, letterSpacing: -2 }}>Sports betting, live odds &amp; Aviator</div>

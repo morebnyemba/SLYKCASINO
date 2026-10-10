@@ -86,8 +86,8 @@ export function SettingsMenu({ className = '', placement = 'header' }: {
                     title={opt.label}
                     className="flex h-7 w-7 items-center justify-center rounded-full transition-transform hover:scale-110"
                     style={{
-                      backgroundColor: opt.hex,
-                      boxShadow: accent === opt.hex ? `0 0 0 2px var(--card), 0 0 0 4px ${opt.hex}` : 'none',
+                      background: opt.hex || 'linear-gradient(135deg, var(--primary) 0 50%, var(--gold) 50% 100%)',
+                      boxShadow: accent === opt.hex ? `0 0 0 2px var(--card), 0 0 0 4px ${opt.hex || 'var(--foreground)'}` : 'none',
                     }}
                   >
                     {accent === opt.hex && <BsCheck size={16} className="text-white drop-shadow" />}

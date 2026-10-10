@@ -24,6 +24,9 @@ TOKEN_KEYS: tuple[str, ...] = (
     'win', 'win_foreground',
     'down',
     'chip', 'chip_foreground',
+    # App shell (header + left nav rail) and odds-button surfaces.
+    'sidebar', 'sidebar_foreground',
+    'odds', 'odds_hover',
 )
 
 DEFAULT_LIGHT: dict[str, str] = {
@@ -42,6 +45,8 @@ DEFAULT_LIGHT: dict[str, str] = {
     'win': '#15924E', 'win_foreground': '#FFFFFF',
     'down': '#DC2626',
     'chip': '#ECEDF8', 'chip_foreground': '#1A1538',
+    'sidebar': '#FFFFFF', 'sidebar_foreground': '#1A1538',
+    'odds': '#EEEFFA', 'odds_hover': '#E0E1F6',
 }
 
 DEFAULT_DARK: dict[str, str] = {
@@ -60,6 +65,8 @@ DEFAULT_DARK: dict[str, str] = {
     'win': '#36D399', 'win_foreground': '#0C0820',
     'down': '#FF6B6B',
     'chip': '#1E1850', 'chip_foreground': '#F2F1FB',
+    'sidebar': '#110B2E', 'sidebar_foreground': '#F2F1FB',
+    'odds': '#241D5C', 'odds_hover': '#2F2772',
 }
 
 

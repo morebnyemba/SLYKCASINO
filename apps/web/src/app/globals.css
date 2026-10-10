@@ -116,3 +116,18 @@
   12%, 85% { transform: translateY(0); opacity: 1; }
   100% { transform: translateY(-120%); opacity: 0; }
 }
+
+/* Brand loader: a green comet ring (the logo's colours) and a breathing "B". */
+.brand-ring {
+  background: conic-gradient(from 0deg, transparent 0 58%, rgba(180, 255, 42, 0.15) 66%, #b4ff2a 88%, #2fd12f 100%);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3px));
+}
+@keyframes brand-breathe {
+  0%, 100% { transform: scale(0.94); filter: drop-shadow(0 0 6px rgba(47, 209, 47, 0.35)); }
+  50% { transform: scale(1.04); filter: drop-shadow(0 0 14px rgba(180, 255, 42, 0.55)); }
+}
+.brand-breathe { animation: brand-breathe 1.6s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .brand-ring, .brand-breathe { animation: none; }
+}

@@ -2,7 +2,6 @@
 
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { GiPerspectiveDiceSixFacesRandom } from 'react-icons/gi';
 import { Card, CardContent } from '@slyk/ui/components/card';
 import { useAuth } from '@/lib/auth-context';
 import { useSiteIdentity } from '@/lib/identity-context';
@@ -43,9 +42,9 @@ export default function AdminLoginPage() {
             // eslint-disable-next-line @next/next/no-img-element
             <img src={identity.logo_url} alt={identity.site_name} className="h-11 w-auto max-w-[220px] object-contain" />
           ) : (
-            <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-[#6C63E8] to-[#312783] shadow-xl shadow-black/40 ring-1 ring-white/15">
-              <GiPerspectiveDiceSixFacesRandom size={26} />
-            </span>
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src="/admin-portal/brand/wordmark.webp" alt={identity.site_name} width={602} height={180}
+              className="h-16 w-auto drop-shadow-[0_6px_20px_rgba(47,209,47,0.3)]" />
           )}
           <div>
             <p className="text-2xl font-extrabold tracking-tight">{identity.site_name}</p>
