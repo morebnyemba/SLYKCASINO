@@ -2,7 +2,8 @@ import type { Metadata } from 'next';
 import { LegalLayout } from '@/components/legal-layout';
 
 export const metadata: Metadata = {
-  title: 'Cookie Policy — BetBlits',
+  title: 'Cookie Policy',
+  alternates: { canonical: '/legal/cookies' },
   description: 'How BetBlits uses cookies and similar technologies.',
 };
 

@@ -2,7 +2,8 @@ import type { Metadata } from 'next';
 import { LegalLayout } from '@/components/legal-layout';
 
 export const metadata: Metadata = {
-  title: 'AML & KYC Policy — BetBlits',
+  title: 'AML & KYC Policy',
+  alternates: { canonical: '/legal/aml-kyc-policy' },
   description: 'Our anti-money laundering and identity verification practices.',
 };
 
