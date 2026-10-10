@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import math
 import random
 from dataclasses import dataclass
 from decimal import ROUND_DOWN, Decimal
@@ -32,12 +33,10 @@ from .models import JetRound, JetSettings
 MAX_BOTS = 1000
 # Bots join over the first part of the countdown, like people arriving.
 JOIN_SPREAD = 0.85
-# Typical crash-game stakes and how often each is picked: mostly small, the
-# odd big one (averages about $6 a bet).
-STAKES = {
-    '0.10': 6, '0.20': 6, '0.50': 10, '1': 18, '2': 14, '3': 6, '5': 12, '10': 10,
-    '15': 3, '20': 5, '25': 2, '50': 2, '100': 1,
-}
+# Stakes: log-normal around $1.50, so most bets are small change and big ones
+# are rare (about 1 in 100 over $20, 1 in 1,500 over $50).
+STAKE_MEDIAN = 1.5
+STAKE_SPREAD = 1.1
 NAME_CHARS = 'abcdefghijklmnopqrstuvwxyz'
 NAME_ENDS = NAME_CHARS + '0123456789'
 
@@ -57,6 +56,15 @@ def _rng(round_id: int) -> random.Random:
     return random.Random(int.from_bytes(digest, 'big'))
 
 
+def _stake(rng: random.Random, lo: Decimal, hi: Decimal) -> Decimal:
+    raw = rng.lognormvariate(math.log(STAKE_MEDIAN), STAKE_SPREAD)
+    # People type round numbers more often than not.
+    if raw >= 1 and rng.random() < 0.6:
+        raw = round(raw) if raw < 20 else round(raw / 5) * 5
+    value = Decimal(str(raw)).quantize(engine.CENT, rounding=ROUND_DOWN)
+    return min(max(value, lo), hi)
+
+
 def _target(rng: random.Random, cap: Decimal) -> Optional[Decimal]:
     if rng.random() < 0.04:
         return None  # the occasional rider who never cashes out
@@ -70,14 +78,13 @@ def _target(rng: random.Random, cap: Decimal) -> Optional[Decimal]:
 def _plan(round_id: int, count: int, min_bet: Decimal, max_bet: Decimal, cap: Decimal, window: float) -> tuple[Bot, ...]:
     rng = _rng(round_id)
     n = round(count * rng.uniform(0.7, 1.0)) if count else 0
-    stakes = [(Decimal(s), w) for s, w in STAKES.items() if min_bet <= Decimal(s) <= max_bet] or [(min_bet, 1)]
-    values, weights = [s for s, _ in stakes], [w for _, w in stakes]
+    lo, hi = max(min_bet, Decimal('0.10')), min(max_bet, Decimal('100'))
     bots = []
     for i in range(n):
         name = f'{rng.choice(NAME_CHARS)}***{rng.choice(NAME_ENDS)}'
         # Earlier arrivals are more common (a crowd that builds quickly).
         join = window * JOIN_SPREAD * (rng.random() ** 1.6)
-        bots.append(Bot(id=-(round_id * MAX_BOTS + i + 1), name=name, stake=rng.choices(values, weights)[0],
+        bots.append(Bot(id=-(round_id * MAX_BOTS + i + 1), name=name, stake=_stake(rng, lo, hi),
                         join_after=round(join, 2), target=_target(rng, cap)))
     return tuple(bots)
 

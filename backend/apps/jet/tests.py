@@ -14,8 +14,8 @@ from rest_framework.test import APIClient
 from apps.accounts import services as account_services
 from apps.wallet import services as wallet_services
 
-from . import bots, engine, services
-from .models import JetBet, JetRound, JetSettings
+from . import bots, engine, services, social
+from .models import JetBet, JetChatMessage, JetFreeBet, JetRound, JetSettings
 
 D = Decimal
 
@@ -325,3 +325,127 @@ class BotTests(TestCase):
         res = admin.put('/api/admin/jet/settings/', {'bots_enabled': False, 'bot_count': 250}, format='json').json()
         self.assertEqual((res['bots_enabled'], res['bot_count']), (False, 250))
         self.assertFalse(APIClient().get('/api/jet/state/').json()['settings']['bots_enabled'])
+
+
+class FreeBetTests(TestCase):
+    """Free bets: no stake taken, winnings only (as a bonus), kept out of
+    round totals and gaming figures."""
+
+    def setUp(self):
+        self.player, _ = _player('freddy', funds='10')
+        self.rnd = _round(crash='3.00')
+
+    def free(self, amount='1.00', **kw):
+        return JetFreeBet.objects.create(player_id=self.player.id, amount=D(amount),
+                                         expires_at=timezone.now() + timedelta(hours=1), **kw)
+
+    def test_win_pays_winnings_as_bonus_and_skips_totals(self):
+        from apps.wallet.models import LedgerEntry
+        fb = self.free('2.00')
+        bet = services.place_bet(player=self.player, slot=1, auto_cashout='2', free_bet_id=fb.id)
+        self.assertTrue(bet.is_free)
+        self.assertEqual(_balance(self.player), D('10.00'))  # nothing taken
+        fb.refresh_from_db()
+        self.assertEqual((fb.status, fb.bet_id), ('used', bet.id))
+        with self.assertRaises(services.JetError):
+            services.place_bet(player=self.player, slot=2, free_bet_id=fb.id)  # can't reuse
+        services.start_flight(self.rnd.id)
+        services.crash_round(self.rnd.id)
+        bet.refresh_from_db()
+        self.rnd.refresh_from_db()
+        self.assertEqual((bet.status, bet.payout), ('cashed', D('2.00')))   # 2.00 x 2 - 2.00 stake
+        self.assertEqual(_balance(self.player), D('12.00'))
+        self.assertEqual((self.rnd.bet_count, self.rnd.total_stake, self.rnd.total_payout), (0, D('0'), D('0')))
+        kinds = set(LedgerEntry.objects.filter(wallet__player_id=self.player.id).values_list('kind', flat=True))
+        self.assertEqual(kinds, {'deposit', 'bonus'})
+
+    def test_cancel_returns_the_free_bet_and_expired_ones_fail(self):
+        fb = self.free()
+        bet = services.place_bet(player=self.player, slot=1, free_bet_id=fb.id)
+        services.cancel_bet(player_id=self.player.id, bet_id=bet.id)
+        fb.refresh_from_db()
+        self.assertEqual((fb.status, fb.bet_id), ('available', None))
+        stale = JetFreeBet.objects.create(player_id=self.player.id, amount=D('1'), expires_at=timezone.now() - timedelta(minutes=1))
+        with self.assertRaisesMessage(services.JetError, 'expired'):
+            services.place_bet(player=self.player, slot=2, free_bet_id=stale.id)
+
+
+class ChatAndRainTests(TestCase):
+    def setUp(self):
+        self.player, user = _player('chatty')
+        self.api = APIClient()
+        self.api.force_authenticate(user)
+
+    def say(self, body):
+        return self.api.post('/api/jet/chat/', {'body': body}, format='json')
+
+    def test_chat_rules(self):
+        self.assertEqual(self.say('hello pilots').status_code, 201)
+        self.assertEqual(self.say('again').status_code, 409)  # too fast
+        JetChatMessage.objects.update(created_at=timezone.now() - timedelta(seconds=10))
+        self.assertIn('Links', self.say('join www.spam.com').json()['detail'])
+        self.assertIn('Links', self.say('call 0771 234 567').json()['detail'])
+        self.assertEqual(self.say('x' * 200).status_code, 409)
+        listed = APIClient().get('/api/jet/chat/').json()['messages']
+        self.assertEqual([(m['name'], m['body']) for m in listed], [('c***y', 'hello pilots')])
+
+        broke, broke_user = account_services.create_player(username='nodep'), User.objects.create(username='nodep')
+        broke.user = broke_user
+        broke.save(update_fields=['user'])
+        api = APIClient()
+        api.force_authenticate(broke_user)
+        self.assertIn('first deposit', api.post('/api/jet/chat/', {'body': 'hi'}, format='json').json()['detail'])
+
+    def test_admin_hide_and_mute(self):
+        self.say('rude words')
+        admin = APIClient()
+        admin.force_authenticate(User.objects.create_superuser('mod', 'm@example.com', 'pw'))
+        msg = admin.get('/api/admin/jet/chat/').json()['results'][0]
+        self.assertEqual(msg['player_id'], self.player.id)
+        self.assertEqual(admin.post(f"/api/admin/jet/chat/{msg['id']}/hide/").status_code, 200)
+        self.assertEqual(APIClient().get('/api/jet/chat/').json()['messages'], [])
+        admin.post('/api/admin/jet/chat/mute/', {'player_id': self.player.id, 'hours': 2}, format='json')
+        JetChatMessage.objects.update(created_at=timezone.now() - timedelta(seconds=10))
+        self.assertIn('muted', self.say('let me back').json()['detail'])
+
+    def test_win_bot_announces_big_wins_only(self):
+        rnd = _round(crash='30.00')
+        services.place_bet(player=self.player, stake='1', slot=1, auto_cashout='1.5')
+        services.place_bet(player=self.player, stake='2', slot=2, auto_cashout='12')
+        services.start_flight(rnd.id)
+        services.crash_round(rnd.id)
+        msg = social.announce_round(rnd)
+        self.assertEqual((msg.kind, msg.name), ('win', social.BOT_NAME))
+        self.assertIn('c***y cashed out at 12.00x and won $24.00', msg.body)
+        small = _round(crash='1.20')
+        self.assertIsNone(social.announce_round(small))
+
+    def test_rain_goes_to_active_depositors_within_budget(self):
+        cfg = JetSettings.load()
+        cfg.rain_daily_budget = D('3.00')
+        cfg.save()
+        self.say('anyone here?')
+        lurker, _ = _player('lurker')  # deposited but not active
+        res = social.rain(players=10, amount='1.00')
+        self.assertEqual(res['given'], 1)
+        self.assertEqual(list(JetFreeBet.objects.values_list('player_id', flat=True)), [self.player.id])
+        self.assertTrue(JetChatMessage.objects.filter(kind='rain', body__contains='c***y').exists())
+        state = self.api.get('/api/jet/state/').json()
+        self.assertEqual([f['amount'] for f in state['free_bets']], ['1.00'])
+        social.rain(players=10, amount='1.00')
+        social.rain(players=10, amount='1.00')
+        self.assertIn('budget', social.rain(players=10, amount='1.00')['reason'])
+        self.assertEqual(social.given_today(), D('3.00'))
+
+    def test_auto_rain_schedule_and_admin_button(self):
+        self.say('hi')
+        cfg = JetSettings.load()
+        cfg.rain_enabled, cfg.rain_every_minutes = True, 30
+        cfg.save()
+        self.assertEqual(social.maybe_auto_rain()['given'], 1)
+        self.assertIsNone(social.maybe_auto_rain())  # not due yet
+        admin = APIClient()
+        admin.force_authenticate(User.objects.create_superuser('boss', 'b@example.com', 'pw'))
+        res = admin.post('/api/admin/jet/rain/', {'players': 5, 'amount': '0.50'}, format='json')
+        self.assertEqual((res.status_code, res.json()['given']), (200, 1))
+        self.assertEqual(self.api.post('/api/admin/jet/rain/', {}, format='json').status_code, 403)

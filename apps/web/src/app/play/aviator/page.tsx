@@ -1,12 +1,13 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { BsInfoCircle, BsMusicNoteBeamed, BsVolumeMuteFill, BsVolumeUpFill } from 'react-icons/bs';
+import { BsChatDotsFill, BsInfoCircle, BsMusicNoteBeamed, BsVolumeMuteFill, BsVolumeUpFill } from 'react-icons/bs';
 import { BetPanel } from '@/components/jet/bet-panel';
+import { ChatPanel } from '@/components/jet/chat-panel';
 import { FlightScene } from '@/components/jet/flight-scene';
 import { BetsList, HistoryStrip } from '@/components/jet/side-panels';
 import { useAuth } from '@/lib/auth-context';
-import { multiplierAt, useJet, type JetBet, type JetRound } from '@/lib/jet';
+import { multiplierAt, useJet, useJetChat, type JetBet, type JetRound } from '@/lib/jet';
 import * as sound from '@/lib/jet-sound';
 
 /** Plays the game's sounds from state changes: take-off, engine, countdown, crash and the player's cash-outs. */
@@ -138,6 +139,14 @@ export default function AviatorPage() {
   const { state, error, now, placeBet, cancelBet, cashOut } = useJet();
   const [multiplier, setMultiplier] = useState(1);
   const [rulesOpen, setRulesOpen] = useState(false);
+  const chat = useJetChat();
+  const [chatOpen, setChatOpen] = useState(false);
+  const [seen, setSeen] = useState(0);
+  const lastChat = chat.messages[chat.messages.length - 1]?.id ?? 0;
+  // Messages that arrived while the chat drawer was closed (small screens).
+  useEffect(() => { if (chatOpen) setSeen(lastChat); }, [chatOpen, lastChat]);
+  const unread = !chatOpen && lastChat > seen && seen > 0;
+  useEffect(() => { if (seen === 0 && lastChat) setSeen(lastChat); }, [lastChat, seen]);
 
   // Live multiplier for the cash-out buttons (10 times a second while flying).
   const round = state?.round ?? null;
@@ -176,6 +185,13 @@ export default function AviatorPage() {
           <BsInfoCircle size={13} /> <span className="hidden sm:inline">How to play</span>
         </button>
         <SoundToggles />
+        {chat.enabled && (
+          <button onClick={() => setChatOpen((v) => !v)} aria-label="Chat"
+            className="relative flex h-8 w-8 items-center justify-center rounded-full bg-[#141516] text-white/85 hover:text-white xl:hidden">
+            <BsChatDotsFill size={14} />
+            {unread && <span className="absolute right-0.5 top-0.5 h-2 w-2 rounded-full bg-[#e50539]" />}
+          </button>
+        )}
       </header>
 
       {rulesOpen && (
@@ -193,10 +209,14 @@ export default function AviatorPage() {
           </p>
           {s.bots_enabled && (
             <p className="mt-2 text-white/60">
-              The live bets list includes simulated players. They don’t stake real money and can’t affect a round —
-              the crash point is fixed before betting opens.
+              The live bets list and the chat’s win shout-outs include simulated players. They don’t stake real money and
+              can’t affect a round — the crash point is fixed before betting opens.
             </p>
           )}
+          <p className="mt-2 text-white/60">
+            Rain: free bets are dropped on players who are playing or chatting. A free bet pays your stake × the multiplier
+            minus the free stake, credited as a bonus; unused free bets expire after 24 hours.
+          </p>
         </div>
       )}
 
@@ -209,9 +229,12 @@ export default function AviatorPage() {
         </p>
       )}
 
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-[300px_minmax(0,1fr)]">
-        <div className="order-2 h-[360px] lg:order-1 lg:h-auto">
-          <BetsList bets={state.bets} loggedIn={!!user} />
+      <div className={`grid grid-cols-1 gap-3 lg:grid-cols-[300px_minmax(0,1fr)] ${chat.enabled ? 'xl:grid-cols-[300px_minmax(0,1fr)_300px]' : ''}`}>
+        {/* The lists take the height of the game column and scroll inside themselves. */}
+        <div className="relative order-2 h-[420px] lg:order-1 lg:h-auto">
+          <div className="h-full lg:absolute lg:inset-0">
+            <BetsList bets={state.bets} loggedIn={!!user} />
+          </div>
         </div>
         <div className="order-1 min-w-0 space-y-3 lg:order-2">
           <HistoryStrip history={state.history} settings={s} />
@@ -224,14 +247,31 @@ export default function AviatorPage() {
               <BetPanel
                 key={slot} slot={slot} settings={s} round={round} bet={myBet(slot)} multiplier={multiplier}
                 loggedIn={!!user}
-                onPlace={async (stake, auto) => { const r = await placeBet(slot, stake, auto); if (!r.error) sound.playBet(); return r; }}
+                freeBet={(state.free_bets ?? [])[slot - 1]}
+                onPlace={async (stake, auto, freeId) => { const r = await placeBet(slot, stake, auto, freeId); if (!r.error) sound.playBet(); return r; }}
                 onCancel={async (id) => { const r = await cancelBet(id); if (!r.error) sound.playBet(); return r; }}
                 onCashOut={cashOut}
               />
             ))}
           </div>
         </div>
+        {chat.enabled && (
+          <div className="relative order-3 hidden xl:block">
+            <div className="absolute inset-0">
+              <ChatPanel messages={chat.messages} enabled={chat.enabled} loggedIn={!!user} onSend={chat.send} />
+            </div>
+          </div>
+        )}
       </div>
+
+      {/* Smaller screens: chat slides in from the right. */}
+      {chat.enabled && chatOpen && (
+        <div className="fixed inset-0 z-[70] flex justify-end bg-black/50 xl:hidden" onClick={() => setChatOpen(false)}>
+          <div className="h-full w-[340px] max-w-full p-2" onClick={(e) => e.stopPropagation()}>
+            <ChatPanel messages={chat.messages} enabled={chat.enabled} loggedIn={!!user} onSend={chat.send} onClose={() => setChatOpen(false)} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

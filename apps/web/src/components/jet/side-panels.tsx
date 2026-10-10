@@ -19,7 +19,7 @@ export function BetsList({ bets, loggedIn }: { bets: JetBet[]; loggedIn: boolean
   );
   const total = bets.reduce((s, b) => s + Number(b.stake), 0);
   return (
-    <section className="flex min-h-0 flex-col rounded-2xl border border-[#2c2d30] bg-[#1b1c1d] text-white">
+    <section className="flex h-full min-h-0 flex-col rounded-2xl border border-[#2c2d30] bg-[#1b1c1d] text-white">
       <div className="m-2 flex rounded-full border border-[#2c2d30] bg-[#141516] p-0.5 text-xs font-bold">
         {([['all', 'All bets'], ['mine', 'My bets']] as const).map(([id, label]) => (
           <button key={id} onClick={() => setTab(id)}
@@ -35,7 +35,7 @@ export function BetsList({ bets, loggedIn }: { bets: JetBet[]; loggedIn: boolean
           <div className="grid grid-cols-[1fr_auto_auto_auto] gap-x-3 px-4 pb-1 text-[10.5px] font-bold uppercase text-white/40">
             <span>Player</span><span className="text-right">Bet</span><span className="text-right">X</span><span className="text-right">Win</span>
           </div>
-          <ul className="min-h-0 flex-1 space-y-1 overflow-y-auto px-2 pb-2">
+          <ul className="min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-contain px-2 pb-2">
             {bets.length === 0 && <li className="px-2 py-6 text-center text-xs text-white/40">No bets yet this round.</li>}
             {bets.slice(0, LIST_LIMIT).map((b) => (
               <li key={b.id} className={`grid grid-cols-[1fr_auto_auto_auto] items-center gap-x-3 rounded-lg px-2 py-1.5 text-xs ${
@@ -52,7 +52,7 @@ export function BetsList({ bets, loggedIn }: { bets: JetBet[]; loggedIn: boolean
           </ul>
         </>
       ) : (
-        <ul className="min-h-0 flex-1 space-y-1 overflow-y-auto px-2 pb-2">
+        <ul className="min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-contain px-2 pb-2">
           {!loggedIn && <li className="px-2 py-6 text-center text-xs text-white/40">Log in to see your bets.</li>}
           {loggedIn && (mine?.results ?? []).length === 0 && <li className="px-2 py-6 text-center text-xs text-white/40">No Jet bets yet.</li>}
           {(mine?.results ?? []).map((b) => (

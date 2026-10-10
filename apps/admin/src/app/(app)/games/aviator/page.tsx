@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import {
-  BsActivity, BsAirplane, BsRobot, BsBoxArrowUpRight, BsCashCoin, BsGraphUpArrow, BsPauseFill, BsPeople, BsPlayFill, BsShieldCheck,
+  BsActivity, BsAirplane, BsChatDots, BsCloudRainHeavy, BsEyeSlash, BsMicMute, BsRobot, BsBoxArrowUpRight, BsCashCoin, BsGraphUpArrow, BsPauseFill, BsPeople, BsPlayFill, BsShieldCheck,
 } from 'react-icons/bs';
 import {
   Badge, Btn, Field, Notice, PageHeader, Panel, StatTile, TextInput, cx, money, tableClass, tdClass, thClass, trClass,
@@ -15,7 +15,17 @@ interface Settings {
   enabled: boolean; display_name: string; house_edge_percent: string; rtp_percent: string; min_bet: string; max_bet: string;
   max_win: string; max_multiplier: string; round_stake_limit: string; betting_seconds: number;
   bots_enabled: boolean; bot_count: number;
+  chat_enabled: boolean; rain_enabled: boolean; rain_amount: string; rain_players: number; rain_every_minutes: number;
+  rain_daily_budget: string; rain_given_today: string; last_rain_at: string | null;
 }
+interface ChatRow { id: number; kind: string; name: string; body: string; at: string; player_id: number | null; hidden: boolean }
+
+const RAIN_FIELDS: { key: 'rain_amount' | 'rain_players' | 'rain_every_minutes' | 'rain_daily_budget'; label: string; hint: string }[] = [
+  { key: 'rain_amount', label: 'Free bet per player ($)', hint: '$0.10–$100.' },
+  { key: 'rain_players', label: 'Players per rain', hint: 'Picked at random from active depositors (1–100).' },
+  { key: 'rain_every_minutes', label: 'Rain every (minutes)', hint: '0 = only when you press the button; at least 5.' },
+  { key: 'rain_daily_budget', label: 'Daily budget ($)', hint: 'Most all rains together may give away per day.' },
+];
 interface Totals { rounds: number; bets: number; stake: string; payout: string; ggr: string; rtp_percent: string | null }
 interface Stats {
   today: Totals; week: Totals; all_time: Totals; players_today: number;
@@ -44,6 +54,8 @@ export default function CrashGameAdminPage() {
   const [name, setName] = useState('');
   const [busy, setBusy] = useState<'save' | 'toggle' | 'bots' | null>(null);
   const [botCount, setBotCount] = useState('');
+  const [rainForm, setRainForm] = useState<Record<string, string>>({});
+  const { data: chatLog, refetch: refetchChat } = useApi<{ results: ChatRow[] }>('/admin/jet/chat/');
   const [notice, setNotice] = useState<{ tone: 'green' | 'red'; text: string } | null>(null);
 
   useEffect(() => {
@@ -51,6 +63,7 @@ export default function CrashGameAdminPage() {
       setForm(Object.fromEntries(FIELDS.map((f) => [f.key, String(settings[f.key])])));
       setName(settings.display_name);
       setBotCount(String(settings.bot_count));
+      setRainForm(Object.fromEntries(RAIN_FIELDS.map((f) => [f.key, String(settings[f.key])])));
     }
   }, [settings]);
 
@@ -59,6 +72,14 @@ export default function CrashGameAdminPage() {
     const t = window.setInterval(refetchStats, 4000);
     return () => window.clearInterval(t);
   }, [refetchStats]);
+
+  async function post(path: string, body: Record<string, unknown>, ok: (data: Record<string, unknown>) => string) {
+    if (!accessToken) return;
+    setNotice(null);
+    const res = await authedRequest<Record<string, unknown>>('POST', path, accessToken, body);
+    setNotice(res.error ? { tone: 'red', text: res.error } : { tone: 'green', text: ok(res.data ?? {}) });
+    refetchChat(); refetchSettings();
+  }
 
   async function put(body: Record<string, unknown>, ok: string, kind: 'save' | 'toggle' | 'bots') {
     if (!accessToken) return;
@@ -180,9 +201,83 @@ export default function CrashGameAdminPage() {
         )}
         <p className="mt-3 flex items-start gap-2 rounded-xl bg-muted/40 p-3 text-xs text-muted-foreground">
           <BsShieldCheck className="mt-0.5 shrink-0 text-win" />
-          While on, the game’s “How to play” tells players the list includes simulated players. They can’t change a round — its crash point is fixed before betting opens.
+          While on, the game’s “How to play” tells players the bets list and the chat’s win shout-outs include simulated players. They can’t change a round — its crash point is fixed before betting opens.
         </p>
       </Panel>
+
+      <div className="grid gap-6 xl:grid-cols-[1fr_1.2fr]">
+        <Panel
+          title="Chat & rain"
+          description="Rain drops free bets on real players who deposited and played or chatted in the last 30 minutes. Free-bet winnings are paid as bonus credit, so they count as a promotion cost (NGR), never as GGR."
+          actions={settings && <div className="flex gap-2">
+            <Badge tone={settings.chat_enabled ? 'green' : 'slate'} dot>Chat {settings.chat_enabled ? 'on' : 'off'}</Badge>
+            <Badge tone={settings.rain_enabled ? 'green' : 'slate'} dot>Auto rain {settings.rain_enabled ? 'on' : 'off'}</Badge>
+          </div>}
+        >
+          <div className="grid gap-4 sm:grid-cols-2">
+            {RAIN_FIELDS.map((f) => (
+              <Field key={f.key} label={f.label} hint={f.hint}>
+                <TextInput inputMode="decimal" value={rainForm[f.key] ?? ''} onChange={(e) => setRainForm((v) => ({ ...v, [f.key]: e.target.value.replace(/[^0-9.]/g, '') }))} />
+              </Field>
+            ))}
+          </div>
+          {settings && (
+            <p className="mt-3 text-xs text-muted-foreground">
+              Given today: <b className="text-foreground">{money(settings.rain_given_today)}</b> of {money(settings.rain_daily_budget)}
+              {settings.last_rain_at && <> · last rain {new Date(settings.last_rain_at).toLocaleTimeString()}</>}
+            </p>
+          )}
+          <div className="mt-4 flex flex-wrap justify-end gap-2">
+            {settings && <>
+              <Btn variant="ghost" busy={busy === 'bots'} onClick={() => put({ chat_enabled: !settings.chat_enabled }, settings.chat_enabled ? 'Chat is off.' : 'Chat is on.', 'bots')}>
+                {settings.chat_enabled ? 'Turn chat off' : 'Turn chat on'}
+              </Btn>
+              <Btn variant="ghost" busy={busy === 'bots'} onClick={() => put({ rain_enabled: !settings.rain_enabled }, settings.rain_enabled ? 'Automatic rain is off.' : 'Automatic rain is on.', 'bots')}>
+                {settings.rain_enabled ? 'Stop auto rain' : 'Start auto rain'}
+              </Btn>
+            </>}
+            <Btn variant="primary" busy={busy === 'save'}
+              onClick={() => put({
+                rain_amount: rainForm.rain_amount, rain_daily_budget: rainForm.rain_daily_budget,
+                rain_players: Number(rainForm.rain_players), rain_every_minutes: Number(rainForm.rain_every_minutes),
+              }, 'Rain settings saved.', 'save')}>
+              Save rain settings
+            </Btn>
+            <Btn variant="success" icon={BsCloudRainHeavy}
+              onClick={() => confirm(`Rain ${money(rainForm.rain_amount)} free bets on up to ${rainForm.rain_players} active players now?`)
+                && post('/admin/jet/rain/', { players: Number(rainForm.rain_players), amount: rainForm.rain_amount },
+                  (d) => `It rained: ${d.given} player(s) got a ${money(String(d.amount))} free bet.`)}>
+              Make it rain now
+            </Btn>
+          </div>
+        </Panel>
+
+        <Panel title="Chat moderation" description="The latest messages. Hide anything abusive; mute a player for 24 hours." padded={false}
+          actions={<BsChatDots className="text-muted-foreground" />}>
+          <ul className="max-h-[420px] divide-y divide-border overflow-y-auto">
+            {(chatLog?.results ?? []).map((m) => (
+              <li key={m.id} className={cx('flex items-start gap-3 px-4 py-2.5 text-sm', m.hidden && 'opacity-50')}>
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs text-muted-foreground">
+                    <b className="text-foreground">{m.name}</b> {m.kind !== 'chat' && <Badge tone={m.kind === 'rain' ? 'indigo' : 'gold'}>{m.kind}</Badge>}
+                    {m.player_id && <> · player #{m.player_id}</>} · {new Date(m.at).toLocaleTimeString()} {m.hidden && '· hidden'}
+                  </p>
+                  <p className="break-words">{m.body}</p>
+                </div>
+                {!m.hidden && (
+                  <button title="Hide message" aria-label="Hide message" onClick={() => post(`/admin/jet/chat/${m.id}/hide/`, {}, () => 'Message hidden.')}
+                    className="rounded-lg p-2 text-muted-foreground hover:bg-muted hover:text-foreground"><BsEyeSlash /></button>
+                )}
+                {m.player_id && (
+                  <button title="Mute for 24 hours" aria-label="Mute player" onClick={() => confirm(`Mute ${m.name} in chat for 24 hours?`) && post('/admin/jet/chat/mute/', { player_id: m.player_id, hours: 24 }, () => `${m.name} is muted for 24 hours.`)}
+                    className="rounded-lg p-2 text-muted-foreground hover:bg-muted hover:text-live"><BsMicMute /></button>
+                )}
+              </li>
+            ))}
+            {chatLog && chatLog.results.length === 0 && <li className="px-4 py-10 text-center text-sm text-muted-foreground">No messages yet.</li>}
+          </ul>
+        </Panel>
+      </div>
 
       <Panel title="Recent rounds" description="Every finished round with its seed, so any result can be re-checked." padded={false}>
         <div className="overflow-x-auto">

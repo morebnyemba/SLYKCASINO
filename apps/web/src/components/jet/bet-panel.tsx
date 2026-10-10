@@ -1,9 +1,9 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { BsDash, BsPlus } from 'react-icons/bs';
+import { BsDash, BsGiftFill, BsPlus } from 'react-icons/bs';
 import { Spinner } from '@slyk/ui/components/spinner';
-import { fmtX, type JetBet, type JetRound, type JetSettings } from '@/lib/jet';
+import { fmtX, type FreeBet, type JetBet, type JetRound, type JetSettings } from '@/lib/jet';
 
 const money = (v: number) => `$${v.toFixed(2)}`;
 
@@ -14,14 +14,16 @@ const money = (v: number) => `$${v.toFixed(2)}`;
  * every round; auto cash-out sends the target with the bet so the server
  * cashes it out even if this tab is closed.
  */
-export function BetPanel({ slot, settings, round, bet, multiplier, loggedIn, onPlace, onCancel, onCashOut }: {
+export function BetPanel({ slot, settings, round, bet, multiplier, loggedIn, freeBet, onPlace, onCancel, onCashOut }: {
   slot: number;
   settings: JetSettings;
   round: JetRound | null;
   bet: JetBet | undefined;
   multiplier: number;
   loggedIn: boolean;
-  onPlace: (stake: string, auto: string | null) => Promise<{ error?: string }>;
+  /** A free bet this slot can use (from a chat rain). */
+  freeBet?: FreeBet;
+  onPlace: (stake: string, auto: string | null, freeBetId?: number) => Promise<{ error?: string }>;
   onCancel: (id: number) => Promise<{ error?: string }>;
   onCashOut: (id: number) => Promise<{ error?: string }>;
 }) {
@@ -35,19 +37,23 @@ export function BetPanel({ slot, settings, round, bet, multiplier, loggedIn, onP
   const [queued, setQueued] = useState(false);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<{ tone: 'ok' | 'err'; text: string } | null>(null);
+  const [useFree, setUseFree] = useState(false);
+  const free = useFree && freeBet ? freeBet : undefined;
   const placedFor = useRef<number | null>(null);
 
   const betting = round?.status === 'betting';
   const flying = round?.status === 'flying';
-  const stakeNum = Number(stake) || 0;
+  const stakeNum = free ? Number(free.amount) : Number(stake) || 0;
   const quick = [1, 2, 5, 10, 20, 50, 100].filter((v) => v >= min && v <= max).slice(0, 4);
 
   async function place() {
     if (!round) return;
     setBusy(true); setNote(null);
-    const res = await onPlace(stakeNum.toFixed(2), autoCash ? Number(autoAt).toFixed(2) : null);
+    const res = await onPlace(stakeNum.toFixed(2), autoCash ? Number(autoAt).toFixed(2) : null, free?.id);
     setBusy(false);
     placedFor.current = round.id;
+    // A free bet is used once; auto bet carries on with money.
+    if (free) setUseFree(false);
     if (res.error) { setNote({ tone: 'err', text: res.error }); setAutoBet(false); }
   }
 
@@ -73,7 +79,7 @@ export function BetPanel({ slot, settings, round, bet, multiplier, loggedIn, onP
       return;
     }
     if (queued) { setQueued(false); return; }
-    if (stakeNum < min || stakeNum > max) { setNote({ tone: 'err', text: `Bets are ${money(min)}–${money(max)}.` }); return; }
+    if (!free && (stakeNum < min || stakeNum > max)) { setNote({ tone: 'err', text: `Bets are ${money(min)}–${money(max)}.` }); return; }
     if (autoCash && (Number(autoAt) < 1.01 || !Number.isFinite(Number(autoAt)))) { setNote({ tone: 'err', text: 'Auto cash-out must be at least 1.01x.' }); return; }
     if (betting) await place();
     else setQueued(true);
@@ -84,7 +90,9 @@ export function BetPanel({ slot, settings, round, bet, multiplier, loggedIn, onP
   let sub = '';
   let cls = 'bg-[#28a909] border border-[#b2f2a3] text-white shadow-[inset_0_1px_1px_rgba(255,255,255,0.5)] hover:brightness-110';
   if (active && flying) {
-    const value = Math.min(Number(bet!.stake) * multiplier, Number(settings.max_win));
+    const gross = Math.min(Number(bet!.stake) * multiplier, Number(settings.max_win));
+    // A free bet pays the winnings only.
+    const value = bet!.is_free ? Math.max(gross - Number(bet!.stake), 0) : gross;
     label = <>Cash out <span className="block text-2xl font-black tabular-nums">{money(value)}</span></>;
     cls = 'bg-[#d07206] border border-[#ffbd71] text-white shadow-[inset_0_1px_1px_rgba(255,255,255,0.5)] hover:brightness-110';
   } else if (active) {
@@ -96,7 +104,7 @@ export function BetPanel({ slot, settings, round, bet, multiplier, loggedIn, onP
     sub = 'Waiting for next round';
     cls = 'bg-[#cb011a] border border-[#ff7d8c] text-white shadow-[inset_0_1px_1px_rgba(255,255,255,0.5)] hover:brightness-110';
   } else {
-    label = <>Bet <span className="block text-2xl font-black tabular-nums">{money(stakeNum)}</span></>;
+    label = <>{free ? 'Free bet' : 'Bet'} <span className="block text-2xl font-black tabular-nums">{money(stakeNum)}</span></>;
     if (!betting) sub = 'Goes on the next round';
   }
   const locked = active || queued;
@@ -112,8 +120,22 @@ export function BetPanel({ slot, settings, round, bet, multiplier, loggedIn, onP
         ))}
       </div>
 
+      {freeBet && !active && !queued && (
+        <button onClick={() => setUseFree((v) => !v)}
+          className={`mb-3 flex w-full items-center gap-2 rounded-xl border px-3 py-2 text-left text-xs font-bold transition-colors ${
+            useFree ? 'border-[#f5b400] bg-[#f5b400]/15 text-[#f5b400]' : 'border-[#f5b400]/40 bg-[#141516] text-white/80 hover:border-[#f5b400]'
+          }`}>
+          <BsGiftFill className="shrink-0 text-[#f5b400]" />
+          <span className="flex-1">
+            {useFree ? `Using your ${money(Number(freeBet.amount))} free bet` : `You have a ${money(Number(freeBet.amount))} free bet`}
+            <span className="block text-[10.5px] font-semibold text-white/50">Win = stake × multiplier minus the free stake</span>
+          </span>
+          <span className="rounded-full bg-[#f5b400] px-2.5 py-1 text-[10.5px] font-extrabold text-black">{useFree ? 'Use cash' : 'Use it'}</span>
+        </button>
+      )}
+
       <div className="flex gap-3">
-        <div className="w-[46%] min-w-0 space-y-2">
+        <div className={`w-[46%] min-w-0 space-y-2 ${free ? 'pointer-events-none opacity-40' : ''}`}>
           <div className="flex items-center rounded-full bg-[#141516] px-1.5 py-1">
             <button disabled={locked} aria-label="Less" onClick={() => setStake((v) => Math.max(min, (Number(v) || 0) - 1).toFixed(2))}
               className="flex h-7 w-7 items-center justify-center rounded-full border border-white/30 text-white/80 disabled:opacity-40"><BsDash /></button>
@@ -165,7 +187,7 @@ export function BetPanel({ slot, settings, round, bet, multiplier, loggedIn, onP
 
       {bet?.status === 'cashed' && (
         <p className="mt-2 text-center text-xs font-bold text-[#22c55e]">
-          Cashed out at {fmtX(bet.cashout_multiplier)} · won {money(Number(bet.payout))}
+          Cashed out at {fmtX(bet.cashout_multiplier)} · won {money(Number(bet.payout))}{bet.is_free ? ' (free bet)' : ''}
         </p>
       )}
       {active && bet?.auto_cashout && (
