@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { FaEye, FaEyeSlash } from 'react-icons/fa';
-import { AuthShell, authButtonClass, authInputClass } from '@/components/auth-shell';
+import { AuthShell, authButtonClass, authInputClass, useWelcomeOffer } from '@/components/auth-shell';
 import { RegisterError } from '@/lib/auth';
 import { AccountCreatedError, useAuth } from '@/lib/auth-context';
 import { getReferral, setReferral } from '@/lib/referral';
@@ -51,6 +51,7 @@ export default function RegisterPage() {
   const [terms, setTerms] = useState(false);
   const [refCode, setRefCode] = useState('');
   const [refOpen, setRefOpen] = useState(false);
+  const offer = useWelcomeOffer();
   const { data: welcome } = useApi<{ programme?: { welcome_bonus_percent: string; welcome_bonus_cap: string } }>('/affiliates/terms/', { public: true });
   const [errors, setErrors] = useState<Partial<Record<Field, string>>>({});
   const [formError, setFormError] = useState('');
@@ -125,7 +126,10 @@ export default function RegisterPage() {
   const inputClass = (id: Field) => `${authInputClass} ${errors[id] ? 'border-destructive focus:ring-destructive/40' : ''}`;
 
   return (
-    <AuthShell title="Create your account" subtitle="Join in seconds and claim your welcome bonus.">
+    <AuthShell
+      title="Create your account"
+      subtitle={offer ? `Join in seconds — get a ${offer} with a friend’s referral code.` : 'Join in seconds.'}
+    >
       <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-4">
         <div className="flex flex-col gap-1">
           <label className="text-xs font-bold text-muted-foreground" htmlFor="username">Username</label>
