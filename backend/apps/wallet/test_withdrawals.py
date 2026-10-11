@@ -104,3 +104,33 @@ class WithdrawalTests(TestCase):
         with self.assertRaises(withdrawals.WithdrawalError):
             withdrawals.cancel(player_id=other.id, req_id=rid)
         self.assertEqual(WithdrawalRequest.objects.get(pk=rid).status, 'requested')
+
+
+class LegacyWithdrawalTests(TestCase):
+    """Withdrawals made by the old instant flow show up in the queue; paying one
+    moves no money (it already left), rejecting one refunds it."""
+
+    def setUp(self):
+        self.player = account_services.create_player(username='oldtimer')
+        services.deposit(player_id=self.player.id, amount=D('100'), idempotency_key='dep:old')
+        services.debit(player_id=self.player.id, amount=D('30.05'), kind='withdrawal',
+                       idempotency_key='withdrawal:req:abc', reference='psp:stub')
+        self.req = WithdrawalRequest.objects.create(
+            player_id=self.player.id, amount=D('30.05'), method='unknown', account_number='', legacy=True)
+        self.staff = APIClient()
+        self.staff.force_authenticate(User.objects.create_user('cashier2', 'c2@example.com', 'pw', is_staff=True))
+
+    def withdrawn(self):
+        return reporting.ledger_kpis([self.player.id], None, timezone.now() + timezone.timedelta(seconds=1))['withdrawals']
+
+    def test_listed_and_paid_without_moving_money(self):
+        row = self.staff.get('/api/admin/withdrawals/').json()['results'][0]
+        self.assertEqual((row['legacy'], row['method'], row['username']), (True, 'unknown', 'oldtimer'))
+        self.staff.post(f'/api/admin/withdrawals/{self.req.id}/mark-paid/', {'reference': 'EC-123'}, format='json')
+        self.assertEqual(services.get_balance(self.player.id), D('69.95'))
+        self.assertEqual(self.withdrawn(), '30.05')
+
+    def test_rejected_is_refunded_and_netted_out(self):
+        self.staff.post(f'/api/admin/withdrawals/{self.req.id}/reject/', {'note': 'Please request again with your number'}, format='json')
+        self.assertEqual(services.get_balance(self.player.id), D('100.00'))
+        self.assertEqual(self.withdrawn(), '0.00')

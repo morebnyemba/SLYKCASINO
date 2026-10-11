@@ -20,6 +20,7 @@ interface Withdrawal {
   method_label: string; account_number: string; account_name: string; bank_name: string;
   status: 'requested' | 'paid' | 'rejected' | 'cancelled'; status_label: string; reference: string; note: string;
   created_at: string; decided_at: string | null; decided_by: string; context?: Context;
+  legacy?: boolean; email?: string;
 }
 interface Queue { results: Withdrawal[]; counts: { requested: number }; pending_total: string }
 interface Limits { min_amount: string; max_amount: string; daily_max: string }
@@ -43,6 +44,7 @@ export default function WithdrawalsPage() {
 }
 
 function destination(w: Withdrawal) {
+  if (w.legacy) return `Not given — contact ${w.email || 'the player'}`;
   return w.method === 'bank' ? `${w.bank_name} · ${w.account_name} · ${w.account_number}`
     : `${w.account_number}${w.account_name ? ` (${w.account_name})` : ''}`;
 }
@@ -123,7 +125,7 @@ function PlayerWithdrawals() {
                       </td>
                       <td className={cx(tdClass, 'text-base font-extrabold tabular-nums')}>{money(w.amount)}</td>
                       <td className={tdClass}>
-                        <p className="font-semibold">{w.method_label}</p>
+                        <p className="font-semibold">{w.legacy ? <Badge tone="gold">Earlier withdrawal</Badge> : w.method_label}</p>
                         <p className="font-mono text-xs text-muted-foreground">{destination(w)}</p>
                       </td>
                       {status === 'requested' && (
@@ -175,6 +177,12 @@ function PlayerWithdrawals() {
               </p>
             </div>
             {acting.w.context && <ContextCell c={acting.w.context} wide />}
+            {acting.w.legacy && (
+              <p className="rounded-xl bg-gold/10 p-3 text-gold">
+                Made with the old instant withdraw: the money already left the player’s balance, but they never said where to send it.
+                Contact them, send it, then mark it paid — or reject it to put the money back in their balance.
+              </p>
+            )}
             {acting.verb === 'mark-paid' ? (
               <>
                 <p className="text-muted-foreground">Send the money first, then record it here. The player is notified with the reference.</p>

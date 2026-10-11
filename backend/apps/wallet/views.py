@@ -329,7 +329,8 @@ class AdminWithdrawalsView(APIView):
         for r in rows:
             p = players.get(r.player_id)
             row = withdrawals.payload(r, staff=True)
-            row.update(username=p.username if p else '(deleted)', kyc_status=p.kyc_status if p else None)
+            row.update(username=p.username if p else '(deleted)', kyc_status=p.kyc_status if p else None,
+                       email=p.email if p else '')
             if state == 'requested':
                 row['context'] = withdrawals.player_context(r.player_id)
             out.append(row)
