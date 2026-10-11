@@ -10,6 +10,7 @@ import { useApi, authedPost } from '@/lib/use-api';
 import { LoadingState } from '@slyk/ui/components/spinner';
 import { DeletePlayer } from '@/components/players/delete-player';
 import { PlayerActivity } from '@/components/tickets/tickets';
+import { kindLabel, kindTone } from '@/lib/ledger-kinds';
 
 type PageProps = { params: Promise<{ id: string }> };
 
@@ -303,8 +304,8 @@ export default function PlayerDetailPage({ params }: PageProps) {
               <tbody>
                 {ledger.map((e) => (
                   <tr key={e.id} className="border-b border-border last:border-0">
-                    <td className="px-4 py-3">{e.kind}</td>
-                    <td className={`px-4 py-3 font-medium ${Number(e.amount) < 0 ? 'text-destructive' : 'text-emerald-600'}`}>
+                    <td className={`px-4 py-3 font-semibold ${kindTone(e.kind)}`}>{kindLabel(e.kind)}</td>
+                    <td className={`px-4 py-3 font-medium tabular-nums ${Number(e.amount) < 0 ? 'text-foreground' : 'text-emerald-500'}`}>
                       {e.amount}
                     </td>
                     <td className="px-4 py-3 text-muted-foreground">{e.reference}</td>

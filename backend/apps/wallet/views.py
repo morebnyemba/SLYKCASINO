@@ -225,7 +225,7 @@ class PSPWebhookView(APIView):
 
 
 class AdminLedgerViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
-    """Staff-only ledger viewer — GET /api/admin/ledger/?player_id=<id>."""
+    """Staff-only ledger viewer — GET /api/admin/ledger/?player_id=<id>&kind=<kind>."""
     serializer_class = AdminLedgerEntrySerializer
     permission_classes = [IsAdminUser]
 
@@ -234,6 +234,9 @@ class AdminLedgerViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         player_id = self.request.query_params.get('player_id')
         if player_id:
             qs = qs.filter(wallet__player_id=player_id)
+        kind = self.request.query_params.get('kind')
+        if kind:
+            qs = qs.filter(kind__in=kind.split(','))
         return qs[:500]
 
 

@@ -27,20 +27,22 @@ interface LedgerEntry {
 
 const KIND_LABEL: Record<string, string> = {
   deposit: 'Deposit',
-  withdrawal: 'Withdrawal',
-  withdrawal_hold: 'Withdrawal hold',
-  bet_stake: 'Bet stake',
-  bet_payout: 'Bet payout',
-  casino_debit: 'Casino bet',
-  casino_credit: 'Casino win',
+  withdrawal: 'Withdrawal (paid)',
+  withdrawal_hold: 'Withdrawal on hold',
+  bet_stake: 'Sports bet',
+  bet_payout: 'Sports win',
+  casino_debit: 'Aviator bet',
+  casino_credit: 'Aviator win',
   bonus: 'Bonus',
   adjustment: 'Adjustment',
   affiliate: 'Affiliate commission',
 };
 
-function kindVariant(kind: string): 'default' | 'secondary' | 'destructive' {
+function kindVariant(kind: string): 'default' | 'secondary' | 'destructive' | 'outline' {
   if (['deposit', 'bet_payout', 'casino_credit', 'bonus', 'affiliate'].includes(kind)) return 'default';
-  if (['withdrawal', 'withdrawal_hold', 'bet_stake', 'casino_debit'].includes(kind)) return 'destructive';
+  // Only money leaving to the player is shown like a withdrawal; bets are neutral.
+  if (['withdrawal', 'withdrawal_hold'].includes(kind)) return 'destructive';
+  if (['bet_stake', 'casino_debit'].includes(kind)) return 'outline';
   return 'secondary';
 }
 
