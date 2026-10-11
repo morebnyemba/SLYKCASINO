@@ -9,6 +9,7 @@ import { useApi, authedPost } from '@/lib/use-api';
 import { config } from '@/lib/config';
 import { LoadingState, Spinner } from '@slyk/ui/components/spinner';
 import { PageHeader } from '@/components/console/ui';
+import { AnnouncementEditor } from '@/components/announcement-editor';
 
 interface Banner {
   id: number;
@@ -189,6 +190,8 @@ export default function BannersPage() {
           {showForm ? 'Cancel' : '+ New banner'}
         </button>
       </div>
+
+      <AnnouncementEditor />
 
       {showForm && (
         <Card className="rounded-2xl border-border/70">

@@ -186,3 +186,51 @@ class BannerImageView(APIView):
         response['Cache-Control'] = 'public, max-age=31536000, immutable'
         response['X-Content-Type-Options'] = 'nosniff'
         return response
+
+
+def _announcement(a) -> dict:
+    return {
+        'enabled': a.enabled, 'title': a.title, 'message': a.message, 'tone': a.tone,
+        'show_withdraw_button': a.show_withdraw_button, 'show_support_button': a.show_support_button,
+        'updated_at': a.updated_at.isoformat() if a.updated_at else None,
+    }
+
+
+class AnnouncementView(APIView):
+    """GET /api/announcement/ — the site-wide notice bar (public)."""
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        from .models import SiteAnnouncement
+        a = SiteAnnouncement.load()
+        return Response(_announcement(a) if a.enabled and a.message.strip() else {'enabled': False})
+
+
+class AdminAnnouncementView(APIView):
+    """GET/PUT /api/admin/announcement/ — edit or switch off the notice bar."""
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        from .models import SiteAnnouncement
+        return Response(_announcement(SiteAnnouncement.load()))
+
+    def put(self, request):
+        from apps.accounts import services as accounts_services
+        from .models import SiteAnnouncement
+        a = SiteAnnouncement.load()
+        d = request.data
+        for f in ('enabled', 'show_withdraw_button', 'show_support_button'):
+            if f in d:
+                setattr(a, f, bool(d[f]))
+        if 'title' in d:
+            a.title = str(d['title'] or '').strip()[:80]
+        if 'message' in d:
+            a.message = str(d['message'] or '').strip()[:600]
+        if d.get('tone') in SiteAnnouncement.Tone.values:
+            a.tone = d['tone']
+        if a.enabled and not a.message:
+            return Response({'detail': 'Write a message before switching the notice on.'}, status=status.HTTP_400_BAD_REQUEST)
+        a.updated_by = request.user.get_username()[:150]
+        a.save()
+        accounts_services.audit(None, 'site_announcement', request, enabled=a.enabled, title=a.title)
+        return Response(_announcement(a))

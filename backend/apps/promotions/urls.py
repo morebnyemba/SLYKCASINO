@@ -2,7 +2,7 @@ from django.urls import path
 from rest_framework.routers import SimpleRouter
 
 from .views import (
-    BannerImageUploadView, BannerImageView, BannerViewSet, MyClaimsViewSet, PromotionViewSet, TournamentViewSet,
+    AdminAnnouncementView, AnnouncementView, BannerImageUploadView, BannerImageView, BannerViewSet, MyClaimsViewSet, PromotionViewSet, TournamentViewSet,
 )
 
 router = SimpleRouter()
@@ -13,6 +13,8 @@ router.register('promotions', PromotionViewSet, basename='promotion')
 
 # Before the router, whose promotions/<pk>/ route would otherwise swallow these.
 urlpatterns = [
+    path('announcement/', AnnouncementView.as_view(), name='announcement'),
+    path('admin/announcement/', AdminAnnouncementView.as_view(), name='admin-announcement'),
     path('promotions/banner-images/', BannerImageUploadView.as_view(), name='banner-image-upload'),
     path('promotions/banner-images/<int:pk>/', BannerImageView.as_view(), name='banner-image'),
     *router.urls,
