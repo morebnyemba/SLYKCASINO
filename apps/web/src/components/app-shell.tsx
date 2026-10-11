@@ -3,6 +3,8 @@
 import { Suspense } from 'react';
 import { usePathname } from 'next/navigation';
 import { SiteHeader } from '@/components/site-header';
+import { AnnouncementBar } from '@/components/announcement-bar';
+import { TawkChat } from '@/components/tawk-chat';
 import { SiteFooter } from '@/components/site-footer';
 import { BottomNav } from '@/components/bottom-nav';
 import { AppSidebar, MobileMenu } from '@/components/app-sidebar';
@@ -30,6 +32,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <AppSidebar />
         <div className="flex min-w-0 flex-1 flex-col">
           <SiteHeader />
+          <AnnouncementBar />
           <MobileQuickNav />
           {/* Desktop: content column + bet-slip rail, both under the header. */}
           <div className="flex min-w-0 flex-1">
@@ -43,6 +46,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </div>
       </div>
+      <TawkChat />
       <MobileMenu />
       <GlobalSearch />
       <BetslipDrawer />

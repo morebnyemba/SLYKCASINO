@@ -242,3 +242,22 @@ class BannerImageUploadTests(TestCase):
 
     def test_missing_image_is_404(self):
         self.assertEqual(APIClient().get('/api/promotions/banner-images/999999/').status_code, 404)
+
+
+class SiteAnnouncementTests(TestCase):
+    def test_public_read_and_admin_edit(self):
+        from django.contrib.auth.models import User
+        from rest_framework.test import APIClient
+
+        public = APIClient().get('/api/announcement/').json()
+        self.assertTrue(public['enabled'])          # switched on by the migration
+        self.assertIn('withdrawal', public['message'])
+        self.assertTrue(public['show_support_button'])
+
+        admin = APIClient()
+        admin.force_authenticate(User.objects.create_user('ops', 'o@example.com', 'x', is_staff=True))
+        self.assertEqual(admin.put('/api/admin/announcement/', {'enabled': True, 'message': ''}, format='json').status_code, 400)
+        res = admin.put('/api/admin/announcement/', {'enabled': False}, format='json')
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(APIClient().get('/api/announcement/').json(), {'enabled': False})
+        self.assertEqual(APIClient().put('/api/admin/announcement/', {'enabled': True}, format='json').status_code, 401)
