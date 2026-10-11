@@ -55,7 +55,11 @@ class WithdrawalTests(TestCase):
         self.assertEqual(queue['pending_total'], '50.00')
 
         self.assertEqual(self.staff.post(f'/api/admin/withdrawals/{rid}/mark-paid/', {'reference': ''}, format='json').status_code, 400)
-        res = self.staff.post(f'/api/admin/withdrawals/{rid}/mark-paid/', {'reference': 'MP241011.1200.A1'}, format='json')
+        wrong = self.staff.post(f'/api/admin/withdrawals/{rid}/mark-paid/',
+                                {'reference': 'MP241011.1200.A1', 'confirm_amount': '5'}, format='json')
+        self.assertIn('doesn’t match', wrong.json()['detail'])
+        res = self.staff.post(f'/api/admin/withdrawals/{rid}/mark-paid/',
+                              {'reference': 'MP241011.1200.A1', 'confirm_amount': '50.00'}, format='json')
         self.assertEqual((res.status_code, res.json()['status']), (200, 'paid'))
         self.assertEqual(services.get_balance(self.player.id), D('150.00'))
         k = self.kpis()

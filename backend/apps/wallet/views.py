@@ -348,7 +348,8 @@ class AdminWithdrawalsView(APIView):
         by = request.user.get_username()
         try:
             if self.action == 'paid':
-                req = withdrawals.mark_paid(int(pk), reference=request.data.get('reference', ''), by=by)
+                req = withdrawals.mark_paid(int(pk), reference=request.data.get('reference', ''), by=by,
+                                            confirm_amount=request.data.get('confirm_amount'))
             else:
                 req = withdrawals.reject(int(pk), note=request.data.get('note', ''), by=by)
         except withdrawals.WithdrawalError as exc:

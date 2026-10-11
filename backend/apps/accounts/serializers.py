@@ -28,10 +28,16 @@ class PlayerSerializer(serializers.ModelSerializer):
         # The legal name comes from KYC, not from profile edits.
         read_only_fields = ['full_name']
 
+    # Lists annotate the wallet in the same query (wallet_balance/wallet_currency);
+    # otherwise it's looked up.
     def get_balance(self, obj: Player) -> str:
+        if hasattr(obj, 'wallet_balance'):
+            return f'{(obj.wallet_balance or 0):.2f}'
         return str(wallet_services.get_balance(obj.id))
 
     def get_currency(self, obj: Player) -> str:
+        if hasattr(obj, 'wallet_currency'):
+            return obj.wallet_currency or 'USD'
         return wallet_services.get_currency(obj.id)
 
 

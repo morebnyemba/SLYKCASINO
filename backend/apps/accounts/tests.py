@@ -186,3 +186,31 @@ class LoginIdentifierTests(TestCase):
             self.assertEqual(res.status_code, 200, identifier)
         res = client.post('/api/auth/login/', {'username': 'mc@example.com', 'password': 'wrong'}, format='json')
         self.assertEqual(res.status_code, 401)
+
+
+
+class AdminPlayerListTests(TestCase):
+    def test_search_filters_order_and_pages(self):
+        from django.contrib.auth.models import User
+        from rest_framework.test import APIClient
+
+        from apps.accounts import services as account_services
+        from apps.wallet import services as wallet_services
+
+        for i in range(30):
+            account_services.create_player(username=f'punter{i:02d}', email=f'p{i}@example.com')
+        target = account_services.create_player(username='tendai_m', email='tendai@example.com')
+        wallet_services.deposit(player_id=target.id, amount=__import__('decimal').Decimal('12.5'), idempotency_key='list:dep')
+        api = APIClient()
+        api.force_authenticate(User.objects.create_user('ops', 'o@example.com', 'x', is_staff=True))
+
+        page = api.get('/api/players/').json()
+        self.assertEqual((page['count'], len(page['results'])), (31, 25))
+        self.assertEqual(page['results'][0]['username'], 'tendai_m')         # newest first
+        self.assertEqual(page['results'][0]['balance'], '12.50')
+        self.assertEqual(len(api.get('/api/players/', {'page': 2}).json()['results']), 6)
+        self.assertEqual(len(api.get('/api/players/', {'page_size': 50}).json()['results']), 31)
+        found = api.get('/api/players/', {'q': 'TENDAI'}).json()['results']
+        self.assertEqual([p['username'] for p in found], ['tendai_m'])
+        self.assertEqual([p['username'] for p in api.get('/api/players/', {'q': f'#{target.id}'}).json()['results']], ['tendai_m'])
+        self.assertEqual(api.get('/api/players/', {'status': 'suspended'}).json()['count'], 0)
