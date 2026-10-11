@@ -91,9 +91,13 @@ def admin_stats(request):
             'commissions_pending': Commission.objects.filter(status=Commission.Status.PENDING).count(),
             'payouts_pending': Payout.objects.filter(status=Payout.Status.REQUESTED).count(),
             'withdrawals_pending': WithdrawalRequest.objects.filter(status=WithdrawalRequest.Status.REQUESTED).count(),
+            # Only markets someone actually bet on — the rest settle (or void) on
+            # their own and need nobody's attention.
             'markets_to_settle': Market.objects.filter(settled=False).filter(
                 Q(needs_review=True) | Q(kind=Market.Kind.MANUAL), event__starts_at__lt=now - timedelta(hours=2),
-            ).count(),
+            ).filter(
+                Q(outcomes__bets__status__in=('open', 'pending')) | Q(outcomes__legs__result='pending'),
+            ).distinct().count(),
         },
         'sportsbook': {
             'live': Event.objects.filter(status__in=LIVE_STATUSES).count(),

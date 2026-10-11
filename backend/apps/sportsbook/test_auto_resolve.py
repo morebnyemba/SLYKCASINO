@@ -112,5 +112,37 @@ class AutoResolveTests(TestCase):
         event = self._event(80)
         self._finish(event)
         self.assertEqual(sb.auto_resolve_markets(), {
-            'finished_events': 0, 'markets_settled': 0, 'markets_voided': 0, 'unplayed_voided': 0,
+            'finished_events': 0, 'markets_settled': 0, 'markets_voided': 0, 'unplayed_voided': 0, 'failed': 0,
         })
+
+
+class AutoResolveIsolationTests(TestCase):
+    """One match that errors must not stop every other match from settling."""
+
+    def test_a_failing_event_is_skipped_not_fatal(self):
+        from datetime import timedelta
+        from decimal import Decimal as D
+        from unittest.mock import patch
+
+        from django.utils import timezone
+
+        from apps.sportsbook import services as sb
+        from apps.sportsbook.models import Bet, Event
+
+        past = timezone.now() - timedelta(hours=8)
+        events = [Event.objects.create(name=f'Team {i} vs Other {i}', starts_at=past, status='FT',
+                                       score_home=1, score_away=0) for i in range(2)]
+        bets = [Bet.objects.create(event=e.name, event_ref=e, selection='home', stake=D('1'), odds=D('2'))
+                for e in events]
+        real = sb._auto_resolve_event
+
+        def flaky(event, report):
+            if event.id == events[0].id:
+                raise RuntimeError('boom')
+            return real(event, report)
+
+        with patch.object(sb, '_auto_resolve_event', side_effect=flaky):
+            report = sb.auto_resolve_markets()
+        self.assertEqual(report['failed'], 1)
+        bets[1].refresh_from_db()
+        self.assertEqual(bets[1].status, Bet.Status.WON)
