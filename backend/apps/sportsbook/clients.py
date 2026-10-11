@@ -313,6 +313,8 @@ class ApiFootballClient:
         except (requests.RequestException, ValueError):
             logger.warning('api-football fetch_fixtures failed', exc_info=True)
             return []
+        if payload.get('errors'):
+            logger.error('api-football fetch_fixtures refused: %s', payload.get('errors'))
         return [self._normalize(raw) for raw in payload.get('response', [])]
 
     def fetch_fixtures_by_ids(self, ids: list[str]) -> list[FixtureUpdate]:
@@ -334,6 +336,12 @@ class ApiFootballClient:
             except (requests.RequestException, ValueError):
                 logger.warning('api-football fetch_fixtures_by_ids failed', exc_info=True)
                 continue
+            if payload.get('errors'):
+                # e.g. the daily request quota is used up: api-football still
+                # answers 200, with no fixtures — say so instead of settling nothing quietly.
+                logger.error('api-football fetch_fixtures_by_ids refused: %s (remaining today: %s)',
+                             payload.get('errors'), resp.headers.get('x-ratelimit-requests-remaining', '?'))
+                break
             fixtures.extend(self._normalize(raw) for raw in payload.get('response', []))
         return fixtures
 

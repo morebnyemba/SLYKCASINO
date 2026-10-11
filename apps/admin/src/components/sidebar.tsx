@@ -7,7 +7,7 @@ import type { IconType } from 'react-icons';
 import {
   BsActivity, BsBroadcast, BsCalendar2Week, BsCashStack, BsChatDots, BsClockHistory, BsGift, BsGrid1X2,
   BsImages, BsList, BsMoonStars, BsPalette, BsPeople, BsPersonBadge, BsBoxArrowRight, BsSun, BsTicketPerforated,
-  BsTrophy, BsXLg, BsDiagram3, BsDatabase, BsCreditCard2Front, BsAirplane, BsPieChart,
+  BsTrophy, BsXLg, BsDiagram3, BsDatabase, BsCreditCard2Front, BsAirplane, BsPieChart, BsBank,
 } from 'react-icons/bs';
 import { useAuth } from '@/lib/auth-context';
 import { useSiteIdentity } from '@/lib/identity-context';
@@ -15,7 +15,7 @@ import { useTheme } from '@/lib/theme-context';
 import { useApi } from '@/lib/use-api';
 import { cx } from '@/components/console/ui';
 
-type Badge = 'kyc' | 'live' | 'commissions' | 'settle';
+type Badge = 'kyc' | 'live' | 'commissions' | 'settle' | 'payouts';
 
 interface NavItem { href: string; label: string; icon: IconType; badge?: Badge; match?: string[] }
 interface NavSection { title: string; items: NavItem[] }
@@ -41,6 +41,7 @@ export const NAV: NavSection[] = [
     { href: '/kyc', label: 'KYC review', icon: BsPersonBadge, badge: 'kyc' },
   ] },
   { title: 'Money', items: [
+    { href: '/withdrawals', label: 'Withdrawals', icon: BsBank, badge: 'payouts' },
     { href: '/transactions', label: 'Transactions', icon: BsCashStack },
     { href: '/payment-methods', label: 'Payment methods', icon: BsCreditCard2Front },
     { href: '/affiliates', label: 'Affiliates', icon: BsDiagram3, badge: 'commissions' },
@@ -61,7 +62,10 @@ export function isActive(pathname: string, item: NavItem) {
 }
 
 interface NavStats {
-  queues?: { kyc_pending?: number; commissions_pending?: number; payouts_pending?: number; markets_to_settle?: number };
+  queues?: {
+    kyc_pending?: number; commissions_pending?: number; payouts_pending?: number; markets_to_settle?: number;
+    withdrawals_pending?: number;
+  };
   sportsbook?: { live?: number };
 }
 
@@ -71,7 +75,9 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
   const counts: Record<Badge, number> = {
     kyc: data?.queues?.kyc_pending ?? 0,
     live: data?.sportsbook?.live ?? 0,
-    commissions: (data?.queues?.commissions_pending ?? 0) + (data?.queues?.payouts_pending ?? 0),
+    commissions: data?.queues?.commissions_pending ?? 0,
+    // Player withdrawals and affiliate payouts waiting to be sent.
+    payouts: (data?.queues?.withdrawals_pending ?? 0) + (data?.queues?.payouts_pending ?? 0),
     settle: data?.queues?.markets_to_settle ?? 0,
   };
   return (
@@ -177,6 +183,9 @@ function SidebarFooter() {
           </button>
         </div>
       )}
+      <p className="px-1 text-[10px] leading-snug text-white/35">
+        Turnkey solution developed by Slyker Tech Web Services for BETBLITS. Any request, order or action should be directed to BetBlits.
+      </p>
     </div>
   );
 }

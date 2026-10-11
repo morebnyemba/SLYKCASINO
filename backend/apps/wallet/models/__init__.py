@@ -5,5 +5,6 @@ from .ledger import LedgerEntry
 from .method import PaymentMethod
 from .payment import PaymentTransaction
 from .wallet import Wallet
+from .withdrawal import WithdrawalRequest, WithdrawalSettings
 
-__all__ = ['Wallet', 'LedgerEntry', 'PaymentGateway', 'PaymentMethod', 'PaymentTransaction']
+__all__ = ['Wallet', 'LedgerEntry', 'PaymentGateway', 'PaymentMethod', 'PaymentTransaction', 'WithdrawalRequest', 'WithdrawalSettings']

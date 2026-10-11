@@ -113,6 +113,10 @@ export function SiteFooter() {
             <Link href="/legal/aml-kyc-policy" className="hover:text-foreground">AML &amp; KYC</Link>
           </div>
         </div>
+        <p className="mt-4 text-center text-[11px] leading-relaxed text-muted-foreground/60">
+          This turnkey solution was developed by Slyker Tech Web Services for BETBLITS. Any request, order or action
+          should be directed to BetBlits.
+        </p>
       </div>
     </footer>
   );

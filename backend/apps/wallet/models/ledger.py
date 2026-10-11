@@ -13,6 +13,9 @@ class LedgerEntry(models.Model):
     class Kind(models.TextChoices):
         DEPOSIT = 'deposit', 'Deposit'
         WITHDRAWAL = 'withdrawal', 'Withdrawal'
+        # Held for a pending withdrawal request; returned if it's rejected or
+        # cancelled, released into a `withdrawal` when staff pay it.
+        WITHDRAWAL_HOLD = 'withdrawal_hold', 'Withdrawal held'
         BET_STAKE = 'bet_stake', 'Bet stake (debit)'
         BET_PAYOUT = 'bet_payout', 'Bet payout (credit)'
         CASINO_DEBIT = 'casino_debit', 'Casino debit'

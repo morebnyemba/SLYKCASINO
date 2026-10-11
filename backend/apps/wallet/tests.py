@@ -96,19 +96,23 @@ class WalletAPITests(TestCase):
         self.assertEqual(Decimal(resp.data['balance']), Decimal('1200.00'))
 
     def test_withdraw_via_api_debits_balance(self):
-        resp = self.client.post('/api/wallet/withdraw/', {'amount': '100.00'}, format='json')
+        resp = self.client.post('/api/wallet/withdraw/', {'amount': '100.00', **DEST}, format='json')
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
         self.assertEqual(Decimal(resp.data['balance']), Decimal('900.00'))
 
     def test_withdraw_insufficient_funds_returns_402(self):
-        resp = self.client.post('/api/wallet/withdraw/', {'amount': '9999.00'}, format='json')
+        self.client.post('/api/wallet/withdraw/', {'amount': '500.00', **DEST}, format='json')
+        resp = self.client.post('/api/wallet/withdraw/', {'amount': '600.00', **DEST}, format='json')
         self.assertEqual(resp.status_code, status.HTTP_402_PAYMENT_REQUIRED)
 
     def test_withdraw_requires_kyc_verification(self):
         self.player.kyc_status = self.player.Kyc.PENDING
         self.player.save(update_fields=['kyc_status'])
-        resp = self.client.post('/api/wallet/withdraw/', {'amount': '50.00'}, format='json')
+        resp = self.client.post('/api/wallet/withdraw/', {'amount': '50.00', **DEST}, format='json')
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+
+DEST = {'method': 'ecocash', 'account_number': '0771234567'}
 
 
 class PSPWebhookViewTests(TestCase):

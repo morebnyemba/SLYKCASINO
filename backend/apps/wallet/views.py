@@ -5,6 +5,7 @@ import uuid
 from decimal import Decimal, InvalidOperation
 
 from django.core.exceptions import ObjectDoesNotExist
+from django.db.models import Q, Sum
 from rest_framework import mixins, status, viewsets
 from rest_framework.permissions import AllowAny, IsAdminUser
 from rest_framework.response import Response
@@ -237,59 +238,148 @@ class AdminLedgerViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
 
 
 class WithdrawView(APIView):
-    """POST /api/wallet/withdraw/ — debit the player's wallet (stub PSP)."""
+    """POST /api/wallet/withdraw/ {amount, method, account_number, account_name?, bank_name?}
+    — ask to be paid out. The amount is held at once; staff send it and mark it paid."""
 
     def post(self, request):
+        from . import withdrawals
         player, err = _get_player_or_404(request)
         if err:
             return err
-
-        # AML/KYC: no payout leaves the platform until identity is verified.
-        # (Self-exclusion deliberately does NOT block withdrawals — players must
-        # always be able to retrieve their own funds.)
-        if player.kyc_status != player.Kyc.VERIFIED:
-            return Response(
-                {'detail': 'Identity verification is required before you can withdraw.'},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
+        d = request.data
         try:
-            amount = Decimal(str(request.data.get('amount', '0')))
-            if amount <= 0:
-                raise ValueError('amount must be positive')
-        except (InvalidOperation, ValueError) as exc:
-            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Bonus money can't leave until its wagering requirement is met.
-        from apps.promotions import services as promotions_services
-        bonus = promotions_services.bonus_status(player.id)
-        if bonus['locked'] > 0:
-            withdrawable = max(services.get_balance_dto(player.id).balance - bonus['locked'], Decimal('0'))
-            if amount > withdrawable:
-                return Response({
-                    'detail': f"{bonus['locked']} of your balance is bonus money — bet {bonus['wagering_remaining']} "
-                              f"more to unlock it. You can withdraw up to {withdrawable} now.",
-                    'withdrawable': str(withdrawable),
-                }, status=status.HTTP_403_FORBIDDEN)
-
-        idempotency_key = request.data.get('idempotency_key') or f'withdrawal:req:{uuid.uuid4()}'
-        try:
-            entry = services.debit(
-                player_id=player.id,
-                amount=amount,
-                kind='withdrawal',
-                idempotency_key=idempotency_key,
-                reference='psp:stub',
+            req = withdrawals.request(
+                player=player, amount=d.get('amount'), method=d.get('method') or '',
+                account_number=d.get('account_number') or '', account_name=d.get('account_name') or '',
+                bank_name=d.get('bank_name') or '',
             )
+        except withdrawals.WithdrawalError as exc:
+            body = {'detail': str(exc)}
+            if exc.withdrawable is not None:
+                body['withdrawable'] = str(exc.withdrawable)
+            return Response(body, status=exc.code)
         except services.InsufficientFunds as exc:
             return Response({'detail': str(exc)}, status=status.HTTP_402_PAYMENT_REQUIRED)
-
         dto = services.get_balance_dto(player.id)
+        return Response({'balance': str(dto.balance), 'currency': dto.currency,
+                         'withdrawal': withdrawals.payload(req)}, status=status.HTTP_201_CREATED)
+
+
+class MyWithdrawalsView(APIView):
+    """GET /api/wallet/withdrawals/ — the player's requests and limits;
+    POST /api/wallet/withdrawals/<id>/cancel/ — take one back before it's paid."""
+
+    def get(self, request):
+        from . import withdrawals
+        from .models import WithdrawalRequest, WithdrawalSettings
+        player, err = _get_player_or_404(request)
+        if err:
+            return err
+        cfg = WithdrawalSettings.load()
+        rows = WithdrawalRequest.objects.filter(player_id=player.id)[:30]
         return Response({
-            'balance': str(dto.balance),
-            'currency': dto.currency,
-            'entry': LedgerEntrySerializer(entry).data,
-        }, status=status.HTTP_201_CREATED)
+            'results': [withdrawals.payload(r) for r in rows],
+            'limits': {'min': str(cfg.min_amount), 'max': str(cfg.max_amount), 'daily_max': str(cfg.daily_max),
+                       'left_today': str(max(cfg.daily_max - withdrawals.requested_today(player.id), Decimal('0')))
+                       if cfg.daily_max else None},
+            'methods': [{'id': v, 'label': l} for v, l in WithdrawalRequest.Method.choices],
+        })
+
+    def post(self, request, pk: int):
+        from . import withdrawals
+        player, err = _get_player_or_404(request)
+        if err:
+            return err
+        try:
+            req = withdrawals.cancel(player_id=player.id, req_id=int(pk))
+        except withdrawals.WithdrawalError as exc:
+            return Response({'detail': str(exc)}, status=exc.code)
+        return Response({'withdrawal': withdrawals.payload(req),
+                         'balance': str(services.get_balance_dto(player.id).balance)})
+
+
+class AdminWithdrawalsView(APIView):
+    """GET /api/admin/withdrawals/?status=requested|paid|rejected|cancelled|all&q=
+    — the payout queue, with what staff check before paying.
+    POST /api/admin/withdrawals/<id>/mark-paid/ {reference} and .../reject/ {note}."""
+    permission_classes = [IsAdminUser]
+    action = 'list'
+
+    def get(self, request):
+        from apps.accounts.models import Player
+        from . import withdrawals
+        from .models import WithdrawalRequest
+        state = request.query_params.get('status') or 'requested'
+        qs = WithdrawalRequest.objects.all()
+        if state != 'all':
+            qs = qs.filter(status=state)
+        if (request.query_params.get('player_id') or '').isdigit():
+            qs = qs.filter(player_id=int(request.query_params['player_id']))
+        q = (request.query_params.get('q') or '').strip()
+        if q:
+            ids = list(Player.objects.filter(Q(username__icontains=q) | Q(email__icontains=q)).values_list('id', flat=True)[:200])
+            qs = qs.filter(Q(player_id__in=ids) | Q(account_number__icontains=q) | Q(reference__icontains=q)
+                           | Q(id=int(q) if q.isdigit() else -1))
+        rows = list(qs.order_by('created_at' if state == 'requested' else '-id')[:200])
+        players = {p.id: p for p in Player.objects.filter(id__in={r.player_id for r in rows})}
+        out = []
+        for r in rows:
+            p = players.get(r.player_id)
+            row = withdrawals.payload(r, staff=True)
+            row.update(username=p.username if p else '(deleted)', kyc_status=p.kyc_status if p else None)
+            if state == 'requested':
+                row['context'] = withdrawals.player_context(r.player_id)
+            out.append(row)
+        return Response({
+            'results': out,
+            'counts': {s: WithdrawalRequest.objects.filter(status=s).count() for s in ('requested',)},
+            'pending_total': f"{(WithdrawalRequest.objects.filter(status='requested').aggregate(t=Sum('amount'))['t'] or Decimal('0')):.2f}",
+        })
+
+    def post(self, request, pk: int):
+        from apps.accounts import services as accounts_services
+        from . import withdrawals
+        by = request.user.get_username()
+        try:
+            if self.action == 'paid':
+                req = withdrawals.mark_paid(int(pk), reference=request.data.get('reference', ''), by=by)
+            else:
+                req = withdrawals.reject(int(pk), note=request.data.get('note', ''), by=by)
+        except withdrawals.WithdrawalError as exc:
+            return Response({'detail': str(exc)}, status=exc.code)
+        accounts_services.audit(req.player_id, f'withdrawal_{req.status}', request, withdrawal_id=req.id,
+                                amount=str(req.amount), reference=req.reference, note=req.note)
+        return Response(withdrawals.payload(req, staff=True))
+
+
+class AdminWithdrawalSettingsView(APIView):
+    """GET/PUT /api/admin/withdrawal-settings/ — min, max and daily cap per player."""
+    permission_classes = [IsAdminUser]
+
+    @staticmethod
+    def _out(cfg):
+        return {'min_amount': str(cfg.min_amount), 'max_amount': str(cfg.max_amount), 'daily_max': str(cfg.daily_max)}
+
+    def get(self, request):
+        from .models import WithdrawalSettings
+        return Response(self._out(WithdrawalSettings.load()))
+
+    def put(self, request):
+        from apps.accounts import services as accounts_services
+        from .models import WithdrawalSettings
+        cfg = WithdrawalSettings.load()
+        try:
+            for f in ('min_amount', 'max_amount', 'daily_max'):
+                if f in request.data:
+                    setattr(cfg, f, Decimal(str(request.data[f])).quantize(Decimal('0.01')))
+        except (InvalidOperation, ValueError, TypeError):
+            return Response({'detail': 'Enter amounts as numbers.'}, status=status.HTTP_400_BAD_REQUEST)
+        if cfg.min_amount <= 0 or cfg.max_amount < cfg.min_amount or cfg.daily_max < 0:
+            return Response({'detail': 'The minimum must be above $0 and at most the maximum; the daily cap can’t be negative (0 = none).'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        cfg.save()
+        accounts_services.audit(None, 'withdrawal_settings', request, **self._out(cfg))
+        return Response(self._out(cfg))
 
 
 class PaymentMethodsView(APIView):

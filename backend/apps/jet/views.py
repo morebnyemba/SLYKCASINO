@@ -327,3 +327,29 @@ class AdminChatView(APIView):
         mute = social.mute(player_id, hours, by=request.user.get_username())
         accounts_services.audit(player_id, 'jet_chat_mute', request, hours=hours)
         return Response({'player_id': player_id, 'until': services.iso(mute.until)})
+
+
+class AdminPlayerBetsView(APIView):
+    """GET /api/admin/jet/bets/?player_id= — a player's latest Aviator bets with each round's result."""
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        try:
+            player_id = int(request.query_params.get('player_id') or 0)
+        except ValueError:
+            player_id = 0
+        if not player_id:
+            return Response({'detail': 'Choose a player.'}, status=status.HTTP_400_BAD_REQUEST)
+        bets = JetBet.objects.filter(player_id=player_id).select_related('round')[:100]
+        agg = JetBet.objects.filter(player_id=player_id, is_free=False).aggregate(
+            n=Count('id'), staked=Sum('stake'), won=Sum('payout'))
+        staked, won = agg['staked'] or Decimal('0'), agg['won'] or Decimal('0')
+        return Response({
+            'results': [
+                {**services.bet_payload(b, mine=True), 'created_at': services.iso(b.created_at),
+                 'crash_point': str(b.round.crash_point) if b.round.status == JetRound.Status.CRASHED else None}
+                for b in bets
+            ],
+            'summary': {'bets': agg['n'] or 0, 'staked': f'{staked:.2f}', 'won': f'{won:.2f}',
+                        'net': f'{(won - staked):.2f}'},
+        })
