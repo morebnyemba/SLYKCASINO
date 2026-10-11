@@ -6,12 +6,14 @@ import { BsChevronDown, BsChevronRight } from 'react-icons/bs';
 import { Badge, EmptyState, cx, money, tableClass, tdClass, thClass, trClass } from '@/components/console/ui';
 import { useApi } from '@/lib/use-api';
 
-interface Leg { id: number; event: string; match?: string | null; market_name?: string | null; outcome_label?: string | null; selection: string; odds: string; result: string }
+// The match a ticket is on (null for old free-text bets).
+interface Match { id: number; name: string; starts_at?: string | null; status?: string; score_home?: number | null; score_away?: number | null }
+interface Leg { id: number; event: string; match?: Match | null; market_name?: string | null; outcome_label?: string | null; selection: string; odds: string; result: string }
 export interface Ticket {
   ticket: string; kind: 'single' | 'multiple'; id: number; player_id: number | null; username: string;
   stake: string; odds?: string; combined_odds?: string; status: string; payout: string; placed_at: string;
   bonus?: string; cashout_paid?: string; stake_cashed_out?: string;
-  event?: string; match?: string | null; market_name?: string | null; outcome_label?: string | null; selection?: string;
+  event?: string; match?: Match | null; market_name?: string | null; outcome_label?: string | null; selection?: string;
   legs?: Leg[];
 }
 export interface TicketsResponse {
@@ -23,8 +25,9 @@ const TONE: Record<string, 'gold' | 'green' | 'red' | 'slate' | 'indigo'> = {
   open: 'gold', pending: 'gold', accepting: 'gold', won: 'green', lost: 'red', void: 'slate', cashed_out: 'indigo', rejected: 'red',
 };
 
-const pick = (x: { match?: string | null; event?: string; market_name?: string | null; outcome_label?: string | null; selection?: string }) => ({
-  match: x.match || x.event || '—',
+const pick = (x: { match?: Match | null; event?: string; market_name?: string | null; outcome_label?: string | null; selection?: string }) => ({
+  match: (x.match?.name || x.event || '—')
+    + (x.match && x.match.score_home != null && x.match.score_away != null ? ` (${x.match.score_home}–${x.match.score_away})` : ''),
   pick: [x.market_name, x.outcome_label || x.selection].filter(Boolean).join(': '),
 });
 

@@ -27,6 +27,7 @@ class WithdrawalTests(TestCase):
         self.player.user = self.user
         self.player.save(update_fields=['kyc_status', 'user'])
         services.deposit(player_id=self.player.id, amount=D('200'), idempotency_key='dep:1')
+        WithdrawalSettings.objects.update_or_create(pk=1, defaults={'min_turnover_percent': 0})
         self.api = APIClient()
         self.api.force_authenticate(self.user)
         self.staff = APIClient()
@@ -134,3 +135,31 @@ class LegacyWithdrawalTests(TestCase):
         self.staff.post(f'/api/admin/withdrawals/{self.req.id}/reject/', {'note': 'Please request again with your number'}, format='json')
         self.assertEqual(services.get_balance(self.player.id), D('100.00'))
         self.assertEqual(self.withdrawn(), '0.00')
+
+
+class PlayThroughTests(TestCase):
+    """Deposit-and-withdraw without playing is refused until deposits are bet."""
+
+    def setUp(self):
+        self.player = account_services.create_player(username='quickflip')
+        self.player.kyc_status = self.player.Kyc.VERIFIED
+        self.player.save(update_fields=['kyc_status'])
+        services.deposit(player_id=self.player.id, amount=D('100'), idempotency_key='dep:qf')
+
+    def ask(self):
+        return withdrawals.request(player=self.player, amount='50', **{k: v for k, v in ECOCASH.items()})
+
+    def test_must_bet_deposits_once(self):
+        with self.assertRaisesMessage(withdrawals.WithdrawalError, 'bet $100.00 more'):
+            self.ask()
+        services.debit(player_id=self.player.id, amount=D('60'), kind='casino_debit', idempotency_key='qf:s1')
+        services.credit(player_id=self.player.id, amount=D('60'), kind='casino_credit', idempotency_key='qf:w1')
+        with self.assertRaisesMessage(withdrawals.WithdrawalError, 'bet $40.00 more'):
+            self.ask()
+        services.debit(player_id=self.player.id, amount=D('40'), kind='bet_stake', idempotency_key='qf:s2')
+        services.credit(player_id=self.player.id, amount=D('40'), kind='bet_payout', idempotency_key='qf:w2')
+        self.assertEqual(self.ask().status, 'requested')
+
+    def test_rule_can_be_changed_or_switched_off(self):
+        WithdrawalSettings.objects.update_or_create(pk=1, defaults={'min_turnover_percent': 0})
+        self.assertEqual(self.ask().status, 'requested')

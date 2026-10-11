@@ -15,7 +15,7 @@ import { useTheme } from '@/lib/theme-context';
 import { useApi } from '@/lib/use-api';
 import { cx } from '@/components/console/ui';
 
-type Badge = 'kyc' | 'live' | 'commissions' | 'settle' | 'payouts';
+type Badge = 'kyc' | 'live' | 'commissions' | 'settle' | 'payouts' | 'support';
 
 interface NavItem { href: string; label: string; icon: IconType; badge?: Badge; match?: string[] }
 interface NavSection { title: string; items: NavItem[] }
@@ -25,7 +25,7 @@ export const NAV: NavSection[] = [
   { title: 'Operations', items: [
     { href: '/', label: 'Dashboard', icon: BsGrid1X2 },
     { href: '/analytics', label: 'Analytics', icon: BsPieChart },
-    { href: '/livechat', label: 'Live chat', icon: BsChatDots },
+    { href: '/livechat', label: 'Support chat', icon: BsChatDots, badge: 'support' },
   ] },
   { title: 'Sportsbook', items: [
     { href: '/sportsbook/matches', label: 'Matches', icon: BsCalendar2Week, badge: 'live', match: ['/sportsbook/matches', '/events'] },
@@ -64,7 +64,7 @@ export function isActive(pathname: string, item: NavItem) {
 interface NavStats {
   queues?: {
     kyc_pending?: number; commissions_pending?: number; payouts_pending?: number; markets_to_settle?: number;
-    withdrawals_pending?: number;
+    withdrawals_pending?: number; support_unread?: number;
   };
   sportsbook?: { live?: number };
 }
@@ -78,6 +78,7 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
     commissions: data?.queues?.commissions_pending ?? 0,
     // Player withdrawals and affiliate payouts waiting to be sent.
     payouts: (data?.queues?.withdrawals_pending ?? 0) + (data?.queues?.payouts_pending ?? 0),
+    support: data?.queues?.support_unread ?? 0,
     settle: data?.queues?.markets_to_settle ?? 0,
   };
   return (

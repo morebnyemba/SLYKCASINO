@@ -23,7 +23,7 @@ interface Withdrawal {
   legacy?: boolean; email?: string;
 }
 interface Queue { results: Withdrawal[]; counts: { requested: number }; pending_total: string }
-interface Limits { min_amount: string; max_amount: string; daily_max: string }
+interface Limits { min_amount: string; max_amount: string; daily_max: string; min_turnover_percent: number | string }
 
 const TONE = { requested: 'gold', paid: 'green', rejected: 'red', cancelled: 'slate' } as const;
 type Status = Withdrawal['status'] | 'all';
@@ -240,11 +240,12 @@ function LimitsPanel() {
     { key: 'min_amount', label: 'Minimum per withdrawal ($)', hint: 'Smallest amount a player can ask for.' },
     { key: 'max_amount', label: 'Maximum per withdrawal ($)', hint: 'Largest single request.' },
     { key: 'daily_max', label: 'Daily cap per player ($)', hint: 'Total a player may request per day (0 = no cap).' },
+    { key: 'min_turnover_percent', label: 'Play-through before withdrawing (% of deposits)', hint: '100 = players must bet their deposits at least once (stops deposit-and-withdraw). 0 = off.' },
   ];
   return (
-    <Panel title="Withdrawal limits" description="Shown to players on their wallet page. Identity verification (KYC) is always required.">
+    <Panel title="Withdrawal limits" description="Requests that break a rule are refused straight away with the reason, and never reach the queue: KYC not verified, not enough balance, bonus still being wagered, outside these limits, or deposits not yet played through.">
       {notice && <div className="mb-4"><Notice tone={notice.tone} onClose={() => setNotice(null)}>{notice.text}</Notice></div>}
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {fields.map((f) => (
           <Field key={f.key} label={f.label} hint={f.hint}>
             <TextInput inputMode="decimal" value={form?.[f.key] ?? ''} onChange={(e) => setForm((v) => v && { ...v, [f.key]: e.target.value.replace(/[^0-9.]/g, '') })} />

@@ -89,6 +89,9 @@ class WalletAPITests(TestCase):
             player_id=self.player.id, amount=Decimal('1000.00'),
             kind='deposit', idempotency_key=f'setup:wallet:{self.player.id}',
         )
+        # These tests cover the API, not the play-through rule (see test_withdrawals).
+        from apps.wallet.models import WithdrawalSettings
+        WithdrawalSettings.objects.update_or_create(pk=1, defaults={'min_turnover_percent': 0})
 
     def test_deposit_via_api_credits_balance(self):
         resp = self.client.post('/api/wallet/deposit/', {'amount': '200.00'}, format='json')

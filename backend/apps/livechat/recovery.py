@@ -31,7 +31,10 @@ class RecoveryManager(BaseRecoveryManager):
 
     def reconcile(self) -> None:
         cutoff = timezone.now() - GRACE
-        undelivered = ChatMessage.objects.filter(delivered=False, created_at__lt=cutoff)
+        # Private support messages are never broadcast (they're fetched over the
+        # authenticated API only), so they're never "undelivered".
+        undelivered = ChatMessage.objects.filter(delivered=False, created_at__lt=cutoff).exclude(
+            channel__startswith='support:')
         publisher = RealtimePublisherClient()
         for message in undelivered.iterator():
             self.mark_scanned()
