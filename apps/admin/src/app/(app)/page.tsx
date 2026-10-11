@@ -110,7 +110,7 @@ export default function DashboardPage() {
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-6">
         <StatTile loading={loading} icon={BsWallet2} tone="indigo" label="Deposits today" value={money(t?.deposits)} href="/transactions" />
-        <StatTile loading={loading} icon={BsCashStack} tone="slate" label="Withdrawals" value={money(t?.withdrawals)} href="/transactions" />
+        <StatTile loading={loading} icon={BsCashStack} tone="slate" label="Withdrawals" value={money(t?.withdrawals)} href="/withdrawals" />
         <StatTile loading={loading} icon={BsReceipt} tone="indigo" label="Stakes" value={money(t?.stakes)} />
         <StatTile loading={loading} icon={BsCashCoin} tone="gold" label="Payouts" value={money(t?.payouts)} />
         <StatTile

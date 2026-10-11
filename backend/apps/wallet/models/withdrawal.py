@@ -32,6 +32,8 @@ class WithdrawalRequest(models.Model):
         ONEMONEY = 'onemoney', 'OneMoney'
         INNBUCKS = 'innbucks', 'InnBucks'
         BANK = 'bank', 'Bank transfer'
+        # Made before requests existed: the player never said where to send it.
+        UNKNOWN = 'unknown', 'Not given (ask the player)'
 
     class Status(models.TextChoices):
         REQUESTED = 'requested', 'Waiting to be paid'
@@ -51,6 +53,9 @@ class WithdrawalRequest(models.Model):
     # Why it was rejected (shown to the player) or a staff note.
     note = models.CharField(max_length=300, blank=True)
     decided_by = models.CharField(max_length=150, blank=True)
+    # Taken off the balance by the old instant withdraw (already posted as a
+    # `withdrawal`, no hold): paying it moves no money; rejecting refunds it.
+    legacy = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     decided_at = models.DateTimeField(null=True, blank=True)
 

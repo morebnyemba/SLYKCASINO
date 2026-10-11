@@ -122,6 +122,16 @@ def _locked(req_id: int) -> WithdrawalRequest:
     return req
 
 
+def _give_back(req: WithdrawalRequest, why: str) -> None:
+    """Return the money to the balance. A legacy request was already posted
+    as a withdrawal, so it's reversed as one (reports net it out)."""
+    if req.legacy:
+        services.credit(player_id=req.player_id, amount=req.amount, kind=LedgerEntry.Kind.WITHDRAWAL,
+                        idempotency_key=f'withdrawal:{req.id}:legacy-return', reference=f'withdrawal:{req.id}:{why}')
+    else:
+        _return_hold(req, why)
+
+
 def _return_hold(req: WithdrawalRequest, why: str) -> None:
     services.credit(player_id=req.player_id, amount=req.amount, kind=LedgerEntry.Kind.WITHDRAWAL_HOLD,
                     idempotency_key=f'withdrawal:{req.id}:return', reference=f'withdrawal:{req.id}:{why}')
@@ -135,7 +145,7 @@ def cancel(*, player_id: int, req_id: int, now=None) -> WithdrawalRequest:
         raise WithdrawalError('Withdrawal not found.', code=404)
     if req.status != OPEN:
         raise WithdrawalError('This withdrawal has already been handled.', code=409)
-    _return_hold(req, 'cancelled')
+    _give_back(req, 'cancelled')
     req.status, req.decided_at = WithdrawalRequest.Status.CANCELLED, now or timezone.now()
     req.save(update_fields=['status', 'decided_at'])
     return req
@@ -151,16 +161,16 @@ def mark_paid(req_id: int, *, reference: str, by: str = '', now=None) -> Withdra
     if req.status != OPEN:
         raise WithdrawalError(f'This withdrawal is already {req.get_status_display().lower()}.', code=409)
     # Release the hold and post the real withdrawal — balance unchanged, and
-    # reports now count it as money out.
-    _return_hold(req, 'paid')
-    services.debit(player_id=req.player_id, amount=req.amount, kind=LedgerEntry.Kind.WITHDRAWAL,
-                   idempotency_key=f'withdrawal:{req.id}:paid', reference=f'withdrawal:{req.id}:{reference}'[:200])
+    # reports now count it as money out. (A legacy one was posted long ago.)
+    if not req.legacy:
+        _return_hold(req, 'paid')
+        services.debit(player_id=req.player_id, amount=req.amount, kind=LedgerEntry.Kind.WITHDRAWAL,
+                       idempotency_key=f'withdrawal:{req.id}:paid', reference=f'withdrawal:{req.id}:{reference}'[:200])
     req.status, req.reference = WithdrawalRequest.Status.PAID, reference[:120]
     req.decided_by, req.decided_at = by[:150], now or timezone.now()
     req.save(update_fields=['status', 'reference', 'decided_by', 'decided_at'])
-    _notify(req.player_id, 'Withdrawal sent',
-            f'${req.amount:.2f} has been sent to your {req.get_method_display()} ({_tail(req.account_number)}). '
-            f'Reference: {reference}.')
+    where = 'you' if req.legacy else f'your {req.get_method_display()} ({_tail(req.account_number)})'
+    _notify(req.player_id, 'Withdrawal sent', f'${req.amount:.2f} has been sent to {where}. Reference: {reference}.')
     return req
 
 
@@ -173,7 +183,7 @@ def reject(req_id: int, *, note: str, by: str = '', now=None) -> WithdrawalReque
     req = _locked(req_id)
     if req.status != OPEN:
         raise WithdrawalError(f'This withdrawal is already {req.get_status_display().lower()}.', code=409)
-    _return_hold(req, 'rejected')
+    _give_back(req, 'rejected')
     req.status, req.note = WithdrawalRequest.Status.REJECTED, note[:300]
     req.decided_by, req.decided_at = by[:150], now or timezone.now()
     req.save(update_fields=['status', 'note', 'decided_by', 'decided_at'])
@@ -215,6 +225,7 @@ def payload(req: WithdrawalRequest, *, staff: bool = False) -> dict:
         'status': req.status, 'status_label': req.get_status_display(),
         'reference': req.reference, 'note': req.note,
         'created_at': req.created_at.isoformat(), 'decided_at': req.decided_at.isoformat() if req.decided_at else None,
+        'legacy': req.legacy,
     }
     if staff:
         data.update(player_id=req.player_id, decided_by=req.decided_by)

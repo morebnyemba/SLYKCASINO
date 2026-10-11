@@ -9,7 +9,7 @@ import { authedPost, useApi } from '@/lib/use-api';
 interface Withdrawal {
   id: number; amount: string; method: string; method_label: string; account_number: string;
   status: 'requested' | 'paid' | 'rejected' | 'cancelled'; status_label: string; reference: string; note: string;
-  created_at: string;
+  created_at: string; legacy?: boolean;
 }
 interface Mine {
   results: Withdrawal[];
@@ -87,7 +87,7 @@ export function WithdrawPanel({ withdrawable, onChanged }: { withdrawable?: stri
           {data!.results.map((w) => (
             <li key={w.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm">
               <span className="font-semibold tabular-nums">${w.amount}</span>
-              <span className="text-muted-foreground">{w.method_label} {w.account_number}</span>
+              <span className="text-muted-foreground">{w.legacy ? 'Earlier withdrawal — our team will contact you' : `${w.method_label} ${w.account_number}`}</span>
               <Badge variant={TONE[w.status]}>{w.status_label}</Badge>
               <span className="ml-auto text-xs text-muted-foreground">{new Date(w.created_at).toLocaleString()}</span>
               {w.status === 'requested' && (
