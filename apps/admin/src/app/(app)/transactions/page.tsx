@@ -7,6 +7,7 @@ import { Card, CardContent } from '@slyk/ui/components/card';
 import { useApi } from '@/lib/use-api';
 import { LoadingState } from '@slyk/ui/components/spinner';
 import { PageHeader } from '@/components/console/ui';
+import { KIND_FILTERS, kindLabel, kindTone } from '@/lib/ledger-kinds';
 
 interface LedgerEntry {
   id: number;
@@ -30,15 +31,16 @@ const PAGE_SIZE = 25;
 export default function TransactionsPage() {
   const [playerId, setPlayerId] = useState('');
   const [page, setPage] = useState(1);
+  const [kind, setKind] = useState('');
 
-  const query = playerId ? `&player_id=${playerId}` : '';
+  const query = `${playerId ? `&player_id=${playerId}` : ''}${kind ? `&kind=${kind}` : ''}`;
   const { data, loading, error } = useApi<LedgerResponse>(`/admin/ledger/?page=${page}${query}`);
   const entries = data?.results ?? [];
   const totalPages = data?.count ? Math.ceil(data.count / PAGE_SIZE) : 1;
 
   return (
     <div className="space-y-6">
-      <PageHeader icon={FaExchangeAlt} eyebrow="Money" title="Transactions" description="Every wallet movement: deposits, withdrawals, stakes, payouts and bonuses." />
+      <PageHeader icon={FaExchangeAlt} eyebrow="Money" title="Transactions" description="Every wallet movement. Bets (sports and Aviator) are stakes, not withdrawals — only “Withdrawal (paid out)” is money sent to a player." />
 
       <div className="flex items-center gap-2">
         <input
@@ -48,6 +50,10 @@ export default function TransactionsPage() {
           placeholder="Filter by player ID"
           className="w-48 rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
         />
+        <select value={kind} onChange={(e) => { setKind(e.target.value); setPage(1); }} aria-label="Type"
+          className="rounded-md border border-border bg-background px-3 py-2 text-sm">
+          {KIND_FILTERS.map((k) => <option key={k.id} value={k.id}>{k.label}</option>)}
+        </select>
       </div>
 
       {error && <p className="text-sm text-destructive">{error}</p>}
@@ -75,8 +81,8 @@ export default function TransactionsPage() {
                     <td className="px-4 py-3">
                       <Link href={`/players/${e.player_id}`} className="text-gold hover:underline">#{e.player_id}</Link>
                     </td>
-                    <td className="px-4 py-3">{e.kind}</td>
-                    <td className={`px-4 py-3 font-medium ${Number(e.amount) < 0 ? 'text-destructive' : 'text-emerald-600'}`}>
+                    <td className={`px-4 py-3 font-semibold ${kindTone(e.kind)}`}>{kindLabel(e.kind)}</td>
+                    <td className={`px-4 py-3 font-medium tabular-nums ${Number(e.amount) < 0 ? 'text-foreground' : 'text-emerald-500'}`}>
                       {e.amount}
                     </td>
                     <td className="px-4 py-3 text-muted-foreground">{e.reference}</td>
