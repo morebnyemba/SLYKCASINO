@@ -9,6 +9,7 @@ import { useAuth } from '@/lib/auth-context';
 import { useApi, authedPost } from '@/lib/use-api';
 import { LoadingState } from '@slyk/ui/components/spinner';
 import { DeletePlayer } from '@/components/players/delete-player';
+import { PlayerActivity } from '@/components/tickets/tickets';
 
 type PageProps = { params: Promise<{ id: string }> };
 
@@ -246,6 +247,8 @@ export default function PlayerDetailPage({ params }: PageProps) {
           </form>
         </CardContent>
       </Card>
+
+      <PlayerActivity playerId={player.id} />
 
       <Card className="overflow-hidden rounded-2xl border-border/70">
         <CardHeader><CardTitle className="text-base">KYC submissions</CardTitle></CardHeader>

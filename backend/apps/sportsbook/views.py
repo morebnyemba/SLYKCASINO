@@ -1,6 +1,8 @@
 """sportsbook transport — views move data; placement logic lives in services."""
 from __future__ import annotations
 
+from decimal import Decimal
+
 from django.db.models import Count, Prefetch, Q
 from rest_framework import mixins, status, viewsets
 from rest_framework.pagination import PageNumberPagination
@@ -419,3 +421,61 @@ class AdminCashoutSettingsView(APIView):
         accounts_services.audit(None, 'cashout_settings', request,
                                 enabled=cfg.enabled, margin=str(cfg.margin_percent))
         return Response(self._payload())
+
+
+class AdminTicketsView(APIView):
+    """GET /api/admin/tickets/?player_id=&q=&status=&kind=single|multiple
+    — every player's tickets, singles and multiples together, newest first.
+    `q` takes a ticket number as players see it (S12 / M5), a username or an email."""
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        import re
+
+        from django.db.models import Q, Sum
+
+        from apps.accounts.models import Player
+
+        params = request.query_params
+        singles, multis = Bet.objects.all(), BetSlip.objects.prefetch_related('legs')
+        if params.get('player_id'):
+            singles, multis = singles.filter(player_id=params['player_id']), multis.filter(player_id=params['player_id'])
+        q = (params.get('q') or '').strip().lstrip('#')
+        ticket = re.fullmatch(r'([SsMm])(\d+)', q)
+        if ticket:
+            pk = int(ticket.group(2))
+            singles = singles.filter(pk=pk) if ticket.group(1).lower() == 's' else singles.none()
+            multis = multis.filter(pk=pk) if ticket.group(1).lower() == 'm' else multis.none()
+        elif q:
+            ids = list(Player.objects.filter(Q(username__icontains=q) | Q(email__icontains=q)).values_list('id', flat=True)[:200])
+            singles, multis = singles.filter(player_id__in=ids), multis.filter(player_id__in=ids)
+        if params.get('status'):
+            singles, multis = singles.filter(status=params['status']), multis.filter(status=params['status'])
+        kind = params.get('kind')
+        if kind == 'single':
+            multis = multis.none()
+        elif kind == 'multiple':
+            singles = singles.none()
+
+        rows = [{**BetSerializer(b, context={'request': request}).data, 'kind': 'single', 'ticket': f'S{b.id}',
+                 'player_id': b.player_id} for b in singles.order_by('-placed_at')[:150]]
+        rows += [{**BetSlipSerializer(s, context={'request': request}).data, 'kind': 'multiple', 'ticket': f'M{s.id}',
+                  'player_id': s.player_id} for s in multis.order_by('-placed_at')[:150]]
+        rows.sort(key=lambda r: r['placed_at'], reverse=True)
+        rows = rows[:150]
+        names = dict(Player.objects.filter(id__in={r['player_id'] for r in rows}).values_list('id', 'username'))
+        for r in rows:
+            r['username'] = names.get(r['player_id'], '(deleted)')
+
+        summary = None
+        if params.get('player_id'):
+            def totals(qs):
+                return qs.aggregate(n=Count('id'), staked=Sum('stake'), returned=Sum('payout'), cashed=Sum('cashout_paid'))
+            a, b = totals(Bet.objects.filter(player_id=params['player_id'])), totals(BetSlip.objects.filter(player_id=params['player_id']))
+            zero = Decimal('0')
+            staked = (a['staked'] or zero) + (b['staked'] or zero)
+            returned = sum((x or zero) for x in (a['returned'], b['returned'], a['cashed'], b['cashed']))
+            summary = {'tickets': (a['n'] or 0) + (b['n'] or 0), 'staked': f'{staked:.2f}', 'returned': f'{returned:.2f}',
+                       'open': Bet.objects.filter(player_id=params['player_id'], status='open').count()
+                       + BetSlip.objects.filter(player_id=params['player_id'], status='open').count()}
+        return Response({'results': rows, 'summary': summary})

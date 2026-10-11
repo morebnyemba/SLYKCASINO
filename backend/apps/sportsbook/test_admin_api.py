@@ -129,3 +129,36 @@ class OverviewStatsTests(AdminApiBase):
         for key in ('today', 'queues', 'sportsbook', 'week', 'players', 'open_bets'):
             self.assertIn(key, body)
         self.assertEqual(len(body['week']), 7)
+
+
+class AdminTicketsTests(TestCase):
+    def setUp(self):
+        from decimal import Decimal as D
+
+        from django.contrib.auth.models import User
+        from rest_framework.test import APIClient
+
+        from apps.accounts import services as account_services
+        from apps.sportsbook.models import Bet, BetLeg, BetSlip
+
+        self.player = account_services.create_player(username='punter')
+        self.single = Bet.objects.create(player_id=self.player.id, event='A v B', selection='home', stake=D('5'), odds=D('2'))
+        self.multi = BetSlip.objects.create(player_id=self.player.id, stake=D('2'), combined_odds=D('6'))
+        BetLeg.objects.create(slip=self.multi, event='C v D', selection='away', odds=D('3'))
+        Bet.objects.create(player_id=account_services.create_player(username='someone').id, event='E v F',
+                           selection='draw', stake=D('1'), odds=D('3'))
+        self.api = APIClient()
+        self.api.force_authenticate(User.objects.create_user('ops', 'o@example.com', 'x', is_staff=True))
+
+    def test_player_tickets_search_and_summary(self):
+        res = self.api.get('/api/admin/tickets/', {'player_id': self.player.id}).json()
+        self.assertEqual([r['ticket'] for r in res['results']], [f'M{self.multi.id}', f'S{self.single.id}'])
+        self.assertEqual(res['results'][0]['legs'][0]['event'], 'C v D')
+        self.assertEqual((res['summary']['tickets'], res['summary']['staked'], res['summary']['open']), (2, '7.00', 2))
+        self.assertEqual([r['ticket'] for r in self.api.get('/api/admin/tickets/', {'q': f'#S{self.single.id}'}).json()['results']],
+                         [f'S{self.single.id}'])
+        found = self.api.get('/api/admin/tickets/', {'q': 'punt'}).json()['results']
+        self.assertEqual({r['username'] for r in found}, {'punter'})
+        self.assertEqual(len(self.api.get('/api/admin/tickets/', {'kind': 'multiple'}).json()['results']), 1)
+        from rest_framework.test import APIClient
+        self.assertIn(APIClient().get('/api/admin/tickets/').status_code, (401, 403))

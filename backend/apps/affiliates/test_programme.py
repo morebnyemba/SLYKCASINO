@@ -129,7 +129,7 @@ class WageringLockTests(ProgrammeBase):
         wallet = api.get('/api/wallet/').json()
         self.assertEqual((wallet['bonus_locked'], wallet['withdrawable']), ('15.00', '50.00'))
 
-        res = api.post('/api/wallet/withdraw/', {'amount': '60'}, format='json')
+        res = api.post('/api/wallet/withdraw/', {'amount': '60', 'method': 'ecocash', 'account_number': '0771234567'}, format='json')
         self.assertEqual(res.status_code, 403)
         self.assertEqual(res.json()['withdrawable'], '50.00')
 
@@ -139,7 +139,7 @@ class WageringLockTests(ProgrammeBase):
         self.stake(alice, '35', 's2', kind='casino_debit')           # 75 wagered: unlocked
         self.assertEqual(api.get('/api/wallet/').json()['bonus_locked'], '0.00')
         self.assertEqual(api.post('/api/wallet/withdraw/', {'amount': '-10'}, format='json').status_code, 400)
-        self.assertEqual(api.post('/api/wallet/withdraw/', {'amount': str(self.balance(alice))}, format='json').status_code, 201)
+        self.assertEqual(api.post('/api/wallet/withdraw/', {'amount': str(self.balance(alice)), 'method': 'ecocash', 'account_number': '0771234567'}, format='json').status_code, 201)
 
 
 class DepositCommissionTests(ProgrammeBase):

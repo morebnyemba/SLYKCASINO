@@ -226,7 +226,7 @@ SPORTSBOOK_IMPORT_MANUAL_MARKETS = os.environ.get('SPORTSBOOK_IMPORT_MANUAL_MARK
 # facts still can't decide is voided (stake refunded) — operators can settle it
 # by hand before then; and hours after kick-off at which a match that never
 # finished (postponed/abandoned/feed silent) is voided whole. 0 turns a step off.
-SPORTSBOOK_AUTO_VOID_AFTER_HOURS = int(os.environ.get('SPORTSBOOK_AUTO_VOID_AFTER_HOURS', '6'))
+SPORTSBOOK_AUTO_VOID_AFTER_HOURS = int(os.environ.get('SPORTSBOOK_AUTO_VOID_AFTER_HOURS', '4'))
 SPORTSBOOK_UNPLAYED_VOID_HOURS = int(os.environ.get('SPORTSBOOK_UNPLAYED_VOID_HOURS', '72'))
 # Affiliate programme defaults (each affiliate's terms can be changed in admin).
 # Revenue share is a % of referred players' monthly net gaming revenue (a losing
@@ -287,9 +287,10 @@ CELERY_BEAT_SCHEDULE = {
     },
     'sportsbook-settle-finished-fixtures': {
         'task': 'apps.sportsbook.tasks.settle_finished_fixtures',
-        # Every 5 min: settles finished matches (the live poll loses them at FT)
-        # and retries until corners/cards/scorer stats are published.
-        'schedule': 300.0,
+        # Every 3 min: settles finished matches (the live poll loses them at FT)
+        # and retries until corners/cards/scorer stats are published. Only
+        # matches still in play or with open bets are fetched.
+        'schedule': 180.0,
     },
     'sportsbook-auto-resolve-markets': {
         'task': 'apps.sportsbook.tasks.auto_resolve_markets',

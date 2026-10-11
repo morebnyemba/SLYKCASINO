@@ -37,7 +37,7 @@ def admin_stats(request):
     from apps.affiliates.models import Affiliate, Commission, Payout
     from apps.sportsbook.models import BetSlip, Event, Market
     from apps.sportsbook.services import LIVE_STATUSES
-    from apps.wallet.models import LedgerEntry, PaymentTransaction
+    from apps.wallet.models import LedgerEntry, PaymentTransaction, WithdrawalRequest
 
     now = timezone.now()
     start = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -90,6 +90,7 @@ def admin_stats(request):
             'affiliates_pending': Affiliate.objects.filter(status=Affiliate.Status.PENDING).count(),
             'commissions_pending': Commission.objects.filter(status=Commission.Status.PENDING).count(),
             'payouts_pending': Payout.objects.filter(status=Payout.Status.REQUESTED).count(),
+            'withdrawals_pending': WithdrawalRequest.objects.filter(status=WithdrawalRequest.Status.REQUESTED).count(),
             'markets_to_settle': Market.objects.filter(settled=False).filter(
                 Q(needs_review=True) | Q(kind=Market.Kind.MANUAL), event__starts_at__lt=now - timedelta(hours=2),
             ).count(),

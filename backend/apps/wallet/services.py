@@ -204,7 +204,8 @@ def withdrawal(
 def erase_player_data(player_id: int) -> int:
     """Permanently delete a player's wallet, every ledger entry and payment
     record (account deletion). Returns rows deleted."""
-    from .models import PaymentTransaction
+    from .models import PaymentTransaction, WithdrawalRequest
     deleted = PaymentTransaction.objects.filter(player_id=player_id).delete()[0]
+    deleted += WithdrawalRequest.objects.filter(player_id=player_id).delete()[0]
     deleted += Wallet.objects.filter(player_id=player_id).delete()[0]  # cascades to ledger entries
     return deleted

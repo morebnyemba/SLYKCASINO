@@ -11,6 +11,7 @@ import { useAuth } from '@/lib/auth-context';
 import { LoadingState } from '@slyk/ui/components/spinner';
 import { PageHeader } from '@/components/console/ui';
 import { CashoutSettingsPanel } from '@/components/sportsbook/cashout-panel';
+import { TicketFinder } from '@/components/tickets/ticket-finder';
 
 interface Bet {
   id: number;
@@ -49,7 +50,9 @@ export default function BettingFeedsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader icon={FaChartLine} eyebrow="Sportsbook" title="Bets & tickets" description="Monitor incoming bets and odds movements across markets." />
+      <PageHeader icon={FaChartLine} eyebrow="Sportsbook" title="Bets & tickets" description="Find any player’s ticket, settle singles by hand, and watch bets and odds as they happen." />
+
+      <TicketFinder />
 
       <CashoutSettingsPanel />
 
@@ -61,7 +64,7 @@ export default function BettingFeedsPage() {
 
       {/* Recent bets from API */}
       <div>
-        <h2 className="mb-3 text-lg font-semibold">Recent bets (all players)</h2>
+        <h2 className="mb-3 text-lg font-semibold">Recent singles — settle by hand</h2>
         <Card className="rounded-2xl border-border/70 p-2">
           <Table>
             <TableHeader>

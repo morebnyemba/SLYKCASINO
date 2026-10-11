@@ -2,8 +2,8 @@ from django.urls import path
 
 from .views import (
     AdminLedgerViewSet, AdminPaymentGatewayTestView, AdminPaymentGatewayView, AdminPaymentMethodViewSet,
-    DepositView, LedgerView, PaymentMethodsView, PaymentStatusView, PaynowResultView, PSPWebhookView,
-    WalletView, WithdrawView,
+    AdminWithdrawalSettingsView, AdminWithdrawalsView, DepositView, LedgerView, MyWithdrawalsView, PaymentMethodsView,
+    PaymentStatusView, PaynowResultView, PSPWebhookView, WalletView, WithdrawView,
 )
 
 urlpatterns = [
@@ -11,6 +11,12 @@ urlpatterns = [
     path('wallet/ledger/', LedgerView.as_view(), name='wallet-ledger'),
     path('wallet/deposit/', DepositView.as_view(), name='wallet-deposit'),
     path('wallet/withdraw/', WithdrawView.as_view(), name='wallet-withdraw'),
+    path('wallet/withdrawals/', MyWithdrawalsView.as_view(), name='wallet-withdrawals'),
+    path('wallet/withdrawals/<int:pk>/cancel/', MyWithdrawalsView.as_view(), name='wallet-withdrawal-cancel'),
+    path('admin/withdrawals/', AdminWithdrawalsView.as_view(), name='admin-withdrawals'),
+    path('admin/withdrawals/<int:pk>/mark-paid/', AdminWithdrawalsView.as_view(action='paid'), name='admin-withdrawal-paid'),
+    path('admin/withdrawals/<int:pk>/reject/', AdminWithdrawalsView.as_view(action='reject'), name='admin-withdrawal-reject'),
+    path('admin/withdrawal-settings/', AdminWithdrawalSettingsView.as_view(), name='admin-withdrawal-settings'),
     path('wallet/deposits/<str:reference>/', PaymentStatusView.as_view(), name='wallet-deposit-status'),
     path('wallet/paynow/result/', PaynowResultView.as_view(), name='wallet-paynow-result'),
     path('wallet/webhook/<str:provider>/', PSPWebhookView.as_view(), name='wallet-webhook'),

@@ -75,6 +75,10 @@ export default function AdminLoginPage() {
             </form>
           </CardContent>
         </Card>
+        <p className="mt-4 text-center text-[11px] leading-relaxed text-muted-foreground">
+          This turnkey solution was developed by Slyker Tech Web Services for BETBLITS.<br />
+          Any request, order or action should be directed to BetBlits.
+        </p>
       </div>
     </div>
   );

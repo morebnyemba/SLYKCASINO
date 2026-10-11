@@ -1053,21 +1053,28 @@ VOID_STATUSES = ('CANC', 'ABD', 'AWD', 'WO')
 def events_awaiting_settlement(*, now=None):
     """Provider-linked events that kicked off long enough ago to be over and
     still have something to settle: not yet marked finished, or finished with
-    open bets/legs or unsettled markets. Bounded to the last few days so a
+    open bets/legs (waiting for corners/cards/scorer stats). A finished match
+    whose only open markets nobody bet on isn't re-fetched — that would burn the
+    API quota for nothing; auto_resolve_markets tidies those from stored facts.
+    Matches with open bets come first. Bounded to the last few days so a
     fixture the feed never finalises doesn't get polled forever."""
     from datetime import timedelta
-    from django.db.models import Q
+    from django.db.models import Count, Q
 
     now = now or timezone.now()
+    open_bets = Q(bets__status__in=(Bet.Status.OPEN, Bet.Status.PENDING)) | Q(legs__result=BetLeg.Result.PENDING)
     return Event.objects.filter(
         provider=ApiFootballClient.provider_name, external_id__isnull=False,
-        starts_at__lte=now - timedelta(minutes=105), starts_at__gte=now - timedelta(days=4),
-    ).filter(
-        ~Q(status__in=FINISHED_STATUSES + VOID_STATUSES)
-        | Q(markets__settled=False)
-        | Q(bets__status__in=(Bet.Status.OPEN, Bet.Status.PENDING))
-        | Q(legs__result=BetLeg.Result.PENDING)
-    ).distinct()
+        starts_at__lte=now - timedelta(minutes=SETTLE_POLL_AFTER_MINUTES), starts_at__gte=now - timedelta(days=4),
+    ).filter(~Q(status__in=FINISHED_STATUSES + VOID_STATUSES) | open_bets).annotate(
+        open_bets=Count('bets', filter=Q(bets__status__in=(Bet.Status.OPEN, Bet.Status.PENDING)), distinct=True)
+        + Count('legs', filter=Q(legs__result=BetLeg.Result.PENDING), distinct=True),
+    ).order_by('-open_bets', 'starts_at')
+
+
+# A match is 90 minutes plus half-time and stoppage time: start asking the
+# provider for the result from here, every few minutes, until it's final.
+SETTLE_POLL_AFTER_MINUTES = 100
 
 
 def settle_finished_fixtures(*, now=None) -> int:

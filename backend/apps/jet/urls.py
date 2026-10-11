@@ -1,7 +1,7 @@
 from django.urls import path
 
 from .views import (
-    AdminChatView, AdminRainView, AdminSettingsView, AdminStatsView, BetActionView, BetView, ChatView, MyBetsView,
+    AdminChatView, AdminPlayerBetsView, AdminRainView, AdminSettingsView, AdminStatsView, BetActionView, BetView, ChatView, MyBetsView,
     RoundsView, StateView,
 )
 
@@ -16,6 +16,7 @@ urlpatterns = [
     path('admin/jet/settings/', AdminSettingsView.as_view(), name='admin-jet-settings'),
     path('admin/jet/stats/', AdminStatsView.as_view(), name='admin-jet-stats'),
     path('jet/chat/', ChatView.as_view(), name='jet-chat'),
+    path('admin/jet/bets/', AdminPlayerBetsView.as_view(), name='admin-jet-bets'),
     path('admin/jet/rain/', AdminRainView.as_view(), name='admin-jet-rain'),
     path('admin/jet/chat/', AdminChatView.as_view(), name='admin-jet-chat'),
     path('admin/jet/chat/<int:pk>/hide/', AdminChatView.as_view(action='hide'), name='admin-jet-chat-hide'),

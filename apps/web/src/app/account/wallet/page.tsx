@@ -1,11 +1,11 @@
 'use client';
 
 import { useState } from 'react';
-import { FaDownload, FaWallet, FaArrowDown } from 'react-icons/fa';
+import { FaDownload, FaWallet } from 'react-icons/fa';
 import { Card, CardContent, CardHeader, CardTitle } from '@slyk/ui/components/card';
 import { Badge } from '@slyk/ui/components/badge';
-import { useAuth } from '@/lib/auth-context';
-import { useApi, authedPost } from '@/lib/use-api';
+import { useApi } from '@/lib/use-api';
+import { WithdrawPanel } from '@/components/withdraw-panel';
 import { DepositModal } from '@/components/deposit-modal';
 import { LoadingState, Spinner } from '@slyk/ui/components/spinner';
 
@@ -28,6 +28,7 @@ interface LedgerEntry {
 const KIND_LABEL: Record<string, string> = {
   deposit: 'Deposit',
   withdrawal: 'Withdrawal',
+  withdrawal_hold: 'Withdrawal hold',
   bet_stake: 'Bet stake',
   bet_payout: 'Bet payout',
   casino_debit: 'Casino bet',
@@ -39,34 +40,17 @@ const KIND_LABEL: Record<string, string> = {
 
 function kindVariant(kind: string): 'default' | 'secondary' | 'destructive' {
   if (['deposit', 'bet_payout', 'casino_credit', 'bonus', 'affiliate'].includes(kind)) return 'default';
-  if (['withdrawal', 'bet_stake', 'casino_debit'].includes(kind)) return 'destructive';
+  if (['withdrawal', 'withdrawal_hold', 'bet_stake', 'casino_debit'].includes(kind)) return 'destructive';
   return 'secondary';
 }
 
 export default function WalletPage() {
-  const { accessToken } = useAuth();
   const { data: wallet, loading: wLoading, refetch: refetchWallet } = useApi<Wallet>('/wallet/');
   const { data: ledger, loading: lLoading, refetch: refetchLedger } = useApi<LedgerEntry[]>('/wallet/ledger/');
 
-  const [withdrawAmt, setWithdrawAmt] = useState('');
-  const [msg, setMsg] = useState('');
-  const [busy, setBusy] = useState(false);
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   const [depositOpen, setDepositOpen] = useState(false);
-
-  async function handleWithdraw() {
-    if (!accessToken || !withdrawAmt) return;
-    setBusy(true); setMsg('');
-    const { error } = await authedPost(
-      '/wallet/withdraw/',
-      { amount: withdrawAmt },
-      accessToken,
-    );
-    setMsg(error ? `Error: ${error}` : `Withdrawal of ${withdrawAmt} submitted.`);
-    refetchWallet(); refetchLedger();
-    setBusy(false);
-  }
 
   const balance = wallet?.balance ?? '0.00';
   const currency = wallet?.currency ?? 'USD';
@@ -128,30 +112,9 @@ export default function WalletPage() {
               </button>
             </div>
 
-            <div className="space-y-2">
-              <p className="text-sm font-medium">Withdraw</p>
-              <div className="flex gap-2">
-                <input
-                  type="number"
-                  value={withdrawAmt}
-                  onChange={(e) => setWithdrawAmt(e.target.value)}
-                  min="1"
-                  placeholder="Amount"
-                  className="w-24 rounded-md border border-border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-secondary"
-                />
-                <button
-                  onClick={handleWithdraw}
-                  disabled={busy || !withdrawAmt}
-                  className="flex items-center gap-1.5 rounded-md border border-border bg-background px-4 py-1.5 text-sm font-medium hover:bg-accent/10 disabled:opacity-50"
-                >
-                  <FaArrowDown size={11} />
-                  Withdraw
-                </button>
-              </div>
-            </div>
+            <WithdrawPanel withdrawable={wallet?.withdrawable} onChanged={() => { refetchWallet(); refetchLedger(); }} />
           </div>
 
-          {msg && <p className="mt-3 text-sm text-muted-foreground">{msg}</p>}
         </CardContent>
       </Card>
 
