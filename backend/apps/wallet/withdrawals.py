@@ -172,12 +172,21 @@ def cancel(*, player_id: int, req_id: int, now=None) -> WithdrawalRequest:
 
 
 @transaction.atomic
-def mark_paid(req_id: int, *, reference: str, by: str = '', now=None) -> WithdrawalRequest:
-    """Staff sent the money: record the reference and post the withdrawal."""
+def mark_paid(req_id: int, *, reference: str, by: str = '', confirm_amount=None, now=None) -> WithdrawalRequest:
+    """Staff sent the money: record the reference and post the withdrawal.
+    `confirm_amount` (when given — the console always sends it) must match the
+    request, so a stale screen or a slip can't mark the wrong one paid."""
     reference = (reference or '').strip()
     if len(reference) < 3:
         raise WithdrawalError('Enter the EcoCash/bank transaction reference.')
     req = _locked(req_id)
+    if confirm_amount is not None:
+        try:
+            typed = Decimal(str(confirm_amount)).quantize(Decimal('0.01'))
+        except (InvalidOperation, ValueError, TypeError):
+            typed = None
+        if typed != req.amount:
+            raise WithdrawalError(f'The amount you confirmed doesn’t match this withdrawal (${req.amount:.2f}).')
     if req.status != OPEN:
         raise WithdrawalError(f'This withdrawal is already {req.get_status_display().lower()}.', code=409)
     # Release the hold and post the real withdrawal — balance unchanged, and

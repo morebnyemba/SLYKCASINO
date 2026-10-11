@@ -386,6 +386,44 @@ class PlayerViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.G
     serializer_class = PlayerSerializer
     permission_classes = [IsAdminUser]
 
+    def get_queryset(self):
+        """Newest first, with the wallet balance joined in one query. List
+        filters: ?q= (username, email, name or #id), ?kyc=, ?status=active|suspended,
+        ?page_size= (up to 100)."""
+        from django.db.models import OuterRef, Q, Subquery
+
+        from apps.wallet.models import Wallet
+
+        wallets = Wallet.objects.filter(player_id=OuterRef('pk'))
+        qs = Player.objects.annotate(
+            wallet_balance=Subquery(wallets.values('balance')[:1]),
+            wallet_currency=Subquery(wallets.values('currency')[:1]),
+        ).order_by('-created_at', '-id')
+        if self.action != 'list':
+            return qs
+        params = self.request.query_params
+        q = (params.get('q') or '').strip().lstrip('#')
+        if q:
+            match = Q(username__icontains=q) | Q(email__icontains=q) | Q(full_name__icontains=q)
+            if q.isdigit():
+                match |= Q(pk=int(q))
+            qs = qs.filter(match)
+        if params.get('kyc'):
+            qs = qs.filter(kyc_status=params['kyc'])
+        if params.get('status') == 'suspended':
+            qs = qs.filter(is_suspended=True)
+        elif params.get('status') == 'active':
+            qs = qs.filter(is_suspended=False)
+        return qs
+
+    def paginate_queryset(self, queryset):
+        if self.paginator is not None:
+            try:
+                self.paginator.page_size = max(1, min(int(self.request.query_params.get('page_size') or 25), 100))
+            except ValueError:
+                self.paginator.page_size = 25
+        return super().paginate_queryset(queryset)
+
     @action(detail=True, methods=['post'])
     def suspend(self, request, pk=None):
         ser = SuspendPlayerSerializer(data=request.data)

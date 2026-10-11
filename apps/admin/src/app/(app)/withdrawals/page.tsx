@@ -57,6 +57,11 @@ function PlayerWithdrawals() {
   const { data, loading, refetch } = useApi<Queue>(`/admin/withdrawals/?status=${status}${search ? `&q=${encodeURIComponent(search)}` : ''}`);
   const [acting, setActing] = useState<{ w: Withdrawal; verb: 'mark-paid' | 'reject' } | null>(null);
   const [text, setText] = useState('');
+  // Paying is three steps: 1 check the player, 2 send the money, 3 confirm with the reference.
+  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [checked, setChecked] = useState(false);
+  const [sent, setSent] = useState(false);
+  const [confirmAmount, setConfirmAmount] = useState('');
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<{ tone: 'green' | 'red'; text: string } | null>(null);
   const list = data?.results ?? [];
@@ -69,7 +74,7 @@ function PlayerWithdrawals() {
   async function submit() {
     if (!accessToken || !acting) return;
     setBusy(true);
-    const body = acting.verb === 'mark-paid' ? { reference: text } : { note: text };
+    const body = acting.verb === 'mark-paid' ? { reference: text, confirm_amount: confirmAmount } : { note: text };
     const res = await authedPost(`/admin/withdrawals/${acting.w.id}/${acting.verb}/`, body, accessToken);
     setBusy(false);
     setNotice(res.error ? { tone: 'red', text: res.error } : {
@@ -142,7 +147,7 @@ function PlayerWithdrawals() {
                       <td className={cx(tdClass, 'text-right')}>
                         {w.status === 'requested' && (
                           <div className="flex justify-end gap-2">
-                            <Btn size="sm" variant="success" icon={BsCheck2Circle} onClick={() => { setActing({ w, verb: 'mark-paid' }); setText(''); }}>Mark paid</Btn>
+                            <Btn size="sm" variant="success" icon={BsCheck2Circle} onClick={() => { setActing({ w, verb: 'mark-paid' }); setText(''); setStep(1); setChecked(false); setSent(false); setConfirmAmount(''); }}>Mark paid</Btn>
                             <Btn size="sm" variant="danger" icon={BsXCircle} onClick={() => { setActing({ w, verb: 'reject' }); setText(''); }}>Reject</Btn>
                           </div>
                         )}
@@ -156,48 +161,102 @@ function PlayerWithdrawals() {
       </div>
 
       <Drawer open={!!acting} onClose={() => setActing(null)}
-        title={acting?.verb === 'mark-paid' ? 'Mark withdrawal as paid' : 'Reject withdrawal'}
+        title={acting?.verb === 'mark-paid' ? `Pay withdrawal — step ${step} of 3` : 'Reject withdrawal'}
         description={acting ? `${money(acting.w.amount)} to ${acting.w.username} via ${acting.w.method_label}` : ''}
-        footer={<>
+        footer={acting?.verb === 'reject' ? <>
           <Btn onClick={() => setActing(null)}>Cancel</Btn>
-          <Btn variant={acting?.verb === 'reject' ? 'danger' : 'success'} busy={busy} onClick={submit} disabled={text.trim().length < 3}>
-            {acting?.verb === 'mark-paid' ? 'Confirm paid' : 'Reject & return money'}
-          </Btn>
+          <Btn variant="danger" busy={busy} onClick={submit} disabled={text.trim().length < 3}>Reject &amp; return money</Btn>
+        </> : <>
+          {step === 1 ? <Btn onClick={() => setActing(null)}>Cancel</Btn> : <Btn onClick={() => setStep((step - 1) as 1 | 2)}>Back</Btn>}
+          {step === 1 && <Btn variant="primary" disabled={!checked} onClick={() => setStep(2)}>Next: send the money</Btn>}
+          {step === 2 && <Btn variant="primary" disabled={!sent} onClick={() => setStep(3)}>Next: confirm</Btn>}
+          {step === 3 && (
+            <Btn variant="success" busy={busy} onClick={submit}
+              disabled={text.trim().length < 3 || !acting || Number(confirmAmount) !== Number(acting.w.amount)}>
+              Confirm paid
+            </Btn>
+          )}
         </>}>
-        {acting && (
+        {acting && acting.verb === 'mark-paid' && (
+          <div className="space-y-4 text-sm">
+            <ol className="flex gap-2 text-xs font-bold">
+              {['Check', 'Send', 'Confirm'].map((label, i) => (
+                <li key={label} className={cx('flex flex-1 items-center gap-2 rounded-lg px-2.5 py-1.5',
+                  step === i + 1 ? 'bg-secondary text-secondary-foreground' : step > i + 1 ? 'bg-win/15 text-win' : 'bg-muted/50 text-muted-foreground')}>
+                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-black/15">{step > i + 1 ? '✓' : i + 1}</span>{label}
+                </li>
+              ))}
+            </ol>
+
+            {step === 1 && (
+              <>
+                <p className="text-muted-foreground">Make sure this payout is legitimate before sending anything.</p>
+                <div className="rounded-xl border border-border p-3">
+                  <p><b>{acting.w.username}</b> · KYC <span className={acting.w.kyc_status === 'verified' ? 'text-win' : 'text-live'}>{acting.w.kyc_status ?? 'unknown'}</span></p>
+                  <p className="text-muted-foreground">Requested {new Date(acting.w.created_at).toLocaleString()} · <Link href={`/players/${acting.w.player_id}`} className="text-secondary hover:underline">open player page</Link></p>
+                </div>
+                {acting.w.context && <ContextCell c={acting.w.context} wide />}
+                {acting.w.legacy && (
+                  <p className="rounded-xl bg-gold/10 p-3 text-gold">
+                    Made with the old instant withdraw: the money already left the player’s balance, but they never said where to send it.
+                    Contact them ({acting.w.email || 'no email'}) for their number first.
+                  </p>
+                )}
+                <label className="flex items-start gap-2 rounded-xl bg-muted/40 p-3">
+                  <input type="checkbox" className="mt-0.5 h-4 w-4" checked={checked} onChange={(e) => setChecked(e.target.checked)} />
+                  <span>I’ve checked the player, their KYC and their activity, and this withdrawal should be paid.</span>
+                </label>
+              </>
+            )}
+
+            {step === 2 && (
+              <>
+                <p className="text-muted-foreground">Send the money now from your EcoCash / OneMoney / InnBucks merchant account or bank — exactly this amount, to exactly this account.</p>
+                <div className="rounded-xl bg-muted/40 p-4">
+                  <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Send exactly</p>
+                  <p className="mt-1 flex items-center gap-2 text-3xl font-extrabold tabular-nums">
+                    {money(acting.w.amount)}
+                    <button aria-label="Copy amount" title="Copy amount" onClick={() => navigator.clipboard?.writeText(acting.w.amount)}
+                      className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"><BsCopy size={14} /></button>
+                  </p>
+                  <p className="mt-3 text-xs font-bold uppercase tracking-wide text-muted-foreground">To ({acting.w.method_label})</p>
+                  <p className="mt-1 flex items-center gap-2 font-mono text-base font-semibold">
+                    {destination(acting.w)}
+                    <button aria-label="Copy number" title="Copy number" onClick={() => navigator.clipboard?.writeText(acting.w.account_number)}
+                      className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"><BsCopy size={13} /></button>
+                  </p>
+                </div>
+                <label className="flex items-start gap-2 rounded-xl bg-muted/40 p-3">
+                  <input type="checkbox" className="mt-0.5 h-4 w-4" checked={sent} onChange={(e) => setSent(e.target.checked)} />
+                  <span>I’ve sent exactly <b>{money(acting.w.amount)}</b> to <b className="font-mono">{acting.w.account_number || 'the player'}</b> and the transfer went through.</span>
+                </label>
+              </>
+            )}
+
+            {step === 3 && (
+              <>
+                <p className="text-muted-foreground">Record the payment. The player is notified with the reference, and it counts as money paid out.</p>
+                <Field label="Transaction reference" hint="The EcoCash/OneMoney/InnBucks or bank confirmation code.">
+                  <TextInput value={text} onChange={(e) => setText(e.target.value)} placeholder="MP241011.1530.A12345" autoFocus />
+                </Field>
+                <Field label={`Type the amount you sent to confirm (${money(acting.w.amount)})`}
+                  hint={confirmAmount && Number(confirmAmount) !== Number(acting.w.amount) ? 'That doesn’t match the withdrawal amount.' : 'Must match exactly.'}>
+                  <TextInput inputMode="decimal" value={confirmAmount} onChange={(e) => setConfirmAmount(e.target.value.replace(/[^0-9.]/g, ''))} placeholder="0.00" />
+                </Field>
+              </>
+            )}
+          </div>
+        )}
+        {acting && acting.verb === 'reject' && (
           <div className="space-y-4 text-sm">
             <div className="rounded-xl bg-muted/40 p-3">
-              <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Send exactly</p>
+              <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Amount</p>
               <p className="mt-1 text-2xl font-extrabold tabular-nums">{money(acting.w.amount)}</p>
-              <p className="mt-2 text-xs font-bold uppercase tracking-wide text-muted-foreground">To</p>
-              <p className="mt-1 flex items-center gap-2 font-mono text-base font-semibold">
-                {destination(acting.w)}
-                <button aria-label="Copy number" title="Copy number" onClick={() => navigator.clipboard?.writeText(acting.w.account_number)}
-                  className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"><BsCopy size={13} /></button>
-              </p>
             </div>
-            {acting.w.context && <ContextCell c={acting.w.context} wide />}
-            {acting.w.legacy && (
-              <p className="rounded-xl bg-gold/10 p-3 text-gold">
-                Made with the old instant withdraw: the money already left the player’s balance, but they never said where to send it.
-                Contact them, send it, then mark it paid — or reject it to put the money back in their balance.
-              </p>
-            )}
-            {acting.verb === 'mark-paid' ? (
-              <>
-                <p className="text-muted-foreground">Send the money first, then record it here. The player is notified with the reference.</p>
-                <Field label="Transaction reference" hint="The EcoCash/OneMoney/InnBucks or bank confirmation code.">
-                  <TextInput value={text} onChange={(e) => setText(e.target.value)} placeholder="MP241011.1530.A12345" />
-                </Field>
-              </>
-            ) : (
-              <>
-                <p className="text-muted-foreground">The amount goes straight back to the player’s balance and they’re told why.</p>
-                <Field label="Reason" hint="Shown to the player.">
-                  <TextInput value={text} onChange={(e) => setText(e.target.value)} placeholder="The account name doesn’t match your verified name" />
-                </Field>
-              </>
-            )}
+            <p className="text-muted-foreground">The amount goes straight back to the player’s balance and they’re told why.</p>
+            <Field label="Reason" hint="Shown to the player.">
+              <TextInput value={text} onChange={(e) => setText(e.target.value)} placeholder="The account name doesn’t match your verified name" />
+            </Field>
           </div>
         )}
       </Drawer>
