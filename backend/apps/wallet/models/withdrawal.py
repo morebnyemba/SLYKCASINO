@@ -9,6 +9,9 @@ class WithdrawalSettings(models.Model):
     max_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('1000.00'))
     # Most one player may request in a day (0 = no daily cap).
     daily_max = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('2000.00'))
+    # Anti deposit-and-withdraw: total bets must reach this % of total deposits
+    # before any withdrawal (100 = play your deposits at least once; 0 = off).
+    min_turnover_percent = models.PositiveSmallIntegerField(default=100)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

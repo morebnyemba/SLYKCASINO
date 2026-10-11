@@ -1,6 +1,7 @@
 """sportsbook transport — views move data; placement logic lives in services."""
 from __future__ import annotations
 
+import logging
 from decimal import Decimal
 
 from django.db.models import Count, Prefetch, Q
@@ -20,6 +21,8 @@ from . import services
 from .dtos import AccumulatorRequestDTO, BetRequestDTO
 from .models import Bet, BetLeg, BetSlip, Event, Market
 from .serializers import BetSerializer, BetSlipSerializer, EventDetailSerializer, EventSerializer
+
+logger = logging.getLogger(__name__)
 
 
 class EventPagination(PageNumberPagination):
@@ -437,7 +440,8 @@ class AdminTicketsView(APIView):
         from apps.accounts.models import Player
 
         params = request.query_params
-        singles, multis = Bet.objects.all(), BetSlip.objects.prefetch_related('legs')
+        singles = Bet.objects.select_related('event_ref', 'outcome_ref__market')
+        multis = BetSlip.objects.prefetch_related('legs__event_ref', 'legs__outcome_ref__market')
         if params.get('player_id'):
             singles, multis = singles.filter(player_id=params['player_id']), multis.filter(player_id=params['player_id'])
         q = (params.get('q') or '').strip().lstrip('#')
@@ -457,10 +461,16 @@ class AdminTicketsView(APIView):
         elif kind == 'multiple':
             singles = singles.none()
 
-        rows = [{**BetSerializer(b, context={'request': request}).data, 'kind': 'single', 'ticket': f'S{b.id}',
-                 'player_id': b.player_id} for b in singles.order_by('-placed_at')[:150]]
-        rows += [{**BetSlipSerializer(s, context={'request': request}).data, 'kind': 'multiple', 'ticket': f'M{s.id}',
-                  'player_id': s.player_id} for s in multis.order_by('-placed_at')[:150]]
+        ctx = {'request': request, 'skip_cashout': True}
+        rows = []
+        # One odd old ticket must never take the whole list down.
+        for kind, prefix, serializer, qs in (('single', 'S', BetSerializer, singles), ('multiple', 'M', BetSlipSerializer, multis)):
+            for t in qs.order_by('-placed_at')[:150]:
+                try:
+                    rows.append({**serializer(t, context=ctx).data, 'kind': kind, 'ticket': f'{prefix}{t.id}',
+                                 'player_id': t.player_id})
+                except Exception:  # noqa: BLE001
+                    logger.exception('admin tickets: could not show %s%s', prefix, t.id)
         rows.sort(key=lambda r: r['placed_at'], reverse=True)
         rows = rows[:150]
         names = dict(Player.objects.filter(id__in={r['player_id'] for r in rows}).values_list('id', 'username'))

@@ -10,6 +10,11 @@ class ChatMessage(models.Model):
     player_id = models.BigIntegerField(null=True, blank=True, db_index=True)
     body = models.TextField()
     delivered = models.BooleanField(default=False)
+    # Private support conversations (channel "support:<player id>"): replies
+    # from staff, who wrote them, and when the other side read the message.
+    from_staff = models.BooleanField(default=False)
+    staff_name = models.CharField(max_length=150, blank=True)
+    read_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

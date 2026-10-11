@@ -111,7 +111,8 @@ class _CashoutMixin(serializers.Serializer):
         return cache[0]
 
     def get_cashout(self, obj):
-        if obj.status != 'open' or not obj.player_id:
+        # Staff listings skip pricing a live offer for every open ticket.
+        if obj.status != 'open' or not obj.player_id or self.context.get('skip_cashout'):
             return None
         from . import cashout
         offer = (cashout.bet_offer if isinstance(obj, Bet) else cashout.slip_offer)(obj, self._cashout_settings())

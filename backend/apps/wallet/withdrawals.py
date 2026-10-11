@@ -54,6 +54,21 @@ def withdrawable(player_id: int) -> Decimal:
     return max(services.get_balance(player_id) - locked, Decimal('0'))
 
 
+def turnover_left(player_id: int, cfg: WithdrawalSettings | None = None) -> Decimal:
+    """How much more the player must bet before withdrawing: total stakes must
+    reach min_turnover_percent of total deposits (0 when met or the rule is off)."""
+    cfg = cfg or WithdrawalSettings.load()
+    if not cfg.min_turnover_percent:
+        return Decimal('0')
+    totals = {r['kind']: r['t'] for r in LedgerEntry.objects.filter(
+        wallet__player_id=player_id, kind__in=('deposit', 'bet_stake', 'casino_debit'),
+    ).values('kind').annotate(t=Sum('amount'))}
+    deposits = totals.get('deposit') or Decimal('0')
+    staked = -((totals.get('bet_stake') or Decimal('0')) + (totals.get('casino_debit') or Decimal('0')))
+    needed = (deposits * cfg.min_turnover_percent / 100).quantize(Decimal('0.01'))
+    return max(needed - staked, Decimal('0'))
+
+
 def requested_today(player_id: int, now=None) -> Decimal:
     now = now or timezone.now()
     start = timezone.localtime(now).replace(hour=0, minute=0, second=0, microsecond=0)
@@ -91,6 +106,11 @@ def request(*, player, amount, method: str, account_number: str = '', account_na
                 f"{bonus['locked']} of your balance is bonus money — bet {bonus['wagering_remaining']} more to "
                 f'unlock it. You can withdraw up to {available} now.', withdrawable=available, code=403)
         raise services.InsufficientFunds(f'You can withdraw up to {available}.')
+    left = turnover_left(player.id, cfg)
+    if left > 0:
+        raise WithdrawalError(
+            f'Withdrawals open once you’ve played your deposits — bet ${left:.2f} more first '
+            f'(sports or Aviator).', code=403)
 
     if method not in WithdrawalRequest.Method.values:
         raise WithdrawalError('Choose where to send the money: EcoCash, OneMoney, InnBucks or bank.')

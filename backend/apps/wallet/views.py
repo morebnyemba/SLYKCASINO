@@ -284,7 +284,9 @@ class MyWithdrawalsView(APIView):
             'results': [withdrawals.payload(r) for r in rows],
             'limits': {'min': str(cfg.min_amount), 'max': str(cfg.max_amount), 'daily_max': str(cfg.daily_max),
                        'left_today': str(max(cfg.daily_max - withdrawals.requested_today(player.id), Decimal('0')))
-                       if cfg.daily_max else None},
+                       if cfg.daily_max else None,
+                       'turnover_left': str(withdrawals.turnover_left(player.id, cfg)),
+                       'turnover_percent': cfg.min_turnover_percent},
             'methods': [{'id': v, 'label': l} for v, l in WithdrawalRequest.Method.choices],
         })
 
@@ -362,7 +364,8 @@ class AdminWithdrawalSettingsView(APIView):
 
     @staticmethod
     def _out(cfg):
-        return {'min_amount': str(cfg.min_amount), 'max_amount': str(cfg.max_amount), 'daily_max': str(cfg.daily_max)}
+        return {'min_amount': str(cfg.min_amount), 'max_amount': str(cfg.max_amount), 'daily_max': str(cfg.daily_max),
+                'min_turnover_percent': cfg.min_turnover_percent}
 
     def get(self, request):
         from .models import WithdrawalSettings
@@ -376,8 +379,12 @@ class AdminWithdrawalSettingsView(APIView):
             for f in ('min_amount', 'max_amount', 'daily_max'):
                 if f in request.data:
                     setattr(cfg, f, Decimal(str(request.data[f])).quantize(Decimal('0.01')))
+            if 'min_turnover_percent' in request.data:
+                cfg.min_turnover_percent = int(request.data['min_turnover_percent'])
         except (InvalidOperation, ValueError, TypeError):
             return Response({'detail': 'Enter amounts as numbers.'}, status=status.HTTP_400_BAD_REQUEST)
+        if not 0 <= cfg.min_turnover_percent <= 1000:
+            return Response({'detail': 'Play-through must be 0–1000% of deposits.'}, status=status.HTTP_400_BAD_REQUEST)
         if cfg.min_amount <= 0 or cfg.max_amount < cfg.min_amount or cfg.daily_max < 0:
             return Response({'detail': 'The minimum must be above $0 and at most the maximum; the daily cap can’t be negative (0 = none).'},
                             status=status.HTTP_400_BAD_REQUEST)

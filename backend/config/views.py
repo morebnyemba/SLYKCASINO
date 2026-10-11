@@ -37,6 +37,7 @@ def admin_stats(request):
     from apps.affiliates.models import Affiliate, Commission, Payout
     from apps.sportsbook.models import BetSlip, Event, Market
     from apps.sportsbook.services import LIVE_STATUSES
+    from apps.livechat.support import unread_threads as support_unread_threads
     from apps.wallet.models import LedgerEntry, PaymentTransaction, WithdrawalRequest
 
     now = timezone.now()
@@ -91,6 +92,7 @@ def admin_stats(request):
             'commissions_pending': Commission.objects.filter(status=Commission.Status.PENDING).count(),
             'payouts_pending': Payout.objects.filter(status=Payout.Status.REQUESTED).count(),
             'withdrawals_pending': WithdrawalRequest.objects.filter(status=WithdrawalRequest.Status.REQUESTED).count(),
+            'support_unread': support_unread_threads(),
             # Only markets someone actually bet on — the rest settle (or void) on
             # their own and need nobody's attention.
             'markets_to_settle': Market.objects.filter(settled=False).filter(

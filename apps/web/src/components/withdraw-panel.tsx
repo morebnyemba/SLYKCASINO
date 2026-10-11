@@ -13,7 +13,7 @@ interface Withdrawal {
 }
 interface Mine {
   results: Withdrawal[];
-  limits: { min: string; max: string; daily_max: string; left_today: string | null };
+  limits: { min: string; max: string; daily_max: string; left_today: string | null; turnover_left?: string };
   methods: { id: string; label: string }[];
 }
 
@@ -79,6 +79,9 @@ export function WithdrawPanel({ withdrawable, onChanged }: { withdrawable?: stri
         {withdrawable && <>You can withdraw up to <b>${withdrawable}</b>. </>}
         {limits && <>Per request ${limits.min}–${limits.max}{limits.left_today ? `; $${limits.left_today} left today` : ''}. </>}
         The amount is held as soon as you ask and our team sends it — usually within a few hours.
+        {limits && Number(limits.turnover_left ?? 0) > 0 && (
+          <b className="mt-1 block text-gold">Bet ${limits.turnover_left} more (sports or Aviator) to unlock withdrawals.</b>
+        )}
       </p>
       {msg && <p className={`text-sm ${msg.ok ? 'text-win' : 'text-down'}`}>{msg.text}</p>}
 

@@ -1,219 +1,130 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@slyk/ui/components/card';
-import { Badge } from '@slyk/ui/components/badge';
+import Link from 'next/link';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { FaHeadset, FaLock, FaPaperPlane } from 'react-icons/fa';
+import { Card } from '@slyk/ui/components/card';
 import { Input } from '@slyk/ui/components/input';
-import { config } from '@/lib/config';
-import { useAuth } from '@/lib/auth-context';
-import { authedPost } from '@/lib/use-api';
 import { Spinner } from '@slyk/ui/components/spinner';
+import { openSupportChat } from '@/components/tawk-chat';
+import { useAuth } from '@/lib/auth-context';
+import { config } from '@/lib/config';
+import { authedPost } from '@/lib/use-api';
 
-interface Message {
-  id: number | string;
-  sender: string;
-  body: string;
-  created_at: string;
-  player_id?: number | null;
-  is_agent?: boolean;
-}
+interface Message { id: number; body: string; from_staff: boolean; sender: string; created_at: string; read: boolean }
 
-type WsStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
+const POLL_MS = 5000;
 
-const CHANNEL = 'chat:lobby';
-
-export default function LiveChatPage() {
+/** Private support: the player's own conversation with the support team.
+ *  Nobody but this player and BetBlits staff can read it. */
+export default function SupportChatPage() {
   const { user, accessToken } = useAuth();
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [wsStatus, setWsStatus] = useState<WsStatus>('connecting');
+  const [messages, setMessages] = useState<Message[] | null>(null);
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
-  const [hasMore, setHasMore] = useState(false);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const bottomRef = useRef<HTMLDivElement>(null);
-  const socketRef = useRef<WebSocket | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const box = useRef<HTMLDivElement>(null);
+  const lastCount = useRef(0);
 
-  // Load message history from REST API
-  useEffect(() => {
-    fetch(`${config.apiUrl}/chat/?channel=lobby`, { cache: 'no-store' })
-      .then((r) => r.ok ? r.json() : null)
-      .then((data) => {
-        if (data?.results) {
-          // API returns newest-first; reverse for display
-          const results = data.results as Message[];
-          setMessages([...results].reverse());
-          setHasMore(results.length >= 50);
-        }
-      })
-      .catch(() => {});
-  }, []);
-
-  async function loadOlder() {
-    if (messages.length === 0 || loadingMore) return;
-    setLoadingMore(true);
-    const oldestId = messages[0].id;
+  const load = useCallback(async () => {
+    if (!accessToken) return;
     try {
-      const res = await fetch(`${config.apiUrl}/chat/?channel=lobby&before=${oldestId}`, { cache: 'no-store' });
-      const data = res.ok ? await res.json() : null;
-      const results = (data?.results ?? []) as Message[];
-      if (results.length > 0) {
-        setMessages((prev) => [...[...results].reverse(), ...prev]);
-      }
-      setHasMore(results.length >= 50);
-    } catch {
-      setHasMore(false);
-    }
-    setLoadingMore(false);
-  }
+      const res = await fetch(`${config.apiUrl}/support/messages/`, {
+        headers: { Authorization: `Bearer ${accessToken}` }, cache: 'no-store',
+      });
+      if (res.ok) setMessages(((await res.json()) as { results: Message[] }).results);
+    } catch { /* the next poll retries */ }
+  }, [accessToken]);
 
-  // WebSocket for live incoming messages
   useEffect(() => {
-    let closed = false;
-    let socket: WebSocket | undefined;
-    try {
-      socket = new WebSocket(`${config.wsUrl}/${CHANNEL}`);
-      socketRef.current = socket;
-      socket.onopen = () => !closed && setWsStatus('connected');
-      socket.onclose = () => !closed && setWsStatus('disconnected');
-      socket.onerror = () => !closed && setWsStatus('error');
-      socket.onmessage = (ev) => {
-        if (closed) return;
-        try {
-          const parsed = JSON.parse(String(ev.data)) as Partial<Message>;
-          if (parsed.body) {
-            setMessages((prev) => [
-              ...prev,
-              {
-                id: `ws-${Date.now()}`,
-                sender: parsed.sender ?? 'Player',
-                body: parsed.body!,
-                created_at: new Date().toISOString(),
-              },
-            ].slice(-200));
-          }
-        } catch {
-          // Raw string message fallback
-          setMessages((prev) => [
-            ...prev,
-            { id: `ws-${Date.now()}`, sender: '?', body: String(ev.data), created_at: new Date().toISOString() },
-          ].slice(-200));
-        }
-      };
-    } catch {
-      setWsStatus('error');
-    }
-    return () => { closed = true; try { socket?.close(); } catch {} };
-  }, []);
+    void load();
+    const t = window.setInterval(() => { if (document.visibilityState === 'visible') void load(); }, POLL_MS);
+    return () => window.clearInterval(t);
+  }, [load]);
 
-  // Scroll to bottom on new messages
+  // Scroll to the newest message when one arrives.
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const n = messages?.length ?? 0;
+    // Scroll the message box only — never the page.
+    if (n !== lastCount.current && box.current) box.current.scrollTop = box.current.scrollHeight;
+    lastCount.current = n;
   }, [messages]);
 
-  async function sendMessage(e: React.FormEvent) {
+  async function send(e: React.FormEvent) {
     e.preventDefault();
-    if (!text.trim() || !accessToken) return;
-    setSending(true);
     const body = text.trim();
-    setText('');
-
-    const { data, error } = await authedPost<Message>(
-      '/chat/',
-      { body, channel: 'lobby' },
-      accessToken,
-    );
-
-    if (data) {
-      setMessages((prev) => [...prev, data].slice(-200));
-    } else if (error) {
-      setText(body); // restore on failure
-    }
+    if (!body || !accessToken) return;
+    setSending(true); setError(null);
+    const res = await authedPost<Message>('/support/messages/', { body }, accessToken);
     setSending(false);
+    if (res.error) { setError(res.error); return; }
+    setText('');
+    if (res.data) setMessages((prev) => [...(prev ?? []), res.data!]);
   }
 
-  const statusTone = wsStatus === 'connected' ? 'default' : wsStatus === 'error' ? 'destructive' : 'secondary';
-
   return (
-    <div className="flex h-[calc(100vh-140px)] flex-col gap-4">
-      <div className="flex items-center justify-between">
+    <div className="mx-auto flex h-[calc(100vh-140px)] max-w-3xl flex-col gap-4">
+      <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold">Live Chat</h1>
-          <p className="text-muted-foreground text-sm">Chat with support and other players.</p>
+          <h1 className="flex items-center gap-2 text-2xl font-bold"><FaHeadset className="text-secondary" /> Support chat</h1>
+          <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
+            <FaLock size={11} /> Private — only you and the BetBlits support team can see this conversation.
+          </p>
         </div>
-        <Badge variant={statusTone}>● {wsStatus}</Badge>
+        <button onClick={openSupportChat} className="rounded-full border border-border px-3 py-1.5 text-xs font-semibold hover:bg-muted">
+          Prefer the chat bubble? Open it
+        </button>
       </div>
 
-      <Card className="flex flex-1 flex-col overflow-hidden">
-        {/* Message list */}
-        <CardContent className="flex-1 overflow-y-auto p-4 space-y-3">
-          {hasMore && (
-            <div className="flex justify-center pb-1">
-              <button
-                onClick={loadOlder}
-                disabled={loadingMore}
-                className="rounded-md border border-border px-3 py-1 text-xs font-medium text-muted-foreground hover:bg-accent/10 disabled:opacity-50"
-              >
-                {loadingMore ? <span className="inline-flex items-center justify-center gap-2"><Spinner size={14} />Loading…</span> : 'Load older messages'}
-              </button>
+      <Card className="flex flex-1 flex-col overflow-hidden rounded-2xl">
+        <div ref={box} className="flex-1 space-y-3 overflow-y-auto p-4">
+          {!user ? (
+            <div className="flex h-full flex-col items-center justify-center gap-3 text-center text-sm text-muted-foreground">
+              <p>Log in to chat privately with our support team about your account, deposits or withdrawals.</p>
+              <div className="flex gap-2">
+                <Link href="/login" className="rounded-full bg-secondary px-4 py-2 font-bold text-secondary-foreground">Log in</Link>
+                <button onClick={openSupportChat} className="rounded-full border border-border px-4 py-2 font-semibold">Chat without logging in</button>
+              </div>
             </div>
-          )}
-          {messages.length === 0 && (
-            <p className="text-center text-sm text-muted-foreground pt-8">
-              No messages yet — be the first to say hello!
-            </p>
-          )}
-          {messages.map((m) => {
-            const isMe = user && m.sender === user.username;
+          ) : messages === null ? (
+            <div className="flex h-full items-center justify-center"><Spinner size={20} /></div>
+          ) : messages.length === 0 ? (
+            <div className="flex h-full flex-col items-center justify-center gap-1 text-center text-sm text-muted-foreground">
+              <p className="font-semibold text-foreground">How can we help?</p>
+              <p>Tell us what’s going on — a deposit, a withdrawal, a bet — and our team will reply here.</p>
+            </div>
+          ) : messages.map((m) => {
+            const mine = !m.from_staff;
             return (
-              <div key={m.id} className={`flex gap-2 ${isMe ? 'flex-row-reverse' : ''}`}>
-                <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold ${isMe ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}>
-                  {m.sender[0]?.toUpperCase() ?? '?'}
+              <div key={m.id} className={`flex gap-2 ${mine ? 'flex-row-reverse' : ''}`}>
+                <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold ${mine ? 'bg-primary text-primary-foreground' : 'bg-secondary text-secondary-foreground'}`}>
+                  {mine ? (user.username[0] ?? '?').toUpperCase() : <FaHeadset size={13} />}
                 </div>
-                <div className={`max-w-[75%] rounded-2xl px-4 py-2 text-sm ${isMe ? 'rounded-tr-sm bg-primary text-primary-foreground' : 'rounded-tl-sm bg-muted'}`}>
-                  {!isMe && (
-                    <p className="mb-0.5 flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
-                      {m.sender}
-                      {m.is_agent && (
-                        <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-secondary">Agent</span>
-                      )}
-                    </p>
-                  )}
-                  <p>{m.body}</p>
-                  <p className={`mt-0.5 text-[10px] ${isMe ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}>
-                    {new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                <div className={`max-w-[78%] rounded-2xl px-4 py-2 text-sm ${mine ? 'rounded-tr-sm bg-primary text-primary-foreground' : 'rounded-tl-sm bg-muted'}`}>
+                  {!mine && <p className="mb-0.5 text-xs font-semibold text-secondary">{m.sender} · Support</p>}
+                  <p className="whitespace-pre-wrap break-words">{m.body}</p>
+                  <p className={`mt-0.5 text-[10px] ${mine ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}>
+                    {new Date(m.created_at).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                    {mine && (m.read ? ' · Seen' : ' · Sent')}
                   </p>
                 </div>
               </div>
             );
           })}
-          <div ref={bottomRef} />
-        </CardContent>
-
-        {/* Send bar */}
-        <div className="border-t border-border p-3">
-          {user ? (
-            <form onSubmit={sendMessage} className="flex gap-2">
-              <Input
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-                placeholder="Type a message…"
-                disabled={sending}
-                autoFocus
-              />
-              <button
-                type="submit"
-                disabled={sending || !text.trim()}
-                className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
-              >
-                Send
-              </button>
-            </form>
-          ) : (
-            <p className="text-center text-sm text-muted-foreground">
-              <a href="/login" className="text-secondary hover:underline">Log in</a> to send messages.
-            </p>
-          )}
         </div>
+
+        {user && (
+          <form onSubmit={send} className="border-t border-border p-3">
+            {error && <p className="mb-2 text-xs font-semibold text-down">{error}</p>}
+            <div className="flex gap-2">
+              <Input value={text} onChange={(e) => setText(e.target.value)} placeholder="Write to support…" maxLength={1000} disabled={sending} />
+              <button type="submit" disabled={sending || !text.trim()}
+                className="flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50">
+                <FaPaperPlane size={12} /> Send
+              </button>
+            </div>
+          </form>
+        )}
       </Card>
     </div>
   );
