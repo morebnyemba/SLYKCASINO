@@ -7,7 +7,8 @@ import { useSiteIdentity } from '@/lib/identity-context';
 import { config } from '@/lib/config';
 
 const TRUST = [
-  { label: 'Licensed & regulated', icon: FaShieldAlt },
+  // Only claimed once the operator has entered their licence (Admin → Branding).
+  { label: 'Licensed & regulated', icon: FaShieldAlt, needsLicence: true },
   { label: 'Secure encrypted wallet', icon: FaLock },
   { label: 'Fast local payouts', icon: FaBolt },
 ];
@@ -51,7 +52,7 @@ export function SiteFooter() {
     <footer className="mt-10 border-t border-border bg-sidebar sm:mt-12">
       <div className="mx-auto max-w-[1440px] px-4 py-6 text-sm text-muted-foreground sm:px-5 sm:py-8">
         <div className="grid grid-cols-3 gap-2 border-b border-border pb-5 sm:flex sm:flex-wrap sm:items-center sm:gap-x-6 sm:gap-y-3 sm:pb-6">
-          {TRUST.map((t) => {
+          {TRUST.filter((t) => !t.needsLicence || identity.license_text.trim()).map((t) => {
             const Icon = t.icon;
             return (
               <span key={t.label} className="flex flex-col items-center gap-1.5 text-center text-[11px] font-semibold sm:flex-row sm:text-sm sm:font-normal">
@@ -66,7 +67,9 @@ export function SiteFooter() {
 
         <div className="grid sm:grid-cols-3 sm:gap-6 sm:pt-6">
           <FooterSection title={identity.site_name}>
-            <p className="whitespace-pre-line text-xs leading-relaxed">{identity.license_text}</p>
+            {identity.license_text.trim() && (
+              <p className="whitespace-pre-line text-xs leading-relaxed">{identity.license_text}</p>
+            )}
           </FooterSection>
 
           <FooterSection title="Play responsibly">
@@ -113,10 +116,6 @@ export function SiteFooter() {
             <Link href="/legal/aml-kyc-policy" className="hover:text-foreground">AML &amp; KYC</Link>
           </div>
         </div>
-        <p className="mt-4 text-center text-[11px] leading-relaxed text-muted-foreground/60">
-          This turnkey solution was developed by Slyker Tech Web Services for BETBLITS. Any request, order or action
-          should be directed to BetBlits.
-        </p>
       </div>
     </footer>
   );

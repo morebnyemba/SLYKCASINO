@@ -184,9 +184,6 @@ function SidebarFooter() {
           </button>
         </div>
       )}
-      <p className="px-1 text-[10px] leading-snug text-white/35">
-        Turnkey solution developed by Slyker Tech Web Services for BETBLITS. Any request, order or action should be directed to BetBlits.
-      </p>
     </div>
   );
 }
