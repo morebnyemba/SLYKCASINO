@@ -44,8 +44,9 @@ class SiteIdentity(models.Model):
     logo_url = models.CharField(max_length=500, blank=True)
     license_text = models.TextField(
         blank=True,
-        # The licence number goes here once issued (Admin → Branding).
-        default='Operated under a gaming licence issued by the Curaçao Gaming Authority (CGA).',
+        # Blank until the operator enters the licence they hold (Admin → Branding);
+        # the site makes no licensing claim while it is empty.
+        default='',
     )
     updated_at = models.DateTimeField(auto_now=True)
     updated_by_username = models.CharField(max_length=150, blank=True)

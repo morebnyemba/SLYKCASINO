@@ -55,7 +55,7 @@ export default function TermsPage() {
       <ul>
         <li>All bets and wagers are final once placed and confirmed by our systems, except where a manifest error, technical fault, or fraud is identified.</li>
         <li>We reserve the right to void, reverse, or adjust bets resulting from a pricing error, software malfunction, or other manifest error, and to recover funds incorrectly credited.</li>
-        <li>Game outcomes for casino products are determined by certified random number generators (RNGs) provided by our licensed game providers. Game rules and RTP (return to player) information are displayed within each game where applicable.</li>
+        <li>Game outcomes for third-party casino products are determined by the random number generators (RNGs) of the respective game providers. Outcomes of in-house crash games are provably fair: each round&apos;s result is committed before betting opens and can be checked by players after the round. Game rules and RTP (return to player) information are displayed within each game where applicable.</li>
         <li>Sportsbook odds and markets may be suspended or settled in accordance with published market rules.</li>
       </ul>
 

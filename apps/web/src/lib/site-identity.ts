@@ -11,7 +11,7 @@ export const DEFAULT_IDENTITY: SiteIdentity = {
   site_name: 'BetBlits',
   tagline: 'Bet smart. Brag often.',
   logo_url: '',
-  license_text: 'Operated under a gaming licence issued by the Curaçao Gaming Authority (CGA).',
+  license_text: '',
 };
 
 /**
@@ -27,7 +27,8 @@ export async function fetchSiteIdentity(): Promise<SiteIdentity> {
       site_name: data.site_name || DEFAULT_IDENTITY.site_name,
       tagline: data.tagline ?? DEFAULT_IDENTITY.tagline,
       logo_url: data.logo_url ?? '',
-      license_text: data.license_text || DEFAULT_IDENTITY.license_text,
+      // Blank on purpose until the operator enters a licence they actually hold.
+      license_text: data.license_text ?? '',
     };
   } catch {
     return DEFAULT_IDENTITY;

@@ -31,7 +31,7 @@ const DEFAULT_IDENTITY: IdentityResponse = {
   site_name: 'BetBlits',
   tagline: 'Bet smart. Brag often.',
   logo_url: '',
-  license_text: 'Operated under a gaming licence issued by the Curaçao Gaming Authority (CGA).',
+  license_text: '',
 };
 
 // Keep in sync with backend/apps/branding/tokens.py.
@@ -319,7 +319,7 @@ function IdentitySection() {
                 className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
               />
               <p className="text-xs text-muted-foreground">
-                Shown in the site footer. Add your licence number exactly as issued, e.g. “Licensed by the Curaçao Gaming Authority (CGA), licence no. OGL/2024/…”.
+                Shown in the site footer. Leave blank until you hold a licence; then enter it exactly as issued, e.g. “Licensed by the Curaçao Gaming Authority (CGA), licence no. OGL/2024/…”. While blank, the site makes no licensing claim.
               </p>
             </div>
           </div>
