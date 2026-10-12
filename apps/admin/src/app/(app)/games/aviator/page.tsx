@@ -36,7 +36,7 @@ interface Stats {
 }
 
 const FIELDS: { key: keyof Settings; label: string; hint: string; suffix?: string }[] = [
-  { key: 'house_edge_percent', label: 'House edge (%)', hint: 'Return to player is 100% minus this. 3% is typical.' },
+  { key: 'house_edge_percent', label: 'House edge (%)', hint: '0–50%. Return to player is 100% minus this. 1–5% is typical (Spribe’s Aviator: 3%).' },
   { key: 'min_bet', label: 'Minimum bet ($)', hint: 'Smallest stake per bet.' },
   { key: 'max_bet', label: 'Maximum bet ($)', hint: 'Largest stake per bet.' },
   { key: 'max_win', label: 'Max win per bet ($)', hint: 'A bet that reaches it is cashed out automatically.' },
@@ -171,6 +171,13 @@ export default function CrashGameAdminPage() {
               </Field>
             ))}
           </div>
+          {Number(form.house_edge_percent) > 10 && (
+            <p className="mt-4 rounded-xl border border-gold/40 bg-gold/10 p-3 text-xs text-gold">
+              At a {Number(form.house_edge_percent)}% edge about {Math.round(Number(form.house_edge_percent))}% of rounds crash at 1.00x before
+              the plane moves (every bet on them loses), and players see a {100 - Number(form.house_edge_percent)}% return in the rules
+              and can verify it in the fairness check. Players notice quickly — most crash games use 1–5%.
+            </p>
+          )}
           <div className="mt-4 flex justify-end">
             <Btn variant="primary" busy={busy === 'save'} disabled={!dirty}
               onClick={() => put({ display_name: name.trim(), ...Object.fromEntries(FIELDS.map((f) => [f.key, f.key === 'betting_seconds' ? Number(form[f.key]) : form[f.key]])) }, 'Saved — limits apply from the next round.', 'save')}>

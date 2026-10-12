@@ -188,8 +188,8 @@ class AdminSettingsView(APIView):
         if 'display_name' in data:
             cfg.display_name = str(data['display_name'] or '').strip()[:40] or 'BetBlits Aviator'
         problems = []
-        if not Decimal('0') <= cfg.house_edge_percent <= Decimal('10'):
-            problems.append('House edge must be between 0% and 10%.')
+        if not Decimal('0') <= cfg.house_edge_percent <= Decimal('50'):
+            problems.append('House edge must be between 0% and 50%.')
         if cfg.min_bet <= 0 or cfg.max_bet < cfg.min_bet:
             problems.append('The maximum bet must be at least the minimum, and the minimum above $0.')
         if cfg.max_multiplier < Decimal('2'):
