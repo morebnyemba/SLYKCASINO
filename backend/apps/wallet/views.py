@@ -230,14 +230,47 @@ class AdminLedgerViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     permission_classes = [IsAdminUser]
 
     def get_queryset(self):
-        qs = LedgerEntry.objects.select_related('wallet').order_by('-created_at')
-        player_id = self.request.query_params.get('player_id')
-        if player_id:
-            qs = qs.filter(wallet__player_id=player_id)
-        kind = self.request.query_params.get('kind')
-        if kind:
-            qs = qs.filter(kind__in=kind.split(','))
-        return qs[:500]
+        """Newest first, every entry (paged). Filters: ?player_id=, ?kind= (comma list),
+        ?q= (username, email, #player id, or text in the reference), ?date_from= /
+        ?date_to= (YYYY-MM-DD, inclusive), ?page_size= (up to 200)."""
+        from datetime import date, timedelta
+
+        from django.db.models import OuterRef, Subquery
+
+        from apps.accounts.models import Player
+
+        params = self.request.query_params
+        qs = LedgerEntry.objects.select_related('wallet').annotate(
+            username=Subquery(Player.objects.filter(pk=OuterRef('wallet__player_id')).values('username')[:1]),
+        ).order_by('-created_at', '-id')
+        if params.get('player_id'):
+            qs = qs.filter(wallet__player_id=params['player_id'])
+        if params.get('kind'):
+            qs = qs.filter(kind__in=params['kind'].split(','))
+        q = (params.get('q') or '').strip()
+        if q:
+            pid = q.lstrip('#')
+            if pid.isdigit():
+                qs = qs.filter(wallet__player_id=int(pid))
+            else:
+                ids = list(Player.objects.filter(Q(username__icontains=q) | Q(email__icontains=q))
+                           .values_list('id', flat=True)[:500])
+                qs = qs.filter(Q(wallet__player_id__in=ids) | Q(reference__icontains=q))
+        for key, lookup, shift in (('date_from', 'created_at__date__gte', 0), ('date_to', 'created_at__date__lte', 0)):
+            try:
+                if params.get(key):
+                    qs = qs.filter(**{lookup: date.fromisoformat(params[key]) + timedelta(days=shift)})
+            except ValueError:
+                pass
+        return qs
+
+    def paginate_queryset(self, queryset):
+        if self.paginator is not None:
+            try:
+                self.paginator.page_size = max(1, min(int(self.request.query_params.get('page_size') or 25), 200))
+            except ValueError:
+                self.paginator.page_size = 25
+        return super().paginate_queryset(queryset)
 
 
 class WithdrawView(APIView):
