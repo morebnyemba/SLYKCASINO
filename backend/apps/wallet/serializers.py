@@ -16,10 +16,11 @@ class LedgerEntrySerializer(serializers.ModelSerializer):
 
 class AdminLedgerEntrySerializer(serializers.ModelSerializer):
     player_id = serializers.IntegerField(source='wallet.player_id', read_only=True)
+    username = serializers.CharField(read_only=True, default=None)
 
     class Meta:
         model = LedgerEntry
-        fields = ['id', 'player_id', 'amount', 'kind', 'reference', 'idempotency_key', 'created_at']
+        fields = ['id', 'player_id', 'username', 'amount', 'kind', 'reference', 'idempotency_key', 'created_at']
 
 
 PUBLIC_METHOD_FIELDS = [

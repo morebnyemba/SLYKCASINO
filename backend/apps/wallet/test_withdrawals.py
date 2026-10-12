@@ -167,3 +167,25 @@ class PlayThroughTests(TestCase):
     def test_rule_can_be_changed_or_switched_off(self):
         WithdrawalSettings.objects.update_or_create(pk=1, defaults={'min_turnover_percent': 0})
         self.assertEqual(self.ask().status, 'requested')
+
+
+class AdminLedgerListTests(TestCase):
+    def test_search_filters_and_pages(self):
+        a = account_services.create_player(username='ledger_anna')
+        b = account_services.create_player(username='ledger_ben')
+        for i in range(30):
+            services.deposit(player_id=a.id, amount=D('1'), idempotency_key=f'la:{i}')
+        services.deposit(player_id=b.id, amount=D('5'), idempotency_key='lb:1', reference='paynow:REF-777')
+        staff = APIClient()
+        staff.force_authenticate(User.objects.create_user('auditor', 'au@example.com', 'pw', is_staff=True))
+        page = staff.get('/api/admin/ledger/').json()
+        self.assertEqual((page['count'], len(page['results'])), (31, 25))
+        self.assertEqual(page['results'][0]['username'], 'ledger_ben')    # newest first
+        self.assertEqual(len(staff.get('/api/admin/ledger/', {'page': 2}).json()['results']), 6)
+        self.assertEqual(staff.get('/api/admin/ledger/', {'q': 'anna'}).json()['count'], 30)
+        self.assertEqual(staff.get('/api/admin/ledger/', {'q': f'#{b.id}'}).json()['count'], 1)
+        self.assertEqual(staff.get('/api/admin/ledger/', {'q': 'REF-777'}).json()['count'], 1)
+        self.assertEqual(staff.get('/api/admin/ledger/', {'kind': 'withdrawal'}).json()['count'], 0)
+        today = timezone.localdate().isoformat()
+        self.assertEqual(staff.get('/api/admin/ledger/', {'date_from': today, 'date_to': today}).json()['count'], 31)
+        self.assertEqual(staff.get('/api/admin/ledger/', {'date_to': '2000-01-01'}).json()['count'], 0)
