@@ -36,7 +36,7 @@ def admin_stats(request):
     from apps.accounts.models import KYCSubmission
     from apps.affiliates.models import Affiliate, Commission, Payout
     from apps.sportsbook.models import BetSlip, Event, Market
-    from apps.sportsbook.services import LIVE_STATUSES
+    from apps.sportsbook.services import live_now
     from apps.livechat.support import unread_threads as support_unread_threads
     from apps.wallet.models import LedgerEntry, PaymentTransaction, WithdrawalRequest
 
@@ -102,7 +102,7 @@ def admin_stats(request):
             ).distinct().count(),
         },
         'sportsbook': {
-            'live': Event.objects.filter(status__in=LIVE_STATUSES).count(),
+            'live': Event.objects.filter(live_now(now)).count(),
             'upcoming': Event.objects.filter(starts_at__gt=now, is_open=True, has_odds=True).count(),
             'unpriced': Event.objects.filter(starts_at__gt=now, has_odds=False).count(),
             'open_bets': open_bets, 'open_slips': open_slips,
@@ -129,7 +129,7 @@ def admin_analytics(request):
     from apps.affiliates.models import Referral
     from apps.jet.models import JetBet, JetRound
     from apps.sportsbook.models import BetSlip, Event
-    from apps.sportsbook.services import LIVE_STATUSES
+    from apps.sportsbook.services import live_now
     from apps.wallet import services as wallet_services
     from common import timeframes
 
@@ -180,7 +180,7 @@ def admin_analytics(request):
     rnd = JetRound.objects.order_by('-id').first()
     right_now = {
         'last_hour': {k: hour[k] for k in ('deposits', 'plays', 'stakes', 'ggr', 'active_players')},
-        'live_matches': Event.objects.filter(status__in=LIVE_STATUSES).count(),
+        'live_matches': Event.objects.filter(live_now(now)).count(),
         'open_bets': Bet.objects.filter(status__in=('open', 'accepting')).count()
         + BetSlip.objects.filter(status__in=('open', 'accepting')).count(),
         'aviator': {

@@ -55,6 +55,31 @@ class SelectionUnavailable(ValueError):
 LIVE_STATUSES = ('1H', 'HT', '2H', 'ET', 'BT', 'P', 'SUSP', 'INT', 'LIVE')
 
 
+def live_now(now=None):
+    """Q for matches that are live right now: a live status, and kicked off
+    less than SPORTSBOOK_STALE_MATCH_HOURS ago. Past that the feed has missed
+    the final whistle (see stuck_without_result) and the match isn't live."""
+    from datetime import timedelta
+    from django.db.models import Q
+    stale = _hours_setting('SPORTSBOOK_STALE_MATCH_HOURS', 6)
+    q = Q(status__in=LIVE_STATUSES)
+    if stale > 0:
+        q &= Q(starts_at__gte=(now or timezone.now()) - timedelta(hours=stale)) | Q(starts_at__isnull=True)
+    return q
+
+
+def stuck_without_result(now=None):
+    """Q for matches more than SPORTSBOOK_STALE_MATCH_HOURS past kick-off with
+    no final result: the feed never sent full time (or never covered it), or a
+    match added by hand that nobody scored. Bets on them are voided by
+    auto_resolve_markets after SPORTSBOOK_UNPLAYED_VOID_HOURS unless settled first."""
+    from datetime import timedelta
+    from django.db.models import Q
+    stale = _hours_setting('SPORTSBOOK_STALE_MATCH_HOURS', 6) or 6
+    return Q(starts_at__lte=(now or timezone.now()) - timedelta(hours=stale)) & ~Q(
+        status__in=(*FINISHED_STATUSES, *VOID_STATUSES))
+
+
 def list_events(
     *, featured: Optional[bool] = None, sport: Optional[str] = None,
     upcoming: bool = False, priced: Optional[bool] = None,
@@ -76,12 +101,8 @@ def list_events(
     if upcoming:
         now = timezone.now()
         recent = now - timedelta(hours=3)
-        # "Live" only while it plausibly is: a feed that went quiet mid-match
-        # mustn't leave the match on the board for good.
-        stale = _hours_setting('SPORTSBOOK_STALE_MATCH_HOURS', 6)
-        live = Q(status__in=LIVE_STATUSES) & (Q(starts_at__gte=now - timedelta(hours=stale)) if stale > 0 else Q())
         qs = qs.filter(
-            Q(is_open=True, starts_at__gte=recent) | Q(is_open=True, starts_at__isnull=True) | live,
+            Q(is_open=True, starts_at__gte=recent) | Q(is_open=True, starts_at__isnull=True) | live_now(now),
         ).order_by(F('starts_at').asc(nulls_last=True), 'name', 'id')
     return qs
 

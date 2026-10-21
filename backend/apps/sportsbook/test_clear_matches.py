@@ -98,3 +98,31 @@ class ClearOldMatchesTests(TestCase):
         self.assertEqual(MarketOutcome.objects.count(), 12)
         self.assertEqual(Bet.objects.get(event='k').outcome_ref_id, out.pk)
         del fresh
+
+
+@override_settings(SPORTSBOOK_STALE_MATCH_HOURS=6)
+class StuckLiveTests(TestCase):
+    def setUp(self):
+        mk = lambda name, h, status: Event.objects.create(  # noqa: E731
+            name=name, odds=D('2'), starts_at=timezone.now() - timedelta(hours=h), status=status)
+        mk('Live now', 1, '2H')
+        mk('Frozen live', 30, '2H')
+        mk('Never updated', 30, 'NS')
+        mk('Finished', 30, 'FT')
+        mk('Upcoming', -2, '')
+        self.api = APIClient()
+        self.api.force_authenticate(User.objects.create_user('ops', 'o@example.com', 'x', is_staff=True))
+
+    def names(self, state):
+        return {m['name'] for m in self.api.get('/api/admin/sportsbook/events/', {'state': state}).json()['results']}
+
+    def test_old_live_matches_are_not_live_but_no_result(self):
+        self.assertEqual(self.names('live'), {'Live now'})
+        self.assertEqual(self.names('stuck'), {'Frozen live', 'Never updated'})
+        summary = self.api.get('/api/admin/sportsbook/events/summary/').json()
+        self.assertEqual((summary['live'], summary['stuck']), (1, 2))
+        states = {m['name']: m['state'] for m in self.api.get('/api/admin/sportsbook/events/', {'state': 'all'}).json()['results']}
+        self.assertEqual(states['Frozen live'], 'stuck')
+        self.assertEqual(states['Live now'], 'live')
+        stats = self.api.get('/api/admin/stats/').json()
+        self.assertEqual(stats['sportsbook']['live'], 1)
