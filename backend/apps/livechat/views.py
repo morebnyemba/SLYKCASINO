@@ -7,6 +7,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.accounts import services as accounts_services
+from apps.accounts.impersonation import is_impersonated
 from common.realtime_auth import make_ws_ticket
 
 from . import services
@@ -43,7 +44,9 @@ class SupportChatView(APIView):
         if player is None:
             return Response({'detail': 'Player not found.'}, status=status.HTTP_404_NOT_FOUND)
         messages = support.thread(player.id)
-        support.mark_read(player.id, by_staff=False)
+        # Staff looking through the player's eyes mustn't clear their unread replies.
+        if not is_impersonated(request):
+            support.mark_read(player.id, by_staff=False)
         return Response({'results': [support.payload(m) for m in messages]})
 
     def post(self, request):

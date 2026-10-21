@@ -110,7 +110,8 @@ REST_FRAMEWORK = {
     'PAGE_SIZE': 25,
     'DEFAULT_RENDERER_CLASSES': ['rest_framework.renderers.JSONRenderer'],
     'DEFAULT_AUTHENTICATION_CLASSES': [
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
+        # JWT, plus the limits on staff "view as player" sessions.
+        'apps.accounts.impersonation.ImpersonationAwareJWTAuthentication',
     ],
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
@@ -133,6 +134,7 @@ SIMPLE_JWT = {
     'BLACKLIST_AFTER_ROTATION': True,
     'UPDATE_LAST_LOGIN': True,
     'TOKEN_OBTAIN_SERIALIZER': 'apps.accounts.serializers.CustomTokenObtainPairSerializer',
+    'TOKEN_REFRESH_SERIALIZER': 'apps.accounts.impersonation.ImpersonationAwareTokenRefreshSerializer',
 }
 
 CORS_ALLOWED_ORIGINS = [

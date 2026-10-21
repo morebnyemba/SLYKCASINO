@@ -30,7 +30,8 @@ export const NAV: NavSection[] = [
   { title: 'Sportsbook', items: [
     { href: '/sportsbook/matches', label: 'Matches', icon: BsCalendar2Week, badge: 'live', match: ['/sportsbook/matches', '/events'] },
     { href: '/sportsbook/leagues', label: 'Leagues', icon: BsTrophy },
-    { href: '/betting-feeds', label: 'Bets & tickets', icon: BsTicketPerforated, badge: 'settle' },
+    { href: '/tickets', label: 'Tickets', icon: BsTicketPerforated },
+    { href: '/betting-feeds', label: 'Live bets & settling', icon: BsActivity, badge: 'settle' },
     { href: '/sportsbook/feed', label: 'Odds feed', icon: BsBroadcast },
   ] },
   { title: 'Games', items: [

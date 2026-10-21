@@ -14,6 +14,11 @@ export interface DecodedToken {
   is_staff: boolean;
   is_superuser: boolean;
   exp: number;
+  /** Set when staff are signed in as this player (see apps.accounts.impersonation). */
+  imp?: number;
+  imp_by?: string;
+  imp_mode?: 'view' | 'full';
+  imp_exp?: number;
 }
 
 const ACCESS_KEY = 'slyk_access';
@@ -21,8 +26,10 @@ const REFRESH_KEY = 'slyk_refresh';
 
 export function decodeToken(token: string): DecodedToken | null {
   try {
-    const payload = token.split('.')[1];
-    return JSON.parse(atob(payload)) as DecodedToken;
+    // JWTs are base64url; atob wants plain base64 (and UTF-8 names need decoding).
+    const payload = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    const bytes = Uint8Array.from(atob(payload.padEnd(Math.ceil(payload.length / 4) * 4, '=')), (c) => c.charCodeAt(0));
+    return JSON.parse(new TextDecoder().decode(bytes)) as DecodedToken;
   } catch {
     return null;
   }

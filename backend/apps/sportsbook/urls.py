@@ -2,8 +2,9 @@ from django.urls import path
 from rest_framework.routers import SimpleRouter
 
 from .admin_api import AdminEventViewSet, AdminLeagueViewSet, FeedSettingsView, FeedSyncView, FeedTestView
+from .admin_tickets import AdminTicketDetailView, AdminTicketsView
 from .views import (
-    AdminBetViewSet, AdminCashoutSettingsView, AdminTicketsView, BetSlipViewSet, BetViewSet, BookingCodeCreateView,
+    AdminBetViewSet, AdminCashoutSettingsView, BetSlipViewSet, BetViewSet, BookingCodeCreateView,
     BookingCodeDetailView, CashoutOffersView, EventViewSet, MultiBetBonusView,
 )
 
@@ -21,6 +22,7 @@ urlpatterns = [
     path('multibet-bonus/', MultiBetBonusView.as_view(), name='multibet-bonus'),
     path('cashout/offers/', CashoutOffersView.as_view(), name='cashout-offers'),
     path('admin/tickets/', AdminTicketsView.as_view(), name='admin-tickets'),
+    path('admin/tickets/<str:ticket>/', AdminTicketDetailView.as_view(), name='admin-ticket-detail'),
     path('admin/sportsbook/cashout/', AdminCashoutSettingsView.as_view(), name='admin-sb-cashout'),
     path('admin/sportsbook/feed/', FeedSettingsView.as_view(), name='admin-sb-feed'),
     path('admin/sportsbook/feed/test/', FeedTestView.as_view(), name='admin-sb-feed-test'),

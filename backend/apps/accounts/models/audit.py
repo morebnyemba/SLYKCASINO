@@ -42,6 +42,8 @@ class AuditLog(models.Model):
         PAYMENT_SETTINGS_CHANGED = 'payment_settings', 'Payment gateway settings changed'
         CASHOUT_SETTINGS_CHANGED = 'cashout_settings', 'Cash-out settings changed'
         JET_SETTINGS_CHANGED = 'jet_settings', 'Aviator settings changed'
+        IMPERSONATION_STARTED = 'impersonation_started', 'Staff signed in as player'
+        IMPERSONATED_ACTION = 'impersonated_action', 'Change made by staff signed in as player'
 
     player_id = models.BigIntegerField(null=True, blank=True, db_index=True)
     event_type = models.CharField(max_length=30, choices=EventType.choices, db_index=True)

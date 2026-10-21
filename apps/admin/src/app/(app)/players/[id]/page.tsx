@@ -9,6 +9,7 @@ import { useAuth } from '@/lib/auth-context';
 import { useApi, authedPost } from '@/lib/use-api';
 import { LoadingState } from '@slyk/ui/components/spinner';
 import { DeletePlayer } from '@/components/players/delete-player';
+import { ImpersonateButton } from '@/components/players/impersonate';
 import { PlayerActivity } from '@/components/tickets/tickets';
 import { kindLabel, kindTone } from '@/lib/ledger-kinds';
 
@@ -119,7 +120,7 @@ export default function PlayerDetailPage({ params }: PageProps) {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-2.5">
+      <div className="flex flex-wrap items-center gap-2.5">
         <Link href="/users" className="flex h-8 w-8 items-center justify-center rounded-full border border-border hover:bg-accent">
           <FaArrowLeft size={12} />
         </Link>
@@ -133,6 +134,7 @@ export default function PlayerDetailPage({ params }: PageProps) {
           </p>
         </div>
         {player.is_suspended ? <Badge variant="destructive">Suspended</Badge> : <Badge variant="success">Active</Badge>}
+        <ImpersonateButton className="ml-auto" playerId={player.id} username={player.username} />
       </div>
 
       {actionError && <p className="text-sm text-destructive">{actionError}</p>}

@@ -17,6 +17,8 @@ interface AuthUser {
   userId: number;
   username: string;
   isStaff: boolean;
+  /** A staff member signed in as this player: who, read-only or not, and until when (ms). */
+  staffSession: { by: string; mode: 'view' | 'full'; endsAt: number } | null;
 }
 
 interface AuthContextValue {
@@ -39,7 +41,12 @@ export class AccountCreatedError extends Error {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 function userFromDecoded(decoded: DecodedToken): AuthUser {
-  return { userId: decoded.user_id, username: decoded.username, isStaff: decoded.is_staff };
+  return {
+    userId: decoded.user_id, username: decoded.username, isStaff: decoded.is_staff,
+    staffSession: decoded.imp
+      ? { by: decoded.imp_by ?? 'staff', mode: decoded.imp_mode ?? 'view', endsAt: (decoded.imp_exp ?? 0) * 1000 }
+      : null,
+  };
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -49,6 +56,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // On mount try to restore session via stored refresh token.
   useEffect(() => {
+    // The staff sign-in page replaces the session itself; restoring the old one
+    // here could race it and win.
+    if (window.location.pathname === '/impersonate') { setIsLoading(false); return; }
     const stored = getStoredTokens();
     if (!stored) { setIsLoading(false); return; }
     apiRefresh(stored.refresh)

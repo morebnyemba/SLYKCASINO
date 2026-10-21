@@ -103,15 +103,16 @@ export async function authedPost<T>(
   }
 }
 
-/** PUT / PATCH / DELETE (and POST) with the same token refresh as authedPost. */
+/** GET / PUT / PATCH / DELETE (and POST) with the same token refresh as authedPost. */
 export async function authedRequest<T>(
-  method: 'POST' | 'PUT' | 'PATCH' | 'DELETE',
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
   path: string,
   token: string,
   body?: unknown,
 ): Promise<{ data?: T; error?: string; status: number; fields?: Record<string, string[]> }> {
   const send = (t: string) => fetch(`${config.apiUrl}${path}`, {
     method,
+    cache: 'no-store',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${t}` },
     body: body === undefined ? undefined : JSON.stringify(body),
   });

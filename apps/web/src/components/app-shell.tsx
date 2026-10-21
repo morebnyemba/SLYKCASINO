@@ -14,6 +14,7 @@ import { NavigationLoader } from '@/components/site-loader';
 import { BetRail } from '@/components/bet-rail';
 import { GlobalSearch } from '@/components/global-search';
 import { MobileQuickNav } from '@/components/mobile-quick-nav';
+import { StaffSessionBanner } from '@/components/staff-session-banner';
 
 /** Games embedded in an iframe (/play/...) render bare: no site navigation around them. */
 export function isGameFrameRoute(pathname: string | null) {
@@ -28,6 +29,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }
   return (
     <>
+      <StaffSessionBanner />
       <div className="flex min-h-screen">
         <AppSidebar />
         <div className="flex min-w-0 flex-1 flex-col">
