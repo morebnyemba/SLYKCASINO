@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
-import { BsCalendar2Week, BsChevronRight, BsPlusLg, BsSearch, BsStar, BsStarFill } from 'react-icons/bs';
+import { BsCalendar2Week, BsChevronRight, BsPlusLg, BsSearch, BsStar, BsStarFill, BsTrash3 } from 'react-icons/bs';
 import {
   Btn, Drawer, EmptyState, Field, Notice, PageHeader, Pager, Panel, Select, Switch, Tabs, TextInput,
   cx, inputClass, tableClass, tdClass, thClass, trClass,
@@ -102,6 +102,64 @@ function NewMatchDrawer({ open, onClose, onCreated }: { open: boolean; onClose: 
   );
 }
 
+interface CleanupReport { closed: number; deleted: number; kept_with_tickets: number; dry_run: boolean }
+
+/** Run the hourly match housekeeping now, after showing what it would do. */
+function ClearOldMatches({ onDone }: { onDone: (r: CleanupReport) => void }) {
+  const { accessToken } = useAuth();
+  const [preview, setPreview] = useState<CleanupReport | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  async function run(dryRun: boolean) {
+    if (!accessToken) return;
+    setBusy(true);
+    setError('');
+    const res = await authedRequest<CleanupReport>('POST', '/admin/sportsbook/events/cleanup/', accessToken, { dry_run: dryRun });
+    setBusy(false);
+    if (!res.data) { setError(res.error ?? 'Could not clear matches.'); return; }
+    if (dryRun) { setPreview(res.data); return; }
+    setPreview(null);
+    onDone(res.data);
+  }
+
+  const nothing = preview && preview.closed === 0 && preview.deleted === 0;
+  return (
+    <>
+      <Btn icon={BsTrash3} busy={busy && !preview} onClick={() => void run(true)}>Clear old matches</Btn>
+      {error && !preview && <span className="text-xs text-live">{error}</span>}
+      <Drawer
+        open={!!preview}
+        onClose={() => setPreview(null)}
+        title="Clear old matches"
+        description="This also runs on its own every hour."
+        footer={(
+          <>
+            <Btn variant="ghost" onClick={() => setPreview(null)}>{nothing ? 'Close' : 'Cancel'}</Btn>
+            {!nothing && <Btn variant="danger" icon={BsTrash3} busy={busy} onClick={() => void run(false)}>Clear now</Btn>}
+          </>
+        )}
+      >
+        {preview && (
+          <div className="space-y-3 text-sm">
+            {nothing ? <p>Nothing to clear: no stale or old matches right now.</p> : (
+              <ul className="space-y-2">
+                <li><b className="tabular-nums">{preview.deleted}</b> old matches nobody bet on will be <b>deleted</b> with their markets.</li>
+                <li><b className="tabular-nums">{preview.closed}</b> matches long past kick-off will be <b>closed</b> to new bets and leave the player site.</li>
+              </ul>
+            )}
+            <p className="text-muted-foreground">
+              {preview.kept_with_tickets} old matches have tickets on them and are kept, so those tickets still show their match and score.
+              Settling is unaffected.
+            </p>
+            {error && <Notice tone="red">{error}</Notice>}
+          </div>
+        )}
+      </Drawer>
+    </>
+  );
+}
+
 function MatchesScreen() {
   const router = useRouter();
   const pathname = usePathname();
@@ -157,7 +215,15 @@ function MatchesScreen() {
         eyebrow="Sportsbook"
         title="Matches"
         description="Every match players can bet on: from the odds feed or added by hand. Open one to edit prices, scores or settle it."
-        actions={<Btn variant="primary" icon={BsPlusLg} onClick={() => setCreating(true)}>New match</Btn>}
+        actions={(
+          <>
+            <ClearOldMatches onDone={(r) => {
+              setNotice({ tone: 'green', text: `Deleted ${r.deleted} old matches and closed ${r.closed} stale ones.` });
+              refetch(); refetchSummary();
+            }} />
+            <Btn variant="primary" icon={BsPlusLg} onClick={() => setCreating(true)}>New match</Btn>
+          </>
+        )}
       />
 
       <div className="flex flex-col gap-3 2xl:flex-row 2xl:items-center">

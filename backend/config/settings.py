@@ -230,6 +230,13 @@ SPORTSBOOK_IMPORT_MANUAL_MARKETS = os.environ.get('SPORTSBOOK_IMPORT_MANUAL_MARK
 # finished (postponed/abandoned/feed silent) is voided whole. 0 turns a step off.
 SPORTSBOOK_AUTO_VOID_AFTER_HOURS = int(os.environ.get('SPORTSBOOK_AUTO_VOID_AFTER_HOURS', '4'))
 SPORTSBOOK_UNPLAYED_VOID_HOURS = int(os.environ.get('SPORTSBOOK_UNPLAYED_VOID_HOURS', '72'))
+# Match housekeeping (sportsbook.tasks.clear_old_matches, hourly): hours after
+# kick-off at which a match is closed to new bets and dropped from the player
+# lists even if the feed still says it's live; and hours after kick-off at which
+# a match nobody bet on is deleted with its markets. Matches with tickets are
+# kept for the ticket history. 0 turns a step off.
+SPORTSBOOK_STALE_MATCH_HOURS = int(os.environ.get('SPORTSBOOK_STALE_MATCH_HOURS', '6'))
+SPORTSBOOK_DELETE_MATCHES_AFTER_HOURS = int(os.environ.get('SPORTSBOOK_DELETE_MATCHES_AFTER_HOURS', '48'))
 # Affiliate programme defaults (each affiliate's terms can be changed in admin).
 # Revenue share is a % of referred players' monthly net gaming revenue (a losing
 # month pays nothing, no carry-over); CPA is a one-off per referral once their
@@ -298,6 +305,11 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'apps.sportsbook.tasks.auto_resolve_markets',
         # Every 10 min: no finished match keeps an unsettled market.
         'schedule': 600.0,
+    },
+    'sportsbook-clear-old-matches': {
+        'task': 'apps.sportsbook.tasks.clear_old_matches',
+        # Hourly: close stale matches, delete old ones nobody bet on.
+        'schedule': 3600.0,
     },
     'sportsbook-sync-live-odds': {
         'task': 'apps.sportsbook.tasks.sync_live_odds',
