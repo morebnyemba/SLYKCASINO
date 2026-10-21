@@ -74,10 +74,14 @@ def list_events(
     if priced is not None:
         qs = qs.filter(has_odds=priced)
     if upcoming:
-        recent = timezone.now() - timedelta(hours=3)
+        now = timezone.now()
+        recent = now - timedelta(hours=3)
+        # "Live" only while it plausibly is: a feed that went quiet mid-match
+        # mustn't leave the match on the board for good.
+        stale = _hours_setting('SPORTSBOOK_STALE_MATCH_HOURS', 6)
+        live = Q(status__in=LIVE_STATUSES) & (Q(starts_at__gte=now - timedelta(hours=stale)) if stale > 0 else Q())
         qs = qs.filter(
-            Q(is_open=True, starts_at__gte=recent) | Q(is_open=True, starts_at__isnull=True)
-            | Q(status__in=LIVE_STATUSES),
+            Q(is_open=True, starts_at__gte=recent) | Q(is_open=True, starts_at__isnull=True) | live,
         ).order_by(F('starts_at').asc(nulls_last=True), 'name', 'id')
     return qs
 
@@ -1155,6 +1159,49 @@ def auto_resolve_markets(*, now=None) -> dict:
             except Exception:  # noqa: BLE001
                 report['failed'] += 1
                 logger.exception('auto-void failed for unplayed event %s', event.id)
+    return report
+
+
+def clear_old_matches(*, now=None, dry_run: bool = False) -> dict:
+    """Housekeeping so finished and stale matches don't pile up.
+
+    1. Matches more than SPORTSBOOK_STALE_MATCH_HOURS past kick-off are closed to
+       new bets (the player lists also stop showing them, even when the feed
+       never sent full time).
+    2. Matches more than SPORTSBOOK_DELETE_MATCHES_AFTER_HOURS past kick-off that
+       no ticket ever touched (no single, leg, or bet on any of their markets)
+       are deleted along with their markets.
+    Matches with tickets are only ever closed, so a ticket keeps its match,
+    score and kick-off. Settlement is left to auto_resolve_markets. Either
+    setting at 0 turns that step off. Idempotent; returns counts."""
+    from datetime import timedelta
+    from django.db.models import Exists, OuterRef
+
+    now = now or timezone.now()
+    report = {'closed': 0, 'deleted': 0, 'kept_with_tickets': 0}
+
+    stale = _hours_setting('SPORTSBOOK_STALE_MATCH_HOURS', 6)
+    if stale > 0:
+        to_close = Event.objects.filter(is_open=True, starts_at__lte=now - timedelta(hours=stale))
+        report['closed'] = to_close.count() if dry_run else to_close.update(is_open=False)
+
+    after = _hours_setting('SPORTSBOOK_DELETE_MATCHES_AFTER_HOURS', 48)
+    if after > 0:
+        old = Event.objects.filter(starts_at__lte=now - timedelta(hours=after))
+        ticketed = (
+            Exists(Bet.objects.filter(event_ref=OuterRef('pk')))
+            | Exists(BetLeg.objects.filter(event_ref=OuterRef('pk')))
+            | Exists(Bet.objects.filter(outcome_ref__market__event=OuterRef('pk')))
+            | Exists(BetLeg.objects.filter(outcome_ref__market__event=OuterRef('pk')))
+        )
+        report['kept_with_tickets'] = old.filter(ticketed).count()
+        ids = list(old.exclude(ticketed).values_list('pk', flat=True))
+        report['deleted'] = len(ids)
+        if not dry_run:
+            for i in range(0, len(ids), 200):  # small batches: each cascades through markets and outcomes
+                Event.objects.filter(pk__in=ids[i:i + 200]).delete()
+    if not dry_run and (report['closed'] or report['deleted']):
+        logger.info('match housekeeping: %s', report)
     return report
 
 

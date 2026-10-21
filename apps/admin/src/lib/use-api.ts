@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { config } from './config';
 import { useAuth } from './auth-context';
-import { apiRefresh, getStoredTokens, storeTokens } from './auth';
+import { getStoredTokens, refreshSession } from './auth';
 
 export function useApi<T>(path: string | null) {
   const { accessToken, logout } = useAuth();
@@ -24,8 +24,7 @@ export function useApi<T>(path: string | null) {
         const stored = getStoredTokens();
         if (stored?.refresh) {
           try {
-            const refreshed = await apiRefresh(stored.refresh);
-            storeTokens(refreshed);
+            const refreshed = await refreshSession();
             res = await fetch(`${config.apiUrl}${p}`, {
               headers: { Authorization: `Bearer ${refreshed.access}` },
               cache: 'no-store',
@@ -82,8 +81,7 @@ export async function authedPost<T>(
     if (res.status === 401) {
       const stored = getStoredTokens();
       if (stored?.refresh) {
-        const refreshed = await apiRefresh(stored.refresh);
-        storeTokens(refreshed);
+        const refreshed = await refreshSession();
         res = await fetch(`${config.apiUrl}${path}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${refreshed.access}` },
@@ -121,8 +119,7 @@ export async function authedRequest<T>(
     if (res.status === 401) {
       const stored = getStoredTokens();
       if (stored?.refresh) {
-        const refreshed = await apiRefresh(stored.refresh);
-        storeTokens(refreshed);
+        const refreshed = await refreshSession();
         res = await send(refreshed.access);
       }
     }

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { config } from './config';
 import { useAuth } from './auth-context';
-import { apiRefresh, getStoredTokens, storeTokens } from './auth';
+import { getStoredTokens, refreshSession } from './auth';
 
 /**
  * Fetches `path` with the player's token. Pass `{ public: true }` for endpoints that
@@ -30,15 +30,16 @@ export function useApi<T>(path: string | null, opts: { public?: boolean; allPage
         const stored = getStoredTokens();
         if (stored?.refresh) {
           try {
-            const refreshed = await apiRefresh(stored.refresh);
-            storeTokens(refreshed);
+            const refreshed = await refreshSession();
             res = await fetch(`${config.apiUrl}${p}`, {
               headers: { Authorization: `Bearer ${refreshed.access}` },
               cache: 'no-store',
             });
-          } catch {
-            logout();
-            setError('Session expired');
+          } catch (err) {
+            // Log out only when the server rejected the session, not on a rate limit.
+            const expired = !!(err as { expired?: boolean }).expired;
+            if (expired) logout();
+            setError(expired ? 'Session expired' : 'Could not refresh your session — try again in a moment.');
             return;
           }
         } else {
@@ -103,8 +104,7 @@ export async function authedPost<T>(
     if (res.status === 401) {
       const stored = getStoredTokens();
       if (stored?.refresh) {
-        const refreshed = await apiRefresh(stored.refresh);
-        storeTokens(refreshed);
+        const refreshed = await refreshSession();
         res = await fetch(`${config.apiUrl}${path}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${refreshed.access}` },

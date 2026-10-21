@@ -87,3 +87,10 @@ def auto_resolve_markets() -> dict:
     after SPORTSBOOK_AUTO_VOID_AFTER_HOURS; matches never played are voided after
     SPORTSBOOK_UNPLAYED_VOID_HOURS. Works for manually-scored events too."""
     return services.auto_resolve_markets()
+
+
+@shared_task(name='apps.sportsbook.tasks.clear_old_matches')
+def clear_old_matches() -> dict:
+    """Hourly housekeeping: close matches long past kick-off and delete old ones
+    nobody bet on (see services.clear_old_matches)."""
+    return services.clear_old_matches()

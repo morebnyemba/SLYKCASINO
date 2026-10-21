@@ -380,6 +380,19 @@ class AdminEventViewSet(viewsets.ModelViewSet):
                             status=status.HTTP_409_CONFLICT)
         return super().destroy(request, *args, **kwargs)
 
+    @action(detail=False, methods=['post'])
+    def cleanup(self, request):
+        """POST {dry_run?: bool} — run the hourly match housekeeping now
+        (services.clear_old_matches): close stale matches, delete old ones
+        nobody bet on. A dry run only counts."""
+        from apps.accounts import services as accounts_services
+        from .services import clear_old_matches
+        dry_run = bool(request.data.get('dry_run'))
+        report = clear_old_matches(dry_run=dry_run)
+        if not dry_run and (report['closed'] or report['deleted']):
+            accounts_services.audit(None, 'event_edited', request, action='clear_old_matches', **report)
+        return Response({**report, 'dry_run': dry_run})
+
     @action(detail=False, methods=['get'])
     def summary(self, request):
         now = timezone.now()

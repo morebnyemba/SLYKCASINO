@@ -7,7 +7,7 @@ import { Badge } from '@slyk/ui/components/badge';
 import { useAuth } from '@/lib/auth-context';
 import { useApi } from '@/lib/use-api';
 import { config } from '@/lib/config';
-import { apiRefresh, getStoredTokens, storeTokens } from '@/lib/auth';
+import { getStoredTokens, refreshSession } from '@/lib/auth';
 import { LoadingState, Spinner } from '@slyk/ui/components/spinner';
 
 interface KYCSubmission {
@@ -48,8 +48,7 @@ async function uploadKycDocument(documentType: string, fullName: string, file: F
   if (res.status === 401) {
     const stored = getStoredTokens();
     if (stored?.refresh) {
-      const refreshed = await apiRefresh(stored.refresh);
-      storeTokens(refreshed);
+      const refreshed = await refreshSession();
       res = await fetch(`${config.apiUrl}/players/me/kyc/`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${refreshed.access}` },
