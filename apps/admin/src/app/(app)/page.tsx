@@ -142,7 +142,7 @@ export default function DashboardPage() {
         <StatTile loading={loading} icon={BsBroadcast} tone="red" label="Live now" value={sb?.live ?? 0} href="/sportsbook/matches?state=live" hint="Matches in play" />
         <StatTile loading={loading} icon={BsCalendar2Week} tone="indigo" label="Upcoming, priced" value={sb?.upcoming ?? 0} href="/sportsbook/matches" />
         <StatTile loading={loading} icon={BsExclamationTriangle} tone="gold" label="Awaiting odds" value={sb?.unpriced ?? 0} href="/sportsbook/matches?state=unpriced" hint="Hidden from players until priced" />
-        <StatTile loading={loading} icon={BsTicketPerforated} tone="slate" label="Open bets" value={(sb?.open_bets ?? 0) + (sb?.open_slips ?? 0)} href="/betting-feeds" hint={sb ? `${sb.open_bets} singles · ${sb.open_slips} multiples` : undefined} />
+        <StatTile loading={loading} icon={BsTicketPerforated} tone="slate" label="Open bets" value={(sb?.open_bets ?? 0) + (sb?.open_slips ?? 0)} href="/tickets?status=open" hint={sb ? `${sb.open_bets} singles · ${sb.open_slips} multiples` : undefined} />
         <StatTile
           loading={!aviator} icon={BsAirplane} tone={Number(aviator?.today.ggr ?? 0) < 0 ? 'red' : 'green'} label="Aviator GGR today"
           value={money(aviator?.today.ggr)} href="/games/aviator"

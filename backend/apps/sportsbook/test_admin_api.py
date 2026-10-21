@@ -162,3 +162,42 @@ class AdminTicketsTests(TestCase):
         self.assertEqual(len(self.api.get('/api/admin/tickets/', {'kind': 'multiple'}).json()['results']), 1)
         from rest_framework.test import APIClient
         self.assertIn(APIClient().get('/api/admin/tickets/').status_code, (401, 403))
+
+    def test_cursor_pages_cover_every_ticket_once(self):
+        from decimal import Decimal as D
+
+        from django.utils import timezone
+
+        from apps.sportsbook.models import Bet, BetSlip
+        same = timezone.now()
+        for _ in range(3):  # several tickets in the very same instant
+            Bet.objects.filter(pk=Bet.objects.create(player_id=self.player.id, event='X', stake=D('1'), odds=D('2')).pk).update(placed_at=same)
+            BetSlip.objects.filter(pk=BetSlip.objects.create(player_id=self.player.id, stake=D('1'), combined_odds=D('4')).pk).update(placed_at=same)
+        seen, cursor = [], None
+        while True:
+            body = self.api.get('/api/admin/tickets/', {'limit': 2, **({'cursor': cursor} if cursor else {})}).json()
+            seen += [r['ticket'] for r in body['results']]
+            cursor = body['next_cursor']
+            if not cursor:
+                break
+        self.assertEqual(len(seen), len(set(seen)))
+        self.assertEqual(len(seen), Bet.objects.count() + BetSlip.objects.count())
+        self.assertEqual(body['summary']['tickets'], len(seen))
+
+    def test_filters_status_counts_and_liability(self):
+        from apps.sportsbook.models import Bet
+        Bet.objects.filter(pk=self.single.pk).update(status='won', payout=10)
+        body = self.api.get('/api/admin/tickets/', {'player_id': self.player.id, 'status': 'open'}).json()
+        self.assertEqual([r['ticket'] for r in body['results']], [f'M{self.multi.id}'])
+        self.assertEqual(body['summary']['by_status'], {'open': 1, 'won': 1})
+        self.assertEqual(body['summary']['open_liability'], '12.00')  # 2 x 6
+        self.assertEqual(self.api.get('/api/admin/tickets/', {'min_stake': '3'}).json()['summary']['tickets'], 1)
+        self.assertEqual(self.api.get('/api/admin/tickets/', {'date_from': '2000-01-01', 'date_to': '2000-01-02'}).json()['results'], [])
+        self.assertEqual(self.api.get('/api/admin/tickets/', {'date_from': 'nope'}).status_code, 400)
+        self.assertEqual(self.api.get('/api/admin/tickets/', {'cursor': '!!'}).status_code, 400)
+
+    def test_ticket_detail(self):
+        body = self.api.get(f'/api/admin/tickets/M{self.multi.id}/').json()
+        self.assertEqual((body['ticket'], body['player']['username'], len(body['legs'])), (f'M{self.multi.id}', 'punter', 1))
+        self.assertEqual(self.api.get('/api/admin/tickets/S999999/').status_code, 404)
+        self.assertEqual(self.api.get('/api/admin/tickets/X1/').status_code, 400)

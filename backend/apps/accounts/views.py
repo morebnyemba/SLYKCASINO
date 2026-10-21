@@ -459,6 +459,24 @@ class PlayerViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.G
             'balance': str(wallet_services.get_balance(int(pk))),
         })
 
+    @action(detail=True, methods=['post'])
+    def impersonate(self, request, pk=None):
+        """POST {mode: view|full, reason} — a one-hour player session for the
+        player site (see apps.accounts.impersonation). 'view' is read-only and
+        open to any staff; 'full' can bet and move money, superusers only."""
+        from . import impersonation
+        player = self.get_object()
+        reason = str(request.data.get('reason') or '').strip()
+        if len(reason) < 3:
+            return Response({'detail': 'Say why you need to sign in as this player.'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            session = impersonation.start(request.user, player, mode=str(request.data.get('mode') or 'view'))
+        except impersonation.ImpersonationRefused as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_403_FORBIDDEN)
+        services.audit(player.id, 'impersonation_started', request, by=request.user.get_username(),
+                       by_id=request.user.pk, mode=session['mode'], reason=reason[:500])
+        return Response(session)
+
     @action(detail=True, methods=['get'], url_path='deletion-check')
     def deletion_check(self, request, pk=None):
         """What permanently deleting this player would discard (balance, open
