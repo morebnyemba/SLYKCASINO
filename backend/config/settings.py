@@ -230,12 +230,18 @@ SPORTSBOOK_IMPORT_MANUAL_MARKETS = os.environ.get('SPORTSBOOK_IMPORT_MANUAL_MARK
 # finished (postponed/abandoned/feed silent) is voided whole. 0 turns a step off.
 SPORTSBOOK_AUTO_VOID_AFTER_HOURS = int(os.environ.get('SPORTSBOOK_AUTO_VOID_AFTER_HOURS', '4'))
 SPORTSBOOK_UNPLAYED_VOID_HOURS = int(os.environ.get('SPORTSBOOK_UNPLAYED_VOID_HOURS', '72'))
+# The longest a match can last (minutes after kick-off: 90', half-time,
+# stoppage, extra time, penalties). Past it a match isn't live any more: one the
+# feed still shows live is ended as NR ("no result", nothing settled from its
+# frozen score) and closed. Checked every 3 min with the result poll.
+SPORTSBOOK_MATCH_MAX_MINUTES = int(os.environ.get('SPORTSBOOK_MATCH_MAX_MINUTES', '180'))
+# Most matches the result poll (every 3 min) asks the provider about per run:
+# 20 per API request, so 200 = 10 requests. Matches with open bets go first,
+# then whichever was checked longest ago. Lower it if the daily quota runs out.
+SPORTSBOOK_RESULT_POLL_MAX_MATCHES = int(os.environ.get('SPORTSBOOK_RESULT_POLL_MAX_MATCHES', '200'))
 # Match housekeeping (sportsbook.tasks.clear_old_matches, hourly): hours after
-# kick-off at which a match is closed to new bets and dropped from the player
-# lists even if the feed still says it's live; and hours after kick-off at which
-# a match nobody bet on is deleted with its markets. Matches with tickets are
-# kept for the ticket history. 0 turns a step off.
-SPORTSBOOK_STALE_MATCH_HOURS = int(os.environ.get('SPORTSBOOK_STALE_MATCH_HOURS', '6'))
+# kick-off at which a match nobody bet on is deleted with its markets. Matches
+# with tickets are kept for the ticket history. 0 turns it off.
 SPORTSBOOK_DELETE_MATCHES_AFTER_HOURS = int(os.environ.get('SPORTSBOOK_DELETE_MATCHES_AFTER_HOURS', '48'))
 # Affiliate programme defaults (each affiliate's terms can be changed in admin).
 # Revenue share is a % of referred players' monthly net gaming revenue (a losing
@@ -305,6 +311,12 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'apps.sportsbook.tasks.auto_resolve_markets',
         # Every 10 min: no finished match keeps an unsettled market.
         'schedule': 600.0,
+    },
+    'sportsbook-check-overdue-live-matches': {
+        'task': 'apps.sportsbook.tasks.check_overdue_live_matches',
+        # Every 2 min: matches still "live" 100'+ after kick-off get their full
+        # time from the provider (usually one request); NR after 3h without one.
+        'schedule': 120.0,
     },
     'sportsbook-clear-old-matches': {
         'task': 'apps.sportsbook.tasks.clear_old_matches',

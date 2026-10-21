@@ -68,6 +68,9 @@ class Event(models.Model):
     last_goal_at = models.DateTimeField(null=True, blank=True)
     # Whether the live feed is currently offering the headline 1X2.
     live_main_open = models.BooleanField(default=False)
+    # When the result poll last asked the provider about this match, so each run
+    # asks the ones it hasn't checked for longest (services.settle_finished_fixtures).
+    result_checked_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = 'sportsbook_event'

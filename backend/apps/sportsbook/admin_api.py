@@ -248,9 +248,8 @@ def _team_for(name: str, current: Team | None) -> Team | None:
 
 def _stuck(obj) -> bool:
     """Python twin of services.stuck_without_result for one match (finished/void checked by the caller)."""
-    from .services import _hours_setting
-    stale = _hours_setting('SPORTSBOOK_STALE_MATCH_HOURS', 6) or 6
-    return bool(obj.starts_at and obj.starts_at <= timezone.now() - timedelta(hours=stale))
+    from .services import match_over_by
+    return bool(obj.starts_at and obj.starts_at <= match_over_by())
 
 
 class AdminEventSerializer(serializers.ModelSerializer):
@@ -390,6 +389,18 @@ class AdminEventViewSet(viewsets.ModelViewSet):
             return Response({'detail': 'Bets were placed on this match. Close or void it instead of deleting.'},
                             status=status.HTTP_409_CONFLICT)
         return super().destroy(request, *args, **kwargs)
+
+    @action(detail=True, methods=['post'], url_path='check-result')
+    def check_result(self, request, pk=None):
+        """POST — ask the odds feed about this match now and apply its answer
+        (score, status, settlement). 200 with the match; `found` is false when
+        the feed had nothing for it."""
+        from .services import check_match_result
+        try:
+            found = check_match_result(self.get_object())
+        except ValueError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({'found': found, 'match': self.get_serializer(self.get_queryset().get(pk=pk)).data})
 
     @action(detail=False, methods=['post'])
     def cleanup(self, request):

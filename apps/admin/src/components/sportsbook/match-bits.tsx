@@ -56,7 +56,7 @@ export function StateBadge({ m }: { m: AdminMatch }) {
     return <Badge tone="red" dot>Live {clock}</Badge>;
   }
   if (m.state === 'stuck') {
-    return <span title="Long past kick-off and the feed never sent a final result. Settle it by hand, or its bets are voided automatically."><Badge tone="gold">No result{m.status ? ` · ${m.status}` : ''}</Badge></span>;
+    return <span title="Long past kick-off and the feed never sent a final result. Settle it by hand, or its bets are voided automatically."><Badge tone="gold">{m.status === 'NR' ? 'Ended · no result' : `No result${m.status ? ` · ${m.status}` : ''}`}</Badge></span>;
   }
   if (m.state === 'finished') return <Badge tone="slate">{m.status || 'FT'}</Badge>;
   if (m.state === 'void') return <Badge tone="slate">{m.status || 'Void'}</Badge>;

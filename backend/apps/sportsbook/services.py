@@ -55,29 +55,49 @@ class SelectionUnavailable(ValueError):
 LIVE_STATUSES = ('1H', 'HT', '2H', 'ET', 'BT', 'P', 'SUSP', 'INT', 'LIVE')
 
 
+def match_over_by(now=None):
+    """The kick-off time before which a match must be over: kick-off plus
+    SPORTSBOOK_MATCH_MAX_MINUTES (default 180: 90 minutes, half-time, stoppage,
+    extra time and penalties, with room to spare)."""
+    from datetime import timedelta
+    minutes = _hours_setting('SPORTSBOOK_MATCH_MAX_MINUTES', 180) or 180
+    return (now or timezone.now()) - timedelta(minutes=minutes)
+
+
 def live_now(now=None):
     """Q for matches that are live right now: a live status, and kicked off
-    less than SPORTSBOOK_STALE_MATCH_HOURS ago. Past that the feed has missed
-    the final whistle (see stuck_without_result) and the match isn't live."""
-    from datetime import timedelta
+    less than SPORTSBOOK_MATCH_MAX_MINUTES ago. Past that the feed has missed
+    the final whistle and the match isn't live (end_stale_live_matches marks it)."""
     from django.db.models import Q
-    stale = _hours_setting('SPORTSBOOK_STALE_MATCH_HOURS', 6)
-    q = Q(status__in=LIVE_STATUSES)
-    if stale > 0:
-        q &= Q(starts_at__gte=(now or timezone.now()) - timedelta(hours=stale)) | Q(starts_at__isnull=True)
-    return q
+    return Q(status__in=LIVE_STATUSES) & (Q(starts_at__gt=match_over_by(now)) | Q(starts_at__isnull=True))
 
 
 def stuck_without_result(now=None):
-    """Q for matches more than SPORTSBOOK_STALE_MATCH_HOURS past kick-off with
-    no final result: the feed never sent full time (or never covered it), or a
+    """Q for matches past SPORTSBOOK_MATCH_MAX_MINUTES with no final result: the
+    feed never sent full time (status NR, or never covered the match), or a
     match added by hand that nobody scored. Bets on them are voided by
     auto_resolve_markets after SPORTSBOOK_UNPLAYED_VOID_HOURS unless settled first."""
-    from datetime import timedelta
     from django.db.models import Q
-    stale = _hours_setting('SPORTSBOOK_STALE_MATCH_HOURS', 6) or 6
-    return Q(starts_at__lte=(now or timezone.now()) - timedelta(hours=stale)) & ~Q(
-        status__in=(*FINISHED_STATUSES, *VOID_STATUSES))
+    return Q(starts_at__lte=match_over_by(now)) & ~Q(status__in=(*FINISHED_STATUSES, *VOID_STATUSES))
+
+
+# Our own status (not api-football's): the feed left a match "live" past the
+# longest a match can last. It means "over, result unknown": the match is closed
+# and shown as ended, but nothing is settled from its last (unconfirmed) score.
+# A later update from the feed overwrites it and settles the match as usual.
+NO_RESULT_STATUS = 'NR'
+
+
+def end_stale_live_matches(*, now=None) -> int:
+    """Matches still "live" SPORTSBOOK_MATCH_MAX_MINUTES after kick-off become
+    NR (ended, no result) and close. Deliberately not FT: settling from a score
+    frozen mid-match would pay the wrong tickets. Returns how many changed."""
+    stuck = Event.objects.filter(status__in=LIVE_STATUSES, starts_at__lte=match_over_by(now))
+    ids = list(stuck.values_list('pk', flat=True))
+    if ids:
+        Event.objects.filter(pk__in=ids).update(status=NO_RESULT_STATUS, is_open=False, live_main_open=False)
+        logger.info('ended %s matches the feed left live past the longest match length: %s', len(ids), ids[:50])
+    return len(ids)
 
 
 def list_events(
@@ -1076,30 +1096,84 @@ VOID_STATUSES = ('CANC', 'ABD', 'AWD', 'WO')
 
 
 def events_awaiting_settlement(*, now=None):
-    """Provider-linked events that kicked off long enough ago to be over and
-    still have something to settle: not yet marked finished, or finished with
-    open bets/legs (waiting for corners/cards/scorer stats). A finished match
-    whose only open markets nobody bet on isn't re-fetched — that would burn the
-    API quota for nothing; auto_resolve_markets tidies those from stored facts.
-    Matches with open bets come first. Bounded to the last few days so a
-    fixture the feed never finalises doesn't get polled forever."""
+    """Provider-linked matches the result poll should ask the provider about,
+    most deserving first. From SETTLE_POLL_AFTER_MINUTES after kick-off:
+
+    matches with open bets/legs, for up to 4 days (until every bet settles,
+    incl. corners/cards/scorer markets that wait for the provider's stats).
+    Matches still marked live are left to check_overdue_live_matches, so no
+    match is asked about twice. Matches nobody bet on aren't asked about here:
+    they'd cost API quota for nothing.
+
+    Ordered by the match checked longest ago (never checked first), so a per-run
+    cap rotates through everything instead of re-asking the same matches."""
     from datetime import timedelta
-    from django.db.models import Count, Q
+    from django.db.models import Count, F, Q
 
     now = now or timezone.now()
     open_bets = Q(bets__status__in=(Bet.Status.OPEN, Bet.Status.PENDING)) | Q(legs__result=BetLeg.Result.PENDING)
     return Event.objects.filter(
         provider=ApiFootballClient.provider_name, external_id__isnull=False,
         starts_at__lte=now - timedelta(minutes=SETTLE_POLL_AFTER_MINUTES), starts_at__gte=now - timedelta(days=4),
-    ).filter(~Q(status__in=FINISHED_STATUSES + VOID_STATUSES) | open_bets).annotate(
+    ).exclude(status__in=LIVE_STATUSES).filter(open_bets).annotate(
         open_bets=Count('bets', filter=Q(bets__status__in=(Bet.Status.OPEN, Bet.Status.PENDING)), distinct=True)
         + Count('legs', filter=Q(legs__result=BetLeg.Result.PENDING), distinct=True),
-    ).order_by('-open_bets', 'starts_at')
+    ).order_by(F('result_checked_at').asc(nulls_first=True), '-open_bets', 'starts_at')
 
 
 # A match is 90 minutes plus half-time and stoppage time: start asking the
 # provider for the result from here, every few minutes, until it's final.
 SETTLE_POLL_AFTER_MINUTES = 100
+
+
+def _apply_fixtures(events: list[tuple[int, str]], now) -> int:
+    """Ask the provider about (event id, external id) pairs and apply what it
+    says: score, status, settlement (void for cancelled/abandoned). Returns how
+    many fixtures it answered for."""
+    if not events:
+        return 0
+    Event.objects.filter(pk__in=[eid for eid, _ in events]).update(result_checked_at=now)
+    fixtures = ApiFootballClient().fetch_fixtures_by_ids([ext for _, ext in events])
+    by_ext = {ext: eid for eid, ext in events}
+    for fixture in fixtures:
+        sync_fixture(fixture)
+        if fixture.status in VOID_STATUSES and fixture.external_id in by_ext:
+            settle_event(by_ext[fixture.external_id], 'void')
+    return len(fixtures)
+
+
+def check_overdue_live_matches(*, now=None) -> dict:
+    """The focused check for matches still marked live (1H, 2H, ET, P…) more
+    than SETTLE_POLL_AFTER_MINUTES after kick-off, when they'd normally be over.
+    The live poll can't see full time (a finished match drops out of `live=all`),
+    so this asks the provider about exactly these matches, by id, and applies
+    the answer: FT/AET/PEN settles, CANC/ABD voids. It's usually a handful of
+    matches, one API request. Then anything still "live" past
+    SPORTSBOOK_MATCH_MAX_MINUTES is ended as NR (end_stale_live_matches).
+    At most SPORTSBOOK_RESULT_POLL_MAX_MATCHES per run, longest-unchecked first."""
+    from datetime import timedelta
+    from django.db.models import F
+
+    now = now or timezone.now()
+    cap = _hours_setting('SPORTSBOOK_RESULT_POLL_MAX_MATCHES', 200) or 200
+    overdue = Event.objects.filter(
+        provider=ApiFootballClient.provider_name, external_id__isnull=False, status__in=LIVE_STATUSES,
+        starts_at__lte=now - timedelta(minutes=SETTLE_POLL_AFTER_MINUTES), starts_at__gte=now - timedelta(days=2),
+    ).order_by(F('result_checked_at').asc(nulls_first=True), 'starts_at')
+    events = list(overdue.values_list('id', 'external_id')[:cap])
+    answered = _apply_fixtures(events, now)
+    still_live = Event.objects.filter(pk__in=[eid for eid, _ in events], status__in=LIVE_STATUSES).count()
+    ended = end_stale_live_matches(now=now)
+    return {'checked': len(events), 'answered': answered, 'still_live': still_live, 'ended_no_result': ended}
+
+
+def check_match_result(event: Event) -> bool:
+    """Ask the provider about one match now (the admin's "Check result now"):
+    apply what it says (score, status, settlement) like the poll does. Returns
+    False when the provider had nothing for it."""
+    if event.provider != ApiFootballClient.provider_name or not event.external_id:
+        raise ValueError('This match isn’t from the odds feed, so there is nothing to ask. Settle it by hand.')
+    return _apply_fixtures([(event.pk, event.external_id)], timezone.now()) > 0
 
 
 def settle_finished_fixtures(*, now=None) -> int:
@@ -1108,16 +1182,9 @@ def settle_finished_fixtures(*, now=None) -> int:
     publishes them) corners, cards and goalscorer markets. Matches that end up
     cancelled/abandoned are voided. Safe to run repeatedly: settlement is
     idempotent. Returns the number of fixtures fetched."""
-    events = list(events_awaiting_settlement(now=now).values_list('id', 'external_id'))
-    if not events:
-        return 0
-    fixtures = ApiFootballClient().fetch_fixtures_by_ids([ext for _, ext in events])
-    by_ext = {ext: eid for eid, ext in events}
-    for fixture in fixtures:
-        sync_fixture(fixture)
-        if fixture.status in VOID_STATUSES and fixture.external_id in by_ext:
-            settle_event(by_ext[fixture.external_id], 'void')
-    return len(fixtures)
+    cap = _hours_setting('SPORTSBOOK_RESULT_POLL_MAX_MATCHES', 200) or 200
+    events = list(events_awaiting_settlement(now=now).values_list('id', 'external_id')[:cap])
+    return _apply_fixtures(events, now or timezone.now())
 
 
 def _hours_setting(name: str, default: int) -> int:
@@ -1186,25 +1253,26 @@ def auto_resolve_markets(*, now=None) -> dict:
 def clear_old_matches(*, now=None, dry_run: bool = False) -> dict:
     """Housekeeping so finished and stale matches don't pile up.
 
-    1. Matches more than SPORTSBOOK_STALE_MATCH_HOURS past kick-off are closed to
-       new bets (the player lists also stop showing them, even when the feed
-       never sent full time).
+    1. Matches more than SPORTSBOOK_MATCH_MAX_MINUTES past kick-off are closed
+       to new bets, and any the feed left "live" are ended as NR (see
+       end_stale_live_matches).
     2. Matches more than SPORTSBOOK_DELETE_MATCHES_AFTER_HOURS past kick-off that
        no ticket ever touched (no single, leg, or bet on any of their markets)
        are deleted along with their markets.
     Matches with tickets are only ever closed, so a ticket keeps its match,
-    score and kick-off. Settlement is left to auto_resolve_markets. Either
-    setting at 0 turns that step off. Idempotent; returns counts."""
+    score and kick-off. Settlement is left to auto_resolve_markets. The delete
+    step is off at 0. Idempotent; returns counts."""
     from datetime import timedelta
     from django.db.models import Exists, OuterRef
 
     now = now or timezone.now()
     report = {'closed': 0, 'deleted': 0, 'kept_with_tickets': 0}
 
-    stale = _hours_setting('SPORTSBOOK_STALE_MATCH_HOURS', 6)
-    if stale > 0:
-        to_close = Event.objects.filter(is_open=True, starts_at__lte=now - timedelta(hours=stale))
-        report['closed'] = to_close.count() if dry_run else to_close.update(is_open=False)
+    to_close = Event.objects.filter(is_open=True, starts_at__lte=match_over_by(now))
+    report['closed'] = to_close.count()
+    if not dry_run:
+        end_stale_live_matches(now=now)
+        to_close.update(is_open=False)
 
     after = _hours_setting('SPORTSBOOK_DELETE_MATCHES_AFTER_HOURS', 48)
     if after > 0:
