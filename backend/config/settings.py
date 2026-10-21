@@ -312,6 +312,12 @@ CELERY_BEAT_SCHEDULE = {
         # Every 10 min: no finished match keeps an unsettled market.
         'schedule': 600.0,
     },
+    'sportsbook-check-overdue-live-matches': {
+        'task': 'apps.sportsbook.tasks.check_overdue_live_matches',
+        # Every 2 min: matches still "live" 100'+ after kick-off get their full
+        # time from the provider (usually one request); NR after 3h without one.
+        'schedule': 120.0,
+    },
     'sportsbook-clear-old-matches': {
         'task': 'apps.sportsbook.tasks.clear_old_matches',
         # Hourly: close stale matches, delete old ones nobody bet on.

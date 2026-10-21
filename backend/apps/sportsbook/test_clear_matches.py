@@ -140,10 +140,10 @@ class EndStaleLiveTests(TestCase):
         frozen = mk('Frozen', 200, '2H')
         bet = Bet.objects.create(player_id=1, event='Frozen', event_ref=frozen, selection='home', stake=D('5'), odds=D('2'))
 
-        # The result poll asks the feed first; it has nothing new for either match.
+        # The overdue-live check asks the feed first; it has nothing new for either match.
         with mock.patch('apps.sportsbook.services.ApiFootballClient.fetch_fixtures_by_ids', return_value=[]) as fetch:
-            services.settle_finished_fixtures()
-        fetch.assert_called_once()
+            services.check_overdue_live_matches()
+        self.assertEqual(sorted(fetch.call_args.args[0]), ['Extra time', 'Frozen'])
 
         playing.refresh_from_db(); frozen.refresh_from_db(); bet.refresh_from_db()
         self.assertEqual(playing.status, 'ET')                       # still inside the 3 hours

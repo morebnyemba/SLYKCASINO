@@ -28,6 +28,16 @@ class ResultPollTests(TestCase):
             Bet.objects.create(player_id=self.player.id, event=name, event_ref=ev, selection='home', stake=D('1'), odds=D('2'))
         return ev
 
+    def fixture(self, ev, status, home, away):
+        from apps.sportsbook.clients import ApiFootballClient
+        return ApiFootballClient.__new__(ApiFootballClient)._normalize({
+            'fixture': {'id': ev.external_id, 'status': {'short': status, 'elapsed': 90}, 'date': ev.starts_at.isoformat()},
+            'teams': {'home': {'id': 1, 'name': 'A'}, 'away': {'id': 2, 'name': 'B'}},
+            'goals': {'home': home, 'away': away},
+            'score': {'halftime': {'home': home, 'away': away}, 'fulltime': {'home': home, 'away': away}},
+            'league': {'id': 39, 'name': 'L'},
+        })
+
     def polled(self):
         return [e.name for e in services.events_awaiting_settlement()]
 
@@ -40,9 +50,23 @@ class ResultPollTests(TestCase):
         self.match('Frozen with a bet', 300, bet=True)
         self.match('FT with an open bet (stats pending)', 300, status='FT', bet=True)
         self.match('Too old', 60 * 24 * 5, bet=True)
-        self.assertEqual(set(self.polled()), {
-            'Late 2nd half, no bets', 'Frozen with a bet', 'FT with an open bet (stats pending)'})
-        self.assertEqual(self.polled()[-1], 'Late 2nd half, no bets')  # matches with bets first
+        # The general poll: open bets on matches that aren't marked live.
+        self.assertEqual(set(self.polled()), {'FT with an open bet (stats pending)'})
+        # The overdue-live check: everything still marked live 100'+ after kick-off (last 2 days).
+        asked = []
+        with mock.patch(FETCH, side_effect=lambda ids: asked.extend(ids) or []):
+            report = services.check_overdue_live_matches()
+        self.assertEqual(set(asked), {'Late 2nd half, no bets', 'Frozen, no bets, past 3h', 'Frozen with a bet'})
+        self.assertEqual(report, {'checked': 3, 'answered': 0, 'still_live': 3, 'ended_no_result': 3})  # incl. 'Too old'
+
+    def test_overdue_live_match_gets_its_full_time(self):
+        ev = self.match('Morning match', 400, bet=True)
+        with mock.patch(FETCH, return_value=[self.fixture(ev, 'FT', 2, 0)]):
+            report = services.check_overdue_live_matches()
+        ev.refresh_from_db()
+        self.assertEqual((ev.status, ev.score_home, ev.score_away), ('FT', 2, 0))  # the real result, not NR
+        self.assertEqual(Bet.objects.get(event_ref=ev).status, 'won')
+        self.assertEqual(report, {'checked': 1, 'answered': 1, 'still_live': 0, 'ended_no_result': 0})
 
     @override_settings(SPORTSBOOK_RESULT_POLL_MAX_MATCHES=2)
     def test_cap_per_run_and_rotation(self):
@@ -51,7 +75,7 @@ class ResultPollTests(TestCase):
         asked = []
         with mock.patch(FETCH, side_effect=lambda ids: asked.append(sorted(ids)) or []):
             for _ in range(3):
-                services.settle_finished_fixtures()
+                services.check_overdue_live_matches()
         self.assertEqual([len(a) for a in asked], [2, 2, 2])
         # Three runs of two cover all five before anything is asked twice.
         self.assertEqual(len({x for a in asked[:2] for x in a} | set(asked[2][:1])), 5)
@@ -60,14 +84,7 @@ class ResultPollTests(TestCase):
         ev = self.match('Frozen with a bet', 300, bet=True)
         api = APIClient()
         api.force_authenticate(User.objects.create_user('ops', 'o@example.com', 'x', is_staff=True))
-        from apps.sportsbook.clients import ApiFootballClient
-        fixture = ApiFootballClient.__new__(ApiFootballClient)._normalize({
-            'fixture': {'id': 'Frozen with a bet', 'status': {'short': 'FT', 'elapsed': 90}, 'date': ev.starts_at.isoformat()},
-            'teams': {'home': {'id': 1, 'name': 'A'}, 'away': {'id': 2, 'name': 'B'}},
-            'goals': {'home': 2, 'away': 0}, 'score': {'halftime': {'home': 1, 'away': 0}, 'fulltime': {'home': 2, 'away': 0}},
-            'league': {'id': 39, 'name': 'L'},
-        })
-        with mock.patch(FETCH, return_value=[fixture]) as fetch:
+        with mock.patch(FETCH, return_value=[self.fixture(ev, 'FT', 2, 0)]) as fetch:
             body = api.post(f'/api/admin/sportsbook/events/{ev.id}/check-result/').json()
         fetch.assert_called_once_with(['Frozen with a bet'])
         self.assertEqual((body['found'], body['match']['status'], body['match']['score_home']), (True, 'FT', 2))

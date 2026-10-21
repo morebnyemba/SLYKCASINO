@@ -94,3 +94,11 @@ def clear_old_matches() -> dict:
     """Hourly housekeeping: close matches long past kick-off and delete old ones
     nobody bet on (see services.clear_old_matches)."""
     return services.clear_old_matches()
+
+
+@shared_task(name='apps.sportsbook.tasks.check_overdue_live_matches')
+def check_overdue_live_matches() -> dict:
+    """Every 2 min: ask the provider about matches still marked live after they
+    should be over, apply full time, end the hopeless ones as NR
+    (see services.check_overdue_live_matches)."""
+    return services.check_overdue_live_matches()
