@@ -1195,14 +1195,41 @@ def clear_old_matches(*, now=None, dry_run: bool = False) -> dict:
             | Exists(BetLeg.objects.filter(outcome_ref__market__event=OuterRef('pk')))
         )
         report['kept_with_tickets'] = old.filter(ticketed).count()
-        ids = list(old.exclude(ticketed).values_list('pk', flat=True))
-        report['deleted'] = len(ids)
-        if not dry_run:
-            for i in range(0, len(ids), 200):  # small batches: each cascades through markets and outcomes
-                Event.objects.filter(pk__in=ids[i:i + 200]).delete()
+        if dry_run:
+            report['deleted'] = old.exclude(ticketed).count()
+        else:
+            report['deleted'] = _delete_untouched_matches(old.exclude(ticketed))
     if not dry_run and (report['closed'] or report['deleted']):
         logger.info('match housekeeping: %s', report)
     return report
+
+
+def _delete_untouched_matches(qs, batch: int = 500, budget_seconds: float = 240) -> int:
+    """Delete the matches in `qs` with their markets and outcomes, in batches.
+
+    A feed match carries hundreds of outcomes, so Model.delete() would load
+    every one to null out bet references (there are none: `qs` only holds
+    matches no ticket touched) and blow past Postgres' 65,535-parameter limit.
+    This deletes outcomes, then markets, then matches with plain DELETEs. Each
+    batch re-reads `qs`, so a match that got a ticket meanwhile is skipped,
+    and the bets' FK constraints would roll a batch back rather than orphan one.
+    Stops after `budget_seconds` (inside the worker's time limit); the next run
+    carries on."""
+    import time
+    db = Event.objects.db
+    deleted = 0
+    deadline = time.monotonic() + budget_seconds
+    while time.monotonic() < deadline:
+        ids = list(qs.values_list('pk', flat=True)[:batch])
+        if not ids:
+            break
+        with transaction.atomic():
+            markets = Market.objects.filter(event_id__in=ids).values('id')
+            # _raw_delete: a single DELETE without loading rows (no delete signals on these models).
+            MarketOutcome.objects.filter(market_id__in=markets)._raw_delete(db)
+            Market.objects.filter(event_id__in=ids)._raw_delete(db)
+            deleted += Event.objects.filter(pk__in=ids)._raw_delete(db)
+    return deleted
 
 
 def _auto_resolve_event(event, report: dict) -> None:

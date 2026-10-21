@@ -102,7 +102,7 @@ function NewMatchDrawer({ open, onClose, onCreated }: { open: boolean; onClose: 
   );
 }
 
-interface CleanupReport { closed: number; deleted: number; kept_with_tickets: number; dry_run: boolean }
+interface CleanupReport { closed: number; deleted: number; kept_with_tickets: number; dry_run: boolean; queued?: boolean }
 
 /** Run the hourly match housekeeping now, after showing what it would do. */
 function ClearOldMatches({ onDone }: { onDone: (r: CleanupReport) => void }) {
@@ -218,8 +218,9 @@ function MatchesScreen() {
         actions={(
           <>
             <ClearOldMatches onDone={(r) => {
-              setNotice({ tone: 'green', text: `Deleted ${r.deleted} old matches and closed ${r.closed} stale ones.` });
-              refetch(); refetchSummary();
+              setNotice({ tone: 'green', text: `Clearing ${r.deleted.toLocaleString()} old matches and closing ${r.closed.toLocaleString()} stale ones in the background. The counts update in a minute or two.` });
+              // The worker does the deleting; pick up the new counts once it has had time.
+              for (const ms of [15_000, 60_000, 150_000]) window.setTimeout(() => { refetch(); refetchSummary(); }, ms);
             }} />
             <Btn variant="primary" icon={BsPlusLg} onClick={() => setCreating(true)}>New match</Btn>
           </>

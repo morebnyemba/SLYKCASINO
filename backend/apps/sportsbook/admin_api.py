@@ -382,16 +382,20 @@ class AdminEventViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['post'])
     def cleanup(self, request):
-        """POST {dry_run?: bool} — run the hourly match housekeeping now
+        """POST {dry_run?: bool} — the hourly match housekeeping
         (services.clear_old_matches): close stale matches, delete old ones
-        nobody bet on. A dry run only counts."""
+        nobody bet on. A dry run returns the counts; otherwise the job is
+        queued on the worker (thousands of matches take too long for a web
+        request) and the counts it is expected to clear are returned."""
         from apps.accounts import services as accounts_services
         from .services import clear_old_matches
-        dry_run = bool(request.data.get('dry_run'))
-        report = clear_old_matches(dry_run=dry_run)
-        if not dry_run and (report['closed'] or report['deleted']):
-            accounts_services.audit(None, 'event_edited', request, action='clear_old_matches', **report)
-        return Response({**report, 'dry_run': dry_run})
+        from .tasks import clear_old_matches as clear_task
+        report = clear_old_matches(dry_run=True)
+        if request.data.get('dry_run'):
+            return Response({**report, 'dry_run': True})
+        clear_task.delay()
+        accounts_services.audit(None, 'event_edited', request, action='clear_old_matches', **report)
+        return Response({**report, 'dry_run': False, 'queued': True}, status=status.HTTP_202_ACCEPTED)
 
     @action(detail=False, methods=['get'])
     def summary(self, request):
