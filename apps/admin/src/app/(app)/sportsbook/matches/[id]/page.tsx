@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import {
-  BsArrowLeft, BsBroadcast, BsCalendar2Week, BsCash, BsInfoCircle, BsLockFill, BsSave, BsTrash3, BsUnlock,
+  BsArrowClockwise, BsArrowLeft, BsBroadcast, BsCalendar2Week, BsCash, BsInfoCircle, BsLockFill, BsSave, BsTrash3, BsUnlock,
 } from 'react-icons/bs';
 import {
   Badge, Btn, EmptyState, Field, Notice, Panel, Select, Switch, TextInput, cx,
@@ -64,6 +64,8 @@ export default function MatchPage() {
   const [league, setLeague] = useState<LeagueRef | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteMsg, setDeleteMsg] = useState<Msg>(null);
+  const [checking, setChecking] = useState(false);
+  const [checkMsg, setCheckMsg] = useState<Msg>(null);
 
   useEffect(() => { if (data) { setMatch(data); setLeague(data.league_detail); } }, [data]);
   const onSaved = (m: AdminMatch) => { setMatch(m); setLeague(m.league_detail); };
@@ -92,6 +94,21 @@ export default function MatchPage() {
   const num = (v: string) => (v === '' ? null : Number(v));
   const leagueDirty = (league?.id ?? null) !== (match.league ?? null);
   const markets = detail?.markets ?? [];
+
+  /** Ask the odds feed about this match now (the poll does this every 3 min). */
+  async function checkResult() {
+    if (!accessToken || !match) return;
+    setChecking(true);
+    setCheckMsg(null);
+    const res = await authedRequest<{ found: boolean; match: AdminMatch }>('POST', `/admin/sportsbook/events/${match.id}/check-result/`, accessToken);
+    setChecking(false);
+    if (!res.data) { setCheckMsg({ tone: 'red', text: res.error ?? 'Could not reach the odds feed.' }); return; }
+    const m = res.data.match;
+    setMatch(m);
+    setCheckMsg(!res.data.found
+      ? { tone: 'red', text: 'The feed had nothing for this match (or the daily API quota is used up). Settle it by hand if you know the result.' }
+      : { tone: 'green', text: `Feed says: ${m.status || 'not started'}${m.score_home != null ? ` · ${m.score_home}–${m.score_away}` : ''}.${['finished', 'void'].includes(m.state) ? ' Bets on it have been settled.' : ''}` });
+  }
 
   async function remove() {
     if (!accessToken || !match || !confirm(`Delete ${match.name}? This can't be undone.`)) return;
@@ -138,7 +155,14 @@ export default function MatchPage() {
           <span className="rounded-lg bg-white/10 px-2.5 py-1">{match.bets_count} open bets</span>
           <span className="rounded-lg bg-white/10 px-2.5 py-1">{match.trading.bettable ? 'Taking bets' : 'Not taking bets'}</span>
           {match.prices_locked && <span className="flex items-center gap-1 rounded-lg bg-gold/25 px-2.5 py-1 text-gold"><BsLockFill size={10} /> Manual prices</span>}
+          {match.source === 'feed' && match.state !== 'upcoming' && (
+            <button onClick={() => void checkResult()} disabled={checking}
+              className="ml-auto flex items-center gap-1.5 rounded-lg bg-white/15 px-2.5 py-1 font-semibold hover:bg-white/25 disabled:opacity-60">
+              <BsArrowClockwise size={11} className={checking ? 'animate-spin' : ''} /> {checking ? 'Asking the feed…' : 'Check result now'}
+            </button>
+          )}
         </div>
+        {checkMsg && <div className="relative mt-3"><Notice tone={checkMsg.tone}>{checkMsg.text}</Notice></div>}
       </section>
 
       <div className="grid gap-6 xl:grid-cols-2">

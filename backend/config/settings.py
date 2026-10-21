@@ -235,6 +235,10 @@ SPORTSBOOK_UNPLAYED_VOID_HOURS = int(os.environ.get('SPORTSBOOK_UNPLAYED_VOID_HO
 # feed still shows live is ended as NR ("no result", nothing settled from its
 # frozen score) and closed. Checked every 3 min with the result poll.
 SPORTSBOOK_MATCH_MAX_MINUTES = int(os.environ.get('SPORTSBOOK_MATCH_MAX_MINUTES', '180'))
+# Most matches the result poll (every 3 min) asks the provider about per run:
+# 20 per API request, so 200 = 10 requests. Matches with open bets go first,
+# then whichever was checked longest ago. Lower it if the daily quota runs out.
+SPORTSBOOK_RESULT_POLL_MAX_MATCHES = int(os.environ.get('SPORTSBOOK_RESULT_POLL_MAX_MATCHES', '200'))
 # Match housekeeping (sportsbook.tasks.clear_old_matches, hourly): hours after
 # kick-off at which a match nobody bet on is deleted with its markets. Matches
 # with tickets are kept for the ticket history. 0 turns it off.

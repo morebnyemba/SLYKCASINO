@@ -1096,30 +1096,54 @@ VOID_STATUSES = ('CANC', 'ABD', 'AWD', 'WO')
 
 
 def events_awaiting_settlement(*, now=None):
-    """Provider-linked events that kicked off long enough ago to be over and
-    still have something to settle: not yet marked finished, or finished with
-    open bets/legs (waiting for corners/cards/scorer stats). A finished match
-    whose only open markets nobody bet on isn't re-fetched — that would burn the
-    API quota for nothing; auto_resolve_markets tidies those from stored facts.
-    Matches with open bets come first. Bounded to the last few days so a
-    fixture the feed never finalises doesn't get polled forever."""
+    """Provider-linked matches the result poll should ask the provider about,
+    most deserving first. From SETTLE_POLL_AFTER_MINUTES after kick-off:
+
+    - matches with open bets/legs, for up to 4 days (until every bet settles,
+      incl. corners/cards/scorer markets that wait for the provider's stats);
+    - matches nobody bet on, only until they end (SPORTSBOOK_MATCH_MAX_MINUTES)
+      or get a final result, just so the scoreboard shows full time. Past that
+      they cost API quota for nothing.
+
+    Ordered: open bets first, then the match checked longest ago (never checked
+    first), so a per-run cap rotates through everything instead of re-asking
+    the same matches."""
     from datetime import timedelta
-    from django.db.models import Count, Q
+    from django.db.models import Case, Count, F, IntegerField, Q, When
 
     now = now or timezone.now()
     open_bets = Q(bets__status__in=(Bet.Status.OPEN, Bet.Status.PENDING)) | Q(legs__result=BetLeg.Result.PENDING)
+    unfinished_and_on = ~Q(status__in=(*FINISHED_STATUSES, *VOID_STATUSES, NO_RESULT_STATUS)) & Q(
+        starts_at__gt=match_over_by(now))
     return Event.objects.filter(
         provider=ApiFootballClient.provider_name, external_id__isnull=False,
         starts_at__lte=now - timedelta(minutes=SETTLE_POLL_AFTER_MINUTES), starts_at__gte=now - timedelta(days=4),
-    ).filter(~Q(status__in=FINISHED_STATUSES + VOID_STATUSES) | open_bets).annotate(
+    ).filter(open_bets | unfinished_and_on).annotate(
         open_bets=Count('bets', filter=Q(bets__status__in=(Bet.Status.OPEN, Bet.Status.PENDING)), distinct=True)
         + Count('legs', filter=Q(legs__result=BetLeg.Result.PENDING), distinct=True),
-    ).order_by('-open_bets', 'starts_at')
+    ).annotate(
+        no_bets=Case(When(open_bets__gt=0, then=0), default=1, output_field=IntegerField()),
+    ).order_by('no_bets', F('result_checked_at').asc(nulls_first=True), '-open_bets', 'starts_at')
 
 
 # A match is 90 minutes plus half-time and stoppage time: start asking the
 # provider for the result from here, every few minutes, until it's final.
 SETTLE_POLL_AFTER_MINUTES = 100
+
+
+def check_match_result(event: Event) -> bool:
+    """Ask the provider about one match now (the admin's "Check result now"):
+    apply what it says (score, status, settlement) like the poll does. Returns
+    False when the provider had nothing for it."""
+    if event.provider != ApiFootballClient.provider_name or not event.external_id:
+        raise ValueError('This match isn’t from the odds feed, so there is nothing to ask. Settle it by hand.')
+    Event.objects.filter(pk=event.pk).update(result_checked_at=timezone.now())
+    fixtures = ApiFootballClient().fetch_fixtures_by_ids([event.external_id])
+    for fixture in fixtures:
+        sync_fixture(fixture)
+        if fixture.status in VOID_STATUSES:
+            settle_event(event.pk, 'void')
+    return bool(fixtures)
 
 
 def settle_finished_fixtures(*, now=None) -> int:
@@ -1128,10 +1152,12 @@ def settle_finished_fixtures(*, now=None) -> int:
     publishes them) corners, cards and goalscorer markets. Matches that end up
     cancelled/abandoned are voided. Safe to run repeatedly: settlement is
     idempotent. Returns the number of fixtures fetched."""
-    events = list(events_awaiting_settlement(now=now).values_list('id', 'external_id'))
+    cap = _hours_setting('SPORTSBOOK_RESULT_POLL_MAX_MATCHES', 200) or 200
+    events = list(events_awaiting_settlement(now=now).values_list('id', 'external_id')[:cap])
     if not events:
         end_stale_live_matches(now=now)
         return 0
+    Event.objects.filter(pk__in=[eid for eid, _ in events]).update(result_checked_at=now or timezone.now())
     fixtures = ApiFootballClient().fetch_fixtures_by_ids([ext for _, ext in events])
     by_ext = {ext: eid for eid, ext in events}
     for fixture in fixtures:

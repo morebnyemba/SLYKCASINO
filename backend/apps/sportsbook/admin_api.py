@@ -390,6 +390,18 @@ class AdminEventViewSet(viewsets.ModelViewSet):
                             status=status.HTTP_409_CONFLICT)
         return super().destroy(request, *args, **kwargs)
 
+    @action(detail=True, methods=['post'], url_path='check-result')
+    def check_result(self, request, pk=None):
+        """POST — ask the odds feed about this match now and apply its answer
+        (score, status, settlement). 200 with the match; `found` is false when
+        the feed had nothing for it."""
+        from .services import check_match_result
+        try:
+            found = check_match_result(self.get_object())
+        except ValueError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({'found': found, 'match': self.get_serializer(self.get_queryset().get(pk=pk)).data})
+
     @action(detail=False, methods=['post'])
     def cleanup(self, request):
         """POST {dry_run?: bool} — the hourly match housekeeping
