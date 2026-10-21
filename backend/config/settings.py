@@ -260,6 +260,10 @@ AFFILIATE_AUTO_PAY = os.environ.get('AFFILIATE_AUTO_PAY', 'false').lower() == 't
 # after SPORTSBOOK_LIVE_BET_DELAY seconds, re-checking price, suspension and score.
 SPORTSBOOK_LIVE_BETTING = os.environ.get('SPORTSBOOK_LIVE_BETTING', 'true').lower() == 'true'
 SPORTSBOOK_LIVE_ODDS_INTERVAL = float(os.environ.get('SPORTSBOOK_LIVE_ODDS_INTERVAL', '8'))
+# Live scores (score, clock, status for every match in play: one request per
+# poll, skipped while nothing could be live). api-football refreshes live data
+# about every 15s, so faster gains nothing: 15s is ~240 requests per hour of play.
+SPORTSBOOK_LIVE_SCORES_INTERVAL = float(os.environ.get('SPORTSBOOK_LIVE_SCORES_INTERVAL', '15'))
 SPORTSBOOK_LIVE_ODDS_STALE = int(os.environ.get('SPORTSBOOK_LIVE_ODDS_STALE', '30'))
 SPORTSBOOK_LIVE_BET_DELAY = int(os.environ.get('SPORTSBOOK_LIVE_BET_DELAY', '6'))
 
@@ -298,7 +302,9 @@ CELERY_BEAT_SCHEDULE = {
     },
     'sportsbook-sync-live-fixtures': {
         'task': 'apps.sportsbook.tasks.sync_live_fixtures',
-        'schedule': 60.0,
+        'schedule': SPORTSBOOK_LIVE_SCORES_INTERVAL,
+        # A backed-up worker drops a stale run instead of queueing a pile of them.
+        'options': {'expires': SPORTSBOOK_LIVE_SCORES_INTERVAL},
     },
     'sportsbook-settle-finished-fixtures': {
         'task': 'apps.sportsbook.tasks.settle_finished_fixtures',

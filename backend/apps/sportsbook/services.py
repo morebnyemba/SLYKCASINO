@@ -1546,24 +1546,40 @@ def apply_live_odds(snapshot: LiveOddsSnapshot, *, now=None) -> Optional[Event]:
     return event
 
 
-def sync_live_odds(*, now=None) -> int:
-    """Poll api-football's in-play odds and apply them. Skips the call (saving
-    quota) unless live betting is on and some linked match could be in play.
-    Returns the number of live fixtures fetched."""
+def anything_maybe_live(*, now=None) -> bool:
+    """Whether any feed match could be in play right now: marked in play, or
+    kicked off in the last 3 hours (or about to) without a final result. The
+    live polls skip their API call when not, so quiet hours cost no quota."""
     from datetime import timedelta
     from django.db.models import Q
 
-    if not live_betting_enabled():
-        return 0
     now = now or timezone.now()
-    maybe_live = Event.objects.filter(
+    return Event.objects.filter(
         provider=ApiFootballClient.provider_name, external_id__isnull=False,
     ).filter(
         Q(status__in=IN_PLAY_STATUSES)
         | Q(starts_at__gte=now - timedelta(hours=3), starts_at__lte=now + timedelta(minutes=5))
-        & ~Q(status__in=(*FINISHED_STATUSES, *VOID_STATUSES)),
+        & ~Q(status__in=(*FINISHED_STATUSES, *VOID_STATUSES, NO_RESULT_STATUS)),
     ).exists()
-    if not maybe_live:
+
+
+def sync_live_fixtures(*, now=None) -> int:
+    """The live scores poll (every SPORTSBOOK_LIVE_SCORES_INTERVAL seconds): one
+    request for every match in play (`live=all`), applying score, clock and
+    status. Skipped, with no API call, while nothing could be live."""
+    if not anything_maybe_live(now=now):
+        return 0
+    return sync_provider_fixtures(live='all')
+
+
+def sync_live_odds(*, now=None) -> int:
+    """Poll api-football's in-play odds and apply them. Skips the call (saving
+    quota) unless live betting is on and some linked match could be in play.
+    Returns the number of live fixtures fetched."""
+    if not live_betting_enabled():
+        return 0
+    now = now or timezone.now()
+    if not anything_maybe_live(now=now):
         return 0
     snapshots = ApiFootballClient().fetch_live_odds()
     for snapshot in snapshots:
