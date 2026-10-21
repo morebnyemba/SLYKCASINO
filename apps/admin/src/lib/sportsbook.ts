@@ -3,7 +3,8 @@
 export interface TeamRef { id: number; name: string; logo_url: string }
 export interface LeagueRef { id: number; name: string; country: string; flag_url: string; logo_url: string }
 
-export type MatchState = 'upcoming' | 'started' | 'live' | 'finished' | 'void';
+// 'stuck': long past kick-off with no final result (the feed missed full time, or nobody scored a hand-added match).
+export type MatchState = 'upcoming' | 'started' | 'live' | 'stuck' | 'finished' | 'void';
 
 export interface AdminMatch {
   id: number;

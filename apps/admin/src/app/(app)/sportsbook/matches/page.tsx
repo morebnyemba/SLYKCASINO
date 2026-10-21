@@ -15,10 +15,10 @@ import { authedRequest, useApi } from '@/lib/use-api';
 import { SPORTS, fromLocalInput, kickoff, type AdminMatch, type LeagueRef, type Paged } from '@/lib/sportsbook';
 import { LoadingState } from '@slyk/ui/components/spinner';
 
-type StateFilter = 'upcoming' | 'live' | 'unpriced' | 'closed' | 'finished' | 'locked' | 'all';
+type StateFilter = 'upcoming' | 'live' | 'stuck' | 'unpriced' | 'closed' | 'finished' | 'locked' | 'all';
 const PAGE_SIZE = 50;
 
-interface Summary { upcoming: number; live: number; unpriced: number; closed: number; finished: number; locked: number }
+interface Summary { upcoming: number; live: number; stuck: number; unpriced: number; closed: number; finished: number; locked: number }
 
 const BLANK = {
   home: '', away: '', sport: 'football', starts_at: '', odds: '', odds_draw: '', odds_away: '',
@@ -201,6 +201,7 @@ function MatchesScreen() {
   const tabs: { id: StateFilter; label: string; count?: number; tone?: 'red' }[] = [
     { id: 'upcoming', label: 'Upcoming', count: summary?.upcoming },
     { id: 'live', label: 'Live', count: summary?.live, tone: summary?.live ? 'red' : undefined },
+    { id: 'stuck', label: 'No result', count: summary?.stuck },
     { id: 'unpriced', label: 'Awaiting odds', count: summary?.unpriced },
     { id: 'closed', label: 'Suspended', count: summary?.closed },
     { id: 'locked', label: 'Manual prices', count: summary?.locked },

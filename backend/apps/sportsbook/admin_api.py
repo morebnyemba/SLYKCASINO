@@ -19,7 +19,7 @@ from rest_framework.views import APIView
 
 from .clients import ApiFootballClient
 from .models import Bet, BetLeg, Event, LeagueSetting, Market, ProviderCredential, Team
-from .services import FINISHED_STATUSES, LIVE_STATUSES, VOID_STATUSES, trading_state
+from .services import FINISHED_STATUSES, LIVE_STATUSES, VOID_STATUSES, live_now, stuck_without_result, trading_state
 
 PROVIDER = ApiFootballClient.provider_name
 
@@ -84,7 +84,7 @@ def _feed_summary() -> dict:
             'manual_events': events.exclude(provider=PROVIDER).count(),
             'upcoming': events.filter(starts_at__gt=now, is_open=True, has_odds=True).count(),
             'awaiting_odds': events.filter(starts_at__gt=now, has_odds=False).count(),
-            'live': events.filter(status__in=LIVE_STATUSES).count(),
+            'live': events.filter(live_now(now)).count(),
             'locked': events.filter(prices_locked=True).count(),
             'leagues_enabled': LeagueSetting.objects.filter(enabled=True).count(),
             'leagues_total': LeagueSetting.objects.count(),
@@ -246,6 +246,13 @@ def _team_for(name: str, current: Team | None) -> Team | None:
     return existing or Team.objects.create(name=name, provider='manual')
 
 
+def _stuck(obj) -> bool:
+    """Python twin of services.stuck_without_result for one match (finished/void checked by the caller)."""
+    from .services import _hours_setting
+    stale = _hours_setting('SPORTSBOOK_STALE_MATCH_HOURS', 6) or 6
+    return bool(obj.starts_at and obj.starts_at <= timezone.now() - timedelta(hours=stale))
+
+
 class AdminEventSerializer(serializers.ModelSerializer):
     home_team = _TeamSerializer(read_only=True)
     away_team = _TeamSerializer(read_only=True)
@@ -279,6 +286,8 @@ class AdminEventSerializer(serializers.ModelSerializer):
             return 'void'
         if obj.status in FINISHED_STATUSES:
             return 'finished'
+        if _stuck(obj):
+            return 'stuck'
         if obj.status in LIVE_STATUSES:
             return 'live'
         if obj.starts_at and obj.starts_at <= timezone.now():
@@ -343,7 +352,9 @@ class AdminEventViewSet(viewsets.ModelViewSet):
         if state == 'upcoming':
             qs = qs.filter(starts_at__gt=now).exclude(status__in=(*FINISHED_STATUSES, *VOID_STATUSES))
         elif state == 'live':
-            qs = qs.filter(status__in=LIVE_STATUSES)
+            qs = qs.filter(live_now(now))
+        elif state == 'stuck':
+            qs = qs.filter(stuck_without_result(now))
         elif state == 'finished':
             qs = qs.filter(status__in=(*FINISHED_STATUSES, *VOID_STATUSES))
         elif state == 'unpriced':
@@ -404,7 +415,8 @@ class AdminEventViewSet(viewsets.ModelViewSet):
         e = Event.objects
         return Response({
             'upcoming': e.filter(starts_at__gt=now).exclude(status__in=done).count(),
-            'live': e.filter(status__in=LIVE_STATUSES).count(),
+            'live': e.filter(live_now(now)).count(),
+            'stuck': e.filter(stuck_without_result(now)).count(),
             'unpriced': e.filter(has_odds=False, starts_at__gt=now).count(),
             'closed': e.filter(is_open=False).exclude(status__in=done).count(),
             'finished': e.filter(status__in=done).count(),
