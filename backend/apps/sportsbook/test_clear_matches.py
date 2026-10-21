@@ -4,6 +4,8 @@ from decimal import Decimal as D
 
 from django.contrib.auth.models import User
 from django.core.management import call_command
+from unittest import mock
+
 from django.test import TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
@@ -63,9 +65,36 @@ class ClearOldMatchesTests(TestCase):
         api.force_authenticate(User.objects.create_user('ops', 'o@example.com', 'x', is_staff=True))
         self.assertEqual(api.post('/api/admin/sportsbook/events/cleanup/', {'dry_run': True}, format='json').json()['deleted'], 1)
         self.assertEqual(Event.objects.count(), 1)
-        self.assertEqual(api.post('/api/admin/sportsbook/events/cleanup/', {}, format='json').json()['deleted'], 1)
+        # The real run is queued on the worker; run it inline here.
+        with mock.patch('apps.sportsbook.tasks.clear_old_matches.delay', side_effect=lambda: services.clear_old_matches()) as queued:
+            res = api.post('/api/admin/sportsbook/events/cleanup/', {}, format='json')
+        self.assertEqual((res.status_code, res.json()['deleted'], res.json()['queued']), (202, 1, True))
+        queued.assert_called_once()
         self.assertEqual(Event.objects.count(), 0)
         self.assertIn(APIClient().post('/api/admin/sportsbook/events/cleanup/').status_code, (401, 403))
         self.match('Another', 72)
         call_command('clear_old_matches', '--dry-run', stdout=open('/dev/null', 'w'))
         self.assertEqual(Event.objects.count(), 1)
+
+    def test_bulk_delete_in_batches_leaves_ticketed_markets_alone(self):
+        def with_markets(name, hours_ago, n=30):
+            ev = self.match(name, hours_ago, status='FT')
+            for i in range(n):
+                m = Market.objects.create(event=ev, key=f'm{i}', name=f'Market {i}')
+                for k in ('a', 'b', 'c'):
+                    MarketOutcome.objects.create(market=m, key=k, label=k, odds=D('2'))
+            return ev
+        for i in range(5):
+            with_markets(f'Old {i}', 72)
+        keep = with_markets('Old with a bet', 72, n=2)
+        out = MarketOutcome.objects.filter(market__event=keep).first()
+        Bet.objects.create(player_id=1, event='k', outcome_ref=out, stake=D('1'), odds=D('2'))
+        fresh = with_markets('Recent', 1, n=2)
+
+        old = Event.objects.filter(starts_at__lte=timezone.now() - timedelta(hours=48)).exclude(pk=keep.pk)
+        self.assertEqual(services._delete_untouched_matches(old, batch=2), 5)
+        self.assertEqual(set(Event.objects.values_list('name', flat=True)), {'Old with a bet', 'Recent'})
+        self.assertEqual(Market.objects.count(), 4)
+        self.assertEqual(MarketOutcome.objects.count(), 12)
+        self.assertEqual(Bet.objects.get(event='k').outcome_ref_id, out.pk)
+        del fresh
