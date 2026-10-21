@@ -15,7 +15,7 @@ export interface DecodedToken {
   exp: number;
 }
 
-const ACCESS_KEY = 'slyk_admin_access';
+export const ACCESS_KEY = 'slyk_admin_access';
 const REFRESH_KEY = 'slyk_admin_refresh';
 
 export function decodeToken(token: string): DecodedToken | null {
@@ -38,6 +38,7 @@ export function getStoredTokens(): AuthTokens | null {
 export function storeTokens(tokens: AuthTokens): void {
   localStorage.setItem(ACCESS_KEY, tokens.access);
   localStorage.setItem(REFRESH_KEY, tokens.refresh);
+  window.dispatchEvent(new CustomEvent(TOKENS_EVENT, { detail: tokens.access }));
 }
 
 export function clearTokens(): void {
@@ -88,4 +89,36 @@ export async function apiLogout(access: string, refresh: string): Promise<void> 
 
 export function authedHeaders(access: string): Record<string, string> {
   return { 'Content-Type': 'application/json', Authorization: `Bearer ${access}` };
+}
+
+/** Fired on `window` whenever this tab stores new tokens (detail: the access token). */
+export const TOKENS_EVENT = 'slyk:tokens';
+
+let inflight: Promise<AuthTokens> | null = null;
+
+/**
+ * Swap the stored refresh token for a new pair, one refresh per tab at a time.
+ * Refresh tokens are single-use (rotated, then blacklisted), so parallel
+ * refreshes with the same token fail for all but one, which used to log people
+ * out whenever several requests hit an expired token together. If another tab
+ * rotated the token first, this adopts the pair that tab stored.
+ */
+export function refreshSession(): Promise<AuthTokens> {
+  inflight ??= (async () => {
+    const stored = getStoredTokens();
+    if (!stored) throw Object.assign(new Error('Session expired'), { expired: true });
+    try {
+      const tokens = await apiRefresh(stored.refresh);
+      storeTokens(tokens);
+      return tokens;
+    } catch (err) {
+      for (const wait of [0, 400, 1200]) {  // the other tab's tokens land shortly after
+        if (wait) await new Promise((r) => setTimeout(r, wait));
+        const now = getStoredTokens();
+        if (now && now.refresh !== stored.refresh) return now;
+      }
+      throw err;
+    }
+  })().finally(() => { inflight = null; });
+  return inflight;
 }

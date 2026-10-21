@@ -5,10 +5,12 @@ import {
   type DecodedToken,
   apiLogin,
   apiLogout,
-  apiRefresh,
+  ACCESS_KEY,
+  TOKENS_EVENT,
   clearTokens,
   decodeToken,
   getStoredTokens,
+  refreshSession,
   storeTokens,
 } from './auth';
 
@@ -56,11 +58,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setIsLoading(false);
       return;
     }
-    apiRefresh(stored.refresh)
+    refreshSession()
       .then((tokens) => {
         const decoded = decodeToken(tokens.access);
         if (!decoded?.is_staff) { clearTokens(); return; }
-        storeTokens(tokens);
         setAccessToken(tokens.access);
         setUser(userFromDecoded(decoded));
       })
@@ -73,6 +74,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       })
       .finally(() => setIsLoading(false));
   }, []);
+
+  // Keep the token here current when this tab refreshes it (TOKENS_EVENT) or
+  // another tab does (storage), and refresh a minute before it runs out so
+  // requests don't start with an expired token.
+  useEffect(() => {
+    const adopt = (access: string | null) => {
+      const decoded = access ? decodeToken(access) : null;
+      if (!access || !decoded?.is_staff) return;
+      setAccessToken(access);
+      setUser(userFromDecoded(decoded));
+    };
+    const onTokens = (e: Event) => adopt((e as CustomEvent<string>).detail);
+    const onStorage = (e: StorageEvent) => { if (e.key === ACCESS_KEY) adopt(e.newValue); };
+    window.addEventListener(TOKENS_EVENT, onTokens);
+    window.addEventListener('storage', onStorage);
+    return () => {
+      window.removeEventListener(TOKENS_EVENT, onTokens);
+      window.removeEventListener('storage', onStorage);
+    };
+  }, []);
+
+  useEffect(() => {
+    const exp = accessToken ? decodeToken(accessToken)?.exp : undefined;
+    if (!exp) return;
+    const t = window.setTimeout(() => { void refreshSession().catch(() => {}); }, Math.max(5_000, exp * 1000 - Date.now() - 60_000));
+    return () => window.clearTimeout(t);
+  }, [accessToken]);
 
   const login = useCallback(async (username: string, password: string) => {
     const tokens = await apiLogin(username, password);

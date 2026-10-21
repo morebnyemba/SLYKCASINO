@@ -5,11 +5,13 @@ import {
   type DecodedToken,
   apiLogin,
   apiLogout,
-  apiRefresh,
+  ACCESS_KEY,
+  TOKENS_EVENT,
   apiRegister,
   clearTokens,
   decodeToken,
   getStoredTokens,
+  refreshSession,
   storeTokens,
 } from './auth';
 
@@ -61,16 +63,47 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (window.location.pathname === '/impersonate') { setIsLoading(false); return; }
     const stored = getStoredTokens();
     if (!stored) { setIsLoading(false); return; }
-    apiRefresh(stored.refresh)
+    refreshSession()
       .then((tokens) => {
-        storeTokens(tokens);
         setAccessToken(tokens.access);
         const decoded = decodeToken(tokens.access);
         if (decoded) setUser(userFromDecoded(decoded));
       })
-      .catch(() => clearTokens())
+      .catch((err: Error & { expired?: boolean }) => {
+        if (err.expired) { clearTokens(); return; }
+        // Couldn't refresh right now (rate limit, network): keep the stored session.
+        const decoded = decodeToken(stored.access);
+        if (decoded) { setAccessToken(stored.access); setUser(userFromDecoded(decoded)); }
+      })
       .finally(() => setIsLoading(false));
   }, []);
+
+  // Keep the token here current when this tab refreshes it (TOKENS_EVENT) or
+  // another tab does (storage), and refresh a minute before it runs out so
+  // requests don't start with an expired token.
+  useEffect(() => {
+    const adopt = (access: string | null) => {
+      const decoded = access ? decodeToken(access) : null;
+      if (!access || !decoded) return;
+      setAccessToken(access);
+      setUser(userFromDecoded(decoded));
+    };
+    const onTokens = (e: Event) => adopt((e as CustomEvent<string>).detail);
+    const onStorage = (e: StorageEvent) => { if (e.key === ACCESS_KEY) adopt(e.newValue); };
+    window.addEventListener(TOKENS_EVENT, onTokens);
+    window.addEventListener('storage', onStorage);
+    return () => {
+      window.removeEventListener(TOKENS_EVENT, onTokens);
+      window.removeEventListener('storage', onStorage);
+    };
+  }, []);
+
+  useEffect(() => {
+    const exp = accessToken ? decodeToken(accessToken)?.exp : undefined;
+    if (!exp) return;
+    const t = window.setTimeout(() => { void refreshSession().catch(() => {}); }, Math.max(5_000, exp * 1000 - Date.now() - 60_000));
+    return () => window.clearTimeout(t);
+  }, [accessToken]);
 
   const login = useCallback(async (email: string, password: string) => {
     const tokens = await apiLogin(email, password);
