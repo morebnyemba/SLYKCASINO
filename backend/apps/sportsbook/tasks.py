@@ -14,9 +14,10 @@ def reconcile_orphaned_bets(dry_run: bool = False) -> dict:
 
 @shared_task(name='apps.sportsbook.tasks.sync_live_fixtures')
 def sync_live_fixtures() -> int:
-    """Poll api-football for in-play fixtures and settle any linked events
-    that have finished since the last poll. No-op if API_FOOTBALL_KEY unset."""
-    return services.sync_provider_fixtures(live='all')
+    """Live scores: poll api-football for in-play fixtures (score, clock,
+    status) every SPORTSBOOK_LIVE_SCORES_INTERVAL seconds, skipping the call
+    while nothing could be live. No-op if API_FOOTBALL_KEY unset."""
+    return services.sync_live_fixtures()
 
 
 @shared_task(name='apps.sportsbook.tasks.sync_fixture_odds')

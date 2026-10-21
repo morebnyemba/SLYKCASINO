@@ -94,3 +94,24 @@ class ResultPollTests(TestCase):
             self.assertFalse(api.post(f'/api/admin/sportsbook/events/{ev.id}/check-result/').json()['found'])
         manual = self.match('By hand', 300, provider='')
         self.assertEqual(api.post(f'/api/admin/sportsbook/events/{manual.id}/check-result/').status_code, 400)
+
+
+class LiveScoresPollTests(TestCase):
+    def test_polls_only_while_something_could_be_live(self):
+        with mock.patch('apps.sportsbook.services.ApiFootballClient.fetch_fixtures', return_value=[]) as fetch:
+            Event.objects.create(name='Tomorrow', odds=D('2'), provider='api-football', external_id='1',
+                                 starts_at=timezone.now() + timedelta(days=1))
+            Event.objects.create(name='Done', odds=D('2'), provider='api-football', external_id='2', status='FT',
+                                 starts_at=timezone.now() - timedelta(minutes=100))
+            self.assertEqual(services.sync_live_fixtures(), 0)
+            fetch.assert_not_called()  # quiet: no API call
+
+            Event.objects.create(name='Kicked off', odds=D('2'), provider='api-football', external_id='3',
+                                 starts_at=timezone.now() - timedelta(minutes=30))
+            services.sync_live_fixtures()
+            fetch.assert_called_once_with(date=None, live='all')
+
+    def test_beat_runs_it_every_15_seconds(self):
+        from django.conf import settings
+        entry = settings.CELERY_BEAT_SCHEDULE['sportsbook-sync-live-fixtures']
+        self.assertEqual((entry['schedule'], entry['options']['expires']), (15.0, 15.0))
