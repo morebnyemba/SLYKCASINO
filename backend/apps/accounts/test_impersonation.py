@@ -1,4 +1,5 @@
 """Staff "view as player" sessions (apps.accounts.impersonation)."""
+import secrets
 from unittest import mock
 
 from django.contrib.auth.models import User
@@ -8,10 +9,13 @@ from rest_framework.test import APIClient
 from apps.accounts import services
 from apps.accounts.models import AuditLog
 
+# Throwaway per run; never a fixed string in the repo.
+PASSWORD = secrets.token_urlsafe(16)
+
 
 class ImpersonationTests(TestCase):
     def setUp(self):
-        self.player = services.register_player(username='punter', email='p@example.com', password='Sup3r-secret-pw')
+        self.player = services.register_player(username='punter', email='p@example.com', password=PASSWORD)
         self.staff = User.objects.create_user('ops', 'o@example.com', 'x', is_staff=True)
         self.boss = User.objects.create_user('boss', 'b@example.com', 'x', is_staff=True, is_superuser=True)
 
@@ -50,7 +54,7 @@ class ImpersonationTests(TestCase):
 
     def test_refusals(self):
         self.assertEqual(self.start(self.staff, reason='').status_code, 400)
-        staff_player = services.register_player(username='teammate', email='t@example.com', password='Sup3r-secret-pw')
+        staff_player = services.register_player(username='teammate', email='t@example.com', password=PASSWORD)
         staff_player.user.is_staff = True
         staff_player.user.save()
         self.assertEqual(self.start(self.boss, player=staff_player).status_code, 403)
