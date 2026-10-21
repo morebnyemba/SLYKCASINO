@@ -76,6 +76,7 @@ export const STATUSES = [
   { id: 'FT', label: 'FT · Full time' },
   { id: 'AET', label: 'AET · After extra time' },
   { id: 'PEN', label: 'PEN · After penalties' },
+  { id: 'NR', label: 'NR · Ended, no result yet' },
   { id: 'PST', label: 'PST · Postponed' },
   { id: 'SUSP', label: 'SUSP · Suspended' },
   { id: 'CANC', label: 'CANC · Cancelled' },

@@ -7,7 +7,7 @@ import { apiGet } from '@/lib/config';
 import { isLive, type EventItem } from '@/lib/sports';
 import { eventDescription, eventJsonLd, eventTitle, jsonLdHtml, social } from '@/lib/seo';
 
-const FINISHED = ['FT', 'AET', 'PEN', 'CANC', 'ABD', 'AWD', 'WO'];
+const FINISHED = ['FT', 'AET', 'PEN', 'NR', 'CANC', 'ABD', 'AWD', 'WO'];
 
 // Next 16: route params are async — they must be awaited.
 type PageProps = {

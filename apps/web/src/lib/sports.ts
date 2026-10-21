@@ -116,6 +116,8 @@ export function hasScore(ev: EventItem): boolean {
 /** "67'", "HT", "FT" — short live clock for a match with a feed status. */
 export function matchClock(ev: EventItem): string | null {
   if (!ev.status) return null;
+  // NR: the feed never sent full time; the match is over, its result still to come.
+  if (ev.status === 'NR') return 'Ended';
   if (ev.status === 'HT' || FINISHED.has(ev.status)) return ev.status;
   if (IN_PLAY.has(ev.status)) return ev.elapsed != null ? `${ev.elapsed}'` : ev.status;
   return null;

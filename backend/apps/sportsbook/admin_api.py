@@ -248,9 +248,8 @@ def _team_for(name: str, current: Team | None) -> Team | None:
 
 def _stuck(obj) -> bool:
     """Python twin of services.stuck_without_result for one match (finished/void checked by the caller)."""
-    from .services import _hours_setting
-    stale = _hours_setting('SPORTSBOOK_STALE_MATCH_HOURS', 6) or 6
-    return bool(obj.starts_at and obj.starts_at <= timezone.now() - timedelta(hours=stale))
+    from .services import match_over_by
+    return bool(obj.starts_at and obj.starts_at <= match_over_by())
 
 
 class AdminEventSerializer(serializers.ModelSerializer):

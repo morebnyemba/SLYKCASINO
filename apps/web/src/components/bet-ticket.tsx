@@ -158,13 +158,13 @@ function ResultIcon({ result }: { result: string }) {
 function matchLine(m: BetMatch | null) {
   if (!m) return null;
   const hasScore = m.score_home != null && m.score_away != null;
-  const live = !!m.status && !['NS', 'FT', 'AET', 'PEN', ''].includes(m.status);
+  const live = !!m.status && !['NS', 'FT', 'AET', 'PEN', 'NR', ''].includes(m.status);
   if (hasScore) {
     return (
       <span className="flex items-center gap-1.5">
         {live && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-live" />}
         <b className="font-mono text-foreground">{m.score_home}–{m.score_away}</b>
-        {m.status && <span className={live ? 'font-bold text-live' : ''}>{m.status}</span>}
+        {m.status && <span className={live ? 'font-bold text-live' : ''}>{m.status === 'NR' ? 'Ended' : m.status}</span>}
       </span>
     );
   }

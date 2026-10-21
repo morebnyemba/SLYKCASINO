@@ -14,7 +14,7 @@ from apps.sportsbook import services
 from apps.sportsbook.models import Bet, BetLeg, BetSlip, Event, Market, MarketOutcome
 
 
-@override_settings(SPORTSBOOK_STALE_MATCH_HOURS=6, SPORTSBOOK_DELETE_MATCHES_AFTER_HOURS=48)
+@override_settings(SPORTSBOOK_MATCH_MAX_MINUTES=180, SPORTSBOOK_DELETE_MATCHES_AFTER_HOURS=48)
 class ClearOldMatchesTests(TestCase):
     def match(self, name, hours_ago, **kw):
         return Event.objects.create(name=name, odds=D('2'), starts_at=timezone.now() - timedelta(hours=hours_ago), **kw)
@@ -42,6 +42,7 @@ class ClearOldMatchesTests(TestCase):
         self.assertEqual(services.clear_old_matches(), preview)
         self.assertFalse(Event.objects.filter(pk=old_empty.pk).exists())
         self.assertFalse(Market.objects.filter(key='ou25').exists())
+        self.assertEqual(Event.objects.get(pk=stale.pk).status, 'NR')
         left = {e.name: e.is_open for e in Event.objects.all()}
         self.assertEqual(left, {'Upcoming': True, 'Just finished': True, 'Feed went quiet': False,
                                 'Old single': False, 'Old leg': False, 'Old market bet': False})
@@ -54,10 +55,11 @@ class ClearOldMatchesTests(TestCase):
         self.match('Frozen live', 10, status='2H', is_open=False)
         self.assertEqual({e.name for e in services.list_events(upcoming=True)}, {'Live now'})
 
-    @override_settings(SPORTSBOOK_STALE_MATCH_HOURS=0, SPORTSBOOK_DELETE_MATCHES_AFTER_HOURS=0)
-    def test_zero_turns_steps_off(self):
+    @override_settings(SPORTSBOOK_DELETE_MATCHES_AFTER_HOURS=0)
+    def test_zero_turns_deleting_off(self):
         self.match('Old', 100)
-        self.assertEqual(services.clear_old_matches(), {'closed': 0, 'deleted': 0, 'kept_with_tickets': 0})
+        self.assertEqual(services.clear_old_matches(), {'closed': 1, 'deleted': 0, 'kept_with_tickets': 0})
+        self.assertEqual(Event.objects.count(), 1)
 
     def test_admin_button_and_command(self):
         self.match('Old, no bets', 72)
@@ -100,7 +102,7 @@ class ClearOldMatchesTests(TestCase):
         del fresh
 
 
-@override_settings(SPORTSBOOK_STALE_MATCH_HOURS=6)
+@override_settings(SPORTSBOOK_MATCH_MAX_MINUTES=180)
 class StuckLiveTests(TestCase):
     def setUp(self):
         mk = lambda name, h, status: Event.objects.create(  # noqa: E731
@@ -126,3 +128,29 @@ class StuckLiveTests(TestCase):
         self.assertEqual(states['Live now'], 'live')
         stats = self.api.get('/api/admin/stats/').json()
         self.assertEqual(stats['sportsbook']['live'], 1)
+
+
+@override_settings(SPORTSBOOK_MATCH_MAX_MINUTES=180)
+class EndStaleLiveTests(TestCase):
+    def test_frozen_live_match_ends_without_a_result(self):
+        mk = lambda name, minutes, status: Event.objects.create(  # noqa: E731
+            name=name, odds=D('2'), starts_at=timezone.now() - timedelta(minutes=minutes), status=status,
+            score_home=1, score_away=0, provider='api-football', external_id=name)
+        playing = mk('Extra time', 150, 'ET')
+        frozen = mk('Frozen', 200, '2H')
+        bet = Bet.objects.create(player_id=1, event='Frozen', event_ref=frozen, selection='home', stake=D('5'), odds=D('2'))
+
+        # The result poll asks the feed first; it has nothing new for either match.
+        with mock.patch('apps.sportsbook.services.ApiFootballClient.fetch_fixtures_by_ids', return_value=[]) as fetch:
+            services.settle_finished_fixtures()
+        fetch.assert_called_once()
+
+        playing.refresh_from_db(); frozen.refresh_from_db(); bet.refresh_from_db()
+        self.assertEqual(playing.status, 'ET')                       # still inside the 3 hours
+        self.assertEqual((frozen.status, frozen.is_open), ('NR', False))
+        self.assertEqual((frozen.score_home, frozen.score_away), (1, 0))  # kept as last seen
+        self.assertEqual(bet.status, 'open')                          # NOT settled from 1-0
+        self.assertFalse(Event.objects.filter(services.live_now()).filter(pk=frozen.pk).exists())
+        self.assertTrue(Event.objects.filter(services.stuck_without_result()).filter(pk=frozen.pk).exists())
+        # Still polled for a late result.
+        self.assertIn(frozen.pk, list(services.events_awaiting_settlement().values_list('pk', flat=True)))
