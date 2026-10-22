@@ -123,3 +123,19 @@ export async function authedPost<T>(
     return { error: String(e), status: 0 };
   }
 }
+
+/** GET with the player's token and the same refresh-on-401 as authedPost (for "load more"). */
+export async function authedGet<T>(path: string, token: string): Promise<{ data?: T; error?: string; status: number }> {
+  try {
+    let res = await fetch(`${config.apiUrl}${path}`, { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' });
+    if (res.status === 401 && getStoredTokens()?.refresh) {
+      const refreshed = await refreshSession();
+      res = await fetch(`${config.apiUrl}${path}`, { headers: { Authorization: `Bearer ${refreshed.access}` }, cache: 'no-store' });
+    }
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) return { error: (json as { detail?: string }).detail ?? `API ${res.status}`, status: res.status };
+    return { data: json as T, status: res.status };
+  } catch (e) {
+    return { error: String(e), status: 0 };
+  }
+}

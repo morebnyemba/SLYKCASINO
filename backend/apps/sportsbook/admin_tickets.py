@@ -21,6 +21,7 @@ from rest_framework.permissions import IsAdminUser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from . import ticket_codes
 from .models import Bet, BetLeg, BetSlip
 from .serializers import BetSerializer, BetSlipSerializer
 
@@ -33,10 +34,14 @@ MAX_LIMIT = 100
 ZERO = Decimal('0')
 
 
+# Everything a ticket shows: the match with both teams, and the market picked.
+TICKET_JOINS = ('event_ref__home_team', 'event_ref__away_team', 'outcome_ref__market')
+
+
 def _querysets():
-    legs = Prefetch('legs', queryset=BetLeg.objects.select_related('event_ref', 'outcome_ref__market'))
+    legs = Prefetch('legs', queryset=BetLeg.objects.select_related(*TICKET_JOINS))
     return {
-        'single': Bet.objects.select_related('event_ref', 'outcome_ref__market'),
+        'single': Bet.objects.select_related(*TICKET_JOINS),
         'multiple': BetSlip.objects.prefetch_related(legs),
     }
 
@@ -76,6 +81,12 @@ def _filtered(params):
         qs = {k: v.filter(player_id=params['player_id']) for k, v in qs.items()}
     q = (params.get('q') or '').strip()
     ticket = TICKET_RE.fullmatch(q)
+    code = ticket_codes.normalise(q)
+    if not ticket and len(code) == ticket_codes.LENGTH and set(code) <= set(ticket_codes.ALPHABET):
+        # A ticket code (from the barcode); fall through to a name search if it isn't one.
+        by_code = {k: v.filter(code=code) for k, v in qs.items()}
+        if any(v.exists() for v in by_code.values()):
+            qs, q = by_code, ''
     if ticket:
         wanted = 'single' if ticket.group(1).lower() == 's' else 'multiple'
         qs = {k: (v.filter(pk=int(ticket.group(2))) if k == wanted else v.none()) for k, v in qs.items()}
@@ -141,8 +152,8 @@ class AdminTicketsView(APIView):
     """GET /api/admin/tickets/?q=&status=&kind=single|multiple&player_id=
     &date_from=&date_to=&min_stake=&limit=&cursor=
 
-    `q` takes a ticket number as players see it (S12 / M5), or part of a
-    username, email or name. Returns a page of tickets, `next_cursor` (null on
+    `q` takes a ticket number as players see it (S12 / M5), a ticket code (the
+    barcode), or part of a username, email or name. Returns a page of tickets, `next_cursor` (null on
     the last page) and a summary of everything that matches (with
     `by_status` counts ignoring the status filter, for the status tabs)."""
     permission_classes = [IsAdminUser]

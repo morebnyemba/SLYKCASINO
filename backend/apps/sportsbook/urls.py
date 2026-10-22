@@ -3,6 +3,7 @@ from rest_framework.routers import SimpleRouter
 
 from .admin_api import AdminEventViewSet, AdminLeagueViewSet, FeedSettingsView, FeedSyncView, FeedTestView
 from .admin_tickets import AdminTicketDetailView, AdminTicketsView
+from .player_tickets import MyTicketsView, PublicTicketView
 from .views import (
     AdminBetViewSet, AdminCashoutSettingsView, BetSlipViewSet, BetViewSet, BookingCodeCreateView,
     BookingCodeDetailView, CashoutOffersView, EventViewSet, MultiBetBonusView,
@@ -21,6 +22,8 @@ urlpatterns = [
     path('booking-codes/<str:code>/', BookingCodeDetailView.as_view(), name='booking-code-detail'),
     path('multibet-bonus/', MultiBetBonusView.as_view(), name='multibet-bonus'),
     path('cashout/offers/', CashoutOffersView.as_view(), name='cashout-offers'),
+    path('my-tickets/', MyTicketsView.as_view(), name='my-tickets'),
+    path('tickets/<str:code>/', PublicTicketView.as_view(), name='ticket-lookup'),
     path('admin/tickets/', AdminTicketsView.as_view(), name='admin-tickets'),
     path('admin/tickets/<str:ticket>/', AdminTicketDetailView.as_view(), name='admin-ticket-detail'),
     path('admin/sportsbook/cashout/', AdminCashoutSettingsView.as_view(), name='admin-sb-cashout'),

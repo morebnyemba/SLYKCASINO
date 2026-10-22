@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { BsCashCoin, BsLockFill } from 'react-icons/bs';
+import { BsCashCoin } from 'react-icons/bs';
 import { Spinner } from '@slyk/ui/components/spinner';
 import { useAuth } from '@/lib/auth-context';
 import { config } from '@/lib/config';
@@ -105,14 +105,9 @@ export function CashoutPanel({ kind, id, stake, odds, offer, onDone, compact = f
   if (!offer) return null;
   const pad = compact ? 'px-3' : 'px-4';
 
-  if (!offer.available || !valueText) {
-    return (
-      <div className={`flex items-center gap-2 border-t border-border/70 ${pad} py-2 text-[11.5px] text-muted-foreground`}>
-        <BsLockFill size={10} className="shrink-0" />
-        <span className="truncate">{offer.reason || 'Cash-out isn’t available right now.'}</span>
-      </div>
-    );
-  }
+  // No offer right now (a selection isn't trading, a leg lost…): say nothing
+  // rather than a "suspended" line on every open ticket. It appears when an offer does.
+  if (!offer.available || !valueText) return null;
 
   async function confirm() {
     if (!accessToken) return;

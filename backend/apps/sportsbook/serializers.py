@@ -84,11 +84,14 @@ class EventDetailSerializer(EventSerializer):
 
 
 class BetMatchSerializer(serializers.ModelSerializer):
-    """The match a bet (or leg) is on, for the bet ticket: kick-off and score."""
+    """The match a bet (or leg) is on, for the bet ticket: teams, kick-off,
+    live clock and score."""
+    home = serializers.CharField(source='home_team.name', read_only=True, default=None)
+    away = serializers.CharField(source='away_team.name', read_only=True, default=None)
 
     class Meta:
         model = Event
-        fields = ['id', 'name', 'sport', 'starts_at', 'status', 'score_home', 'score_away']
+        fields = ['id', 'name', 'sport', 'starts_at', 'status', 'elapsed', 'score_home', 'score_away', 'home', 'away']
 
 
 class _OutcomeLabelsMixin(serializers.Serializer):
@@ -126,10 +129,10 @@ class BetSerializer(_CashoutMixin, _OutcomeLabelsMixin, serializers.ModelSeriali
     class Meta:
         model = Bet
         fields = [
-            'id', 'event', 'selection', 'outcome_ref', 'market_name', 'outcome_label', 'match',
-            'stake', 'odds', 'status', 'payout', 'placed_at', *CASHOUT_FIELDS,
+            'id', 'code', 'event', 'selection', 'outcome_ref', 'market_name', 'outcome_label', 'match',
+            'stake', 'odds', 'status', 'payout', 'placed_at', 'settled_at', *CASHOUT_FIELDS,
         ]
-        read_only_fields = ['status', 'payout', 'placed_at', 'outcome_ref', *CASHOUT_FIELDS]
+        read_only_fields = ['code', 'status', 'payout', 'placed_at', 'settled_at', 'outcome_ref', *CASHOUT_FIELDS]
 
 
 class BetLegSerializer(_OutcomeLabelsMixin, serializers.ModelSerializer):
@@ -144,8 +147,8 @@ class BetSlipSerializer(_CashoutMixin, serializers.ModelSerializer):
     class Meta:
         model = BetSlip
         fields = [
-            'id', 'stake', 'combined_odds', 'status', 'payout', 'bonus_percent', 'bonus',
+            'id', 'code', 'stake', 'combined_odds', 'status', 'payout', 'bonus_percent', 'bonus',
             'placed_at', 'settled_at', 'legs', *CASHOUT_FIELDS,
         ]
-        read_only_fields = ['combined_odds', 'status', 'payout', 'bonus_percent', 'bonus', 'placed_at', 'settled_at',
+        read_only_fields = ['code', 'combined_odds', 'status', 'payout', 'bonus_percent', 'bonus', 'placed_at', 'settled_at',
                             *CASHOUT_FIELDS]

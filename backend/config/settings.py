@@ -124,6 +124,7 @@ REST_FRAMEWORK = {
         'anon': '60/minute',
         'user': '300/minute',
         'auth': '10/minute',   # used explicitly on auth endpoints
+        'ticket_lookup': '30/minute',  # public "check a ticket" by code
     },
 }
 
