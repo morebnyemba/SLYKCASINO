@@ -2,23 +2,25 @@
 
 import { useState } from 'react';
 import { FaCheck, FaCopy, FaFacebookF, FaShareNodes, FaTelegram, FaWhatsapp, FaXTwitter } from 'react-icons/fa6';
+import { useSiteIdentity } from '@/lib/identity-context';
 
 /** The affiliate's referral link: campaign tag, copy, and one-tap sharing. */
 export function ShareLink({ code, welcome }: { code: string; welcome?: string }) {
+  const site = useSiteIdentity().site_name;
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
   const [campaign, setCampaign] = useState('');
   const [copied, setCopied] = useState<'link' | 'code' | null>(null);
   const link = `${origin}/?ref=${code}${campaign ? `&campaign=${encodeURIComponent(campaign)}` : ''}`;
   const pitch = welcome
-    ? `Join me on BetBlits — sign up with my link and get a ${welcome} bonus on your first deposit:`
-    : 'Join me on BetBlits:';
+    ? `Join me on ${site} — sign up with my link and get a ${welcome} bonus on your first deposit:`
+    : `Join me on ${site}:`;
   const enc = encodeURIComponent;
 
   async function copy(what: 'link' | 'code') {
     try { await navigator.clipboard.writeText(what === 'link' ? link : code); setCopied(what); setTimeout(() => setCopied(null), 1500); } catch { /* no clipboard */ }
   }
   async function nativeShare() {
-    try { await navigator.share({ title: 'BetBlits', text: pitch, url: link }); } catch { /* cancelled */ }
+    try { await navigator.share({ title: site, text: pitch, url: link }); } catch { /* cancelled */ }
   }
 
   const shares = [
@@ -50,11 +52,11 @@ export function ShareLink({ code, welcome }: { code: string; welcome?: string })
         )}
       </div>
       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-        <span>Or share your code <button onClick={() => copy('code')} className="rounded-md bg-muted px-1.5 py-0.5 font-mono font-bold text-foreground">{copied === 'code' ? 'copied!' : code}</button> — players enter it at sign-up.</span>
+        <span>Or give friends your code <button onClick={() => copy('code')} className="rounded-md bg-muted px-1.5 py-0.5 font-mono font-bold text-foreground">{copied === 'code' ? 'copied!' : code}</button> to type in when they sign up.</span>
         <input
           value={campaign}
           onChange={(e) => setCampaign(e.target.value.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 50))}
-          placeholder="campaign tag (optional)"
+          placeholder="label this link, e.g. whatsapp (optional)"
           aria-label="Campaign tag"
           className="ml-auto rounded-md border border-border bg-input px-2 py-1 text-xs outline-none"
         />

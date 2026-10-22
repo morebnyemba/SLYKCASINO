@@ -37,6 +37,9 @@ class BetSlip(models.Model):
     cashout_paid = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     stake_cashed_out = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     cashed_out_at = models.DateTimeField(null=True, blank=True)
+    # Random ticket code (ticket_codes): what the ticket's barcode carries and
+    # what anyone holding the ticket looks it up by. Set on first save.
+    code = models.CharField(max_length=12, unique=True, null=True, blank=True, editable=False)
     placed_at = models.DateTimeField(auto_now_add=True)
     settled_at = models.DateTimeField(null=True, blank=True)
 
@@ -44,6 +47,12 @@ class BetSlip(models.Model):
         db_table = 'sportsbook_betslip'
         ordering = ['-placed_at']
         indexes = [models.Index(fields=['status', 'placed_at'])]
+
+    def save(self, *args, **kwargs):
+        if not self.code:
+            from ..ticket_codes import unique_code
+            self.code = unique_code()
+        super().save(*args, **kwargs)
 
     def __str__(self) -> str:
         return f'Acca #{self.pk} x{self.combined_odds} ({self.status})'

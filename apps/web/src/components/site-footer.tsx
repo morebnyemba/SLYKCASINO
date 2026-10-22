@@ -85,6 +85,7 @@ export function SiteFooter() {
           <FooterSection title="Help & info">
             <ul className="space-y-2 text-xs sm:space-y-1">
               <li><Link href="/promotions" className="hover:text-foreground">Promotions &amp; bonuses</Link></li>
+              <li><Link href="/check-ticket" className="hover:text-foreground">Check a ticket</Link></li>
               <li><Link href="/livechat" className="hover:text-foreground">Live support</Link></li>
             </ul>
           </FooterSection>

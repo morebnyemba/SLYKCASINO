@@ -157,7 +157,7 @@ export default function TicketsPage() {
             <div className="relative min-w-[240px] flex-1">
               <BsSearch className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={14} />
               <input ref={search} value={q} onChange={(e) => setQ(e.target.value)} className={cx(inputClass, 'pl-9 pr-9')}
-                placeholder="Ticket (S12, M5), username, email or name   ·   press / to search"
+                placeholder="Ticket (S12, M5), barcode code, username, email or name   ·   press / to search"
                 onKeyDown={(e) => { if (e.key === 'Escape') setQ(''); }} />
               {q && (
                 <button onClick={() => setQ('')} aria-label="Clear search" className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">

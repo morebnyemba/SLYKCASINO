@@ -12,7 +12,7 @@ import { authedRequest, useApi } from '@/lib/use-api';
 interface Match { id: number; name: string; starts_at?: string | null; status?: string; score_home?: number | null; score_away?: number | null }
 interface Leg { id: number; event: string; match?: Match | null; market_name?: string | null; outcome_label?: string | null; selection: string; odds: string; result: string }
 export interface Ticket {
-  ticket: string; kind: 'single' | 'multiple'; id: number; player_id: number | null; username: string;
+  ticket: string; kind: 'single' | 'multiple'; id: number; code?: string | null; player_id: number | null; username: string;
   stake: string; odds?: string; combined_odds?: string; status: string; payout: string; placed_at: string;
   settled_at?: string | null; cashed_out_at?: string | null;
   bonus?: string; bonus_percent?: string; cashout_paid?: string; stake_cashed_out?: string;
@@ -191,7 +191,7 @@ export function TicketDrawer({ ticket, onClose, onStep, hidePlayer }: {
       open={!!ticket}
       onClose={onClose}
       title={`Ticket #${ticket ?? ''}`}
-      description={ready ? `${t.kind === 'multiple' ? `Multiple · ${legs.length} selections` : 'Single'} · placed ${when(t.placed_at)}` : 'Loading…'}
+      description={ready ? `${t.kind === 'multiple' ? `Multiple · ${legs.length} selections` : 'Single'}${t.code ? ` · code ${t.code}` : ''} · placed ${when(t.placed_at)}` : 'Loading…'}
       footer={(
         <div className="flex w-full flex-wrap items-center gap-2">
           {onStep && (
