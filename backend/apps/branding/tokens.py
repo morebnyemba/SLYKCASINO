@@ -4,7 +4,8 @@ Keys mirror the CSS custom properties defined in
 `packages/ui/src/styles/globals.css` (minus the `tier-gold*` aliases, which
 are computed from `gold`, and `--radius`, which isn't a color). Defaults below
 are copied verbatim from that file's `:root` / `[data-theme='dark']` blocks so
-seeding this model changes nothing visually until an operator edits it.
+seeding this model changes nothing visually until an operator edits it. They're
+the BetBlits logo palette: royal blue, cyan and gold on deep navy.
 """
 from __future__ import annotations
 
@@ -30,43 +31,43 @@ TOKEN_KEYS: tuple[str, ...] = (
 )
 
 DEFAULT_LIGHT: dict[str, str] = {
-    'background': '#F3F4FC', 'foreground': '#1A1538',
-    'card': '#FFFFFF', 'card_foreground': '#1A1538',
-    'primary': '#312783', 'primary_foreground': '#FFFFFF',
-    'secondary': '#4338CA', 'secondary_foreground': '#FFFFFF',
-    'muted': '#E6E5F7', 'muted_foreground': '#5C5A86',
-    'accent': '#5B53D6', 'accent_foreground': '#FFFFFF',
-    'gold': '#B8860B', 'gold_foreground': '#FFFFFF',
-    'ring': '#312783', 'border': '#C9CBEC', 'input': '#ECEDF8',
-    'destructive': '#DC2626',
+    'background': '#F2F6FF', 'foreground': '#0A1433',
+    'card': '#FFFFFF', 'card_foreground': '#0A1433',
+    'primary': '#0149EB', 'primary_foreground': '#FFFFFF',
+    'secondary': '#0B5CF0', 'secondary_foreground': '#FFFFFF',
+    'muted': '#E2EAFC', 'muted_foreground': '#4D5F8C',
+    'accent': '#0A8FD0', 'accent_foreground': '#FFFFFF',
+    'gold': '#B07A00', 'gold_foreground': '#FFFFFF',
+    'ring': '#0149EB', 'border': '#C7D4F2',
+    'input': '#EAF0FE', 'destructive': '#DC2626',
     'live': '#DC2626', 'live_foreground': '#FFFFFF',
     'tier_bronze': '#92400E', 'tier_bronze_foreground': '#92400E',
     'tier_silver': '#6B7280', 'tier_silver_foreground': '#6B7280',
     'win': '#15924E', 'win_foreground': '#FFFFFF',
-    'down': '#DC2626',
-    'chip': '#ECEDF8', 'chip_foreground': '#1A1538',
-    'sidebar': '#FFFFFF', 'sidebar_foreground': '#1A1538',
-    'odds': '#EEEFFA', 'odds_hover': '#E0E1F6',
+    'down': '#DC2626', 'chip': '#EAF0FE',
+    'chip_foreground': '#0A1433', 'sidebar': '#FFFFFF',
+    'sidebar_foreground': '#0A1433', 'odds': '#E8EFFE',
+    'odds_hover': '#D8E4FD',
 }
 
 DEFAULT_DARK: dict[str, str] = {
-    'background': '#0C0820', 'foreground': '#F2F1FB',
-    'card': '#191347', 'card_foreground': '#F2F1FB',
-    'primary': '#312783', 'primary_foreground': '#FFFFFF',
-    'secondary': '#6C63E8', 'secondary_foreground': '#FFFFFF',
-    'muted': '#1E1850', 'muted_foreground': '#9D99C8',
-    'accent': '#8079EE', 'accent_foreground': '#FFFFFF',
-    'gold': '#E6B84C', 'gold_foreground': '#1A1538',
-    'ring': '#6C63E8', 'border': 'rgba(255, 255, 255, 0.09)', 'input': '#1E1850',
-    'destructive': '#FF6B6B',
+    'background': '#060D24', 'foreground': '#EEF3FF',
+    'card': '#0D1A3D', 'card_foreground': '#EEF3FF',
+    'primary': '#0149EB', 'primary_foreground': '#FFFFFF',
+    'secondary': '#1F6FFF', 'secondary_foreground': '#FFFFFF',
+    'muted': '#13234D', 'muted_foreground': '#93A6D1',
+    'accent': '#0CBBFB', 'accent_foreground': '#031230',
+    'gold': '#FDD01E', 'gold_foreground': '#1A1200',
+    'ring': '#1F6FFF', 'border': 'rgba(255, 255, 255, 0.09)',
+    'input': '#13234D', 'destructive': '#FF6B6B',
     'live': '#FF5260', 'live_foreground': '#FFFFFF',
     'tier_bronze': '#92400E', 'tier_bronze_foreground': '#92400E',
     'tier_silver': '#6B7280', 'tier_silver_foreground': '#6B7280',
-    'win': '#36D399', 'win_foreground': '#0C0820',
-    'down': '#FF6B6B',
-    'chip': '#1E1850', 'chip_foreground': '#F2F1FB',
-    'sidebar': '#110B2E', 'sidebar_foreground': '#F2F1FB',
-    'odds': '#241D5C', 'odds_hover': '#2F2772',
+    'win': '#36D399', 'win_foreground': '#04122E',
+    'down': '#FF6B6B', 'chip': '#13234D',
+    'chip_foreground': '#EEF3FF', 'sidebar': '#081430',
+    'sidebar_foreground': '#EEF3FF', 'odds': '#15275A',
+    'odds_hover': '#1C3473',
 }
 
 

@@ -24,13 +24,13 @@ export default async function OpengraphImage() {
       <div style={{
         width: '100%', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
         padding: 72, color: 'white', fontFamily: 'sans-serif',
-        background: 'linear-gradient(135deg, #110B2E 0%, #312783 55%, #4338CA 100%)',
+        background: 'linear-gradient(135deg, #060D24 0%, #0B2A7A 55%, #0149EB 100%)',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
           {wordmark
-            ? <img src={wordmark} height={120} width={480} style={{ objectFit: 'contain' }} />
+            ? <img src={wordmark} height={120} width={423} style={{ objectFit: 'contain' }} />
             : <>
-                <div style={{ width: 72, height: 72, borderRadius: 20, background: '#6C63E8', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Bolt size={44} /></div>
+                <div style={{ width: 72, height: 72, borderRadius: 20, background: '#0149EB', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Bolt size={44} /></div>
                 <div style={{ fontSize: 56, fontWeight: 800, letterSpacing: -1 }}>{name}</div>
               </>}
         </div>

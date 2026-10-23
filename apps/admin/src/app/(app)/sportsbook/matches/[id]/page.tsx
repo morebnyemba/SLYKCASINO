@@ -126,8 +126,8 @@ export default function MatchPage() {
       </Link>
 
       {/* Scoreboard header */}
-      <section className="relative overflow-hidden rounded-3xl border border-border/70 bg-[radial-gradient(120%_120%_at_0%_0%,#3a2fa8_0%,#1d1660_45%,#0d0a2a_100%)] p-6 text-white shadow-xl sm:p-8">
-        <div className="pointer-events-none absolute -right-20 -top-24 h-72 w-72 rounded-full bg-[#6C63E8]/30 blur-3xl" />
+      <section className="relative overflow-hidden rounded-3xl border border-border/70 bg-[radial-gradient(120%_120%_at_0%_0%,#0B4FE0_0%,#0B2A7A_45%,#060D24_100%)] p-6 text-white shadow-xl sm:p-8">
+        <div className="pointer-events-none absolute -right-20 -top-24 h-72 w-72 rounded-full bg-[#0CBBFB]/25 blur-3xl" />
         <div className="relative flex flex-wrap items-center gap-2">
           <LeagueTag league={match.league_detail} className="text-white/75" />
           <span className="ml-auto flex flex-wrap items-center gap-2"><SourceBadge m={match} /><StateBadge m={match} /></span>

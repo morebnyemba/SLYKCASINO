@@ -52,11 +52,11 @@ export default async function MatchImage({ params }: { params: Promise<{ event: 
       <div style={{
         width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'space-between',
         padding: '56px 72px', color: 'white', fontFamily: 'sans-serif',
-        background: 'linear-gradient(135deg, #110B2E 0%, #312783 60%, #4338CA 100%)',
+        background: 'linear-gradient(135deg, #060D24 0%, #0B2A7A 60%, #0149EB 100%)',
       }}>
         <div style={{ display: 'flex', width: '100%', justifyContent: 'space-between', fontSize: 30, color: 'rgba(255,255,255,0.8)' }}>
           {wordmark
-            ? <img src={wordmark} height={72} width={288} style={{ objectFit: 'contain' }} />
+            ? <img src={wordmark} height={72} width={254} style={{ objectFit: 'contain' }} />
             : <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontWeight: 800, color: 'white' }}><Bolt size={34} />BetBlits</div>}
           <div>{ev.league?.name ?? 'Sportsbook'}</div>
         </div>
