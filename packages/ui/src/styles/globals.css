@@ -5,11 +5,11 @@
 @source "../components";
 
 /*
-  BetBlits palette — blue-dominant system:
-    Deep indigo-blue #312783 — dominant brand colour: header, primary actions, ring
-    Supporting blue shades   — secondary/accent surfaces, borders, muted backgrounds
-    White                    — cards, page background
-    Darkgoldenrod            — reserved for VIP/loyalty-tier badges only
+  BetBlits palette — taken from the logo:
+    Electric blue #0149EB    — dominant brand colour: primary actions, ring
+    Bright blue / cyan        — secondary actions, accents (the bolt's glow)
+    Deep navy #060D24         — dark-mode page and app-icon background
+    Bolt gold #FDD01E         — highlights, live accents, VIP badges
 */
 @theme inline {
   --color-background: var(--background);
@@ -52,34 +52,35 @@
 :root {
   --radius: 0.625rem;
 
+  /* BetBlits logo palette: royal blue, cyan and gold on white / deep navy. */
   /* White — page background & card surfaces */
-  --background:         #F3F4FC;   /* near-white with a faint indigo tint */
-  --foreground:         #1A1538;   /* deep indigo-black text */
+  --background:         #F2F6FF;   /* near-white with a faint blue tint */
+  --foreground:         #0A1433;   /* deep navy text */
   --card:               #FFFFFF;   /* pure white cards */
-  --card-foreground:    #1A1538;
+  --card-foreground:    #0A1433;
 
-  /* Deep indigo-blue — dominant brand colour */
-  --primary:            #312783;   /* brand blue */
+  /* Royal blue — the logo's blue, dominant brand colour */
+  --primary:            #0149EB;   /* brand blue */
   --primary-foreground: #FFFFFF;
 
   /* Supporting blue shades — secondary / accent */
-  --secondary:          #4338CA;   /* brighter indigo-blue */
+  --secondary:          #0B5CF0;   /* brighter royal blue */
   --secondary-foreground: #FFFFFF;
-  --accent:             #5B53D6;   /* lighter blue for hover states */
+  --accent:             #0A8FD0;   /* the logo's cyan (darker for contrast on white) */
   --accent-foreground:  #FFFFFF;
 
   /* Neutral blue-tinted surfaces */
-  --muted:              #E6E5F7;   /* pale blue-grey */
-  --muted-foreground:   #5C5A86;
+  --muted:              #E2EAFC;   /* pale blue-grey */
+  --muted-foreground:   #4D5F8C;
 
-  /* Darkgoldenrod — VIP/loyalty badges only */
-  --gold:               #B8860B;
+  /* The logo's gold, deepened for contrast on white */
+  --gold:               #B07A00;
   --gold-foreground:    #FFFFFF;
-  --ring:               #312783;   /* brand blue focus ring */
+  --ring:               #0149EB;   /* brand blue focus ring */
 
   /* Borders & inputs — soft blue tones */
-  --border:             #C9CBEC;
-  --input:              #ECEDF8;
+  --border:             #C7D4F2;
+  --input:              #EAF0FE;
 
   /* Destructive — warm red that doesn't clash */
   --destructive:        #DC2626;
@@ -103,14 +104,14 @@
   --down:               #DC2626;
 
   /* Pill/chip surfaces (sport icons, RTP badges, stat tags) */
-  --chip:               #ECEDF8;
-  --chip-foreground:    #1A1538;
+  --chip:               #EAF0FE;
+  --chip-foreground:    #0A1433;
 
   /* App shell (header + left nav rail) and odds-button surfaces */
   --sidebar:            #FFFFFF;
-  --sidebar-foreground: #1A1538;
-  --odds:               #EEEFFA;
-  --odds-hover:         #E0E1F6;
+  --sidebar-foreground: #0A1433;
+  --odds:               #E8EFFE;
+  --odds-hover:         #D8E4FD;
 }
 
 /*
@@ -118,28 +119,28 @@
   BetBlits Claude Design prototypes (Casino Lobby / Sportsbook .dc.html).
 */
 [data-theme='dark'] {
-  --background:         #0C0820;
-  --foreground:         #F2F1FB;
-  --card:               #191347;
-  --card-foreground:    #F2F1FB;
+  --background:         #060D24;
+  --foreground:         #EEF3FF;
+  --card:               #0D1A3D;
+  --card-foreground:    #EEF3FF;
 
-  --primary:            #312783;
+  --primary:            #0149EB;
   --primary-foreground: #FFFFFF;
 
-  --secondary:          #6C63E8;
+  --secondary:          #1F6FFF;
   --secondary-foreground: #FFFFFF;
-  --accent:             #8079EE;
-  --accent-foreground:  #FFFFFF;
+  --accent:             #0CBBFB;
+  --accent-foreground:  #031230;
 
-  --muted:              #1E1850;
-  --muted-foreground:   #9D99C8;
+  --muted:              #13234D;
+  --muted-foreground:   #93A6D1;
 
-  --gold:               #E6B84C;
-  --gold-foreground:    #1A1538;
-  --ring:               #6C63E8;
+  --gold:               #FDD01E;
+  --gold-foreground:    #1A1200;
+  --ring:               #1F6FFF;
 
   --border:             rgba(255, 255, 255, 0.09);
-  --input:              #1E1850;
+  --input:              #13234D;
 
   --destructive:        #FF6B6B;
 
@@ -147,16 +148,16 @@
   --live-foreground:    #FFFFFF;
 
   --win:                #36D399;
-  --win-foreground:     #0C0820;
+  --win-foreground:     #04122E;
   --down:               #FF6B6B;
 
-  --chip:               #1E1850;
-  --chip-foreground:    #F2F1FB;
+  --chip:               #13234D;
+  --chip-foreground:    #EEF3FF;
 
-  --sidebar:            #110B2E;
-  --sidebar-foreground: #F2F1FB;
-  --odds:               #241D5C;
-  --odds-hover:         #2F2772;
+  --sidebar:            #081430;
+  --sidebar-foreground: #EEF3FF;
+  --odds:               #15275A;
+  --odds-hover:         #1C3473;
 }
 
 /*

@@ -36,6 +36,47 @@ const DEFAULT_IDENTITY: IdentityResponse = {
 
 // Keep in sync with backend/apps/branding/tokens.py.
 const DEFAULT_LIGHT: Tokens = {
+  background: '#F2F6FF', foreground: '#0A1433',
+  card: '#FFFFFF', card_foreground: '#0A1433',
+  primary: '#0149EB', primary_foreground: '#FFFFFF',
+  secondary: '#0B5CF0', secondary_foreground: '#FFFFFF',
+  muted: '#E2EAFC', muted_foreground: '#4D5F8C',
+  accent: '#0A8FD0', accent_foreground: '#FFFFFF',
+  gold: '#B07A00', gold_foreground: '#FFFFFF',
+  ring: '#0149EB', border: '#C7D4F2',
+  input: '#EAF0FE', destructive: '#DC2626',
+  live: '#DC2626', live_foreground: '#FFFFFF',
+  tier_bronze: '#92400E', tier_bronze_foreground: '#92400E',
+  tier_silver: '#6B7280', tier_silver_foreground: '#6B7280',
+  win: '#15924E', win_foreground: '#FFFFFF',
+  down: '#DC2626', chip: '#EAF0FE',
+  chip_foreground: '#0A1433', sidebar: '#FFFFFF',
+  sidebar_foreground: '#0A1433', odds: '#E8EFFE',
+  odds_hover: '#D8E4FD',
+};
+
+const DEFAULT_DARK: Tokens = {
+  background: '#060D24', foreground: '#EEF3FF',
+  card: '#0D1A3D', card_foreground: '#EEF3FF',
+  primary: '#0149EB', primary_foreground: '#FFFFFF',
+  secondary: '#1F6FFF', secondary_foreground: '#FFFFFF',
+  muted: '#13234D', muted_foreground: '#93A6D1',
+  accent: '#0CBBFB', accent_foreground: '#031230',
+  gold: '#FDD01E', gold_foreground: '#1A1200',
+  ring: '#1F6FFF', border: 'rgba(255, 255, 255, 0.09)',
+  input: '#13234D', destructive: '#FF6B6B',
+  live: '#FF5260', live_foreground: '#FFFFFF',
+  tier_bronze: '#92400E', tier_bronze_foreground: '#92400E',
+  tier_silver: '#6B7280', tier_silver_foreground: '#6B7280',
+  win: '#36D399', win_foreground: '#04122E',
+  down: '#FF6B6B', chip: '#13234D',
+  chip_foreground: '#EEF3FF', sidebar: '#081430',
+  sidebar_foreground: '#EEF3FF', odds: '#15275A',
+  odds_hover: '#1C3473',
+};
+
+// The previous indigo theme, kept as a preset.
+const INDIGO_LIGHT: Tokens = {
   background: '#F3F4FC', foreground: '#1A1538',
   card: '#FFFFFF', card_foreground: '#1A1538',
   primary: '#312783', primary_foreground: '#FFFFFF',
@@ -43,19 +84,19 @@ const DEFAULT_LIGHT: Tokens = {
   muted: '#E6E5F7', muted_foreground: '#5C5A86',
   accent: '#5B53D6', accent_foreground: '#FFFFFF',
   gold: '#B8860B', gold_foreground: '#FFFFFF',
-  ring: '#312783', border: '#C9CBEC', input: '#ECEDF8',
-  destructive: '#DC2626',
+  ring: '#312783', border: '#C9CBEC',
+  input: '#ECEDF8', destructive: '#DC2626',
   live: '#DC2626', live_foreground: '#FFFFFF',
   tier_bronze: '#92400E', tier_bronze_foreground: '#92400E',
   tier_silver: '#6B7280', tier_silver_foreground: '#6B7280',
   win: '#15924E', win_foreground: '#FFFFFF',
-  down: '#DC2626',
-  chip: '#ECEDF8', chip_foreground: '#1A1538',
-  sidebar: '#FFFFFF', sidebar_foreground: '#1A1538',
-  odds: '#EEEFFA', odds_hover: '#E0E1F6',
+  down: '#DC2626', chip: '#ECEDF8',
+  chip_foreground: '#1A1538', sidebar: '#FFFFFF',
+  sidebar_foreground: '#1A1538', odds: '#EEEFFA',
+  odds_hover: '#E0E1F6',
 };
 
-const DEFAULT_DARK: Tokens = {
+const INDIGO_DARK: Tokens = {
   background: '#0C0820', foreground: '#F2F1FB',
   card: '#191347', card_foreground: '#F2F1FB',
   primary: '#312783', primary_foreground: '#FFFFFF',
@@ -63,50 +104,16 @@ const DEFAULT_DARK: Tokens = {
   muted: '#1E1850', muted_foreground: '#9D99C8',
   accent: '#8079EE', accent_foreground: '#FFFFFF',
   gold: '#E6B84C', gold_foreground: '#1A1538',
-  ring: '#6C63E8', border: 'rgba(255, 255, 255, 0.09)', input: '#1E1850',
-  destructive: '#FF6B6B',
+  ring: '#6C63E8', border: 'rgba(255, 255, 255, 0.09)',
+  input: '#1E1850', destructive: '#FF6B6B',
   live: '#FF5260', live_foreground: '#FFFFFF',
   tier_bronze: '#92400E', tier_bronze_foreground: '#92400E',
   tier_silver: '#6B7280', tier_silver_foreground: '#6B7280',
   win: '#36D399', win_foreground: '#0C0820',
-  down: '#FF6B6B',
-  chip: '#1E1850', chip_foreground: '#F2F1FB',
-  sidebar: '#110B2E', sidebar_foreground: '#F2F1FB',
-  odds: '#241D5C', odds_hover: '#2F2772',
-};
-
-// "Logo colours": green, near-black and gold to match the BetBlits logo.
-// Buttons use a deeper green so white text on them stays readable.
-const LOGO_LIGHT: Tokens = {
-  ...DEFAULT_LIGHT,
-  background: '#F3F8F4', foreground: '#0B1F10',
-  card: '#FFFFFF', card_foreground: '#0B1F10',
-  primary: '#0E3B17', primary_foreground: '#FFFFFF',
-  secondary: '#15803D', secondary_foreground: '#FFFFFF',
-  muted: '#E3F0E6', muted_foreground: '#4F6B56',
-  accent: '#16A34A', accent_foreground: '#FFFFFF',
-  gold: '#B8860B', gold_foreground: '#FFFFFF',
-  ring: '#15803D', border: '#C8DDCD', input: '#EAF3EC',
-  win: '#15924E', win_foreground: '#FFFFFF',
-  chip: '#EAF3EC', chip_foreground: '#0B1F10',
-  sidebar: '#FFFFFF', sidebar_foreground: '#0B1F10',
-  odds: '#E6F2E9', odds_hover: '#D5EADB',
-};
-
-const LOGO_DARK: Tokens = {
-  ...DEFAULT_DARK,
-  background: '#060F08', foreground: '#EEF8EF',
-  card: '#0E1C11', card_foreground: '#EEF8EF',
-  primary: '#0E3B17', primary_foreground: '#FFFFFF',
-  secondary: '#16A34A', secondary_foreground: '#FFFFFF',
-  muted: '#13281A', muted_foreground: '#93B39A',
-  accent: '#22C55E', accent_foreground: '#04150A',
-  gold: '#F5B400', gold_foreground: '#1A1200',
-  ring: '#22C55E', border: 'rgba(255, 255, 255, 0.09)', input: '#13281A',
-  win: '#4ADE80', win_foreground: '#04150A',
-  chip: '#13281A', chip_foreground: '#EEF8EF',
-  sidebar: '#081509', sidebar_foreground: '#EEF8EF',
-  odds: '#143A1C', odds_hover: '#1B4A25',
+  down: '#FF6B6B', chip: '#1E1850',
+  chip_foreground: '#F2F1FB', sidebar: '#110B2E',
+  sidebar_foreground: '#F2F1FB', odds: '#241D5C',
+  odds_hover: '#2F2772',
 };
 
 const GROUPS: { title: string; keys: (keyof Tokens)[] }[] = [
@@ -391,15 +398,15 @@ export default function BrandingPage() {
             <p className="font-semibold">Presets</p>
             <p className="text-muted-foreground">Fill both themes at once, then adjust anything and press Save theme.</p>
           </div>
-          <button onClick={() => { setLight(LOGO_LIGHT); setDark(LOGO_DARK); }}
-            className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs font-bold hover:bg-muted">
-            <span className="flex">{['#0E3B17', '#16A34A', '#22C55E', '#F5B400'].map((c) => <span key={c} className="-ml-1 h-4 w-4 rounded-full ring-2 ring-card first:ml-0" style={{ background: c }} />)}</span>
-            Logo colours (green &amp; gold)
-          </button>
           <button onClick={() => { setLight(DEFAULT_LIGHT); setDark(DEFAULT_DARK); }}
             className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs font-bold hover:bg-muted">
+            <span className="flex">{['#060D24', '#0149EB', '#0CBBFB', '#FDD01E'].map((c) => <span key={c} className="-ml-1 h-4 w-4 rounded-full ring-2 ring-card first:ml-0" style={{ background: c }} />)}</span>
+            BetBlits logo (blue &amp; gold)
+          </button>
+          <button onClick={() => { setLight(INDIGO_LIGHT); setDark(INDIGO_DARK); }}
+            className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs font-bold hover:bg-muted">
             <span className="flex">{['#312783', '#4338CA', '#6C63E8', '#E6B84C'].map((c) => <span key={c} className="-ml-1 h-4 w-4 rounded-full ring-2 ring-card first:ml-0" style={{ background: c }} />)}</span>
-            Original (indigo)
+            Previous (indigo)
           </button>
         </div>
       )}

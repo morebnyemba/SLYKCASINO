@@ -264,7 +264,7 @@ export function SiteHeader() {
           <div className={onAuthPage ? '' : 'lg:hidden'}>
             {/* The wordmark shows on every screen (a little smaller on the narrowest
                 phones); search lives in the bottom bar on phones, leaving room for it. */}
-            <Logo imgClassName="h-8 max-[359px]:h-7 sm:h-10" />
+            <Logo imgClassName="h-9 max-[359px]:h-8 sm:h-10" />
           </div>
 
           <SearchTrigger />

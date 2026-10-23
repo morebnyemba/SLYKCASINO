@@ -102,8 +102,8 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
                     active ? 'bg-white/[0.09] text-white' : 'text-white/60 hover:bg-white/[0.05] hover:text-white',
                   )}
                 >
-                  {active && <span className="absolute inset-y-1.5 left-0 w-[3px] rounded-r-full bg-gradient-to-b from-[#8f88ff] to-secondary" />}
-                  <Icon size={15} className={active ? 'text-[#a7a2ff]' : 'opacity-70 group-hover:opacity-100'} />
+                  {active && <span className="absolute inset-y-1.5 left-0 w-[3px] rounded-r-full bg-gradient-to-b from-[#0CBBFB] to-secondary" />}
+                  <Icon size={15} className={active ? 'text-[#5FB4FF]' : 'opacity-70 group-hover:opacity-100'} />
                   <span className="flex-1 truncate">{item.label}</span>
                   {count > 0 && (
                     <span className={cx(
@@ -168,7 +168,7 @@ function SidebarFooter() {
       </div>
       {user && (
         <div className="flex items-center gap-2.5 rounded-xl bg-white/[0.04] p-2.5">
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#6C63E8] to-[#312783] text-xs font-extrabold uppercase text-white">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#1F6FFF] to-[#0B2A7A] text-xs font-extrabold uppercase text-white">
             {user.username.slice(0, 2)}
           </span>
           <span className="min-w-0 flex-1 leading-tight">
@@ -189,7 +189,7 @@ function SidebarFooter() {
   );
 }
 
-const SHELL = 'bg-[radial-gradient(120%_60%_at_0%_0%,#2a2178_0%,#15104a_45%,#0b0826_100%)]';
+const SHELL = 'bg-[radial-gradient(120%_60%_at_0%_0%,#0B3BB8_0%,#0A1F5C_45%,#060D24_100%)]';
 
 /** Desktop: fixed rail. Mobile: a top bar with a drawer. */
 export function Sidebar() {
