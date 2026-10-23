@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useState } from 'react';
 import {
-  BsCashCoin, BsCheckCircleFill, BsChevronDown, BsCircle, BsDashCircle, BsUpcScan, BsXCircleFill,
+  BsCashCoin, BsChevronDown, BsCircle, BsDashCircle, BsHandThumbsDownFill, BsHandThumbsUpFill, BsUpcScan,
 } from 'react-icons/bs';
 import { CashoutPanel, type CashoutOffer } from '@/components/cashout';
 import { withTeamNames } from '@/lib/sports';
@@ -192,9 +192,17 @@ function isLiveMatch(m: BetMatch | null) {
   return !!m && IN_PLAY.has(m.status);
 }
 
+/** The thumb beside a settled ticket's Won / Lost label. */
+function StatusThumb({ status, size = 10 }: { status: string; size?: number }) {
+  if (status === 'won') return <BsHandThumbsUpFill size={size} aria-hidden />;
+  if (status === 'lost') return <BsHandThumbsDownFill size={size} aria-hidden />;
+  return null;
+}
+
 function ResultIcon({ result, live }: { result: string; live: boolean }) {
-  if (result === 'won') return <BsCheckCircleFill className="text-win" size={14} aria-label="Won" />;
-  if (result === 'lost') return <BsXCircleFill className="text-destructive" size={14} aria-label="Lost" />;
+  // "Sharp" and "sharp down": a green thumbs up for a winning pick, red thumbs down for a losing one.
+  if (result === 'won') return <BsHandThumbsUpFill className="text-win" size={14} aria-label="Won" />;
+  if (result === 'lost') return <BsHandThumbsDownFill className="text-destructive" size={14} aria-label="Lost" />;
   if (result === 'void') return <BsDashCircle className="text-muted-foreground" size={14} aria-label="Void" />;
   if (live) return <span className="flex h-3.5 w-3.5 items-center justify-center" aria-label="Playing now"><span className="h-2.5 w-2.5 animate-pulse rounded-full bg-live" /></span>;
   return <BsCircle className="text-muted-foreground/60" size={14} aria-label="Pending" />;
@@ -313,7 +321,9 @@ export function BetTicket({ ticket, compact = false, offer, onChanged, collapsib
         </div>
         <div className="shrink-0 text-right">
           <p className={`text-[13px] font-extrabold tabular-nums ${o.className}`}>{o.text}</p>
-          <p className={`text-[10px] font-extrabold uppercase ${s.className.split(' ').find((c) => c.startsWith('text-'))}`}>{s.label}</p>
+          <p className={`flex items-center justify-end gap-1 text-[10px] font-extrabold uppercase ${s.className.split(' ').find((c) => c.startsWith('text-'))}`}>
+            <StatusThumb status={t.status} />{s.label}
+          </p>
         </div>
         <BsChevronDown size={12} className="shrink-0 text-muted-foreground" />
       </button>
@@ -339,7 +349,9 @@ export function BetTicket({ ticket, compact = false, offer, onChanged, collapsib
           )}
         </div>
         <span className="flex shrink-0 items-center gap-1.5">
-          <span className={`rounded px-1.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wide ${s.className}`}>{s.label}</span>
+          <span className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wide ${s.className}`}>
+            <StatusThumb status={t.status} />{s.label}
+          </span>
           {collapsible && settled && (
             <button onClick={() => setOpen(false)} aria-label="Fold ticket" className="rounded p-0.5 text-muted-foreground hover:bg-muted">
               <BsChevronDown size={12} className="rotate-180" />
