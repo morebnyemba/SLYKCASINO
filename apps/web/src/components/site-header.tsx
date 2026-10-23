@@ -35,7 +35,7 @@ const ACCOUNT_LINKS: { href: string; label: string; icon: IconType }[] = [
   { href: '/account/wallet', label: 'Wallet', icon: FaWallet },
   { href: '/account/bets', label: 'My bets', icon: BsTicketPerforated },
   { href: '/promotions', label: 'Promotions', icon: FaGift },
-  { href: '/account/affiliate', label: 'Refer & earn', icon: FaHandshake },
+  { href: '/account/affiliate', label: 'Agent dashboard', icon: FaHandshake },
   { href: '/account/verification', label: 'Verification', icon: FaIdCard },
   { href: '/account/settings', label: 'Responsible gaming', icon: FaShieldAlt },
 ];
@@ -138,7 +138,7 @@ function UserMenu({ username, unreadCount, onLogout, onDeposit }: {
         aria-expanded={open}
         className="flex h-10 items-center gap-1.5 rounded-xl pl-0.5 pr-1 transition-colors hover:bg-muted sm:pr-2"
       >
-        <span className="relative flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-secondary to-primary text-sm font-black text-white">
+        <span className="relative flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-[#0B3BB8] text-sm font-black text-white">
           {username[0]?.toUpperCase() ?? '?'}
           {unreadCount > 0 && <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border-2 border-sidebar bg-live sm:hidden" />}
         </span>
@@ -153,7 +153,7 @@ function UserMenu({ username, unreadCount, onLogout, onDeposit }: {
           >
             <div className="flex justify-center pt-2 sm:hidden"><span className="h-[5px] w-10 rounded-full bg-border" /></div>
             <div className="flex items-center gap-3 border-b border-border px-4 py-3.5">
-              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-secondary to-primary font-black text-white">
+              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-[#0B3BB8] font-black text-white">
                 {username[0]?.toUpperCase() ?? '?'}
               </span>
               <div className="min-w-0 flex-1">

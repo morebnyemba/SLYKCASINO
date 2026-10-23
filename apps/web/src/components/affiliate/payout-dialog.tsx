@@ -50,7 +50,7 @@ export function PayoutDialog({ open, onClose, available, options, onDone }: {
   const external = method !== 'wallet';
   const mobile = ['ecocash', 'onemoney', 'innbucks'].includes(method);
   const blockedByKyc = external && !options.kyc_verified;
-  const tooSmall = external && Number(amount) < Number(options.min_payout);
+  const tooSmall = Number(amount) < Number(options.min_payout);
 
   async function submit() {
     if (!accessToken) return;
@@ -82,7 +82,7 @@ export function PayoutDialog({ open, onClose, available, options, onDone }: {
           <div className="space-y-4 py-4 text-center">
             <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-win/15 text-win"><FaCheck size={20} /></span>
             <p className="font-semibold">{done}</p>
-            <button onClick={onClose} className="w-full rounded-lg bg-secondary py-2.5 text-sm font-bold text-white">Done</button>
+            <button onClick={onClose} className="w-full rounded-lg bg-secondary py-2.5 text-sm font-bold text-secondary-foreground">Done</button>
           </div>
         ) : (
           <div className="space-y-4">
@@ -91,7 +91,7 @@ export function PayoutDialog({ open, onClose, available, options, onDone }: {
               {options.methods.map((m) => (
                 <label key={m.id} className={`flex cursor-pointer items-center gap-3 rounded-xl border p-3 transition-colors ${method === m.id ? 'border-secondary bg-secondary/10' : 'border-border hover:bg-muted/50'}`}>
                   <input type="radio" name="method" value={m.id} checked={method === m.id} onChange={() => { setMethod(m.id); setError(''); }} className="sr-only" />
-                  <span className={`flex h-9 w-9 items-center justify-center rounded-lg ${method === m.id ? 'bg-secondary text-white' : 'bg-muted text-muted-foreground'}`}>{ICON[m.id]}</span>
+                  <span className={`flex h-9 w-9 items-center justify-center rounded-lg ${method === m.id ? 'bg-secondary text-secondary-foreground' : 'bg-muted text-muted-foreground'}`}>{ICON[m.id]}</span>
                   <span className="min-w-0 flex-1">
                     <span className="block text-sm font-bold">{m.label}</span>
                     <span className="block text-xs text-muted-foreground">{HINT[m.id]}</span>
@@ -107,7 +107,7 @@ export function PayoutDialog({ open, onClose, available, options, onDone }: {
                 <input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ''))} className={input} />
                 <button type="button" onClick={() => setAmount(available)} className="rounded-lg border border-border px-3 text-xs font-bold hover:bg-muted">Max</button>
               </div>
-              {external && <span className="text-xs text-muted-foreground">Minimum {money(options.min_payout)} to {options.methods.find((m) => m.id === method)?.label}.</span>}
+              <span className="text-xs text-muted-foreground">Minimum withdrawal {money(options.min_payout)}.</span>
             </label>
 
             {mobile && (

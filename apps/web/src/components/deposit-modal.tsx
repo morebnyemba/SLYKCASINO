@@ -91,7 +91,7 @@ function logoStyle(m: MethodDef): React.CSSProperties | undefined {
 const METHODS: MethodDef[] = [
   { id: 'ecocash', name: 'EcoCash', meta: 'Mobile money · min $1', speed: 'Instant', field: 'phone', logo: 'EC', logoClass: 'bg-gradient-to-br from-[#E2231A] to-[#9c0f0a]' },
   { id: 'onemoney', name: 'OneMoney', meta: 'Mobile money · min $1', speed: 'Instant', field: 'phone', logo: 'OM', logoClass: 'bg-gradient-to-br from-[#0AA14B] to-[#066b32]' },
-  { id: 'innbucks', name: 'InnBucks', meta: 'Wallet · min $1', speed: 'Instant', field: 'phone', logo: 'IB', logoClass: 'bg-gradient-to-br from-secondary to-primary' },
+  { id: 'innbucks', name: 'InnBucks', meta: 'Wallet · min $1', speed: 'Instant', field: 'phone', logo: 'IB', logoClass: 'bg-gradient-to-br from-primary to-[#0B3BB8]' },
   { id: 'card', name: 'Visa / Mastercard', meta: 'Debit or credit card', speed: '1–2 min', field: 'card', logo: '••', logoClass: 'bg-gradient-to-br from-[#1A1F71] to-[#0d1145]' },
   { id: 'usdt', name: 'USDT (TRC-20)', meta: 'Crypto · no fees', speed: '~1 min', field: 'crypto', logo: '₮', logoClass: 'bg-gradient-to-br from-[#26A17B] to-[#15604a]' },
 ];
@@ -367,7 +367,7 @@ export function DepositModal({ open, onClose }: { open: boolean; onClose: () => 
             key={v}
             onClick={() => setAmount(String(v))}
             className={`rounded-lg px-3 py-2 text-[13px] font-bold ${
-              numAmount === v ? 'bg-secondary text-white' : 'border border-border bg-chip text-muted-foreground'
+              numAmount === v ? 'bg-secondary text-secondary-foreground' : 'border border-border bg-chip text-muted-foreground'
             }`}
           >
             ${v}
@@ -511,7 +511,7 @@ export function DepositModal({ open, onClose }: { open: boolean; onClose: () => 
           className="w-[560px] max-w-full overflow-hidden rounded-[22px] border border-border bg-background shadow-2xl"
           onClick={(e) => e.stopPropagation()}
         >
-          <div className="flex items-center gap-3 bg-gradient-to-r from-primary to-secondary px-5.5 py-5">
+          <div className="flex items-center gap-3 bg-gradient-to-r from-primary to-[#0B3BB8] px-5.5 py-5">
             <span className="flex items-center rounded-md bg-gradient-to-br from-gold to-gold/70 px-1.5 py-1 text-xs font-extrabold text-gold-foreground">
               <BoltIcon size={12} className="mr-0.5" />
               BetBlits
@@ -620,7 +620,7 @@ function StepDots({ step }: { step: Step }) {
           <div key={label} className="flex items-center gap-2">
             <span
               className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-extrabold ${
-                active ? 'bg-gold text-gold-foreground' : done ? 'bg-secondary text-white' : 'bg-chip text-muted-foreground'
+                active ? 'bg-gold text-gold-foreground' : done ? 'bg-secondary text-secondary-foreground' : 'bg-chip text-muted-foreground'
               }`}
             >
               {done ? '✓' : i + 1}

@@ -34,7 +34,7 @@ export function ShareLink({ code, welcome }: { code: string; welcome?: string })
     <div className="space-y-3">
       <div className="flex flex-col gap-2 sm:flex-row">
         <code className="min-w-0 flex-1 truncate rounded-lg border border-border bg-input px-3 py-2.5 text-sm">{link}</code>
-        <button onClick={() => copy('link')} className="flex items-center justify-center gap-2 rounded-lg bg-secondary px-4 py-2.5 text-sm font-bold text-white">
+        <button onClick={() => copy('link')} className="flex items-center justify-center gap-2 rounded-lg bg-secondary px-4 py-2.5 text-sm font-bold text-secondary-foreground">
           {copied === 'link' ? <FaCheck size={12} /> : <FaCopy size={12} />} {copied === 'link' ? 'Copied' : 'Copy link'}
         </button>
       </div>

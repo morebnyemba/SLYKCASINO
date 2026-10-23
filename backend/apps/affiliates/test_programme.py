@@ -190,8 +190,8 @@ class CarryOverTests(ProgrammeBase):
         self.month_result(m3, 100)
         self.assertIsNone(services.compute_revshare(self.affiliate, m1))
         self.assertIsNone(services.compute_revshare(self.affiliate, m2))    # 60 - 100: still behind
-        c = services.compute_revshare(self.affiliate, m3)                    # 100 - 40 = 60 × 25%
-        self.assertEqual((c.base_amount, c.amount), (D('60.00'), D('15.00')))
+        c = services.compute_revshare(self.affiliate, m3)                    # 100 - 40 = 60 × 30%
+        self.assertEqual((c.base_amount, c.amount), (D('60.00'), D('18.00')))
         self.assertEqual(services.carryover_balance(self.affiliate), D('0'))
         self.assertEqual(
             list(RevshareMonth.objects.order_by('period').values_list('carry_out', flat=True)),
@@ -208,7 +208,7 @@ class CarryOverTests(ProgrammeBase):
         self.month_result(m1, -100)
         self.month_result(m2, 60)
         self.assertIsNone(services.compute_revshare(self.affiliate, m1))
-        self.assertEqual(services.compute_revshare(self.affiliate, m2).amount, D('15.00'))
+        self.assertEqual(services.compute_revshare(self.affiliate, m2).amount, D('18.00'))
 
 
 class ProgrammeApiTests(ProgrammeBase):

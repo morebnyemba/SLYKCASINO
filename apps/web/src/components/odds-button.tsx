@@ -85,7 +85,7 @@ export function OddsButton({
             : 'justify-between gap-2'
       } ${sizing} ${
         active
-          ? 'bg-secondary text-white shadow-[0_4px_14px_color-mix(in_srgb,var(--secondary)_45%,transparent)]'
+          ? 'bg-secondary text-secondary-foreground shadow-[0_4px_14px_color-mix(in_srgb,var(--secondary)_45%,transparent)]'
           : 'bg-odds text-foreground hover:bg-odds-hover'
       } ${flash === 'up' ? 'animate-flash-up' : flash === 'down' ? 'animate-flash-down' : ''} ${className}`}
     >

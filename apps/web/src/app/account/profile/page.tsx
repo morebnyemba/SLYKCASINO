@@ -47,7 +47,7 @@ export default function ProfilePage() {
     <div>
       <h1 className="mb-4 text-2xl font-bold">Profile</h1>
       <Card className="overflow-hidden rounded-2xl border-gold/20">
-        <div className="bg-gradient-to-br from-primary via-primary to-secondary/80 px-6 py-7">
+        <div className="bg-gradient-to-br from-primary via-primary to-[#0B3BB8] px-6 py-7">
           <div className="flex items-center gap-4">
             {me?.avatar_url ? (
               // eslint-disable-next-line @next/next/no-img-element

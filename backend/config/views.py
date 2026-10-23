@@ -195,3 +195,66 @@ def admin_analytics(request):
         'kpis': kpis, 'series': points, 'activity': activity, 'right_now': right_now,
         'top_affiliates': affiliate_services.top_affiliates(s, e),
     })
+
+
+@api_view(['GET'])
+@permission_classes([IsAdminUser])
+def admin_profit(request):
+    """GET /admin/profit/?frame=today|yesterday|7d|30d|90d|this_month|last_month|
+    this_year|all|custom[&start=&end=] — what the house made in a period:
+    stakes and payouts per product, gross gaming revenue, the bonuses and agent
+    commission it cost, the resulting profit, and the cash that came in and
+    went out."""
+    from datetime import timedelta
+    from decimal import Decimal
+
+    from django.db.models import Q, Sum
+    from django.utils import timezone
+
+    from apps.affiliates.models import Commission
+    from apps.wallet.models import LedgerEntry
+    from common import timeframes
+
+    q = request.query_params
+    try:
+        window = timeframes.resolve(q.get('frame') or 'today', start=q.get('start'), end=q.get('end'))
+    except timeframes.TimeframeError as exc:
+        return Response({'detail': str(exc)}, status=400)
+    s, e = window.start, window.end
+    ledger = LedgerEntry.objects.filter(created_at__lt=e)
+    if s is not None:
+        ledger = ledger.filter(created_at__gte=s)
+    by_kind = {r['kind']: r['v'] or Decimal('0') for r in ledger.values('kind').annotate(v=Sum('amount'))}
+    k = lambda name: by_kind.get(name, Decimal('0'))  # noqa: E731
+
+    sb_stakes, sb_payouts = -k('bet_stake'), k('bet_payout')
+    av_stakes, av_payouts = -k('casino_debit'), k('casino_credit')
+    stakes, payouts = sb_stakes + av_stakes, sb_payouts + av_payouts
+    ggr = stakes - payouts
+    bonuses = k('bonus')
+
+    # Agent commission earned in the period (a losing-tickets commission
+    # belongs to the day it covers; others to when they were made).
+    commissions = Commission.objects.exclude(status=Commission.Status.REJECTED)
+    if s is not None:
+        day_from = timezone.localdate(s)
+        commissions = commissions.filter(
+            Q(kind=Commission.Kind.STAKE, period__gte=day_from, period__lte=timezone.localdate(e - timedelta(microseconds=1)))
+            | (~Q(kind=Commission.Kind.STAKE) & Q(created_at__gte=s, created_at__lt=e)))
+    else:
+        commissions = commissions.filter(created_at__lt=e)
+    agents = commissions.aggregate(v=Sum('amount'))['v'] or Decimal('0')
+    adjustments = k('adjustment')
+    profit = ggr - bonuses - agents
+
+    m = lambda v: f'{v:.2f}'  # noqa: E731
+    pct = lambda part, whole: f'{part / whole * 100:.1f}' if whole else None  # noqa: E731
+    return Response({
+        'frame': window.frame, 'label': window.label,
+        'sportsbook': {'stakes': m(sb_stakes), 'payouts': m(sb_payouts), 'ggr': m(sb_stakes - sb_payouts), 'margin': pct(sb_stakes - sb_payouts, sb_stakes)},
+        'aviator': {'stakes': m(av_stakes), 'payouts': m(av_payouts), 'ggr': m(av_stakes - av_payouts), 'margin': pct(av_stakes - av_payouts, av_stakes)},
+        'stakes': m(stakes), 'payouts': m(payouts), 'ggr': m(ggr), 'margin': pct(ggr, stakes),
+        'bonuses': m(bonuses), 'agent_commission': m(agents), 'adjustments': m(adjustments),
+        'profit': m(profit), 'profit_margin': pct(profit, stakes),
+        'cash': {'deposits': m(k('deposit')), 'withdrawals': m(-k('withdrawal')), 'net': m(k('deposit') + k('withdrawal'))},
+    })

@@ -56,23 +56,23 @@ const DEFAULT_LIGHT: Tokens = {
 };
 
 const DEFAULT_DARK: Tokens = {
-  background: '#060D24', foreground: '#EEF3FF',
-  card: '#0D1A3D', card_foreground: '#EEF3FF',
-  primary: '#0149EB', primary_foreground: '#FFFFFF',
-  secondary: '#1F6FFF', secondary_foreground: '#FFFFFF',
-  muted: '#13234D', muted_foreground: '#93A6D1',
-  accent: '#0CBBFB', accent_foreground: '#031230',
+  background: '#0E2250', foreground: '#F2F6FF',
+  card: '#15306A', card_foreground: '#F2F6FF',
+  primary: '#1F66F0', primary_foreground: '#FFFFFF',
+  secondary: '#5AAEFF', secondary_foreground: '#04122E',
+  muted: '#1B3877', muted_foreground: '#B9CBF0',
+  accent: '#46D3FF', accent_foreground: '#04122E',
   gold: '#FDD01E', gold_foreground: '#1A1200',
-  ring: '#1F6FFF', border: 'rgba(255, 255, 255, 0.09)',
-  input: '#13234D', destructive: '#FF6B6B',
-  live: '#FF5260', live_foreground: '#FFFFFF',
-  tier_bronze: '#92400E', tier_bronze_foreground: '#92400E',
-  tier_silver: '#6B7280', tier_silver_foreground: '#6B7280',
-  win: '#36D399', win_foreground: '#04122E',
-  down: '#FF6B6B', chip: '#13234D',
-  chip_foreground: '#EEF3FF', sidebar: '#081430',
-  sidebar_foreground: '#EEF3FF', odds: '#15275A',
-  odds_hover: '#1C3473',
+  ring: '#5AAEFF', border: 'rgba(190, 210, 255, 0.16)',
+  input: '#1A3673', destructive: '#FF8080',
+  live: '#DC2F3E', live_foreground: '#FFFFFF',
+  tier_bronze: '#E39B54', tier_bronze_foreground: '#E39B54',
+  tier_silver: '#C7CFDD', tier_silver_foreground: '#C7CFDD',
+  win: '#3EE0A0', win_foreground: '#04122E',
+  down: '#FF8080', chip: '#1B3877',
+  chip_foreground: '#F2F6FF', sidebar: '#0B1C44',
+  sidebar_foreground: '#F2F6FF', odds: '#1D3D84',
+  odds_hover: '#26499C',
 };
 
 // The previous indigo theme, kept as a preset.
@@ -268,7 +268,7 @@ function IdentitySection() {
         <button
           onClick={handleSave}
           disabled={saving || loading}
-          className="rounded-md bg-gradient-to-br from-secondary to-primary px-4 py-1.5 text-xs font-bold text-white shadow transition-transform hover:scale-[1.02] disabled:opacity-50"
+          className="rounded-md bg-gradient-to-br from-primary to-[#0B3BB8] px-4 py-1.5 text-xs font-bold text-white shadow transition-transform hover:scale-[1.02] disabled:opacity-50"
         >
           {saving ? <span className="inline-flex items-center justify-center gap-2"><Spinner size={14} />Saving…</span> : 'Save identity'}
         </button>
@@ -386,7 +386,7 @@ export default function BrandingPage() {
         <button
           onClick={handleSave}
           disabled={saving || loading}
-          className="rounded-md bg-gradient-to-br from-secondary to-primary px-5 py-2 text-sm font-bold text-white shadow transition-transform hover:scale-[1.02] disabled:opacity-50"
+          className="rounded-md bg-gradient-to-br from-primary to-[#0B3BB8] px-5 py-2 text-sm font-bold text-white shadow transition-transform hover:scale-[1.02] disabled:opacity-50"
         >
           {saving ? <span className="inline-flex items-center justify-center gap-2"><Spinner size={14} />Saving…</span> : 'Save theme'}
         </button>
@@ -400,7 +400,7 @@ export default function BrandingPage() {
           </div>
           <button onClick={() => { setLight(DEFAULT_LIGHT); setDark(DEFAULT_DARK); }}
             className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs font-bold hover:bg-muted">
-            <span className="flex">{['#060D24', '#0149EB', '#0CBBFB', '#FDD01E'].map((c) => <span key={c} className="-ml-1 h-4 w-4 rounded-full ring-2 ring-card first:ml-0" style={{ background: c }} />)}</span>
+            <span className="flex">{['#0E2250', '#1F66F0', '#5AAEFF', '#FDD01E'].map((c) => <span key={c} className="-ml-1 h-4 w-4 rounded-full ring-2 ring-card first:ml-0" style={{ background: c }} />)}</span>
             BetBlits logo (blue &amp; gold)
           </button>
           <button onClick={() => { setLight(INDIGO_LIGHT); setDark(INDIGO_DARK); }}

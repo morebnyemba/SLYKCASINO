@@ -23,7 +23,7 @@ export function PageHeader({ icon: Icon, eyebrow, title, description, actions }:
     <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
       <div className="flex min-w-0 items-start gap-3.5">
         {Icon && (
-          <span className="mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-secondary to-primary text-white shadow-lg shadow-secondary/25 ring-1 ring-white/10">
+          <span className="mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-[#0B3BB8] text-white shadow-lg shadow-secondary/25 ring-1 ring-white/10">
             <Icon size={18} />
           </span>
         )}
@@ -157,7 +157,7 @@ export function Tabs<T extends string>({ value, onChange, items }: {
           onClick={() => onChange(t.id)}
           className={cx(
             'flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-[13px] font-semibold transition-colors',
-            value === t.id ? 'bg-secondary text-white shadow' : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+            value === t.id ? 'bg-secondary text-secondary-foreground shadow' : 'text-muted-foreground hover:bg-muted hover:text-foreground',
           )}
         >
           {t.tone === 'red' && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-live" />}
@@ -195,7 +195,7 @@ export function Select(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
 }
 
 const BUTTON_VARIANTS = {
-  primary: 'bg-gradient-to-br from-secondary to-primary text-white shadow-md shadow-secondary/25 hover:brightness-110',
+  primary: 'bg-gradient-to-br from-primary to-[#0B3BB8] text-white shadow-md shadow-secondary/25 hover:brightness-110',
   outline: 'border border-border bg-card text-foreground hover:border-secondary/60 hover:bg-muted/60',
   ghost: 'text-muted-foreground hover:bg-muted hover:text-foreground',
   danger: 'border border-live/40 bg-live/10 text-live hover:bg-live/20',

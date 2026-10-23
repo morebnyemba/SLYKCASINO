@@ -7,7 +7,7 @@ import { gameHref, tileArt, onlineCount, type Game, type GameTag } from '@/lib/c
 const TAG_STYLE: Record<'LIVE' | 'HOT' | 'NEW', string> = {
   LIVE: 'bg-live text-white',
   HOT: 'bg-gold text-gold-foreground',
-  NEW: 'bg-secondary text-white',
+  NEW: 'bg-secondary text-secondary-foreground',
 };
 
 /** Portrait game card: artwork with name/provider overlay; play button and RTP reveal on hover. */

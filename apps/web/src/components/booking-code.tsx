@@ -43,7 +43,7 @@ export function LoadCodeForm({ className = '' }: { className?: string }) {
         <button
           type="submit"
           disabled={busy || !code.trim()}
-          className="flex min-w-[64px] items-center justify-center rounded-lg bg-secondary px-3 text-xs font-extrabold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+          className="flex min-w-[64px] items-center justify-center rounded-lg bg-secondary px-3 text-xs font-extrabold text-secondary-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
         >
           {busy ? <Spinner size={13} /> : 'Load'}
         </button>

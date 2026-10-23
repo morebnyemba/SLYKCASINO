@@ -68,7 +68,7 @@ export function SlipBody({ onClose, variant = 'card' }: {
           {variant === 'rail' ? `${legs.length} selection${legs.length === 1 ? '' : 's'}` : 'Bet slip'}
         </span>
         {hasLegs && variant !== 'rail' && (
-          <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-secondary px-1.5 text-[11px] font-extrabold text-white">
+          <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-secondary px-1.5 text-[11px] font-extrabold text-secondary-foreground">
             {legs.length}
           </span>
         )}

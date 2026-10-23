@@ -11,6 +11,7 @@ import { PageHeader } from '@/components/console/ui';
 import { AffiliateAnalyticsPanel } from '@/components/affiliates/affiliate-analytics';
 import { ProgrammeSettings } from '@/components/affiliates/programme-settings';
 import { PayoutsTab } from '@/components/affiliates/payouts-tab';
+import { ImpersonateButton } from '@/components/players/impersonate';
 
 interface Affiliate {
   id: number;
@@ -33,7 +34,8 @@ interface Affiliate {
 interface Commission {
   id: number;
   affiliate_code: string;
-  kind: 'revshare' | 'cpa';
+  kind: 'stake' | 'revshare' | 'cpa';
+  ticket?: string;
   period: string | null;
   base_amount: string;
   rate: string;
@@ -106,7 +108,7 @@ function TermsEditor({ a, onSaved }: { a: Affiliate; onSaved: () => void }) {
     <div className="space-y-3 bg-muted/40 px-4 py-4">
       <div className="flex flex-wrap items-end gap-3">
         {field('code', 'Code', 'w-36')}
-        {field('revshare_percent', 'Revenue share %')}
+        {field('revshare_percent', 'Commission % of losing stakes')}
         {field('cpa_percent', 'Deposit commission %')}
         {field('cpa_cap', 'Deposit comm. cap')}
         {field('cpa_amount', 'Flat CPA')}
@@ -173,7 +175,7 @@ function AffiliatesTab() {
                       </td>
                       <td className="px-4 py-3 font-mono text-xs">{a.code}</td>
                       <td className="px-4 py-3 text-xs">
-                        {Number(a.revshare_percent)}% rev share
+                        {Number(a.revshare_percent)}% of losing stakes
                         {Number(a.cpa_percent) > 0 && <><br />{Number(a.cpa_percent)}% of 1st deposit{Number(a.cpa_cap) > 0 && ` (max ${money(a.cpa_cap)})`}</>}
                         {Number(a.cpa_amount) > 0 && <><br />{money(a.cpa_amount)} CPA ≥ {money(a.cpa_min_deposit)}</>}
                       </td>
@@ -185,6 +187,10 @@ function AffiliatesTab() {
                           {a.status === 'pending' && action('Reject', () => setAffiliateStatus(a.id, 'rejected'), 'text-red-500')}
                           {a.status === 'active' && action('Suspend', () => setAffiliateStatus(a.id, 'suspended'), 'text-red-500')}
                           {(a.status === 'suspended' || a.status === 'rejected') && action('Activate', () => setAffiliateStatus(a.id, 'active'))}
+                          {(a.status === 'active' || a.status === 'suspended') && (
+                            <ImpersonateButton size="sm" playerId={a.player_id} username={a.username || `#${a.player_id}`}
+                              next="/account/affiliate" label="Open agent dashboard" />
+                          )}
                           {action(stats === a.id ? 'Hide analytics' : 'Analytics', () => setStats(stats === a.id ? null : a.id))}
                           {action(open === a.id ? 'Close' : 'Terms', () => setOpen(open === a.id ? null : a.id))}
                         </div>
@@ -232,9 +238,9 @@ function CommissionsTab() {
   async function runNow() {
     if (!accessToken) return;
     setBusy('run'); setMessage('');
-    const res = await authedPost<{ period: string; revshare: number; cpa: number }>('/admin/affiliate-commissions/run/', {}, accessToken);
+    const res = await authedPost<{ tickets: number; cpa: number }>('/admin/affiliate-commissions/run/', {}, accessToken);
     setBusy(null);
-    setMessage(res.error ? `Error: ${res.error}` : `Calculated ${res.data?.period?.slice(0, 7)}: ${res.data?.revshare} revenue share, ${res.data?.cpa} new CPA.`);
+    setMessage(res.error ? `Error: ${res.error}` : `Credited ${res.data?.tickets ?? 0} losing tickets and ${res.data?.cpa ?? 0} new CPA.`);
     refetch();
   }
 
@@ -272,11 +278,13 @@ function CommissionsTab() {
                 {rows.map((c) => (
                   <tr key={c.id} className="border-b border-border last:border-0">
                     <td className="px-4 py-3 font-mono text-xs">{c.affiliate_code}</td>
-                    <td className="px-4 py-3">{c.kind === 'cpa' ? 'CPA' : c.period?.slice(0, 7)}</td>
+                    <td className="px-4 py-3">{c.kind === 'cpa' ? 'CPA' : c.kind === 'stake' ? `${c.ticket} · ${c.period}` : c.period?.slice(0, 7)}</td>
                     <td className="px-4 py-3 text-xs text-muted-foreground">
                       {c.kind === 'cpa'
                         ? `Referral deposited ${money(c.base_amount)}`
-                        : `${money(c.base_amount)} NGR × ${Number(c.rate)}% (${c.active_players} active)`}
+                        : c.kind === 'stake'
+                          ? `${money(c.base_amount)} lost stake × ${Number(c.rate)}% (paid automatically)`
+                          : `${money(c.base_amount)} NGR × ${Number(c.rate)}% (${c.active_players} active)`}
                     </td>
                     <td className="px-4 py-3 text-right font-semibold tabular-nums">{money(c.amount)}</td>
                     <td className="px-4 py-3"><Badge variant={COMMISSION_BADGE[c.status]}>{c.status}</Badge></td>

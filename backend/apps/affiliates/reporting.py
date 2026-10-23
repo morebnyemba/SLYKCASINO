@@ -35,6 +35,27 @@ def _in(moment, start, end) -> bool:
     return (start is None or moment >= start) and moment < end
 
 
+def lost_stakes_between(player_ids, start, end) -> tuple[Decimal, int, int]:
+    """(total stake, tickets, players) of these players' tickets settled as
+    lost in [start, end) (start None = from the beginning)."""
+    from django.db.models import Count
+
+    from apps.sportsbook.models import Bet, BetSlip
+
+    total, tickets, players = Decimal('0'), 0, set()
+    if not player_ids:
+        return total, tickets, 0
+    for model in (Bet, BetSlip):
+        qs = model.objects.filter(player_id__in=player_ids, status='lost', settled_at__lt=end)
+        if start is not None:
+            qs = qs.filter(settled_at__gte=start)
+        agg = qs.aggregate(stake=Sum('stake'), n=Count('id'))
+        total += agg['stake'] or Decimal('0')
+        tickets += agg['n'] or 0
+        players |= set(qs.order_by().values_list('player_id', flat=True).distinct())
+    return total, tickets, len(players)
+
+
 def affiliate_analytics(
     affiliate: Affiliate, frame: str = 'today', *, start: Optional[str] = None, end: Optional[str] = None,
     now=None,
@@ -55,7 +76,7 @@ def affiliate_analytics(
     firsts = wallet_services.first_deposits(ids)
     ftd_ids = {pid for pid, t in firsts.items() if _in(t, s, e)}
 
-    ngr = Decimal(kpis['ngr'])
+    lost = lost_stakes_between(ids, s, e)[0]
     earned = affiliate.commissions.exclude(status=Commission.Status.REJECTED)
     cpa_qs = earned.filter(kind=Commission.Kind.CPA, created_at__lt=e)
     if s is not None:
@@ -72,7 +93,8 @@ def affiliate_analytics(
         'ftd_rate': _rate(len(ftd_ids), len(signups)) if signups else None,
         'referrals_total': len(ids),
         'revshare_percent': str(affiliate.revshare_percent),
-        'revshare_estimate': _money(utils.commission_for(ngr, affiliate.revshare_percent)),
+        'lost_stakes': _money(lost),
+        'revshare_estimate': _money(utils.commission_for(lost, affiliate.revshare_percent)),
         'cpa_earned': _money(cpa_qs.aggregate(v=Sum('amount'))['v']),
         'commission_paid': _money(paid_qs.aggregate(v=Sum('amount'))['v']),
     })

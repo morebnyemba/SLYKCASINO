@@ -108,7 +108,7 @@ function CasinoLobby() {
 
   const tabClass = (active: boolean) =>
     `flex shrink-0 items-center gap-2 rounded-xl px-3.5 py-2 text-[13px] font-bold transition-colors ${
-      active ? 'bg-secondary text-white shadow' : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+      active ? 'bg-secondary text-secondary-foreground shadow' : 'text-muted-foreground hover:bg-muted hover:text-foreground'
     }`;
 
   return (
@@ -211,7 +211,7 @@ function CasinoLobby() {
           <p className="mb-1 font-bold">New games are on the way</p>
           <p className="mb-5 text-sm text-muted-foreground">Our casino catalogue is being prepared. In the meantime, try Aviator or bet on sports.</p>
           <div className="flex justify-center gap-2">
-            <Link href="/casino/crash" className="rounded-lg bg-secondary px-4 py-2 text-sm font-bold text-white">Play Aviator</Link>
+            <Link href="/casino/crash" className="rounded-lg bg-secondary px-4 py-2 text-sm font-bold text-secondary-foreground">Play Aviator</Link>
             <Link href="/sportsbook" className="rounded-lg border border-border px-4 py-2 text-sm font-bold">Sportsbook</Link>
           </div>
         </div>

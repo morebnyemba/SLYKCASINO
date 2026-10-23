@@ -64,7 +64,7 @@ export function ProgrammeSettings() {
       <Panel title="New affiliates’ terms" description="What an affiliate starts on when they join. Change any affiliate’s own terms from the Affiliates tab."
         actions={<BsPercent className="text-secondary" />}>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {num('default_revshare_percent', 'Revenue share (%)', 'Of referred players’ monthly net revenue.')}
+          {num('default_revshare_percent', 'Commission on losing tickets (%)', 'Of the stake on every ticket a referred player loses.')}
           {num('default_cpa_percent', 'Deposit commission (% of first deposit)', 'Paid once per referred player.')}
           {num('default_cpa_cap', 'Deposit commission cap ($)', 'Per referred player. 0 = no cap.')}
           {num('default_cpa_amount', 'Flat CPA ($)', 'Added on top, once per referred player. 0 = off.')}

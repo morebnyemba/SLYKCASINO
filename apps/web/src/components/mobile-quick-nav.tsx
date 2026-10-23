@@ -38,7 +38,7 @@ export function MobileQuickNav() {
               href={item.href}
               className={`flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-bold transition-colors ${
                 active
-                  ? 'border-secondary bg-secondary text-white'
+                  ? 'border-secondary bg-secondary text-secondary-foreground'
                   : item.live
                     ? 'border-live/40 bg-live/10 text-foreground'
                     : 'border-border bg-card text-muted-foreground active:bg-muted'

@@ -58,9 +58,9 @@ class DeletePlayerTests(TestCase):
         # Our player is an affiliate too, with earnings already paid out.
         own = affiliate_services.apply(player_id=self.player.id, code='GONESOON')
         affiliate_services.set_status(own.id, Affiliate.Status.ACTIVE)
-        c = Commission.objects.create(affiliate=own, kind=Commission.Kind.CPA, amount=D('5'))
+        c = Commission.objects.create(affiliate=own, kind=Commission.Kind.CPA, amount=D('10'))
         affiliate_services.approve(c.id)
-        affiliate_services.request_payout(affiliate_id=own.id, amount='5', method='wallet')
+        affiliate_services.request_payout(affiliate_id=own.id, amount='10', method='wallet')
         services.audit(self.player.id, 'login', None)
         self.superuser = User.objects.create_superuser('boss', 'boss@example.com', 'x')
 

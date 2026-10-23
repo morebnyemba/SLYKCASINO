@@ -68,7 +68,7 @@ export default function AdminLoginPage() {
               <button
                 type="submit"
                 disabled={loading}
-                className="mt-1 h-11 rounded-xl bg-gradient-to-br from-secondary to-primary text-sm font-bold text-white shadow-lg shadow-secondary/30 transition-all hover:brightness-110 disabled:opacity-50"
+                className="mt-1 h-11 rounded-xl bg-gradient-to-br from-primary to-[#0B3BB8] text-sm font-bold text-white shadow-lg shadow-secondary/30 transition-all hover:brightness-110 disabled:opacity-50"
               >
                 {loading ? <span className="inline-flex items-center justify-center gap-2"><Spinner size={14} />Signing in…</span> : 'Sign in'}
               </button>

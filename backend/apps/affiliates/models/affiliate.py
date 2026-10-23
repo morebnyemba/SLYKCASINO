@@ -65,11 +65,13 @@ class Referral(models.Model):
 
 
 class Commission(models.Model):
-    """Money owed to an affiliate: a month's revenue share, or a CPA for one
-    referral. PENDING -> APPROVED (by an operator, or automatically) -> PAID once
+    """Money owed to an affiliate: their share of one losing ticket (credited
+    automatically a few minutes after it settles), a month's revenue share
+    (older terms), or a CPA for one referral. PENDING -> APPROVED (by an operator, or automatically) -> PAID once
     the keyed wallet credit lands; or REJECTED."""
 
     class Kind(models.TextChoices):
+        STAKE = 'stake', 'Losing ticket'
         REVSHARE = 'revshare', 'Revenue share'
         CPA = 'cpa', 'CPA'
 
@@ -81,11 +83,14 @@ class Commission(models.Model):
 
     affiliate = models.ForeignKey(Affiliate, on_delete=models.PROTECT, related_name='commissions')
     kind = models.CharField(max_length=10, choices=Kind.choices)
-    # First day of the month a revenue share covers (null for CPA).
+    # The day a losing ticket settled, the first day of the month a revenue
+    # share covers (null for CPA).
     period = models.DateField(null=True, blank=True)
+    # The losing ticket a stake commission is for, as players see it (S12 / M5).
+    ticket = models.CharField(max_length=20, blank=True, default='')
     referral = models.ForeignKey(Referral, null=True, blank=True, on_delete=models.PROTECT, related_name='commissions')
-    # What the commission was computed from: net gaming revenue (revshare) or
-    # total deposits (CPA), plus the rate applied.
+    # What the commission was computed from: the losing ticket's stake (stake),
+    # net gaming revenue (revshare) or total deposits (CPA), plus the rate applied.
     base_amount = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     rate = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     amount = models.DecimalField(max_digits=14, decimal_places=2)
@@ -106,6 +111,10 @@ class Commission(models.Model):
             ),
             models.UniqueConstraint(
                 fields=['referral'], condition=models.Q(kind='cpa'), name='one_cpa_per_referral',
+            ),
+            models.UniqueConstraint(
+                fields=['ticket'], condition=models.Q(kind='stake'),
+                name='one_commission_per_losing_ticket',
             ),
         ]
         indexes = [models.Index(fields=['status', 'created_at'])]
@@ -128,7 +137,9 @@ class AffiliateProgramme(models.Model):
     welcome_bonus_wagering = models.DecimalField(max_digits=5, decimal_places=2, default=5)
     welcome_bonus_min_deposit = models.DecimalField(max_digits=10, decimal_places=2, default=1)
     # Terms a new affiliate starts with (each affiliate can be changed after).
-    default_revshare_percent = models.DecimalField(max_digits=5, decimal_places=2, default=25)
+    # `revshare_percent` is the % of the stake on each losing ticket a referred
+    # player places.
+    default_revshare_percent = models.DecimalField(max_digits=5, decimal_places=2, default=30)
     default_cpa_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     default_cpa_min_deposit = models.DecimalField(max_digits=10, decimal_places=2, default=20)
     default_cpa_percent = models.DecimalField(max_digits=5, decimal_places=2, default=30)
@@ -139,9 +150,8 @@ class AffiliateProgramme(models.Model):
     # Carry a losing month (negative net revenue) into the next months'
     # revenue share until it has been earned back.
     negative_carryover = models.BooleanField(default=True)
-    # Payouts: the smallest cash-out an affiliate can request to mobile money /
-    # bank (moving earnings into their betting wallet has no minimum), and
-    # whether those external payouts are offered at all.
+    # Payouts: the smallest withdrawal an affiliate can make (any method, any
+    # day), and whether payouts to mobile money / bank are offered at all.
     min_payout = models.DecimalField(max_digits=10, decimal_places=2, default=10)
     external_payouts = models.BooleanField(default=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -153,7 +163,7 @@ class AffiliateProgramme(models.Model):
     def load(cls) -> 'AffiliateProgramme':
         from django.conf import settings
         obj, created = cls.objects.get_or_create(pk=1, defaults={
-            'default_revshare_percent': getattr(settings, 'AFFILIATE_DEFAULT_REVSHARE', 25),
+            'default_revshare_percent': getattr(settings, 'AFFILIATE_DEFAULT_REVSHARE', 30),
             'default_cpa_amount': getattr(settings, 'AFFILIATE_DEFAULT_CPA', 0),
             'default_cpa_min_deposit': getattr(settings, 'AFFILIATE_DEFAULT_CPA_MIN_DEPOSIT', 20),
         })

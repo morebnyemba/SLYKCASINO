@@ -141,7 +141,7 @@ export default function PromotionsPage() {
         <button
           onClick={() => (showForm ? setShowForm(false) : startCreate())}
           className={`rounded-md px-4 py-2 text-sm font-bold shadow transition-transform hover:scale-[1.02] ${
-            showForm ? 'border border-border bg-background text-foreground hover:scale-100' : 'bg-gradient-to-br from-secondary to-primary text-white'
+            showForm ? 'border border-border bg-background text-foreground hover:scale-100' : 'bg-gradient-to-br from-primary to-[#0B3BB8] text-white'
           }`}
         >
           {showForm ? 'Cancel' : '+ New promotion'}

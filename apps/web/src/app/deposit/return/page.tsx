@@ -55,7 +55,7 @@ function DepositReturn() {
       <h1 className="mb-2 text-2xl font-extrabold">{view.title}</h1>
       <p className="mb-6 text-sm text-muted-foreground">{view.body}</p>
       {!accessToken && <p className="mb-4 text-sm text-muted-foreground">Log in to see your deposit status.</p>}
-      <Link href="/sportsbook" className="rounded-xl bg-secondary px-6 py-3 text-sm font-extrabold text-white hover:opacity-90">
+      <Link href="/sportsbook" className="rounded-xl bg-secondary px-6 py-3 text-sm font-extrabold text-secondary-foreground hover:opacity-90">
         Go to the sportsbook
       </Link>
     </div>

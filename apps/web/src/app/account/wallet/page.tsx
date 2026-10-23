@@ -83,7 +83,7 @@ export default function WalletPage() {
       <h1 className="text-2xl font-bold">Wallet</h1>
 
       <Card className="overflow-hidden rounded-2xl border-gold/20">
-        <div className="bg-gradient-to-br from-primary via-primary to-secondary/80 px-6 py-6">
+        <div className="bg-gradient-to-br from-primary via-primary to-[#0B3BB8] px-6 py-6">
           <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-white/60">
             <FaWallet size={11} />
             Balance

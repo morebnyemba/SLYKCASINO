@@ -157,6 +157,24 @@ def totals_by_kind(
     return totals
 
 
+def deposits_between(player_ids: list[int], start, end, *, offset: int = 0, limit: int = 50) -> dict:
+    """Read-only: these players' deposits in [start, end): the total, how
+    many, how many players deposited, and one page of them newest first
+    (player_id, amount, created_at)."""
+    from django.db.models import Count, Sum
+
+    qs = LedgerEntry.objects.filter(wallet__player_id__in=player_ids, kind=LedgerEntry.Kind.DEPOSIT,
+                                    created_at__gte=start, created_at__lt=end)
+    agg = qs.aggregate(total=Sum('amount'), n=Count('id'), players=Count('wallet__player_id', distinct=True))
+    rows = list(qs.order_by('-created_at', '-pk').values('wallet__player_id', 'amount', 'created_at')[offset:offset + limit + 1])
+    return {
+        'total': agg['total'] or Decimal('0'), 'count': agg['n'] or 0, 'depositors': agg['players'] or 0,
+        'items': [{'player_id': r['wallet__player_id'], 'amount': r['amount'], 'created_at': r['created_at']}
+                  for r in rows[:limit]],
+        'more': len(rows) > limit,
+    }
+
+
 def list_entries(player_id: int, limit: int = 50) -> list[LedgerEntryDTO]:
     rows = LedgerEntry.objects.filter(wallet__player_id=player_id)[:limit]
     return [LedgerEntryDTO.model_validate(r) for r in rows]

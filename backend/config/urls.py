@@ -23,6 +23,7 @@ api_patterns = [
     path('health/', views.health),
     path('admin/stats/', views.admin_stats),
     path('admin/analytics/', views.admin_analytics),
+    path('admin/profit/', views.admin_profit),
 ]
 
 urlpatterns = [

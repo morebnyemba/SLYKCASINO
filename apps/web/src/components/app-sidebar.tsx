@@ -32,7 +32,7 @@ const GAME_ITEMS: NavItem[] = [
 const MORE_ITEMS: NavItem[] = [
   { href: '/promotions', label: 'Promotions', icon: FaGift },
   { href: '/check-ticket', label: 'Check a ticket', icon: BsUpcScan },
-  { href: '/account/affiliate', label: 'Refer & earn', icon: FaHandshake },
+  { href: '/account/affiliate', label: 'Agent dashboard', icon: FaHandshake },
   { href: '/livechat', label: 'Live support', icon: FaRegCommentDots },
   { href: '/account/settings', label: 'Responsible gaming', icon: FaShieldAlt },
 ];
