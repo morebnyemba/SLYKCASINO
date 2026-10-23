@@ -240,7 +240,7 @@ export function SportsbookBrowser({ events, topMatches = [], awaitingOdds = 0 }:
               aria-selected={tab === t.id}
               onClick={() => update({ tab: t.id, ...(t.id === 'live' ? { day: null, soon: false } : {}) })}
               className={`relative flex h-11 items-center justify-center gap-1.5 rounded-xl px-1 text-[13px] font-bold transition-colors sm:text-sm ${
-                tab === t.id ? 'bg-secondary text-white shadow' : 'bg-muted/70 text-foreground hover:bg-muted'
+                tab === t.id ? 'bg-secondary text-secondary-foreground shadow' : 'bg-muted/70 text-foreground hover:bg-muted'
               }`}
             >
               {t.id === 'live' && liveCount > 0 && <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-live" />}
@@ -309,7 +309,7 @@ export function SportsbookBrowser({ events, topMatches = [], awaitingOdds = 0 }:
           {(filtersActive || tab !== 'upcoming') && (
             <button
               onClick={() => update({ sport: null, tab: 'upcoming', day: null, soon: false })}
-              className="rounded-lg bg-secondary px-4 py-2 text-xs font-bold text-white"
+              className="rounded-lg bg-secondary px-4 py-2 text-xs font-bold text-secondary-foreground"
             >
               Show all matches
             </button>

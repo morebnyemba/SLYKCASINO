@@ -3,7 +3,7 @@
 Flow: a visitor lands on `/?ref=CODE` (click logged), registers (the referral is
 fixed to that affiliate), and plays. The affiliate (agent) earns their
 percentage (30% by default) of the stake on every losing ticket a referred
-player places, worked out per day of settlement; plus a one-off deposit
+player places, credited automatically a few minutes after it settles; plus a one-off deposit
 commission once a referral has deposited and played enough, if the programme
 offers one. Approved commissions (by an operator,
 or automatically when AFFILIATE_AUTO_PAY is on) build up the affiliate's
@@ -13,7 +13,7 @@ at once, or to mobile money / a bank once an operator has sent the money.
 from __future__ import annotations
 
 import re
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from typing import Optional
 
@@ -241,11 +241,15 @@ def referral_stats(affiliate: Affiliate, *, start=None, end=None) -> dict[int, d
     }
 
 
-def dashboard(affiliate: Affiliate) -> dict:
+def _shown(name: str, mask: bool) -> str:
+    """A customer's name as the viewer may see it: masked for the agent, in
+    full for staff."""
+    return utils.mask_username(name) if mask else name
+
+
+def dashboard(affiliate: Affiliate, *, mask: bool = True) -> dict:
     """What an affiliate (or an operator) sees: link stats, this month's
     running revenue and estimated commission, and money earned."""
-    from datetime import timedelta
-
     today = timezone.localdate()
     month = utils.month_start(today)
     this_month = referral_stats(affiliate, start=_aware(month))
@@ -255,7 +259,7 @@ def dashboard(affiliate: Affiliate) -> dict:
     summary = commission_summary(affiliate, today)
     referrals = [
         {
-            'player': utils.mask_username(names.get(r.player_id, '?')),
+            'player': _shown(names.get(r.player_id, '?'), mask),
             'joined': r.created_at,
             'campaign': r.campaign,
             'deposited': lifetime.get(r.player_id, {}).get('deposits', Decimal('0')) > 0,
@@ -282,10 +286,15 @@ def dashboard(affiliate: Affiliate) -> dict:
 
 def tickets_on(affiliate: Affiliate, day: date) -> dict:
     """How the referred players' tickets placed on `day` are doing."""
+    return tickets_between(affiliate, _aware(day), _aware(day + timedelta(days=1)))
+
+
+def tickets_between(affiliate: Affiliate, start, end) -> dict:
+    """How the referred players' tickets placed in [start, end) are doing."""
     from apps.sportsbook import admin_tickets
 
     ids = list(affiliate.referrals.values_list('player_id', flat=True))
-    counts = admin_tickets.status_counts(admin_tickets.player_tickets(ids, day=day))
+    counts = admin_tickets.status_counts(admin_tickets.player_tickets(ids, start=start, end=end))
     return {
         'played': sum(n for st, n in counts.items() if st not in ('pending', 'rejected')),
         'won': counts.get('won', 0),
@@ -296,8 +305,59 @@ def tickets_on(affiliate: Affiliate, day: date) -> dict:
 
 TICKET_STATUSES = ('open', 'won', 'lost', 'void')
 
+# The periods an agent can pick on their dashboard; a custom range can span up
+# to ten years (see common.timeframes).
+REPORT_FRAMES = ('today', 'yesterday', '7d', '30d', '90d', 'this_month', 'last_month', 'this_year', 'custom')
+REPORT_PAGE = 50
+MAX_YEARS_BACK = 10
 
-def customer_tickets(affiliate: Affiliate, params, request) -> Optional[dict]:
+
+def period_report(affiliate: Affiliate, frame: str = 'today', *, start: Optional[str] = None,
+                  end: Optional[str] = None, page: int = 1, mask: bool = True) -> dict:
+    """The agent's numbers for one period: their customers' deposits (with
+    one page of the deposits themselves), tickets, link clicks, sign-ups and
+    the commission on tickets lost in it. Raises TimeframeError for an unknown
+    period, or a custom range more than ten years long or reaching further
+    back than ten years."""
+    from common import timeframes
+
+    from .reporting import lost_stakes_between
+
+    if frame not in REPORT_FRAMES:
+        raise timeframes.TimeframeError(f'unknown timeframe: {frame}')
+    window = timeframes.resolve(frame, start=start, end=end)
+    today = timezone.localdate()
+    oldest = date(today.year - MAX_YEARS_BACK, today.month, min(today.day, 28 if today.month == 2 else 31))
+    if window.start < _aware(oldest):
+        raise timeframes.TimeframeError(f'you can look back up to {MAX_YEARS_BACK} years (from {oldest.isoformat()})')
+    s, e = window.start, window.end
+    ids = list(affiliate.referrals.values_list('player_id', flat=True))
+    page = max(1, int(page or 1))
+    deposits = wallet_services.deposits_between(ids, s, e, offset=(page - 1) * REPORT_PAGE, limit=REPORT_PAGE)
+    names = accounts_services.usernames_for(list({d['player_id'] for d in deposits['items']}))
+    lost, losing_tickets, _ = lost_stakes_between(ids, s, e)
+    clicks = affiliate.clicks.filter(created_at__gte=s, created_at__lt=e).count()
+    signups = affiliate.referrals.filter(created_at__gte=s, created_at__lt=e).count()
+    return {
+        'frame': window.frame, 'label': window.label,
+        'start': timezone.localdate(s).isoformat(), 'end': timezone.localdate(e - timedelta(microseconds=1)).isoformat(),
+        'oldest': oldest.isoformat(),
+        'deposits': {
+            'total': f"{deposits['total']:.2f}", 'count': deposits['count'], 'depositors': deposits['depositors'],
+            'items': [{'customer': _shown(names.get(d['player_id'], '?'), mask), 'amount': f"{d['amount']:.2f}",
+                       'at': d['created_at']} for d in deposits['items']],
+            'page': page, 'more': deposits['more'],
+        },
+        'tickets': tickets_between(affiliate, s, e),
+        'clicks': clicks,
+        'signups': signups,
+        'lost_stakes': f'{lost:.2f}',
+        'losing_tickets': losing_tickets,
+        'commission': f'{utils.commission_for(lost, affiliate.revshare_percent):.2f}',
+    }
+
+
+def customer_tickets(affiliate: Affiliate, params, request, *, mask: bool = True) -> Optional[dict]:
     """A page of the referred players' tickets, newest first, each with the
     player's masked name (never their id or the ticket's code). None for a
     bad cursor. `params`: status (open|won|lost|void), cursor, limit."""
@@ -316,7 +376,7 @@ def customer_tickets(affiliate: Affiliate, params, request) -> Optional[dict]:
     rows, next_cursor = page
     names = accounts_services.usernames_for(list({r['player_id'] for r in rows}))
     for r in rows:
-        r['customer'] = utils.mask_username(names.get(r.pop('player_id'), '?'))
+        r['customer'] = _shown(names.get(r.pop('player_id'), '?'), mask)
         r['code'] = ''
     return {
         'results': rows, 'next_cursor': next_cursor,
@@ -423,68 +483,81 @@ def compute_cpa(affiliate: Affiliate) -> int:
     return created
 
 
-CATCH_UP_DAYS = 7
-
-
 def run_commissions(*, today: Optional[date] = None) -> dict:
-    """Recurring job: each closed day's commission on losing tickets (the last
-    week, so a missed run catches up; each day is only ever paid once) and
-    any newly qualified CPAs, for every active affiliate."""
-    from datetime import timedelta
+    """Recurring job: newly qualified CPAs for every active affiliate. (Losing
+    tickets are credited on their own, see `credit_losing_tickets`.)"""
+    cpa = sum(compute_cpa(a) for a in Affiliate.objects.filter(status=Affiliate.Status.ACTIVE))
+    return {'cpa': cpa}
 
-    today = today or timezone.localdate()
-    days = [today - timedelta(days=n) for n in range(CATCH_UP_DAYS, 0, -1)]
-    stake = cpa = 0
-    for affiliate in Affiliate.objects.filter(status=Affiliate.Status.ACTIVE):
-        stake += sum(1 for day in days if compute_stake_commission(affiliate, day) is not None)
-        cpa += compute_cpa(affiliate)
-    return {'days': [d.isoformat() for d in days], 'stake': stake, 'cpa': cpa}
+
+# A ticket's commission is credited this long after it settles (time for a
+# mistaken result to be corrected first), and missed ones are picked up for
+# this long after that (e.g. if the worker was down).
+CREDIT_DELAY = timedelta(minutes=3)
+CREDIT_LOOKBACK = timedelta(days=2)
+
+
+def credit_losing_tickets(*, now: Optional[datetime] = None) -> int:
+    """Every minute: give each active agent their share of the stake on every
+    ticket a referred player lost, once the ticket has been settled for
+    CREDIT_DELAY. Credited straight to the agent's balance (no approval).
+    Each ticket is paid once (unique per ticket). Returns how many were paid."""
+    from apps.sportsbook.models import Bet, BetSlip
+
+    now = now or timezone.now()
+    ready, since = now - CREDIT_DELAY, now - CREDIT_DELAY - CREDIT_LOOKBACK
+    agents = {r['player_id']: r['affiliate_id'] for r in Referral.objects.filter(
+        affiliate__status=Affiliate.Status.ACTIVE).values('player_id', 'affiliate_id')}
+    if not agents:
+        return 0
+    rates = dict(Affiliate.objects.filter(pk__in=set(agents.values())).values_list('pk', 'revshare_percent'))
+    done = set(Commission.objects.filter(kind=Commission.Kind.STAKE, created_at__gte=since - CREDIT_LOOKBACK)
+               .values_list('ticket', flat=True))
+    paid = 0
+    for prefix, model in (('S', Bet), ('M', BetSlip)):
+        tickets = (model.objects.filter(status='lost', settled_at__gte=since, settled_at__lte=ready,
+                                        player_id__in=list(agents))
+                   .values_list('pk', 'player_id', 'stake', 'settled_at'))
+        for pk, player_id, stake, settled_at in tickets:
+            ref = f'{prefix}{pk}'
+            if ref in done:
+                continue
+            affiliate_id = agents[player_id]
+            rate = rates.get(affiliate_id, Decimal('0'))
+            amount = utils.commission_for(stake, rate)
+            if amount <= 0:
+                continue
+            try:
+                with transaction.atomic():
+                    Commission.objects.create(
+                        affiliate_id=affiliate_id, kind=Commission.Kind.STAKE, ticket=ref,
+                        period=timezone.localdate(settled_at), base_amount=stake, rate=rate, amount=amount,
+                        active_players=1, status=Commission.Status.APPROVED, decided_at=now,
+                    )
+            except IntegrityError:
+                continue  # paid by a run that overlapped this one
+            paid += 1
+    return paid
 
 
 def lost_stakes(affiliate: Affiliate, day: date) -> tuple[Decimal, int, int]:
     """(total stake, tickets, players) of the referred players' tickets that
     were settled as lost on `day` (local time)."""
-    from datetime import timedelta
-
     from .reporting import lost_stakes_between
 
     ids = list(affiliate.referrals.values_list('player_id', flat=True))
     return lost_stakes_between(ids, _aware(day), _aware(day + timedelta(days=1)))
 
 
-def compute_stake_commission(affiliate: Affiliate, day: date) -> Optional[Commission]:
-    """The agent's share of the stake on every ticket their players lost on
-    `day`. Idempotent: one record per agent per day, made once the day is
-    over. A ticket re-settled after its day was paid isn't clawed back."""
-    if day >= timezone.localdate():
-        return None  # the day isn't over yet
-    existing = affiliate.commissions.filter(kind=Commission.Kind.STAKE, period=day).first()
-    if existing is not None:
-        return existing
-    stake, tickets, players = lost_stakes(affiliate, day)
-    amount = utils.commission_for(stake, affiliate.revshare_percent)
-    if amount <= 0:
-        return None
-    try:
-        with transaction.atomic():
-            commission = Commission.objects.create(
-                affiliate=affiliate, kind=Commission.Kind.STAKE, period=day, base_amount=stake,
-                rate=affiliate.revshare_percent, amount=amount, active_players=players,
-                note=f'{tickets} losing ticket{"" if tickets == 1 else "s"}',
-            )
-    except IntegrityError:
-        return affiliate.commissions.filter(kind=Commission.Kind.STAKE, period=day).first()
-    return _auto_pay(commission)
-
-
 def commission_summary(affiliate: Affiliate, today: date) -> dict:
-    """What the agent has earned: today so far (not final until the day
-    closes), this month including today, and all time."""
-    stake, tickets, _ = lost_stakes(affiliate, today)
-    so_far = utils.commission_for(stake, affiliate.revshare_percent)
+    """What the agent has earned: today (credited, plus losing tickets still
+    inside the few minutes before they're credited), this month, all time."""
     from django.db.models import Q
 
+    stake, tickets, _ = lost_stakes(affiliate, today)
     earned = affiliate.commissions.exclude(status=Commission.Status.REJECTED)
+    credited_today = earned.filter(kind=Commission.Kind.STAKE, period=today)
+    on_its_way = utils.commission_for(stake - _sum_field(credited_today, 'base_amount'), affiliate.revshare_percent)
     first = utils.month_start(today)
     month = _sum(earned.filter(Q(kind=Commission.Kind.STAKE, period__gte=first)
                                | (~Q(kind=Commission.Kind.STAKE) & Q(created_at__gte=_aware(first)))))
@@ -492,9 +565,9 @@ def commission_summary(affiliate: Affiliate, today: date) -> dict:
         'commission_rate': affiliate.revshare_percent,
         'lost_stakes_today': stake,
         'losing_tickets_today': tickets,
-        'commission_today': so_far,
-        'commission_month': month + so_far,
-        'commission_total': _sum(earned) + so_far,
+        'commission_today': _sum(credited_today) + on_its_way,
+        'commission_month': month + on_its_way,
+        'commission_total': _sum(earned) + on_its_way,
     }
 
 
@@ -520,6 +593,11 @@ def approve(commission_id: int) -> Commission:
 
 
 # -- balance & payouts -------------------------------------------------------------
+
+def _sum_field(qs, field: str) -> Decimal:
+    from django.db.models import Sum
+    return qs.aggregate(v=Sum(field))['v'] or Decimal('0')
+
 
 def _sum(qs) -> Decimal:
     from django.db.models import Sum

@@ -406,7 +406,7 @@ export function EventMarkets({ ev }: { ev: EventItem }) {
                 key={t.id}
                 onClick={() => setTab(t.id)}
                 className={`flex shrink-0 items-center gap-1.5 rounded-xl px-3.5 py-2 text-[13px] font-bold transition-colors ${
-                  tab === t.id ? 'bg-secondary text-white shadow' : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                  tab === t.id ? 'bg-secondary text-secondary-foreground shadow' : 'text-muted-foreground hover:bg-muted hover:text-foreground'
                 }`}
               >
                 {t.label}
@@ -460,7 +460,7 @@ export function EventMarkets({ ev }: { ev: EventItem }) {
             <button
               type="button"
               onClick={() => setQuery('')}
-              className="rounded-xl bg-secondary px-4 py-2 text-xs font-bold text-white hover:bg-secondary/90"
+              className="rounded-xl bg-secondary px-4 py-2 text-xs font-bold text-secondary-foreground hover:bg-secondary/90"
             >
               Show all markets
             </button>

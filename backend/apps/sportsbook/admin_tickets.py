@@ -209,14 +209,16 @@ def ticket_page(qs: dict, params, ctx: dict):
     return rows, (_encode_cursor(*page[-1]) if more and page else None)
 
 
-def player_tickets(player_ids, *, status: str = '', day=None) -> dict:
+def player_tickets(player_ids, *, status: str = '', start=None, end=None) -> dict:
     """Both ticket querysets for these players (optionally one status, or
-    placed on one local day), ready for `ticket_page`."""
+    placed in [start, end)), ready for `ticket_page`."""
     qs = {k: v.filter(player_id__in=player_ids) for k, v in _querysets().items()}
     if status:
         qs = {k: v.filter(status=status) for k, v in qs.items()}
-    if day:
-        qs = {k: v.filter(placed_at__date=day) for k, v in qs.items()}
+    if start is not None:
+        qs = {k: v.filter(placed_at__gte=start) for k, v in qs.items()}
+    if end is not None:
+        qs = {k: v.filter(placed_at__lt=end) for k, v in qs.items()}
     return qs
 
 

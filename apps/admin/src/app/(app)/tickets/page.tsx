@@ -168,7 +168,7 @@ export default function TicketsPage() {
             <div className="flex rounded-xl border border-border p-0.5" role="group" aria-label="Ticket type">
               {[['', 'All'], ['single', 'Singles'], ['multiple', 'Multiples']].map(([id, label]) => (
                 <button key={id} onClick={() => set({ kind: id })}
-                  className={cx('rounded-lg px-3 py-1.5 text-xs font-semibold', filters.kind === id ? 'bg-secondary text-white' : 'text-muted-foreground hover:bg-muted')}>
+                  className={cx('rounded-lg px-3 py-1.5 text-xs font-semibold', filters.kind === id ? 'bg-secondary text-secondary-foreground' : 'text-muted-foreground hover:bg-muted')}>
                   {label}
                 </button>
               ))}

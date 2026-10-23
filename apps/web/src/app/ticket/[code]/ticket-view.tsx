@@ -49,7 +49,7 @@ export function TicketView({ code }: { code: string }) {
         <p className="mt-1 text-sm text-muted-foreground">
           {notFound ? `No ticket has the code ${code.toUpperCase()}. Check it against the code under the barcode.` : 'Please try again in a moment.'}
         </p>
-        <Link href="/check-ticket" className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-secondary px-4 py-2 text-sm font-bold text-white">
+        <Link href="/check-ticket" className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-secondary px-4 py-2 text-sm font-bold text-secondary-foreground">
           <BsUpcScan size={13} /> Check another ticket
         </Link>
       </div>

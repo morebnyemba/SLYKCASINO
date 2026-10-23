@@ -10,6 +10,7 @@ from rest_framework.permissions import AllowAny, IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.accounts import impersonation
 from apps.accounts import services as accounts_services
 from common.timeframes import TimeframeError
 
@@ -43,7 +44,7 @@ class MyAffiliateView(APIView):
         data = AffiliateSerializer(affiliate).data
         data['programme'] = _public_programme()
         if affiliate.status == Affiliate.Status.ACTIVE:
-            data['stats'] = services.dashboard(affiliate)
+            data['stats'] = services.dashboard(affiliate, mask=not impersonation.is_impersonated(request))
             data['commissions'] = CommissionSerializer(affiliate.commissions.all()[:50], many=True).data
         if affiliate.status in (Affiliate.Status.ACTIVE, Affiliate.Status.SUSPENDED):
             data['balance'] = {k: str(v) for k, v in services.balance(affiliate).items()}
@@ -160,9 +161,37 @@ class MyCustomerTicketsView(APIView):
         affiliate = services.get_for_player(player.id)
         if affiliate is None or affiliate.status not in (Affiliate.Status.ACTIVE, Affiliate.Status.SUSPENDED):
             return Response({'detail': 'not an active affiliate'}, status=status.HTTP_404_NOT_FOUND)
-        data = services.customer_tickets(affiliate, request.query_params, request)
+        data = services.customer_tickets(affiliate, request.query_params, request,
+                                         mask=not impersonation.is_impersonated(request))
         if data is None:
             return Response({'detail': 'Invalid cursor.'}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(data)
+
+
+class MyReportView(APIView):
+    """GET /affiliates/me/report/?frame=today|yesterday|7d|30d|90d|this_month|
+    last_month|this_year|custom[&start=YYYY-MM-DD&end=YYYY-MM-DD][&page=N] —
+    the agent's customers' deposits, tickets, clicks, sign-ups and commission
+    for one period (up to ten years back)."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        player, denied = _player_or_403(request)
+        if denied:
+            return denied
+        affiliate = services.get_for_player(player.id)
+        if affiliate is None or affiliate.status not in (Affiliate.Status.ACTIVE, Affiliate.Status.SUSPENDED):
+            return Response({'detail': 'not an active affiliate'}, status=status.HTTP_404_NOT_FOUND)
+        q = request.query_params
+        try:
+            page = int(q.get('page') or 1)
+        except ValueError:
+            page = 1
+        try:
+            data = services.period_report(affiliate, q.get('frame') or 'today', start=q.get('start'), end=q.get('end'),
+                                          page=page, mask=not impersonation.is_impersonated(request))
+        except TimeframeError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(data)
 
 
@@ -264,7 +293,7 @@ class AdminAffiliateViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, vi
     def retrieve(self, request, *args, **kwargs):
         affiliate = self.get_object()
         data = self.get_serializer(affiliate).data
-        data['stats'] = services.dashboard(affiliate)
+        data['stats'] = services.dashboard(affiliate, mask=False)
         return Response(data)
 
     @action(detail=True, methods=['get'], url_path='analytics')
@@ -324,11 +353,11 @@ class AdminCommissionViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
 
     @action(detail=False, methods=['post'], url_path='run')
     def run(self, request):
-        """Compute now: last month's revenue share and new CPAs (idempotent).
-        Optional {today: 'YYYY-MM-DD'} to close a different month."""
+        """Compute now: new CPAs and any losing tickets not yet credited (idempotent)."""
         today = request.data.get('today')
         try:
             result = services.run_commissions(today=date.fromisoformat(today) if today else None)
+            result['tickets'] = services.credit_losing_tickets()
         except ValueError:
             return Response({'detail': 'today must be YYYY-MM-DD'}, status=status.HTTP_400_BAD_REQUEST)
         return Response(result)

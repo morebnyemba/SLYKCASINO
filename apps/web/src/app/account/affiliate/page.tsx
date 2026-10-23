@@ -1,22 +1,23 @@
 'use client';
 
-import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import { FaHandshake } from 'react-icons/fa';
 import { FaArrowRight, FaClockRotateLeft } from 'react-icons/fa6';
-import { BsCheckCircleFill, BsLink45Deg, BsPersonPlus, BsTicketPerforated, BsXCircleFill } from 'react-icons/bs';
+import { BsLink45Deg } from 'react-icons/bs';
 import { Card, CardContent, CardHeader } from '@slyk/ui/components/card';
 import { Badge } from '@slyk/ui/components/badge';
 import { useAuth } from '@/lib/auth-context';
 import { authedPost, useApi } from '@/lib/use-api';
 import { LoadingState, Spinner } from '@slyk/ui/components/spinner';
 import { PayoutDialog, type PayoutOptions } from '@/components/affiliate/payout-dialog';
+import { PeriodReport } from '@/components/affiliate/period-report';
 import { ShareLink } from '@/components/affiliate/share-link';
 
 interface Commission {
   id: number;
   kind: 'stake' | 'revshare' | 'cpa';
   period: string | null;
+  ticket?: string;
   base_amount: string;
   rate: string;
   amount: string;
@@ -154,7 +155,7 @@ function HowYouEarn({ a }: { a: TermsProps }) {
           {Number(p.welcome_bonus_cap) > 0 && <> (up to {money(p.welcome_bonus_cap)})</>} when they join with your link. Tell them!
         </p>
       )}
-      <p>Your commission is added every day. <b className="text-foreground">Withdraw from {money(MIN_WITHDRAWAL)}, any day.</b></p>
+      <p>Your commission goes into your wallet automatically 3 minutes after each losing ticket settles. <b className="text-foreground">Withdraw from {money(MIN_WITHDRAWAL)}, any day.</b></p>
     </div>
   );
 }
@@ -181,7 +182,7 @@ function Apply({ onDone }: { onDone: () => void }) {
 
   return (
     <Card className="overflow-hidden rounded-2xl">
-      <div className="bg-gradient-to-br from-primary via-primary to-secondary/80 px-6 py-7 text-white">
+      <div className="bg-gradient-to-br from-primary via-primary to-[#0B3BB8] px-6 py-7 text-white">
         <FaHandshake size={28} className="mb-3 text-gold" />
         <h2 className="text-xl font-extrabold">Become an agent: earn {pct(share)} on every losing ticket</h2>
         <p className="mt-1 max-w-lg text-sm text-white/75">
@@ -239,19 +240,9 @@ function MoneyChip({ label, value }: { label: string; value: string }) {
   );
 }
 
-function Stat({ icon, label, value, tone = '' }: { icon: React.ReactNode; label: string; value: string | number; tone?: string }) {
-  return (
-    <div className="rounded-xl border border-border bg-card p-3">
-      <span className={`mb-1.5 block ${tone || 'text-secondary'}`}>{icon}</span>
-      <p className={`text-xl font-extrabold tabular-nums ${tone}`}>{typeof value === 'number' ? value.toLocaleString() : value}</p>
-      <p className="text-xs text-muted-foreground">{label}</p>
-    </div>
-  );
-}
-
 function commissionText(c: Commission) {
   if (c.kind === 'stake') {
-    return { title: `Losing tickets · ${dayLabel(c.period)}`, sub: `${c.note ? `${c.note} · ` : ''}${pct(c.rate)} of ${money(c.base_amount)} staked` };
+    return { title: `Losing ticket ${c.ticket ?? ''} · ${dayLabel(c.period)}`, sub: `${pct(c.rate)} of the ${money(c.base_amount)} stake` };
   }
   if (c.kind === 'cpa') {
     return { title: 'New customer bonus', sub: Number(c.rate) > 0 ? `${pct(c.rate)} of their ${money(c.base_amount)} first deposit` : 'A customer made their first deposit' };
@@ -274,7 +265,6 @@ function Dashboard({ a, refetch }: { a: Affiliate & { stats: Stats }; refetch: (
   const rate = Number(s.commission_rate ?? a.revshare_percent);
   const min = Number(a.payout_options?.min_payout ?? MIN_WITHDRAWAL);
   const canWithdraw = Number(b.available) >= min && !!a.payout_options;
-  const t = s.tickets_today ?? { played: 0, won: 0, lost: 0, open: 0 };
 
   // Money in (commissions) and out (withdrawals), newest first.
   const transactions = useMemo(() => [
@@ -291,7 +281,7 @@ function Dashboard({ a, refetch }: { a: Affiliate & { stats: Stats }; refetch: (
   return (
     <div className="space-y-5">
       {/* My wallet */}
-      <section className="overflow-hidden rounded-2xl bg-gradient-to-br from-primary via-primary to-secondary/80 p-5 text-white shadow-lg sm:p-6">
+      <section className="overflow-hidden rounded-2xl bg-gradient-to-br from-primary via-primary to-[#0B3BB8] p-5 text-white shadow-lg sm:p-6">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/60">My wallet · code {a.code}</p>
@@ -329,28 +319,14 @@ function Dashboard({ a, refetch }: { a: Affiliate & { stats: Stats }; refetch: (
           <p className="text-sm text-muted-foreground">
             You get <b className="text-foreground">{pct(rate)} of the stake on every ticket your customers lose</b>.
             {Number(s.losing_tickets_today) > 0
-              ? <> Today {s.losing_tickets_today} losing ticket{s.losing_tickets_today === 1 ? '' : 's'} staked {money(s.lost_stakes_today)}. It’s added to your wallet after the day ends.</>
+              ? <> Today {s.losing_tickets_today} losing ticket{s.losing_tickets_today === 1 ? '' : 's'} staked {money(s.lost_stakes_today)}. Each one is added to your wallet 3 minutes after it settles.</>
               : <> No losing tickets yet today.</>}
           </p>
         </CardContent>
       </Card>
 
-      {/* Today’s tickets, clicks and sign-ups */}
-      <section className="space-y-2">
-        <div className="flex items-center justify-between gap-2">
-          <h2 className="text-sm font-bold">Today</h2>
-          <Link href="/account/affiliate/tickets" className="inline-flex items-center gap-1.5 rounded-lg bg-secondary px-3 py-1.5 text-xs font-bold text-secondary-foreground">
-            <BsTicketPerforated size={13} /> View all tickets
-          </Link>
-        </div>
-        <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
-          <Stat icon={<BsTicketPerforated size={16} />} label="Tickets played" value={t.played} />
-          <Stat icon={<BsCheckCircleFill size={16} />} label="Tickets won" value={t.won} tone="text-win" />
-          <Stat icon={<BsXCircleFill size={16} />} label="Tickets lost" value={t.lost} tone="text-down" />
-          <Stat icon={<BsLink45Deg size={16} />} label="Link clicks" value={s.clicks_total} />
-          <Stat icon={<BsPersonPlus size={16} />} label="Sign-ups" value={s.signups} />
-        </div>
-      </section>
+      {/* Deposits, tickets, clicks and sign-ups for any day or date range */}
+      <PeriodReport />
 
       <Card className="rounded-2xl">
         <CardHeader className="pb-0">
@@ -382,7 +358,7 @@ function Dashboard({ a, refetch }: { a: Affiliate & { stats: Stats }; refetch: (
           ))}
 
           {tab === 'transactions' && (transactions.length === 0 ? (
-            <p className="py-4 text-sm text-muted-foreground">Nothing yet. Your commission shows here each day your customers have losing tickets.</p>
+            <p className="py-4 text-sm text-muted-foreground">Nothing yet. Your commission shows here a few minutes after each losing ticket.</p>
           ) : (
             <ul className="divide-y divide-border">
               {transactions.map((x) => (

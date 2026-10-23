@@ -63,7 +63,7 @@ function MyBets() {
         <p className="mb-4 text-xs text-muted-foreground">Check your connection and try again.</p>
         <button
           onClick={() => { if (betsError) refetchBets(); if (slipsError) refetchSlips(); }}
-          className="rounded-lg bg-secondary px-4 py-2 text-xs font-extrabold text-white"
+          className="rounded-lg bg-secondary px-4 py-2 text-xs font-extrabold text-secondary-foreground"
         >
           Retry
         </button>
@@ -146,7 +146,7 @@ export function BetRail() {
         <button onClick={() => setTab('slip')} className={tabClass(tab === 'slip')}>
           <BsReceipt size={14} /> Bet slip
           {legs.length > 0 && (
-            <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-secondary px-1.5 text-[11px] text-white">
+            <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-secondary px-1.5 text-[11px] text-secondary-foreground">
               {legs.length}
             </span>
           )}

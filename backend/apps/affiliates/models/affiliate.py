@@ -65,12 +65,13 @@ class Referral(models.Model):
 
 
 class Commission(models.Model):
-    """Money owed to an affiliate: a day's commission on their players' losing
-    tickets, a month's revenue share (older terms), or a CPA for one referral. PENDING -> APPROVED (by an operator, or automatically) -> PAID once
+    """Money owed to an affiliate: their share of one losing ticket (credited
+    automatically a few minutes after it settles), a month's revenue share
+    (older terms), or a CPA for one referral. PENDING -> APPROVED (by an operator, or automatically) -> PAID once
     the keyed wallet credit lands; or REJECTED."""
 
     class Kind(models.TextChoices):
-        STAKE = 'stake', 'Losing tickets'
+        STAKE = 'stake', 'Losing ticket'
         REVSHARE = 'revshare', 'Revenue share'
         CPA = 'cpa', 'CPA'
 
@@ -82,11 +83,13 @@ class Commission(models.Model):
 
     affiliate = models.ForeignKey(Affiliate, on_delete=models.PROTECT, related_name='commissions')
     kind = models.CharField(max_length=10, choices=Kind.choices)
-    # The day a losing-tickets commission covers, the first day of the month a
-    # revenue share covers (null for CPA).
+    # The day a losing ticket settled, the first day of the month a revenue
+    # share covers (null for CPA).
     period = models.DateField(null=True, blank=True)
+    # The losing ticket a stake commission is for, as players see it (S12 / M5).
+    ticket = models.CharField(max_length=20, blank=True, default='')
     referral = models.ForeignKey(Referral, null=True, blank=True, on_delete=models.PROTECT, related_name='commissions')
-    # What the commission was computed from: stakes on losing tickets (stake),
+    # What the commission was computed from: the losing ticket's stake (stake),
     # net gaming revenue (revshare) or total deposits (CPA), plus the rate applied.
     base_amount = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     rate = models.DecimalField(max_digits=10, decimal_places=2, default=0)
@@ -110,8 +113,8 @@ class Commission(models.Model):
                 fields=['referral'], condition=models.Q(kind='cpa'), name='one_cpa_per_referral',
             ),
             models.UniqueConstraint(
-                fields=['affiliate', 'period'], condition=models.Q(kind='stake'),
-                name='one_stake_commission_per_affiliate_day',
+                fields=['ticket'], condition=models.Q(kind='stake'),
+                name='one_commission_per_losing_ticket',
             ),
         ]
         indexes = [models.Index(fields=['status', 'created_at'])]

@@ -35,7 +35,7 @@ class CommissionSerializer(serializers.ModelSerializer):
     class Meta:
         model = Commission
         fields = [
-            'id', 'affiliate', 'affiliate_code', 'kind', 'period', 'base_amount', 'rate', 'amount',
+            'id', 'affiliate', 'affiliate_code', 'kind', 'period', 'ticket', 'base_amount', 'rate', 'amount',
             'active_players', 'status', 'note', 'created_at', 'decided_at', 'paid_at',
         ]
         read_only_fields = fields

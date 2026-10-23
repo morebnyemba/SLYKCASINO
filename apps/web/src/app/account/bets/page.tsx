@@ -150,7 +150,7 @@ export default function MyBetsPage() {
             return (
               <button key={key} role="tab" aria-selected={tab === key} onClick={() => setTab(key)}
                 className={`flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-bold transition-colors ${
-                  tab === key ? 'bg-secondary text-white' : 'text-muted-foreground hover:text-foreground'}`}>
+                  tab === key ? 'bg-secondary text-secondary-foreground' : 'text-muted-foreground hover:text-foreground'}`}>
                 {key === 'live' && (n ?? 0) > 0 && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-live" />}
                 {label}
                 {key !== 'all' && n != null && n > 0 && <span className="tabular-nums opacity-80">{n}</span>}

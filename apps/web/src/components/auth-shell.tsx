@@ -35,7 +35,7 @@ export function AuthShell({ title, subtitle, children }: { title: string; subtit
   return (
     <div className="flex min-h-[70vh] items-center justify-center py-4">
       <div className="grid w-full max-w-3xl overflow-hidden rounded-3xl border border-border bg-card shadow-2xl md:grid-cols-2">
-        <div className="relative hidden flex-col justify-between overflow-hidden bg-gradient-to-br from-secondary via-primary to-[#0f0a2b] p-8 text-white md:flex">
+        <div className="relative hidden flex-col justify-between overflow-hidden bg-gradient-to-br from-primary via-[#0B3BB8] to-[#0A1F5C] p-8 text-white md:flex">
           <div className="pointer-events-none absolute -right-10 -top-10 h-48 w-48 rounded-full bg-white/10 blur-2xl" />
           <div>
             {identity.logo_url ? (

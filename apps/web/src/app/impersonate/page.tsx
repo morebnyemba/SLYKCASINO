@@ -17,7 +17,11 @@ export default function ImpersonatePage() {
   useEffect(() => {
     if (started.current) return;  // once, even when dev mode runs effects twice
     started.current = true;
-    const token = new URLSearchParams(window.location.hash.slice(1)).get('token');
+    const params = new URLSearchParams(window.location.hash.slice(1));
+    const token = params.get('token');
+    // Where to land (e.g. an agent's dashboard): a path on this site only.
+    const next = params.get('next') ?? '';
+    const landing = /^\/(?!\/)[\w\-/]*$/.test(next) ? next : '/';
     window.history.replaceState(null, '', window.location.pathname);
     if (!token) { setError('This link has no session in it. Start again from the admin portal.'); return; }
     // Drop whoever was signed in here first (the auth provider skips restoring
@@ -30,7 +34,7 @@ export default function ImpersonatePage() {
         if (!decodeToken(tokens.access)?.imp) throw new Error('not a staff session');
         storeTokens(tokens);
         // A full load, so every part of the site starts fresh as the player.
-        window.location.replace('/');
+        window.location.replace(landing);
       })
       .catch(() => setError('This link has expired or was already used. Start again from the admin portal.'));
   }, []);

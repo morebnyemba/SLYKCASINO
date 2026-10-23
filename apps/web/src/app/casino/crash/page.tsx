@@ -213,7 +213,7 @@ export default function CrashPage() {
           {phase === 'running' ? (
             <button
               onClick={() => doCashout(multiplier)}
-              className="w-full rounded-xl bg-secondary py-4 text-lg font-bold text-white transition-all hover:opacity-90 active:scale-95"
+              className="w-full rounded-xl bg-secondary py-4 text-lg font-bold text-secondary-foreground transition-all hover:opacity-90 active:scale-95"
             >
               Cash Out {multiplier.toFixed(2)}× ({(parseFloat(stake) * multiplier).toFixed(2)} {currency})
             </button>

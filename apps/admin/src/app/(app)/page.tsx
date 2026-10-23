@@ -7,6 +7,7 @@ import {
   BsAirplane, BsArrowRight, BsBroadcast, BsCalendar2Week, BsCashCoin, BsCashStack, BsDiagram3, BsGraphUpArrow, BsGrid1X2,
   BsPersonBadge, BsPersonPlus, BsReceipt, BsTicketPerforated, BsWallet2, BsExclamationTriangle,
 } from 'react-icons/bs';
+import { ProfitPanel } from '@/components/profit-panel';
 import { RealtimeFeed } from '@/components/realtime-feed';
 import { Badge, Panel, PageHeader, StatTile, cx, money } from '@/components/console/ui';
 import { useApi } from '@/lib/use-api';
@@ -122,6 +123,8 @@ export default function DashboardPage() {
           hint={s?.players ? `${s.players.total.toLocaleString()} total · ${s.players.verified} verified` : undefined}
         />
       </div>
+
+      <ProfitPanel />
 
       <div className="grid gap-6 xl:grid-cols-[1.6fr_1fr]">
         <Panel title="Last 7 days" description="Deposits and gross gaming revenue (stakes minus payouts), sportsbook and Aviator.">

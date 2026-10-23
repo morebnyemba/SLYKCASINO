@@ -16,8 +16,11 @@ const REASONS = ['Checking a ticket complaint', 'Reproducing a bug the player re
  * player for an hour. View-only by default (any staff); full access can bet
  * and move money and is for superusers. Every start is in the audit log.
  */
-export function ImpersonateButton({ playerId, username, size = 'md', className }: {
+export function ImpersonateButton({ playerId, username, size = 'md', className, next, label = 'View as player' }: {
   playerId: number; username: string; size?: 'sm' | 'md'; className?: string;
+  /** Page to open on the player site, e.g. '/account/affiliate'. */
+  next?: string;
+  label?: string;
 }) {
   const { accessToken, user } = useAuth();
   const [open, setOpen] = useState(false);
@@ -42,7 +45,7 @@ export function ImpersonateButton({ playerId, username, size = 'md', className }
     }
     // The token rides in the fragment (never sent to a server or logged) and
     // is single-use: the player site swaps it for its own pair on arrival.
-    const url = `${config.playerUrl}/impersonate#token=${encodeURIComponent(res.data.refresh)}`;
+    const url = `${config.playerUrl}/impersonate#token=${encodeURIComponent(res.data.refresh)}${next ? `&next=${encodeURIComponent(next)}` : ''}`;
     if (!tab) { setBlocked(url); return; }  // popup blocked: offer a link instead
     tab.opener = null;
     tab.location.href = url;
@@ -64,7 +67,7 @@ export function ImpersonateButton({ playerId, username, size = 'md', className }
   return (
     <>
       <Btn size={size} icon={BsEye} className={className} onClick={() => { setError(''); setBlocked(null); setMode('view'); setOpen(true); }}>
-        View as player
+        {label}
       </Btn>
       <Drawer
         open={open}

@@ -50,7 +50,7 @@ export default async function EventPage({ params }: PageProps) {
       <div className="mx-auto max-w-md rounded-2xl border border-border bg-card p-10 text-center">
         <p className="mb-1 font-bold">Match not found</p>
         <p className="mb-5 text-sm text-muted-foreground">It may have finished or been removed from the board.</p>
-        <Link href="/sportsbook" className="rounded-lg bg-secondary px-4 py-2 text-sm font-bold text-white">
+        <Link href="/sportsbook" className="rounded-lg bg-secondary px-4 py-2 text-sm font-bold text-secondary-foreground">
           Back to sportsbook
         </Link>
       </div>

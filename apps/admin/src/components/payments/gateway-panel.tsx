@@ -113,7 +113,7 @@ export function GatewayPanel({ onChanged }: { onChanged: () => void }) {
                   on ? 'border-secondary bg-secondary/10 ring-1 ring-secondary/40' : 'border-border hover:border-secondary/50',
                 )}
               >
-                <span className={cx('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', on ? 'bg-secondary text-white' : 'bg-muted text-muted-foreground')}>
+                <span className={cx('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', on ? 'bg-secondary text-secondary-foreground' : 'bg-muted text-muted-foreground')}>
                   <Icon size={17} />
                 </span>
                 <span className="min-w-0 flex-1">

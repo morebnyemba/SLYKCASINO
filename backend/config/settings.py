@@ -338,8 +338,13 @@ CELERY_BEAT_SCHEDULE = {
     },
     'affiliates-run-commissions': {
         'task': 'apps.affiliates.tasks.run_commissions',
-        # Every 6h (idempotent): closes last month's revenue share once, picks up new CPAs.
+        # Every 6h (idempotent): picks up new CPAs.
         'schedule': 3600.0 * 6,
+    },
+    'affiliates-credit-losing-tickets': {
+        'task': 'apps.affiliates.tasks.credit_losing_tickets',
+        # Each losing ticket's agent commission, 3 minutes after it settles.
+        'schedule': 60.0,
     },
     'affiliates-reconcile-payouts': {
         'task': 'apps.affiliates.tasks.reconcile_commission_payouts',
