@@ -43,8 +43,8 @@ export default function AdminLoginPage() {
             <img src={identity.logo_url} alt={identity.site_name} className="h-11 w-auto max-w-[220px] object-contain" />
           ) : (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src="/admin-portal/brand/wordmark.webp" alt={identity.site_name} width={602} height={180}
-              className="h-16 w-auto drop-shadow-[0_6px_20px_rgba(47,209,47,0.3)]" />
+            <img src="/admin-portal/brand/wordmark.webp" alt={identity.site_name} width={961} height={240}
+              className="h-16 w-auto drop-shadow-[0_6px_20px_rgba(40,140,255,0.3)]" />
           )}
           <div>
             <p className="text-2xl font-extrabold tracking-tight">{identity.site_name}</p>

@@ -133,8 +133,8 @@ function Brand() {
       ) : (
         // basePath isn't added to plain <img> src, so the brand files are addressed in full.
         // eslint-disable-next-line @next/next/no-img-element
-        <img src="/admin-portal/brand/mark.webp" alt="" width={256} height={256}
-          className="h-10 w-10 shrink-0 object-contain drop-shadow-[0_2px_6px_rgba(47,209,47,0.35)]" />
+        <img src="/admin-portal/brand/mark.webp" alt="" width={512} height={512}
+          className="h-10 w-10 shrink-0 object-contain drop-shadow-[0_2px_6px_rgba(40,140,255,0.35)]" />
       )}
       <span className="min-w-0 leading-tight">
         <span className="block truncate text-[15px] font-extrabold text-white">{identity.site_name}</span>
