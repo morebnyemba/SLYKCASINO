@@ -193,19 +193,19 @@ function isLiveMatch(m: BetMatch | null) {
 }
 
 /** The thumb beside a settled ticket's Won / Lost label. */
-function StatusThumb({ status, size = 10 }: { status: string; size?: number }) {
+function StatusThumb({ status, size = 13 }: { status: string; size?: number }) {
   if (status === 'won') return <BsHandThumbsUpFill size={size} aria-hidden />;
   if (status === 'lost') return <BsHandThumbsDownFill size={size} aria-hidden />;
   return null;
 }
 
-function ResultIcon({ result, live }: { result: string; live: boolean }) {
+function ResultIcon({ result, live, size = 24 }: { result: string; live: boolean; size?: number }) {
   // "Sharp" and "sharp down": a green thumbs up for a winning pick, red thumbs down for a losing one.
-  if (result === 'won') return <BsHandThumbsUpFill className="text-win" size={14} aria-label="Won" />;
-  if (result === 'lost') return <BsHandThumbsDownFill className="text-destructive" size={14} aria-label="Lost" />;
-  if (result === 'void') return <BsDashCircle className="text-muted-foreground" size={14} aria-label="Void" />;
-  if (live) return <span className="flex h-3.5 w-3.5 items-center justify-center" aria-label="Playing now"><span className="h-2.5 w-2.5 animate-pulse rounded-full bg-live" /></span>;
-  return <BsCircle className="text-muted-foreground/60" size={14} aria-label="Pending" />;
+  if (result === 'won') return <BsHandThumbsUpFill className="text-win" size={size} aria-label="Won" />;
+  if (result === 'lost') return <BsHandThumbsDownFill className="text-destructive" size={size} aria-label="Lost" />;
+  if (result === 'void') return <BsDashCircle className="text-muted-foreground" size={size - 4} aria-label="Void" />;
+  if (live) return <span className="flex items-center justify-center" style={{ width: size, height: size }} aria-label="Playing now"><span className="h-3 w-3 animate-pulse rounded-full bg-live" /></span>;
+  return <BsCircle className="text-muted-foreground/50" size={size - 6} aria-label="Pending" />;
 }
 
 /** Score and clock ("1–0 · 67'"), "Ended", or the kick-off time. */
@@ -366,8 +366,7 @@ export function BetTicket({ ticket, compact = false, offer, onChanged, collapsib
         {shown.map((l) => {
           const live = l.result === 'pending' && isLiveMatch(l.info);
           return (
-            <li key={l.id} className="flex gap-2.5 py-2">
-              <span className="pt-0.5"><ResultIcon result={l.result} live={live} /></span>
+            <li key={l.id} className="flex items-center gap-2.5 py-2">
               <div className="min-w-0 flex-1">
                 <p className={`truncate text-[13px] font-bold ${l.result === 'lost' ? 'text-muted-foreground line-through' : ''}`}>{l.pick}</p>
                 {l.info ? (
@@ -377,8 +376,12 @@ export function BetTicket({ ticket, compact = false, offer, onChanged, collapsib
                 )}
                 {matchLine(l.info) && <p className="mt-0.5 text-[11px] text-muted-foreground">{matchLine(l.info)}</p>}
               </div>
-              <span className="shrink-0 self-start rounded-md bg-chip px-1.5 py-0.5 font-mono text-[12px] font-bold text-chip-foreground">
+              <span className="shrink-0 rounded-md bg-chip px-1.5 py-0.5 font-mono text-[12px] font-bold text-chip-foreground">
                 {l.odds.toFixed(2)}
+              </span>
+              {/* The result, big and on the right where the eye lands. */}
+              <span className={`flex shrink-0 items-center justify-center ${compact ? 'w-6' : 'w-8'}`}>
+                <ResultIcon result={l.result} live={live} size={compact ? 20 : 24} />
               </span>
             </li>
           );
