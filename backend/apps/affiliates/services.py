@@ -176,21 +176,22 @@ def update_programme(**values) -> AffiliateProgramme:
     return programme
 
 
-def on_deposit(*, player_id: int, amount: Decimal) -> None:
+def on_deposit(*, player_id: int, amount: Decimal) -> bool:
     """Called by the wallet for every new deposit. A referred player's FIRST
     deposit earns the welcome bonus (a % of it, capped), credited as bonus money
-    that must be wagered before it can be withdrawn. Once per player."""
+    that must be wagered before it can be withdrawn. Once per player. Returns
+    whether it gave one."""
     if not Referral.objects.filter(player_id=player_id).exists():
-        return
+        return False
     if wallet_services.deposit_count(player_id) != 1:
-        return  # only the first deposit
+        return False  # only the first deposit
     programme = AffiliateProgramme.load()
     bonus = utils.welcome_bonus(
         Decimal(amount), programme.welcome_bonus_percent, programme.welcome_bonus_cap,
         programme.welcome_bonus_min_deposit,
     )
     if bonus <= 0:
-        return
+        return False
     from apps.promotions import services as promotions_services
     wagering = programme.welcome_bonus_wagering
     promotions_services.grant_bonus(
@@ -199,6 +200,7 @@ def on_deposit(*, player_id: int, amount: Decimal) -> None:
         message=(f'{bonus} welcome bonus ({programme.welcome_bonus_percent.normalize():f}% of your first deposit) '
                  f'is in your wallet. Bet {(bonus * wagering).quantize(Decimal("0.01"))} in total to make it withdrawable.'),
     )
+    return True
 
 
 # -- tracking ------------------------------------------------------------------

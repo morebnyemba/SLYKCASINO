@@ -10,6 +10,8 @@ import { GiTrophy } from 'react-icons/gi';
 import { gameAvatarUrl } from '@/lib/game-images';
 import { sanitizeHtml } from '@/lib/sanitize';
 import { LoadingState, Spinner } from '@slyk/ui/components/spinner';
+import { DepositBonuses } from '@/components/deposit-bonuses';
+import { DepositModal } from '@/components/deposit-modal';
 interface Promo {
   id: number;
   name: string;
@@ -60,6 +62,7 @@ export default function PromotionsPage() {
   const claimedIds = new Set(claims.map((c) => c.promotion));
 
   const [claiming, setClaiming] = useState<number | null>(null);
+  const [depositAmount, setDepositAmount] = useState<number | null>(null);
   const [messages, setMessages] = useState<Record<number, string>>({});
   const [now, setNow] = useState(() => Date.now());
 
@@ -89,6 +92,10 @@ export default function PromotionsPage() {
         <h1 className="text-2xl font-bold">Promotions</h1>
         <p className="text-muted-foreground">Claim a bonus and start playing.</p>
       </div>
+
+      {/* Everyone sees the offers; signed-in players get a deposit button on each. */}
+      <DepositBonuses showReceived={false} onDeposit={accessToken ? (amount) => setDepositAmount(amount ?? 0) : undefined} />
+      <DepositModal open={depositAmount != null} initialAmount={depositAmount ?? undefined} onClose={() => setDepositAmount(null)} />
 
       {promos.length > 0 && (
         <Carousel>
