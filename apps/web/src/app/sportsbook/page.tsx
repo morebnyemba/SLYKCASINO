@@ -5,7 +5,7 @@ import { SportsbookBrowser } from '@/components/sportsbook-browser';
 import { SportsbookHero } from '@/components/sportsbook-hero';
 import type { Banner } from '@/components/banner-slider';
 import { apiGet, apiGetAll } from '@/lib/config';
-import { isLive, isPriced, sortEvents, type EventItem } from '@/lib/sports';
+import { isLive, sortEvents, type EventItem } from '@/lib/sports';
 import { SEO_SPORTS, social } from '@/lib/seo';
 
 type PageProps = { searchParams: Promise<{ sport?: string; tab?: string }> };
@@ -51,9 +51,13 @@ export async function generateMetadata({ searchParams }: PageProps): Promise<Met
 
 export default async function SportsbookPage({ searchParams }: PageProps) {
   const seo = seoFor(await searchParams);
-  // Every upcoming/live match, soonest first — the API pages at 25 by default.
-  const [{ rows: all, failed }, bannerData] = await Promise.all([
-    apiGetAll<EventItem>('/events/?upcoming=true&page_size=200'),
+  // Every upcoming/live match with odds, soonest first. Only priced matches are
+  // fetched (unpriced ones never show; they're just counted), and the list is
+  // cached for 30s and shared by every visitor: live scores and prices reach
+  // the page over the realtime socket, not by re-fetching this.
+  const [{ rows: events, failed }, unpriced, bannerData] = await Promise.all([
+    apiGetAll<EventItem>('/events/?upcoming=true&priced=true&page_size=500', 10, { next: { revalidate: 30 } }),
+    apiGet('/events/?upcoming=true&priced=false&page_size=1', { next: { revalidate: 300 } }),
     apiGet<Banner>('/promotions/banners/?placement=sportsbook'),
   ]);
   // Hero: the operator's sportsbook promos (added in the admin).
@@ -62,8 +66,7 @@ export default async function SportsbookPage({ searchParams }: PageProps) {
   const banners = ((bannerData.results ?? []) as (Banner & { placement?: string })[])
     .filter((b) => b.placement === 'sportsbook');
   // Fixtures the bookmaker hasn't priced yet aren't bettable, so they stay off the board.
-  const events = all.filter(isPriced);
-  const awaitingOdds = all.length - events.length;
+  const awaitingOdds = Number(unpriced.count ?? 0);
   const open = events.filter((ev) => ev.is_open !== false);
   const featured = sortEvents(open.filter((ev) => ev.featured)).slice(0, 8);
   const topMatches = featured.length > 0 ? featured : sortEvents(open).slice(0, 8);
@@ -72,8 +75,8 @@ export default async function SportsbookPage({ searchParams }: PageProps) {
     <div>
       {/* The visible design has no page heading; this one is for search engines and screen readers. */}
       <h1 className="sr-only">{seo.h1}</h1>
-      {/* Live scores tick over; a hiccup fetching the list quietly retries. */}
-      {(events.some(isLive) || failed) && <AutoRefresh seconds={failed ? 10 : 15} />}
+      {/* Fallback for live data when the realtime socket is down; a hiccup fetching the list quietly retries. */}
+      {(events.some(isLive) || failed) && <AutoRefresh seconds={failed ? 10 : 30} />}
       {banners.length > 0 && (
         <div className="mb-5">
           <SportsbookHero banners={banners} />

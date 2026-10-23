@@ -10,7 +10,7 @@ from rest_framework.test import APIClient
 
 from apps.accounts import services as accounts
 from apps.sportsbook import ticket_codes
-from apps.sportsbook.models import Bet, BetLeg, BetSlip, Event, Team
+from apps.sportsbook.models import Bet, BetLeg, BetSlip, Event, LeagueSetting, Team
 
 PASSWORD = secrets.token_urlsafe(16)
 
@@ -21,7 +21,9 @@ class TicketTests(TestCase):
         self.other = accounts.register_player(username='other', email='o@example.com', password=PASSWORD)
         home, away = Team.objects.create(name='Highlanders'), Team.objects.create(name='FC Platinum')
         self.live = Event.objects.create(name='Highlanders v FC Platinum', odds=D('2'), home_team=home, away_team=away,
-                                         status='2H', elapsed=67, score_home=1, score_away=0,
+                                         status='2H', elapsed=67, score_home=1, score_away=0, ht_score_home=1, ht_score_away=0,
+                                         league=LeagueSetting.objects.create(league_id=2, name='UEFA Champions League',
+                                                                             country='International Clubs'),
                                          starts_at=timezone.now() - timedelta(minutes=80))
         self.done = Event.objects.create(name='A v B', odds=D('2'), status='FT', starts_at=timezone.now() - timedelta(days=1))
         mk = lambda **kw: Bet.objects.create(player_id=self.player.id, stake=D('10'), odds=D('2'), **kw)  # noqa: E731
@@ -53,6 +55,9 @@ class TicketTests(TestCase):
         self.assertIsNone(body['cashout'])
         live_leg = next(leg for leg in body['legs'] if leg['match']['status'] == '2H')
         self.assertEqual((live_leg['match']['home'], live_leg['match']['away'], live_leg['match']['elapsed']), ('Highlanders', 'FC Platinum', 67))
+        # What the ticket prints: league, and the half-time score next to the full-time one.
+        self.assertEqual(live_leg['match']['league'], 'International Clubs - UEFA Champions League')
+        self.assertEqual((live_leg['match']['ht_score_home'], live_leg['match']['ht_score_away']), (1, 0))
         self.assertTrue(self.api.get(f'/api/tickets/{code}/').json()['mine'])
         self.assertEqual(anon.get('/api/tickets/ABCDEFGHJK/').status_code, 404)
         self.assertEqual(anon.get('/api/tickets/S12/').status_code, 400)  # ticket numbers don't work: they're guessable

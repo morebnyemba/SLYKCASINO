@@ -3,10 +3,9 @@
 import Link from 'next/link';
 import { useState } from 'react';
 import {
-  BsCashCoin, BsChevronDown, BsCircle, BsDashCircle, BsHandThumbsDownFill, BsHandThumbsUpFill, BsUpcScan,
+  BsCashCoin, BsChevronDown, BsHandThumbsDownFill, BsHandThumbsUpFill, BsUpcScan,
 } from 'react-icons/bs';
 import { CashoutPanel, type CashoutOffer } from '@/components/cashout';
-import { withTeamNames } from '@/lib/sports';
 
 /** The match a bet or leg is on, as the API returns it (null for legacy free-text bets). */
 export interface BetMatch {
@@ -18,8 +17,12 @@ export interface BetMatch {
   elapsed?: number | null;
   score_home: number | null;
   score_away: number | null;
+  ht_score_home?: number | null;
+  ht_score_away?: number | null;
   home?: string | null;
   away?: string | null;
+  /** "Country - League", as printed on a ticket. */
+  league?: string | null;
 }
 
 export interface ApiBet {
@@ -103,30 +106,27 @@ export interface Ticket {
 
 const IN_PLAY = new Set(['1H', 'HT', '2H', 'ET', 'BT', 'P', 'SUSP', 'INT', 'LIVE']);
 
-/** The two teams of a match: from the feed, else from "Home v Away". */
-function teams(m: BetMatch | null | undefined, fallbackName: string) {
+/** "Home - Away", from the feed's teams, else from the stored "Home v Away". */
+function fixture(m: BetMatch | null | undefined, fallbackName: string) {
   const [a, b] = (m?.name ?? fallbackName).split(/\s+(?:v|vs\.?)\s+/i);
-  return { home: m?.home || a || 'Home', away: m?.away || b || 'Away' };
+  const home = m?.home || a;
+  const away = m?.away || b;
+  return home && away ? `${home} - ${away}` : (m?.name ?? fallbackName);
 }
 
-/** What was backed, in words: "Highlanders to win", "Draw", "Total goals: Over 2.5". */
-function pickLabel(l: ApiSlipLeg, match: string): string {
-  const { home, away } = teams(l.match, match);
-  if (l.outcome_label) {
-    const label = withTeamNames(l.outcome_label, home, away);
-    return l.market_name ? `${withTeamNames(l.market_name, home, away)}: ${label}` : label;
-  }
-  if (l.selection === 'home') return `${home} to win`;
-  if (l.selection === 'away') return `${away} to win`;
-  if (l.selection === 'draw') return 'Draw';
+/** What was backed, ticket-style: "Market - Pick" ("Double Chance - 1X", "1X2 - 1"). */
+function pickLabel(l: ApiSlipLeg): string {
+  if (l.outcome_label) return l.market_name ? `${l.market_name} - ${l.outcome_label}` : l.outcome_label;
+  const code = { home: '1', draw: 'X', away: '2' }[l.selection ?? ''];
+  if (code) return `1X2 - ${code}`;
   // Old free-text bets are stored as "Arsenal v Chelsea — Match Result: Home".
   const [, ...rest] = l.event.split(' — ');
-  return rest.length ? withTeamNames(rest.join(' — '), home, away) : '—';
+  return rest.length ? rest.join(' — ').replace(': ', ' - ') : '—';
 }
 
 function toLeg(l: ApiSlipLeg, result: string): TicketLeg {
-  const match = l.match?.name ?? l.event.split(' — ')[0];
-  return { id: l.id, match, pick: pickLabel(l, match), odds: Number(l.odds), result, info: l.match ?? null };
+  const match = fixture(l.match, l.event.split(' — ')[0]);
+  return { id: l.id, match, pick: pickLabel(l), odds: Number(l.odds), result, info: l.match ?? null };
 }
 
 /** A single's result is its own status; a leg carries its own result. */
@@ -199,32 +199,38 @@ function StatusThumb({ status, size = 13 }: { status: string; size?: number }) {
   return null;
 }
 
-function ResultIcon({ result, live, size = 24 }: { result: string; live: boolean; size?: number }) {
-  // "Sharp" and "sharp down": a green thumbs up for a winning pick, red thumbs down for a losing one.
-  if (result === 'won') return <BsHandThumbsUpFill className="text-win" size={size} aria-label="Won" />;
-  if (result === 'lost') return <BsHandThumbsDownFill className="text-destructive" size={size} aria-label="Lost" />;
-  if (result === 'void') return <BsDashCircle className="text-muted-foreground" size={size - 4} aria-label="Void" />;
-  if (live) return <span className="flex items-center justify-center" style={{ width: size, height: size }} aria-label="Playing now"><span className="h-3 w-3 animate-pulse rounded-full bg-live" /></span>;
-  return <BsCircle className="text-muted-foreground/50" size={size - 6} aria-label="Pending" />;
+
+/** Ticket-style date: 20/10/2026 18:45. */
+const ticketDate = (iso: string) => new Date(iso).toLocaleString('en-GB', {
+  day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
+}).replace(',', '');
+
+/** "HT: 2-1 FT: 2-2"; in play "Live 67': 1-0"; "Ended: 1-0" when the feed never sent full time. */
+function scoreLine(m: BetMatch | null): { text: string; live: boolean } | null {
+  if (!m || m.score_home == null || m.score_away == null) return m?.status === 'NR' ? { text: 'Ended', live: false } : null;
+  const score = `${m.score_home}-${m.score_away}`;
+  if (isLiveMatch(m)) {
+    const clock = m.status === 'HT' ? 'HT' : m.elapsed != null ? `${m.elapsed}'` : m.status;
+    return { text: `Live ${clock}: ${score}`, live: true };
+  }
+  if (m.status === 'NR') return { text: `Ended: ${score}`, live: false };
+  const ht = m.ht_score_home != null && m.ht_score_away != null ? `HT: ${m.ht_score_home}-${m.ht_score_away} ` : '';
+  return { text: `${ht}FT: ${score}`, live: false };
 }
 
-/** Score and clock ("1–0 · 67'"), "Ended", or the kick-off time. */
-function matchLine(m: BetMatch | null) {
-  if (!m) return null;
-  const hasScore = m.score_home != null && m.score_away != null;
-  const live = isLiveMatch(m);
-  if (hasScore) {
-    const clock = m.status === 'NR' ? 'Ended' : live ? (m.status === 'HT' ? 'HT' : m.elapsed != null ? `${m.elapsed}'` : m.status) : m.status;
-    return (
-      <span className="flex items-center gap-1.5">
-        <b className="font-mono text-foreground">{m.score_home}–{m.score_away}</b>
-        {clock && <span className={live ? 'font-bold text-live' : ''}>{clock}</span>}
-      </span>
-    );
-  }
-  if (m.status === 'NR') return <span>Ended</span>;
-  if (!m.starts_at) return null;
-  return <span>{when(m.starts_at)}</span>;
+/** The tab in a selection's top-right corner: WON / LOST / VOID, or LIVE while it's being played. */
+function ResultTab({ result, live }: { result: string; live: boolean }) {
+  const tab = result === 'won' ? { label: 'Won', cls: 'bg-win text-white', icon: <BsHandThumbsUpFill size={13} aria-hidden /> }
+    : result === 'lost' ? { label: 'Lost', cls: 'bg-destructive text-white', icon: <BsHandThumbsDownFill size={13} aria-hidden /> }
+      : result === 'void' ? { label: 'Void', cls: 'bg-muted-foreground/70 text-white', icon: null }
+        : live ? { label: 'Live', cls: 'bg-live text-white', icon: <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-white" /> }
+          : null;
+  if (!tab) return null;
+  return (
+    <span className={`absolute right-0 top-0 flex items-center gap-1 rounded-bl-lg rounded-tr-lg px-2.5 py-1 text-[11px] font-extrabold uppercase tracking-wide ${tab.cls}`}>
+      {tab.icon}{tab.label}
+    </span>
+  );
 }
 
 /** What a settled ticket did for the player, for the one-line summary. */
@@ -287,6 +293,8 @@ export function BetTicket({ ticket, compact = false, offer, onChanged, collapsib
   // In the narrow rail a long multiple starts folded to its first legs.
   const foldAt = compact ? 2 : Infinity;
   const [expanded, setExpanded] = useState(false);
+  // The header chevron folds the selections away (a long combo is a long list).
+  const [legsOpen, setLegsOpen] = useState(true);
   const shown = expanded ? t.legs : t.legs.slice(0, foldAt);
   const hidden = t.legs.length - shown.length;
   // Estimate: assumes every leg wins (a void leg can lower the bonus tier).
@@ -309,8 +317,8 @@ export function BetTicket({ ticket, compact = false, offer, onChanged, collapsib
 
   if (!open) {
     const o = outcome(t);
-    const title = t.kind === 'single' ? t.legs[0]?.pick : `Multiple · ${t.legs.length} legs`;
-    const sub = t.kind === 'single' ? t.legs[0]?.match : t.legs.map((l) => l.match).join(' · ');
+    const title = t.kind === 'single' ? t.legs[0]?.pick : `Combo (${t.legs.length})`;
+    const sub = t.kind === 'single' ? t.legs[0]?.match : t.legs.map((l) => l.match).join(' | ');
     return (
       <button onClick={() => setOpen(true)} aria-expanded={false}
         className="relative flex w-full items-center gap-3 overflow-hidden rounded-xl border border-border bg-card py-2.5 pl-4 pr-3 text-left shadow-sm transition-colors hover:bg-muted/40">
@@ -334,60 +342,65 @@ export function BetTicket({ ticket, compact = false, offer, onChanged, collapsib
     <article className="relative overflow-hidden rounded-xl border border-border bg-card shadow-sm">
       <span className={`absolute inset-y-0 left-0 w-1 ${s.bar}`} aria-hidden />
 
-      <header className={`flex items-start justify-between gap-2 ${pad} pb-2 pt-3`}>
-        <div className="min-w-0">
-          <p className="text-[13px] font-extrabold">
-            {t.kind === 'single' ? 'Single' : `Multiple · ${t.legs.length} legs`}
-          </p>
-          <p className="text-[11px] text-muted-foreground">
-            {number} · {when(t.placedAt, false)}
-          </p>
-          {t.bonusPercent > 0 && t.status !== 'lost' && (
-            <p className="text-[11px] font-bold text-gold">
-              +{t.bonusPercent}% multi-bet bonus{t.bonus > 0 ? ` · ${money(t.bonus)} paid` : ''}
-            </p>
-          )}
-        </div>
-        <span className="flex shrink-0 items-center gap-1.5">
-          <span className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wide ${s.className}`}>
-            <StatusThumb status={t.status} />{s.label}
-          </span>
-          {collapsible && settled && (
-            <button onClick={() => setOpen(false)} aria-label="Fold ticket" className="rounded p-0.5 text-muted-foreground hover:bg-muted">
-              <BsChevronDown size={12} className="rotate-180" />
+      <header className={`${pad} pb-2 pt-3`}>
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <p className="text-[14px] font-extrabold">{t.kind === 'single' ? 'Single' : `Combo (${t.legs.length})`}</p>
+            <p className="text-[11px] text-muted-foreground">{number} · {when(t.placedAt, false)}</p>
+          </div>
+          <span className="flex shrink-0 items-center gap-1.5">
+            <span className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wide ${s.className}`}>
+              <StatusThumb status={t.status} />{s.label}
+            </span>
+            <button
+              onClick={() => (collapsible && settled ? setOpen(false) : setLegsOpen((v) => !v))}
+              aria-label={legsOpen ? 'Hide selections' : 'Show selections'} aria-expanded={legsOpen}
+              className="rounded p-0.5 text-muted-foreground hover:bg-muted"
+            >
+              <BsChevronDown size={13} className={legsOpen ? 'rotate-180' : ''} />
             </button>
-          )}
-        </span>
+          </span>
+        </div>
+        <p className="mt-1 truncate border-b border-border/70 pb-2 text-[12px] text-muted-foreground" title={t.legs.map((l) => l.match).join(' | ')}>
+          {t.legs.map((l) => l.match).join(' | ')}
+        </p>
+        {t.bonusPercent > 0 && t.status !== 'lost' && (
+          <p className="pt-1.5 text-[11px] font-bold text-gold">
+            +{t.bonusPercent}% multi-bet bonus{t.bonus > 0 ? ` · ${money(t.bonus)} paid` : ''}
+          </p>
+        )}
       </header>
 
-      {t.kind === 'multiple' && !settled && <div className={`${pad} pb-2`}><Progress t={t} /></div>}
+      {legsOpen && t.kind === 'multiple' && !settled && <div className={`${pad} pb-2`}><Progress t={t} /></div>}
 
-      <ul className={`divide-y divide-border/70 ${pad}`}>
-        {shown.map((l) => {
-          const live = l.result === 'pending' && isLiveMatch(l.info);
-          return (
-            <li key={l.id} className="flex items-center gap-2.5 py-2">
-              <div className="min-w-0 flex-1">
-                <p className={`truncate text-[13px] font-bold ${l.result === 'lost' ? 'text-muted-foreground line-through' : ''}`}>{l.pick}</p>
+      {legsOpen && (
+        <ol className={`space-y-2 ${pad} pb-2`}>
+          {shown.map((l, i) => {
+            const live = l.result === 'pending' && isLiveMatch(l.info);
+            const score = scoreLine(l.info);
+            return (
+              <li key={l.id} className="relative overflow-hidden rounded-lg bg-muted/60 px-3 pb-2.5 pt-2 text-[12.5px]">
+                <ResultTab result={l.result} live={live} />
+                <p className="pr-20 text-[11.5px] text-muted-foreground">
+                  <b className="text-foreground">{i + 1}.</b> {l.info?.starts_at ? ticketDate(l.info.starts_at) : ''}
+                </p>
+                {l.info?.league && <p className="mt-1 truncate text-muted-foreground">{l.info.league}</p>}
                 {l.info ? (
-                  <Link href={`/sportsbook/${l.info.id}`} className="block truncate text-[11.5px] text-muted-foreground hover:text-foreground hover:underline">{l.match}</Link>
+                  <Link href={`/sportsbook/${l.info.id}`} className="block truncate text-muted-foreground hover:text-foreground hover:underline">{l.match}</Link>
                 ) : (
-                  <p className="truncate text-[11.5px] text-muted-foreground">{l.match}</p>
+                  <p className="truncate text-muted-foreground">{l.match}</p>
                 )}
-                {matchLine(l.info) && <p className="mt-0.5 text-[11px] text-muted-foreground">{matchLine(l.info)}</p>}
-              </div>
-              <span className="shrink-0 rounded-md bg-chip px-1.5 py-0.5 font-mono text-[12px] font-bold text-chip-foreground">
-                {l.odds.toFixed(2)}
-              </span>
-              {/* The result, big and on the right where the eye lands. */}
-              <span className={`flex shrink-0 items-center justify-center ${compact ? 'w-6' : 'w-8'}`}>
-                <ResultIcon result={l.result} live={live} size={compact ? 20 : 24} />
-              </span>
-            </li>
-          );
-        })}
-      </ul>
-      {(hidden > 0 || (expanded && t.legs.length > foldAt)) && (
+                <div className="mt-0.5 flex items-baseline justify-between gap-3">
+                  <p className={`min-w-0 truncate text-[13.5px] font-extrabold ${l.result === 'lost' ? 'text-muted-foreground' : ''}`}>{l.pick}</p>
+                  <span className="shrink-0 font-mono text-[13.5px] font-extrabold">{l.odds.toFixed(2)}</span>
+                </div>
+                {score && <p className={`mt-0.5 text-[11.5px] ${score.live ? 'font-bold text-live' : 'text-muted-foreground'}`}>{score.text}</p>}
+              </li>
+            );
+          })}
+        </ol>
+      )}
+      {legsOpen && (hidden > 0 || (expanded && t.legs.length > foldAt)) && (
         <button
           onClick={() => setExpanded((v) => !v)}
           className={`flex w-full items-center justify-center gap-1 ${pad} pb-2 text-[11px] font-bold text-secondary hover:underline`}

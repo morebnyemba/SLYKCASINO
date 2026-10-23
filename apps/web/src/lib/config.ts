@@ -31,12 +31,12 @@ export async function apiGet<T = unknown>(path: string, init?: RequestInit): Pro
  * (the API is restarting or unreachable), so callers can retry.
  */
 export async function apiGetAll<T = unknown>(
-  path: string, maxPages = 10,
+  path: string, maxPages = 10, init?: RequestInit,
 ): Promise<{ rows: T[]; complete: boolean; failed: boolean }> {
   const rows: T[] = [];
   const sep = path.includes('?') ? '&' : '?';
   for (let page = 1; page <= maxPages; page++) {
-    const data = await apiGet<T>(`${path}${sep}page=${page}`);
+    const data = await apiGet<T>(`${path}${sep}page=${page}`, init);
     if (data.error) return { rows, complete: false, failed: true };
     rows.push(...((data.results ?? []) as T[]));
     if (!data.next) return { rows, complete: true, failed: false };
