@@ -43,7 +43,7 @@ export function AuthShell({ title, subtitle, children }: { title: string; subtit
             ) : (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={BRAND_WORDMARK.src} alt={identity.site_name} width={BRAND_WORDMARK.width} height={BRAND_WORDMARK.height}
-                className="-ml-1 h-12 w-auto drop-shadow-[0_4px_14px_rgba(0,0,0,0.35)]" />
+                className="-ml-1 h-11 w-auto drop-shadow-[0_4px_14px_rgba(0,0,0,0.35)]" />
             )}
             <p className="mt-3 text-3xl font-black leading-tight">{identity.tagline || 'Bet smart. Brag often.'}</p>
           </div>

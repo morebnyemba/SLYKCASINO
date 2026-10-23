@@ -28,7 +28,7 @@ export default async function OpengraphImage() {
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
           {wordmark
-            ? <img src={wordmark} height={120} width={401} style={{ objectFit: 'contain' }} />
+            ? <img src={wordmark} height={120} width={480} style={{ objectFit: 'contain' }} />
             : <>
                 <div style={{ width: 72, height: 72, borderRadius: 20, background: '#6C63E8', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Bolt size={44} /></div>
                 <div style={{ fontSize: 56, fontWeight: 800, letterSpacing: -1 }}>{name}</div>

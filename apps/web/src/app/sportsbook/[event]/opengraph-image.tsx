@@ -56,7 +56,7 @@ export default async function MatchImage({ params }: { params: Promise<{ event: 
       }}>
         <div style={{ display: 'flex', width: '100%', justifyContent: 'space-between', fontSize: 30, color: 'rgba(255,255,255,0.8)' }}>
           {wordmark
-            ? <img src={wordmark} height={72} width={241} style={{ objectFit: 'contain' }} />
+            ? <img src={wordmark} height={72} width={288} style={{ objectFit: 'contain' }} />
             : <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontWeight: 800, color: 'white' }}><Bolt size={34} />BetBlits</div>}
           <div>{ev.league?.name ?? 'Sportsbook'}</div>
         </div>
