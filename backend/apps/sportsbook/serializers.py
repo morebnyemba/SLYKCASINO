@@ -84,14 +84,23 @@ class EventDetailSerializer(EventSerializer):
 
 
 class BetMatchSerializer(serializers.ModelSerializer):
-    """The match a bet (or leg) is on, for the bet ticket: teams, kick-off,
-    live clock and score."""
+    """The match a bet (or leg) is on, for the bet ticket: league, teams,
+    kick-off, live clock and half-time / full-time score."""
     home = serializers.CharField(source='home_team.name', read_only=True, default=None)
     away = serializers.CharField(source='away_team.name', read_only=True, default=None)
+    league = serializers.SerializerMethodField()
+
+    def get_league(self, obj) -> str | None:
+        """'Country - League', as printed on a ticket (e.g. 'England - Premier League')."""
+        lg = obj.league
+        if lg is None:
+            return None
+        return f'{lg.country} - {lg.name}' if lg.country else lg.name
 
     class Meta:
         model = Event
-        fields = ['id', 'name', 'sport', 'starts_at', 'status', 'elapsed', 'score_home', 'score_away', 'home', 'away']
+        fields = ['id', 'name', 'sport', 'starts_at', 'status', 'elapsed', 'score_home', 'score_away',
+                  'ht_score_home', 'ht_score_away', 'home', 'away', 'league']
 
 
 class _OutcomeLabelsMixin(serializers.Serializer):

@@ -35,7 +35,7 @@ ZERO = Decimal('0')
 
 
 # Everything a ticket shows: the match with both teams, and the market picked.
-TICKET_JOINS = ('event_ref__home_team', 'event_ref__away_team', 'outcome_ref__market')
+TICKET_JOINS = ('event_ref__home_team', 'event_ref__away_team', 'event_ref__league', 'outcome_ref__market')
 
 
 def _querysets():

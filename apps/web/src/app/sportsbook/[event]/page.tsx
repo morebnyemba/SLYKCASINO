@@ -15,8 +15,10 @@ type PageProps = {
 };
 
 async function fetchEvent(id: string): Promise<EventItem | null> {
-  // Uncached: in play the prices and trading state move by the second.
-  const data = (await apiGet<EventItem>(`/events/${id}/`, { next: { revalidate: 0 } })) as Partial<EventItem> & { error?: string };
+  // Cached for 5s and shared by everyone on this match (a feed match carries every
+  // market: hundreds of KB). In play, prices and the score arrive over the
+  // realtime socket, so the server copy only has to be close.
+  const data = (await apiGet<EventItem>(`/events/${id}/`, { next: { revalidate: 5 } })) as Partial<EventItem> & { error?: string };
   if (data.error || data.id == null || !data.name) return null;
   return data as EventItem;
 }
@@ -59,7 +61,7 @@ export default async function EventPage({ params }: PageProps) {
     <div className="mx-auto max-w-5xl">
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdHtml(eventJsonLd(ev)) }} />
       <h1 className="sr-only">{ev.name} betting odds{ev.league?.name ? ` — ${ev.league.name}` : ''}</h1>
-      {isLive(ev) && <AutoRefresh seconds={10} />}
+      {isLive(ev) && <AutoRefresh seconds={30} />}
       <section className="min-w-0 space-y-4">
         <EventMarkets ev={ev} />
         <LiveFeed channel={`odds:${event}`} title="Price history" height={200} />

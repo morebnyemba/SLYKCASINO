@@ -1,7 +1,7 @@
 import type { MetadataRoute } from 'next';
 import { apiGetAll } from '@/lib/config';
 import { SEO_SPORTS, absolute } from '@/lib/seo';
-import { isPriced, type EventItem } from '@/lib/sports';
+import type { EventItem } from '@/lib/sports';
 
 // Kept fresh: it follows the match list's own short cache (apiGet), so new
 // fixtures appear and finished ones drop out within seconds of a request.
@@ -25,8 +25,9 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   ];
   let matches: MetadataRoute.Sitemap = [];
   try {
-    const { rows } = await apiGetAll<EventItem>('/events/?upcoming=true&page_size=200');
-    matches = rows.filter(isPriced).map((ev) => ({
+    // Hourly is plenty for search engines.
+    const { rows } = await apiGetAll<EventItem>('/events/?upcoming=true&priced=true&page_size=500', 10, { next: { revalidate: 3600 } });
+    matches = rows.map((ev) => ({
       url: absolute(`/sportsbook/${ev.id}`),
       lastModified: now,
       changeFrequency: 'hourly' as const,

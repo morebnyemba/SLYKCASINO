@@ -40,6 +40,14 @@ let keepalive: ReturnType<typeof setInterval> | undefined;
 let retry: ReturnType<typeof setTimeout> | undefined;
 let backoff = 1000;
 let subscribers = 0;
+// Realtime sockets currently open (the board plus any per-match channels).
+let openSockets = 0;
+const opened = new WeakSet<WebSocket>();
+
+/** Whether live updates are arriving over a realtime socket right now. */
+export function realtimeConnected(): boolean {
+  return openSockets > 0;
+}
 
 function connect() {
   if (typeof window === 'undefined' || socket || subscribers === 0) return;
@@ -51,6 +59,8 @@ function connect() {
   }
   socket.onopen = () => {
     backoff = 1000;
+    openSockets += 1;
+    if (socket) opened.add(socket);
     // Any text keeps the socket alive; odds channels drop client text server-side.
     keepalive = setInterval(() => { try { socket?.send('ping'); } catch { /* reconnect handles it */ } }, 25000);
   };
@@ -63,8 +73,9 @@ function connect() {
     listeners.get(id)?.forEach((l) => l());
     anyListeners.forEach((l) => l(frame));
   };
-  socket.onclose = () => {
+  socket.onclose = (ev) => {
     clearInterval(keepalive);
+    if (opened.has(ev.target as WebSocket)) { opened.delete(ev.target as WebSocket); openSockets -= 1; }
     socket = null;
     scheduleReconnect();
   };
@@ -128,11 +139,14 @@ export function subscribeChannel(channel: string, onMessage: (data: string) => v
       return;
     }
     ws.onopen = () => {
+      openSockets += 1;
+      if (ws) opened.add(ws);
       delay = 1000;
       ping = setInterval(() => { try { ws?.send('ping'); } catch { /* reconnect handles it */ } }, 25000);
     };
     ws.onmessage = (msg) => { if (!closed) onMessage(String(msg.data)); };
-    ws.onclose = () => {
+    ws.onclose = (ev) => {
+      if (opened.has(ev.target as WebSocket)) { opened.delete(ev.target as WebSocket); openSockets -= 1; }
       clearInterval(ping);
       ws = null;
       if (!closed) {
