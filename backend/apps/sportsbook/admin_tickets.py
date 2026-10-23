@@ -164,47 +164,69 @@ class AdminTicketsView(APIView):
         if error:
             return Response({'detail': error}, status=status.HTTP_400_BAD_REQUEST)
 
-        by_status: dict[str, int] = {}
-        for v in qs.values():
-            for row in v.order_by().values('status').annotate(n=Count('id')):
-                by_status[row['status']] = by_status.get(row['status'], 0) + row['n']
+        by_status = status_counts(qs)
         if params.get('status'):
             qs = {k: v.filter(status=params['status']) for k, v in qs.items()}
         summary = _summary(qs, by_status)
 
-        try:
-            limit = max(1, min(int(params.get('limit') or 50), MAX_LIMIT))
-        except ValueError:
-            limit = 50
-        cursor = _decode_cursor(params['cursor']) if params.get('cursor') else None
-        if params.get('cursor') and cursor is None:
+        page = ticket_page(qs, params, {'request': request, 'skip_cashout': True})
+        if page is None:
             return Response({'detail': 'Invalid cursor.'}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Up to limit+1 from each table, merged in list order: the extra row
-        # says whether there's another page.
-        candidates = []
-        for kind, v in qs.items():
-            if cursor:
-                v = v.filter(_after(kind, cursor))
-            candidates += [(obj, kind) for obj in v.order_by('-placed_at', '-pk')[:limit + 1]]
-        candidates.sort(key=lambda c: (c[0].placed_at, -RANK[c[1]], c[0].pk), reverse=True)
-        page, more = candidates[:limit], len(candidates) > limit
-
-        ctx = {'request': request, 'skip_cashout': True}
-        meta = {kind: (prefix, ser) for kind, prefix, _, ser in KINDS}
-        rows = []
-        for obj, kind in page:
-            prefix, ser = meta[kind]
-            try:
-                rows.append(_row(obj, kind, prefix, ser, ctx))
-            except Exception:  # noqa: BLE001 — one odd old ticket must never take the list down
-                logger.exception('admin tickets: could not show %s%s', prefix, obj.pk)
+        rows, next_cursor = page
         _usernames(rows)
-        return Response({
-            'results': rows,
-            'next_cursor': _encode_cursor(*page[-1]) if more and page else None,
-            'summary': summary,
-        })
+        return Response({'results': rows, 'next_cursor': next_cursor, 'summary': summary})
+
+
+def ticket_page(qs: dict, params, ctx: dict):
+    """One page of tickets from both querysets, newest first: (rows,
+    next_cursor), or None for a bad cursor. Reads `limit` and `cursor`."""
+    try:
+        limit = max(1, min(int(params.get('limit') or 50), MAX_LIMIT))
+    except ValueError:
+        limit = 50
+    cursor = _decode_cursor(params['cursor']) if params.get('cursor') else None
+    if params.get('cursor') and cursor is None:
+        return None
+
+    # Up to limit+1 from each table, merged in list order: the extra row
+    # says whether there's another page.
+    candidates = []
+    for kind, v in qs.items():
+        if cursor:
+            v = v.filter(_after(kind, cursor))
+        candidates += [(obj, kind) for obj in v.order_by('-placed_at', '-pk')[:limit + 1]]
+    candidates.sort(key=lambda c: (c[0].placed_at, -RANK[c[1]], c[0].pk), reverse=True)
+    page, more = candidates[:limit], len(candidates) > limit
+
+    meta = {kind: (prefix, ser) for kind, prefix, _, ser in KINDS}
+    rows = []
+    for obj, kind in page:
+        prefix, ser = meta[kind]
+        try:
+            rows.append(_row(obj, kind, prefix, ser, ctx))
+        except Exception:  # noqa: BLE001 — one odd old ticket must never take the list down
+            logger.exception('tickets: could not show %s%s', prefix, obj.pk)
+    return rows, (_encode_cursor(*page[-1]) if more and page else None)
+
+
+def player_tickets(player_ids, *, status: str = '', day=None) -> dict:
+    """Both ticket querysets for these players (optionally one status, or
+    placed on one local day), ready for `ticket_page`."""
+    qs = {k: v.filter(player_id__in=player_ids) for k, v in _querysets().items()}
+    if status:
+        qs = {k: v.filter(status=status) for k, v in qs.items()}
+    if day:
+        qs = {k: v.filter(placed_at__date=day) for k, v in qs.items()}
+    return qs
+
+
+def status_counts(qs: dict) -> dict[str, int]:
+    """Tickets per status across both querysets."""
+    counts: dict[str, int] = {}
+    for v in qs.values():
+        for row in v.order_by().values('status').annotate(n=Count('id')):
+            counts[row['status']] = counts.get(row['status'], 0) + row['n']
+    return counts
 
 
 class AdminTicketDetailView(APIView):

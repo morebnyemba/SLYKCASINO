@@ -47,7 +47,7 @@ export function AffiliateAnalyticsPanel({ id }: { id: number }) {
     ['Staked', money(k.stakes), `won back ${money(k.wins)}`],
     ['Player losses', signed(Number(k.player_losses)), `${k.active_players} active of ${k.referrals_total} referred`],
     ['NGR', signed(Number(k.ngr)), `after ${money(k.bonuses)} bonuses`],
-    ['Commission (est.)', money(k.commission_estimate), `rev share ${money(k.revshare_estimate)} + CPA ${money(k.cpa_earned)}`],
+    ['Commission (est.)', money(k.commission_estimate), `losing tickets ${money(k.revshare_estimate)} + CPA ${money(k.cpa_earned)}`],
     ['Paid out', money(k.commission_paid), 'in this period'],
   ] : [];
 

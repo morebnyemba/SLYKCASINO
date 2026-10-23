@@ -148,6 +148,24 @@ class AdminPayoutViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         return self._done(payout)
 
 
+class MyCustomerTicketsView(APIView):
+    """GET /affiliates/me/tickets/?status=open|won|lost|void&cursor= — every
+    ticket the agent's players have placed, newest first."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        player, denied = _player_or_403(request)
+        if denied:
+            return denied
+        affiliate = services.get_for_player(player.id)
+        if affiliate is None or affiliate.status not in (Affiliate.Status.ACTIVE, Affiliate.Status.SUSPENDED):
+            return Response({'detail': 'not an active affiliate'}, status=status.HTTP_404_NOT_FOUND)
+        data = services.customer_tickets(affiliate, request.query_params, request)
+        if data is None:
+            return Response({'detail': 'Invalid cursor.'}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(data)
+
+
 class MyAffiliateAnalyticsView(APIView):
     """GET /affiliates/me/analytics/?frame=today|live|yesterday|7d|30d|90d|this_month|
     last_month|this_year|all[&start=YYYY-MM-DD&end=YYYY-MM-DD for frame=custom] —

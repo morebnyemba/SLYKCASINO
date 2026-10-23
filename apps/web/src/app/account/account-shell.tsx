@@ -16,7 +16,7 @@ const tabs: { href: string; label: string; icon: IconType }[] = [
   { href: '/account/bets', label: 'My Bets', icon: GiTrophy },
   { href: '/account/verification', label: 'Verification', icon: FaIdCard },
   { href: '/account/notifications', label: 'Notifications', icon: FaBell },
-  { href: '/account/affiliate', label: 'Refer & earn', icon: FaHandshake },
+  { href: '/account/affiliate', label: 'Agent dashboard', icon: FaHandshake },
   { href: '/account/settings', label: 'Responsible gaming', icon: FaShieldAlt },
 ];
 

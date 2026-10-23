@@ -68,7 +68,7 @@ class AffiliateAnalyticsTests(Base):
         self.assertEqual(k['wins'], '10.00')
         self.assertEqual(k['player_losses'], '25.00')
         self.assertEqual(k['ngr'], '25.00')
-        self.assertEqual(k['revshare_estimate'], '6.25')
+        self.assertEqual(k['revshare_estimate'], '0.00')  # commission is on losing tickets; this ledger has none
         self.assertEqual(k['sportsbook']['stakes'], '30.00')
         self.assertEqual(k['casino'], {'plays': 1, 'stakes': '5.00', 'wins': '0.00', 'ggr': '5.00'})
         self.assertEqual(k['active_players'], 2)

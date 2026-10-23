@@ -50,7 +50,7 @@ export function PayoutDialog({ open, onClose, available, options, onDone }: {
   const external = method !== 'wallet';
   const mobile = ['ecocash', 'onemoney', 'innbucks'].includes(method);
   const blockedByKyc = external && !options.kyc_verified;
-  const tooSmall = external && Number(amount) < Number(options.min_payout);
+  const tooSmall = Number(amount) < Number(options.min_payout);
 
   async function submit() {
     if (!accessToken) return;
@@ -107,7 +107,7 @@ export function PayoutDialog({ open, onClose, available, options, onDone }: {
                 <input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ''))} className={input} />
                 <button type="button" onClick={() => setAmount(available)} className="rounded-lg border border-border px-3 text-xs font-bold hover:bg-muted">Max</button>
               </div>
-              {external && <span className="text-xs text-muted-foreground">Minimum {money(options.min_payout)} to {options.methods.find((m) => m.id === method)?.label}.</span>}
+              <span className="text-xs text-muted-foreground">Minimum withdrawal {money(options.min_payout)}.</span>
             </label>
 
             {mobile && (

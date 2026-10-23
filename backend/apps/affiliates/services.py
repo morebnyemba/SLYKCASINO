@@ -1,10 +1,11 @@
 """affiliates domain logic — the ONLY place affiliate mutations happen.
 
 Flow: a visitor lands on `/?ref=CODE` (click logged), registers (the referral is
-fixed to that affiliate), and plays. Each month the affiliate earns their
-revenue-share percentage of the net gaming revenue (NGR) of every player they
-referred, read from the wallet ledger; plus a one-off deposit commission once a
-referral has deposited and played enough. Approved commissions (by an operator,
+fixed to that affiliate), and plays. The affiliate (agent) earns their
+percentage (30% by default) of the stake on every losing ticket a referred
+player places, worked out per day of settlement; plus a one-off deposit
+commission once a referral has deposited and played enough, if the programme
+offers one. Approved commissions (by an operator,
 or automatically when AFFILIATE_AUTO_PAY is on) build up the affiliate's
 balance, which they withdraw with a payout request: into their betting wallet
 at once, or to mobile money / a bank once an operator has sent the money.
@@ -251,6 +252,7 @@ def dashboard(affiliate: Affiliate) -> dict:
     lifetime = referral_stats(affiliate)
     ngr = sum((s['ngr'] for s in this_month.values()), Decimal('0'))
     names = accounts_services.usernames_for(list(lifetime))
+    summary = commission_summary(affiliate, today)
     referrals = [
         {
             'player': utils.mask_username(names.get(r.player_id, '?')),
@@ -269,13 +271,56 @@ def dashboard(affiliate: Affiliate) -> dict:
         'active_this_month': sum(1 for s in this_month.values() if s['active']),
         'ngr_this_month': ngr,
         'carryover': carryover_balance(affiliate),
-        'estimated_commission': utils.commission_for(
-            utils.carry(ngr, carryover_balance(affiliate), AffiliateProgramme.load().negative_carryover)[0],
-            affiliate.revshare_percent,
-        ),
+        **summary,
+        'estimated_commission': summary['commission_month'],
         **{k: money for k, money in balance(affiliate).items() if k != 'carryover'},
         'paid': balance(affiliate)['paid_out'],
         'referrals': referrals,
+        'tickets_today': tickets_on(affiliate, today),
+    }
+
+
+def tickets_on(affiliate: Affiliate, day: date) -> dict:
+    """How the referred players' tickets placed on `day` are doing."""
+    from apps.sportsbook import admin_tickets
+
+    ids = list(affiliate.referrals.values_list('player_id', flat=True))
+    counts = admin_tickets.status_counts(admin_tickets.player_tickets(ids, day=day))
+    return {
+        'played': sum(n for st, n in counts.items() if st not in ('pending', 'rejected')),
+        'won': counts.get('won', 0),
+        'lost': counts.get('lost', 0),
+        'open': counts.get('open', 0) + counts.get('accepting', 0),
+    }
+
+
+TICKET_STATUSES = ('open', 'won', 'lost', 'void')
+
+
+def customer_tickets(affiliate: Affiliate, params, request) -> Optional[dict]:
+    """A page of the referred players' tickets, newest first, each with the
+    player's masked name (never their id or the ticket's code). None for a
+    bad cursor. `params`: status (open|won|lost|void), cursor, limit."""
+    from apps.sportsbook import admin_tickets
+
+    ids = list(affiliate.referrals.values_list('player_id', flat=True))
+    wanted = params.get('status') if params.get('status') in TICKET_STATUSES else ''
+    everything = admin_tickets.player_tickets(ids)
+    counts = admin_tickets.status_counts(everything)
+    qs = {k: v.exclude(status__in=('pending', 'rejected')) for k, v in everything.items()}
+    if wanted:
+        qs = {k: v.filter(status=wanted) for k, v in qs.items()}
+    page = admin_tickets.ticket_page(qs, params, {'request': request, 'skip_cashout': True})
+    if page is None:
+        return None
+    rows, next_cursor = page
+    names = accounts_services.usernames_for(list({r['player_id'] for r in rows}))
+    for r in rows:
+        r['customer'] = utils.mask_username(names.get(r.pop('player_id'), '?'))
+        r['code'] = ''
+    return {
+        'results': rows, 'next_cursor': next_cursor,
+        'counts': {st: counts.get(st, 0) for st in TICKET_STATUSES},
     }
 
 
@@ -378,17 +423,79 @@ def compute_cpa(affiliate: Affiliate) -> int:
     return created
 
 
+CATCH_UP_DAYS = 7
+
+
 def run_commissions(*, today: Optional[date] = None) -> dict:
-    """Daily job: last month's revenue share (once the month has closed) and any
-    newly qualified CPAs, for every active affiliate."""
+    """Recurring job: each closed day's commission on losing tickets (the last
+    week, so a missed run catches up; each day is only ever paid once) and
+    any newly qualified CPAs, for every active affiliate."""
+    from datetime import timedelta
+
     today = today or timezone.localdate()
-    period = utils.previous_month(today)
-    revshare = cpa = 0
+    days = [today - timedelta(days=n) for n in range(CATCH_UP_DAYS, 0, -1)]
+    stake = cpa = 0
     for affiliate in Affiliate.objects.filter(status=Affiliate.Status.ACTIVE):
-        if compute_revshare(affiliate, period) is not None:
-            revshare += 1
+        stake += sum(1 for day in days if compute_stake_commission(affiliate, day) is not None)
         cpa += compute_cpa(affiliate)
-    return {'period': period.isoformat(), 'revshare': revshare, 'cpa': cpa}
+    return {'days': [d.isoformat() for d in days], 'stake': stake, 'cpa': cpa}
+
+
+def lost_stakes(affiliate: Affiliate, day: date) -> tuple[Decimal, int, int]:
+    """(total stake, tickets, players) of the referred players' tickets that
+    were settled as lost on `day` (local time)."""
+    from datetime import timedelta
+
+    from .reporting import lost_stakes_between
+
+    ids = list(affiliate.referrals.values_list('player_id', flat=True))
+    return lost_stakes_between(ids, _aware(day), _aware(day + timedelta(days=1)))
+
+
+def compute_stake_commission(affiliate: Affiliate, day: date) -> Optional[Commission]:
+    """The agent's share of the stake on every ticket their players lost on
+    `day`. Idempotent: one record per agent per day, made once the day is
+    over. A ticket re-settled after its day was paid isn't clawed back."""
+    if day >= timezone.localdate():
+        return None  # the day isn't over yet
+    existing = affiliate.commissions.filter(kind=Commission.Kind.STAKE, period=day).first()
+    if existing is not None:
+        return existing
+    stake, tickets, players = lost_stakes(affiliate, day)
+    amount = utils.commission_for(stake, affiliate.revshare_percent)
+    if amount <= 0:
+        return None
+    try:
+        with transaction.atomic():
+            commission = Commission.objects.create(
+                affiliate=affiliate, kind=Commission.Kind.STAKE, period=day, base_amount=stake,
+                rate=affiliate.revshare_percent, amount=amount, active_players=players,
+                note=f'{tickets} losing ticket{"" if tickets == 1 else "s"}',
+            )
+    except IntegrityError:
+        return affiliate.commissions.filter(kind=Commission.Kind.STAKE, period=day).first()
+    return _auto_pay(commission)
+
+
+def commission_summary(affiliate: Affiliate, today: date) -> dict:
+    """What the agent has earned: today so far (not final until the day
+    closes), this month including today, and all time."""
+    stake, tickets, _ = lost_stakes(affiliate, today)
+    so_far = utils.commission_for(stake, affiliate.revshare_percent)
+    from django.db.models import Q
+
+    earned = affiliate.commissions.exclude(status=Commission.Status.REJECTED)
+    first = utils.month_start(today)
+    month = _sum(earned.filter(Q(kind=Commission.Kind.STAKE, period__gte=first)
+                               | (~Q(kind=Commission.Kind.STAKE) & Q(created_at__gte=_aware(first)))))
+    return {
+        'commission_rate': affiliate.revshare_percent,
+        'lost_stakes_today': stake,
+        'losing_tickets_today': tickets,
+        'commission_today': so_far,
+        'commission_month': month + so_far,
+        'commission_total': _sum(earned) + so_far,
+    }
 
 
 def _notify(affiliate: Affiliate, title: str, body: str) -> None:
@@ -472,12 +579,12 @@ def request_payout(
     if method not in Payout.Method.values:
         raise AffiliateError('choose how you want to be paid')
     programme = AffiliateProgramme.load()
+    if amount < programme.min_payout:
+        raise AffiliateError(f'the minimum withdrawal is {programme.min_payout}')
     external = method != Payout.Method.WALLET
     if external:
         if not programme.external_payouts:
             raise AffiliateError('payouts to mobile money and banks are switched off — choose your betting wallet')
-        if amount < programme.min_payout:
-            raise AffiliateError(f'the minimum payout to {Payout.Method(method).label} is {programme.min_payout}')
         player = accounts_services.get_player(affiliate.player_id)
         if not player or player.kyc_status != player.Kyc.VERIFIED:
             raise AffiliateError('verify your identity before requesting a payout to mobile money or a bank')

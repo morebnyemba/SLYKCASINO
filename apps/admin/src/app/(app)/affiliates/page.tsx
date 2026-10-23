@@ -33,7 +33,7 @@ interface Affiliate {
 interface Commission {
   id: number;
   affiliate_code: string;
-  kind: 'revshare' | 'cpa';
+  kind: 'stake' | 'revshare' | 'cpa';
   period: string | null;
   base_amount: string;
   rate: string;
@@ -106,7 +106,7 @@ function TermsEditor({ a, onSaved }: { a: Affiliate; onSaved: () => void }) {
     <div className="space-y-3 bg-muted/40 px-4 py-4">
       <div className="flex flex-wrap items-end gap-3">
         {field('code', 'Code', 'w-36')}
-        {field('revshare_percent', 'Revenue share %')}
+        {field('revshare_percent', 'Commission % of losing stakes')}
         {field('cpa_percent', 'Deposit commission %')}
         {field('cpa_cap', 'Deposit comm. cap')}
         {field('cpa_amount', 'Flat CPA')}
@@ -173,7 +173,7 @@ function AffiliatesTab() {
                       </td>
                       <td className="px-4 py-3 font-mono text-xs">{a.code}</td>
                       <td className="px-4 py-3 text-xs">
-                        {Number(a.revshare_percent)}% rev share
+                        {Number(a.revshare_percent)}% of losing stakes
                         {Number(a.cpa_percent) > 0 && <><br />{Number(a.cpa_percent)}% of 1st deposit{Number(a.cpa_cap) > 0 && ` (max ${money(a.cpa_cap)})`}</>}
                         {Number(a.cpa_amount) > 0 && <><br />{money(a.cpa_amount)} CPA ≥ {money(a.cpa_min_deposit)}</>}
                       </td>
@@ -232,9 +232,9 @@ function CommissionsTab() {
   async function runNow() {
     if (!accessToken) return;
     setBusy('run'); setMessage('');
-    const res = await authedPost<{ period: string; revshare: number; cpa: number }>('/admin/affiliate-commissions/run/', {}, accessToken);
+    const res = await authedPost<{ days: string[]; stake: number; cpa: number }>('/admin/affiliate-commissions/run/', {}, accessToken);
     setBusy(null);
-    setMessage(res.error ? `Error: ${res.error}` : `Calculated ${res.data?.period?.slice(0, 7)}: ${res.data?.revshare} revenue share, ${res.data?.cpa} new CPA.`);
+    setMessage(res.error ? `Error: ${res.error}` : `Calculated the last ${res.data?.days?.length ?? 0} days: ${res.data?.stake} losing-ticket commissions, ${res.data?.cpa} new CPA.`);
     refetch();
   }
 
@@ -272,11 +272,13 @@ function CommissionsTab() {
                 {rows.map((c) => (
                   <tr key={c.id} className="border-b border-border last:border-0">
                     <td className="px-4 py-3 font-mono text-xs">{c.affiliate_code}</td>
-                    <td className="px-4 py-3">{c.kind === 'cpa' ? 'CPA' : c.period?.slice(0, 7)}</td>
+                    <td className="px-4 py-3">{c.kind === 'cpa' ? 'CPA' : c.kind === 'stake' ? c.period : c.period?.slice(0, 7)}</td>
                     <td className="px-4 py-3 text-xs text-muted-foreground">
                       {c.kind === 'cpa'
                         ? `Referral deposited ${money(c.base_amount)}`
-                        : `${money(c.base_amount)} NGR × ${Number(c.rate)}% (${c.active_players} active)`}
+                        : c.kind === 'stake'
+                          ? `${money(c.base_amount)} lost stakes × ${Number(c.rate)}% (${c.note || `${c.active_players} players`})`
+                          : `${money(c.base_amount)} NGR × ${Number(c.rate)}% (${c.active_players} active)`}
                     </td>
                     <td className="px-4 py-3 text-right font-semibold tabular-nums">{money(c.amount)}</td>
                     <td className="px-4 py-3"><Badge variant={COMMISSION_BADGE[c.status]}>{c.status}</Badge></td>

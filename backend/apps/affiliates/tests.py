@@ -84,7 +84,7 @@ class MembershipTests(Base):
         self.assertEqual(a.status, Affiliate.Status.PENDING)
         self.assertTrue(a.code.startswith('PARTNE'))
         self.assertEqual(services.apply(player_id=self.partner.id).pk, a.pk)
-        self.assertEqual(a.revshare_percent, D('25'))
+        self.assertEqual(a.revshare_percent, D('30'))
 
     @override_settings(AFFILIATE_AUTO_APPROVE=True)
     def test_auto_approve(self):
@@ -143,7 +143,7 @@ class CommissionTests(Base):
         outsider = account_services.create_player(username='outsider')
         self.play(outsider, staked=1000, won=0)     # not referred: ignored
         c = services.compute_revshare(self.affiliate, self.month)
-        self.assertEqual((c.base_amount, c.amount, c.active_players), (D('50'), D('12.50'), 2))
+        self.assertEqual((c.base_amount, c.amount, c.active_players), (D('50'), D('15.00'), 2))
         self.assertEqual(services.compute_revshare(self.affiliate, self.month).pk, c.pk)
         self.assertEqual(Commission.objects.count(), 1)
 
@@ -161,22 +161,21 @@ class CommissionTests(Base):
         self.assertEqual(services.compute_cpa(self.affiliate), 0)
         self.assertEqual(Commission.objects.get(kind='cpa').amount, D('15'))
 
-    def test_run_closes_previous_month(self):
+    def test_run_no_longer_pays_a_monthly_share(self):
+        # Agents earn on losing tickets instead (see test_agent_tickets).
         a = self.referred('alice', self.affiliate)
         self.play(a, staked=100, won=0)
-        result = services.run_commissions(today=utils.next_month(self.month) + timedelta(days=2))
-        self.assertEqual((result['revshare'], result['period']), (1, self.month.isoformat()))
-        self.assertEqual(services.run_commissions(today=utils.next_month(self.month))['revshare'], 1)
-        self.assertEqual(Commission.objects.filter(kind='revshare').count(), 1)
+        services.run_commissions(today=utils.next_month(self.month) + timedelta(days=2))
+        self.assertFalse(Commission.objects.filter(kind='revshare').exists())
 
     def test_approve_adds_to_balance_once_and_reject(self):
         a = self.referred('alice', self.affiliate)
         self.play(a, staked=100, won=0)
         c = services.compute_revshare(self.affiliate, self.month)
-        self.assertEqual(services.balance(self.affiliate)['pending'], D('25.00'))
+        self.assertEqual(services.balance(self.affiliate)['pending'], D('30.00'))
         services.approve(c.id)
         services.approve(c.id)
-        self.assertEqual(services.balance(self.affiliate)['available'], D('25.00'))
+        self.assertEqual(services.balance(self.affiliate)['available'], D('30.00'))
         self.assertEqual(wallet_services.get_balance(self.partner.id), D('0'))  # not paid until requested
         c.refresh_from_db()
         self.assertEqual(c.status, Commission.Status.APPROVED)
@@ -188,7 +187,7 @@ class CommissionTests(Base):
         a = self.referred('alice', self.affiliate)
         self.play(a, staked=100, won=0)
         self.assertEqual(services.compute_revshare(self.affiliate, self.month).status, Commission.Status.APPROVED)
-        self.assertEqual(services.balance(self.affiliate)['available'], D('25.00'))
+        self.assertEqual(services.balance(self.affiliate)['available'], D('30.00'))
 
     def test_recovery_completes_stuck_wallet_payout(self):
         from apps.affiliates.models import Payout
@@ -212,7 +211,7 @@ class CommissionTests(Base):
         services.record_click('PARTNER')
         stats = services.dashboard(self.affiliate)
         self.assertEqual((stats['signups'], stats['depositors'], stats['clicks_30d']), (1, 1, 1))
-        self.assertEqual((stats['ngr_this_month'], stats['estimated_commission']), (D('60'), D('15.00')))
+        self.assertEqual((stats['ngr_this_month'], stats['estimated_commission']), (D('60'), D('0.00')))  # no losing tickets
         self.assertEqual(stats['referrals'][0]['player'], 'al***')
 
 

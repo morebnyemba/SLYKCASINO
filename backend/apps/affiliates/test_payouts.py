@@ -74,13 +74,18 @@ class WalletPayoutTests(PayoutBase):
         with self.assertRaises(services.AffiliateError):
             self.request(amount='10', method='paypal')
 
+    def test_minimum_applies_to_the_wallet_too(self):
+        with self.assertRaisesMessage(services.AffiliateError, 'the minimum withdrawal is 10.00'):
+            self.request(amount='9.99', method='wallet')
+        self.assertEqual(self.request(amount='10', method='wallet').status, Payout.Status.PAID)
+
 
 class ExternalPayoutTests(PayoutBase):
     def test_needs_kyc_minimum_and_a_valid_number(self):
         with self.assertRaisesMessage(services.AffiliateError, 'verify your identity'):
             self.request(amount='20', method='ecocash', account_number='0771234567')
         self.verify_kyc()
-        with self.assertRaisesMessage(services.AffiliateError, 'minimum payout'):
+        with self.assertRaisesMessage(services.AffiliateError, 'minimum withdrawal'):
             self.request(amount='5', method='ecocash', account_number='0771234567')
         with self.assertRaisesMessage(services.AffiliateError, 'mobile number'):
             self.request(amount='20', method='ecocash', account_number='12')

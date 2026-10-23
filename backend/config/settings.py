@@ -248,7 +248,7 @@ SPORTSBOOK_DELETE_MATCHES_AFTER_HOURS = int(os.environ.get('SPORTSBOOK_DELETE_MA
 # Revenue share is a % of referred players' monthly net gaming revenue (a losing
 # month pays nothing, no carry-over); CPA is a one-off per referral once their
 # deposits reach the minimum (0 = off).
-AFFILIATE_DEFAULT_REVSHARE = float(os.environ.get('AFFILIATE_DEFAULT_REVSHARE', '25'))
+AFFILIATE_DEFAULT_REVSHARE = float(os.environ.get('AFFILIATE_DEFAULT_REVSHARE', '30'))
 AFFILIATE_DEFAULT_CPA = float(os.environ.get('AFFILIATE_DEFAULT_CPA', '0'))
 AFFILIATE_DEFAULT_CPA_MIN_DEPOSIT = float(os.environ.get('AFFILIATE_DEFAULT_CPA_MIN_DEPOSIT', '20'))
 # Approve applications / pay commissions without operator review.
