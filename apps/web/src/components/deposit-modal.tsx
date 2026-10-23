@@ -116,11 +116,27 @@ function CheckIcon() {
   );
 }
 
-export function DepositModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+interface DepositTier { id: number; name: string; min_deposit: string; max_deposit: string | null; percent: string; max_bonus: string; wagering_multiplier: string; limit: 'every' | 'daily' | 'once' }
+
+/** The deposit promotion tier giving this amount the biggest bonus (same rule as the server). */
+function bestTier(amount: number, tiers: DepositTier[]) {
+  let best: DepositTier | null = null, bonus = 0;
+  for (const t of tiers) {
+    if (amount < Number(t.min_deposit) || (t.max_deposit != null && amount > Number(t.max_deposit))) continue;
+    let value = Math.round(amount * Number(t.percent)) / 100;
+    if (Number(t.max_bonus) > 0) value = Math.min(value, Number(t.max_bonus));
+    if (value > bonus) { best = t; bonus = value; }
+  }
+  return { tier: best, bonus };
+}
+
+export function DepositModal({ open, onClose, initialAmount }: { open: boolean; onClose: () => void; initialAmount?: number }) {
   const { accessToken } = useAuth();
   const { data: wallet, refetch: refetchWallet } = useApi<Wallet>(open ? '/wallet/' : null);
   const { data: promotions } = useApi<Promotion[]>(open ? '/promotions/' : null);
   const depositPromo = (Array.isArray(promotions) ? promotions : []).find((p) => p.kind === 'deposit' && p.active) ?? null;
+  const { data: tierData } = useApi<DepositTier[]>(open ? '/promotions/deposit-bonuses/' : null, { public: true });
+  const tiers = Array.isArray(tierData) ? tierData : [];
 
   const [step, setStep] = useState<Step>('method');
   const [method, setMethod] = useState<MethodId | null>(null);
@@ -179,6 +195,11 @@ export function DepositModal({ open, onClose }: { open: boolean; onClose: () => 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, payment?.reference, accessToken]);
 
+  // Opened from a deposit bonus: start with that bonus's minimum deposit.
+  useEffect(() => {
+    if (open && initialAmount) setAmount(String(initialAmount));
+  }, [open, initialAmount]);
+
   function resetAndClose() {
     setPayment(null);
     setStep('method');
@@ -204,6 +225,11 @@ export function DepositModal({ open, onClose }: { open: boolean; onClose: () => 
       : METHODS;
   const selected = methods.find((m) => m.id === method) ?? methods[0] ?? METHODS[0];
   const numAmount = parseFloat(amount) || 0;
+  const auto = bestTier(numAmount, tiers);
+  // The next tier up, to nudge a bigger deposit ("deposit $50 to get 25%").
+  const nextTier = tiers
+    .filter((t) => Number(t.min_deposit) > numAmount && bestTier(Number(t.min_deposit), tiers).bonus > auto.bonus)
+    .sort((a, b) => Number(a.min_deposit) - Number(b.min_deposit))[0];
   const bonusAmount = applyBonus && depositPromo ? Number(depositPromo.bonus_amount) : 0;
   const totalCredited = numAmount + bonusAmount;
   const balance = Number(wallet?.balance ?? 0);
@@ -275,6 +301,7 @@ export function DepositModal({ open, onClose }: { open: boolean; onClose: () => 
       v: bonusAmount > 0 ? `+$${bonusAmount.toFixed(2)} (${depositPromo!.name})` : 'None',
       accent: bonusAmount > 0,
     },
+    ...(auto.tier ? [{ k: 'Deposit bonus', v: `+$${auto.bonus.toFixed(2)} (${Number(auto.tier.percent)}%, automatic)`, accent: true }] : []),
     { k: 'Fee', v: 'Free', win: true },
   ];
 
@@ -376,6 +403,23 @@ export function DepositModal({ open, onClose }: { open: boolean; onClose: () => 
       </div>
       {limitHint && numAmount > 0 && (
         <p className="mt-2 text-[12.5px] font-semibold text-live">{limitHint}</p>
+      )}
+      {auto.tier && (
+        <div className="mt-3 rounded-xl border border-gold/40 bg-gold/10 px-3.5 py-2.5">
+          <p className="text-[13.5px] font-bold text-gold">+${auto.bonus.toFixed(2)} {auto.tier.name} ({Number(auto.tier.percent)}%)</p>
+          <p className="text-[11.5px] text-muted-foreground">
+            Added automatically with your deposit
+            {Number(auto.tier.wagering_multiplier) > 0 && <> · bet ${(auto.bonus * Number(auto.tier.wagering_multiplier)).toFixed(2)} in total to withdraw it</>}
+            {auto.tier.limit === 'once' ? ' · once per player' : auto.tier.limit === 'daily' ? ' · once a day' : ''}
+          </p>
+        </div>
+      )}
+      {nextTier && (
+        <button onClick={() => setAmount(String(Number(nextTier.min_deposit)))}
+          className="mt-2 w-full rounded-lg border border-dashed border-border px-3 py-2 text-left text-[12px] text-muted-foreground hover:text-foreground">
+          Deposit <b className="text-foreground">${Number(nextTier.min_deposit).toFixed(2)}</b> or more to get <b className="text-gold">{Number(nextTier.percent)}%</b> bonus
+          {Number(nextTier.max_bonus) > 0 && <> (up to ${Number(nextTier.max_bonus).toFixed(2)})</>}
+        </button>
       )}
 
       {selected.field === 'phone' && (

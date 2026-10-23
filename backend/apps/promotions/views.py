@@ -15,9 +15,11 @@ from rest_framework.views import APIView
 from apps.accounts import services as accounts_services
 
 from . import services
-from .models import Banner, BannerImage, PromotionClaim, Tournament
+from .models import Banner, BannerImage, DepositBonus, PromotionClaim, Tournament
 from .serializers import (
     BannerSerializer,
+    DepositBonusSerializer,
+    PublicDepositBonusSerializer,
     PromotionClaimSerializer,
     PromotionSerializer,
     TournamentEntrySerializer,
@@ -63,7 +65,9 @@ class PromotionViewSet(viewsets.ModelViewSet):
     serializer_class = PromotionSerializer
 
     def get_queryset(self):
-        qs = services.list_promotions()
+        # Deposit-bonus tiers keep their claims on a hidden promotion each; they
+        # are managed as tiers (admin/deposit-bonuses), so never listed here.
+        qs = services.list_promotions().exclude(code__startswith='deposit-bonus:')
         # System promotions (e.g. the referral welcome bonus) are granted
         # automatically, never listed for players to claim.
         if not (self.request.user and self.request.user.is_staff):
@@ -234,3 +238,48 @@ class AdminAnnouncementView(APIView):
         a.save()
         accounts_services.audit(None, 'site_announcement', request, enabled=a.enabled, title=a.title)
         return Response(_announcement(a))
+
+
+class AdminDepositBonusViewSet(viewsets.ModelViewSet):
+    """Staff: deposit promotion tiers (% of the deposit by amount), with how
+    many bonuses each has given and their total."""
+    serializer_class = DepositBonusSerializer
+    permission_classes = [IsAdminUser]
+    queryset = DepositBonus.objects.all()
+
+    def list(self, request, *args, **kwargs):
+        data = self.get_serializer(self.get_queryset(), many=True).data
+        stats = services.deposit_bonus_stats()
+        for row in data:
+            s = stats.get(row['id'], {})
+            row['given'] = s.get('given', 0)
+            row['total_given'] = f"{s.get('total', 0):.2f}"
+        return Response(data)
+
+    def perform_create(self, serializer):
+        tier = serializer.save()
+        accounts_services.audit(None, 'deposit_bonus_created', self.request, id=tier.id, name=tier.name,
+                                percent=str(tier.percent), min_deposit=str(tier.min_deposit))
+
+    def perform_update(self, serializer):
+        tier = serializer.save()
+        accounts_services.audit(None, 'deposit_bonus_updated', self.request, id=tier.id, name=tier.name,
+                                percent=str(tier.percent), active=tier.active)
+
+    def perform_destroy(self, instance):
+        accounts_services.audit(None, 'deposit_bonus_deleted', self.request, id=instance.id, name=instance.name)
+        instance.delete()
+
+
+class DepositBonusListView(APIView):
+    """Public: the deposit promotions running now (for the deposit screen)."""
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        tiers = services.live_deposit_bonuses()
+        data = PublicDepositBonusSerializer(tiers, many=True).data
+        player = accounts_services.get_current_player(request) if request.user.is_authenticated else None
+        used = services.used_deposit_bonuses(player.id, tiers) if player else set()
+        for row in data:
+            row['used'] = row['id'] in used
+        return Response(data)

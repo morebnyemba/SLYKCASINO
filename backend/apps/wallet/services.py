@@ -97,14 +97,17 @@ def post_entry(
 def _after_new_entry(player_id: int, entry: LedgerEntry) -> None:
     """Side effects of a NEW ledger entry (never of an idempotent replay), in
     the same transaction: stakes count towards bonus wagering, and a deposit
-    may earn a referred player their welcome bonus. Lazy imports keep wallet
+    may earn a referred player their welcome bonus or, failing that, a running
+    deposit promotion (never both on one deposit). Lazy imports keep wallet
     free of import-time dependencies on other apps."""
     if entry.kind in ('bet_stake', 'casino_debit'):
         from apps.promotions import services as promotions_services
         promotions_services.record_wagering(player_id=player_id, amount=abs(entry.amount))
     elif entry.kind == 'deposit':
         from apps.affiliates import services as affiliate_services
-        affiliate_services.on_deposit(player_id=player_id, amount=entry.amount)
+        from apps.promotions import services as promotions_services
+        if not affiliate_services.on_deposit(player_id=player_id, amount=entry.amount):
+            promotions_services.on_deposit(player_id=player_id, amount=entry.amount, deposit_id=entry.id)
 
 
 def debit(

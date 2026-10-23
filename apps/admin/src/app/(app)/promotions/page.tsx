@@ -9,6 +9,7 @@ import { useApi, authedPost } from '@/lib/use-api';
 import { config } from '@/lib/config';
 import { LoadingState, Spinner } from '@slyk/ui/components/spinner';
 import { PageHeader } from '@/components/console/ui';
+import { DepositBonuses } from '@/components/promotions/deposit-bonuses';
 
 interface Promo {
   id: number;
@@ -137,7 +138,7 @@ export default function PromotionsPage() {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4 [&>div:first-child]:mb-0">
-        <PageHeader icon={FaGift} eyebrow="Marketing" title="Promotions" description="Deposit bonuses, free bets and codes players can claim." />
+        <PageHeader icon={FaGift} eyebrow="Marketing" title="Promotions" description="Deposit bonuses by amount, free bets and codes players can claim." />
         <button
           onClick={() => (showForm ? setShowForm(false) : startCreate())}
           className={`rounded-md px-4 py-2 text-sm font-bold shadow transition-transform hover:scale-[1.02] ${
@@ -147,6 +148,8 @@ export default function PromotionsPage() {
           {showForm ? 'Cancel' : '+ New promotion'}
         </button>
       </div>
+
+      <DepositBonuses />
 
       {error && <p className="text-sm text-destructive">{error}</p>}
 

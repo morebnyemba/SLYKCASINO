@@ -16,7 +16,7 @@ from apps.wallet import services as wallet_services
 
 from . import helpers, utils
 from .clients import CampaignProviderClient
-from .models import Promotion, PromotionClaim, Tournament, TournamentEntry
+from .models import DepositBonus, Promotion, PromotionClaim, Tournament, TournamentEntry
 
 
 def list_promotions():
@@ -124,6 +124,106 @@ def grant_bonus(
         body=message or f'{amount} bonus has been added to your wallet.',
     )
     return claim
+
+
+# -- deposit promotions --------------------------------------------------------
+
+def _live_tiers(now=None):
+    from django.db.models import Q
+
+    now = now or timezone.now()
+    return (DepositBonus.objects.filter(active=True)
+            .filter(Q(starts_at__isnull=True) | Q(starts_at__lte=now))
+            .filter(Q(ends_at__isnull=True) | Q(ends_at__gt=now)))
+
+
+def live_deposit_bonuses():
+    """The deposit promotions running right now, smallest deposit first."""
+    return list(_live_tiers())
+
+
+def deposit_bonus_for(amount: Decimal, tiers) -> tuple[DepositBonus | None, Decimal]:
+    """The tier that gives this deposit the biggest bonus, and that bonus."""
+    best, bonus = None, Decimal('0')
+    for tier in tiers:
+        if amount < tier.min_deposit or (tier.max_deposit is not None and amount > tier.max_deposit):
+            continue
+        value = utils.quantize(amount * tier.percent / Decimal('100'))
+        if tier.max_bonus > 0:
+            value = min(value, tier.max_bonus)
+        if value > bonus:
+            best, bonus = tier, value
+    return best, bonus
+
+
+def _tier_promotion(tier: DepositBonus) -> Promotion:
+    promo, _ = Promotion.objects.get_or_create(
+        code=f'deposit-bonus:{tier.pk}',
+        defaults={'name': tier.name, 'kind': Promotion.Kind.DEPOSIT, 'active': False, 'bonus_amount': 0},
+    )
+    return promo
+
+
+def _used_up(tier: DepositBonus, promo: Promotion, player_id: int) -> bool:
+    claims = PromotionClaim.objects.filter(player_id=player_id, promotion=promo)
+    if tier.limit == DepositBonus.Limit.ONCE:
+        return claims.exists()
+    if tier.limit == DepositBonus.Limit.DAILY:
+        return claims.filter(created_at__date=timezone.localdate()).exists()
+    return False
+
+
+@transaction.atomic
+def on_deposit(*, player_id: int, amount: Decimal, deposit_id: int) -> PromotionClaim | None:
+    """Called by the wallet for every new deposit: credit the best running
+    deposit promotion for its amount (if the player hasn't used it up), as
+    bonus money locked until wagered. At most once per deposit."""
+    amount = Decimal(amount)
+    # Skip tiers this player has used up, then pick the best of the rest.
+    usable = [t for t in _live_tiers()
+              if t.limit == DepositBonus.Limit.EVERY or not _used_up(t, _tier_promotion(t), player_id)]
+    tier, bonus = deposit_bonus_for(amount, usable)
+    if tier is None or bonus <= 0:
+        return None
+    promo = _tier_promotion(tier)
+    required = utils.wagering_requirement(bonus, tier.wagering_multiplier)
+    claim, created = PromotionClaim.objects.get_or_create(
+        source=f'deposit:{deposit_id}',
+        defaults={'player_id': player_id, 'promotion': promo, 'bonus_amount': bonus, 'wagering_required': required},
+    )
+    if not created:
+        return claim
+    wallet_services.credit(
+        player_id=player_id, amount=bonus, kind='bonus',
+        idempotency_key=helpers.bonus_credit_key(claim.id), reference=f'claim:{claim.id}',
+    )
+    claim.bonus_credited = True
+    if required <= 0:
+        claim.status = PromotionClaim.Status.COMPLETED
+        claim.completed_at = timezone.now()
+    claim.save(update_fields=['bonus_credited', 'status', 'completed_at'])
+    from apps.notifications import services as notif_services
+    notif_services.notify(
+        player_id=player_id, kind='bonus_credited', title=f'{tier.name}: {bonus} bonus',
+        body=(f'You got {bonus} ({tier.percent.normalize():f}% of your {utils.quantize(amount)} deposit). '
+              + (f'Bet {required} in total to make it withdrawable.' if required > 0 else 'It’s yours to use now.')),
+    )
+    return claim
+
+
+def used_deposit_bonuses(player_id: int, tiers) -> set[int]:
+    """Which of these limited tiers the player can't get again right now."""
+    return {t.pk for t in tiers
+            if t.limit != DepositBonus.Limit.EVERY and _used_up(t, _tier_promotion(t), player_id)}
+
+
+def deposit_bonus_stats() -> dict[int, dict]:
+    """Per tier: how many bonuses it has given and their total."""
+    from django.db.models import Sum
+
+    rows = (PromotionClaim.objects.filter(promotion__code__startswith='deposit-bonus:', bonus_credited=True)
+            .values('promotion__code').annotate(n=Count('id'), total=Sum('bonus_amount')))
+    return {int(r['promotion__code'].split(':')[1]): {'given': r['n'], 'total': r['total'] or Decimal('0')} for r in rows}
 
 
 def bonus_status(player_id: int) -> dict:

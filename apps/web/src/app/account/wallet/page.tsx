@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@slyk/ui/components/ca
 import { Badge } from '@slyk/ui/components/badge';
 import { useApi } from '@/lib/use-api';
 import { WithdrawPanel } from '@/components/withdraw-panel';
+import { DepositBonuses } from '@/components/deposit-bonuses';
 import { DepositModal } from '@/components/deposit-modal';
 import { LoadingState, Spinner } from '@slyk/ui/components/spinner';
 
@@ -53,6 +54,7 @@ export default function WalletPage() {
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   const [depositOpen, setDepositOpen] = useState(false);
+  const [depositAmount, setDepositAmount] = useState<number | undefined>();
 
   const balance = wallet?.balance ?? '0.00';
   const currency = wallet?.currency ?? 'USD';
@@ -119,6 +121,8 @@ export default function WalletPage() {
 
         </CardContent>
       </Card>
+
+      <DepositBonuses onDeposit={(amount) => { setDepositAmount(amount); setDepositOpen(true); }} />
 
       <Card className="rounded-2xl border-gold/15">
         <CardHeader className="flex-col gap-3 space-y-0 sm:flex-row sm:items-center sm:justify-between">
@@ -188,7 +192,8 @@ export default function WalletPage() {
 
       <DepositModal
         open={depositOpen}
-        onClose={() => { setDepositOpen(false); refetchWallet(); refetchLedger(); }}
+        initialAmount={depositAmount}
+        onClose={() => { setDepositOpen(false); setDepositAmount(undefined); refetchWallet(); refetchLedger(); }}
       />
     </div>
   );
