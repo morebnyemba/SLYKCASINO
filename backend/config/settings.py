@@ -272,6 +272,10 @@ SPORTSBOOK_LIVE_BET_DELAY = int(os.environ.get('SPORTSBOOK_LIVE_BET_DELAY', '6')
 # towards a tier (tiers are edited in the admin); the bonus paid on one slip is
 # capped at SPORTSBOOK_ACCA_BONUS_CAP (0 = no cap).
 SPORTSBOOK_ACCA_BONUS_MIN_ODDS = os.environ.get('SPORTSBOOK_ACCA_BONUS_MIN_ODDS', '1.20')
+
+# Over/under lines whose favourite side is priced below this are near-certain
+# ("Under 4.5" at 1.08) and aren't offered — the line is suspended, not deleted.
+SPORTSBOOK_TOTALS_MIN_ODDS = os.environ.get('SPORTSBOOK_TOTALS_MIN_ODDS', '1.25')
 SPORTSBOOK_ACCA_BONUS_CAP = os.environ.get('SPORTSBOOK_ACCA_BONUS_CAP', '1000')
 
 # ---------------------------------------------------------------------------

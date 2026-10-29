@@ -128,6 +128,23 @@ class FeedParsingTests(SimpleTestCase):
         self.assertFalse(any('-0.25' in k for k in by_key))  # quarter lines skipped
         self.assertEqual([o.key for o in by_key['double_chance:ft'].outcomes], ['1x', '12', 'x2'])
 
+    def test_obvious_total_lines_are_left_out(self):
+        markets = parse_markets([
+            {'name': 'Goals Over/Under', 'values': [
+                {'value': 'Over 0.5', 'odd': '1.06'}, {'value': 'Under 0.5', 'odd': '9.0'},
+                {'value': 'Over 2.5', 'odd': '1.9'}, {'value': 'Under 2.5', 'odd': '1.9'},
+                {'value': 'Over 4.5', 'odd': '6.5'}, {'value': 'Under 4.5', 'odd': '1.1'},
+            ]},
+            {'name': 'Corners Over Under', 'values': [
+                {'value': 'Over 4.5', 'odd': '1.02'}, {'value': 'Under 4.5', 'odd': '12'},
+            ]},
+        ])
+        self.assertEqual([m.key for m in markets], ['over_under:ft:2.5'])
+        with self.settings(SPORTSBOOK_TOTALS_MIN_ODDS='1'):
+            self.assertEqual(len(parse_markets([{'name': 'Goals Over/Under', 'values': [
+                {'value': 'Over 4.5', 'odd': '6.5'}, {'value': 'Under 4.5', 'odd': '1.1'},
+            ]}])), 1)
+
     def test_unknown_bets_become_manual_unless_disabled(self):
         bet = {'name': 'Player Shots On Target', 'values': [
             {'value': 'Over 1.5', 'odd': '1.8'}, {'value': 'Under 1.5', 'odd': '1.9'},

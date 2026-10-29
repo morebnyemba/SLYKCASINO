@@ -2,11 +2,11 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { FaHeadset, FaLock, FaPaperPlane } from 'react-icons/fa';
+import { FaHeadset, FaLock, FaPaperPlane, FaWhatsapp } from 'react-icons/fa';
 import { Card } from '@slyk/ui/components/card';
 import { Input } from '@slyk/ui/components/input';
 import { Spinner } from '@slyk/ui/components/spinner';
-import { openSupportChat } from '@/components/tawk-chat';
+import { useWhatsAppSupport } from '@/components/whatsapp-support';
 import { useAuth } from '@/lib/auth-context';
 import { config } from '@/lib/config';
 import { authedPost } from '@/lib/use-api';
@@ -25,6 +25,7 @@ export default function SupportChatPage() {
   const [error, setError] = useState<string | null>(null);
   const box = useRef<HTMLDivElement>(null);
   const lastCount = useRef(0);
+  const whatsapp = useWhatsAppSupport();
 
   const load = useCallback(async () => {
     if (!accessToken) return;
@@ -71,9 +72,12 @@ export default function SupportChatPage() {
             <FaLock size={11} /> Private — only you and the BetBlits support team can see this conversation.
           </p>
         </div>
-        <button onClick={openSupportChat} className="rounded-full border border-border px-3 py-1.5 text-xs font-semibold hover:bg-muted">
-          Prefer the chat bubble? Open it
-        </button>
+        {whatsapp && (
+          <a href={whatsapp} target="_blank" rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs font-semibold hover:bg-muted">
+            <FaWhatsapp size={13} className="text-[#25D366]" /> Prefer WhatsApp? Chat with us
+          </a>
+        )}
       </div>
 
       <Card className="flex flex-1 flex-col overflow-hidden rounded-2xl">
@@ -83,7 +87,12 @@ export default function SupportChatPage() {
               <p>Log in to chat privately with our support team about your account, deposits or withdrawals.</p>
               <div className="flex gap-2">
                 <Link href="/login" className="rounded-full bg-secondary px-4 py-2 font-bold text-secondary-foreground">Log in</Link>
-                <button onClick={openSupportChat} className="rounded-full border border-border px-4 py-2 font-semibold">Chat without logging in</button>
+                {whatsapp && (
+                  <a href={whatsapp} target="_blank" rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 rounded-full border border-border px-4 py-2 font-semibold">
+                    <FaWhatsapp className="text-[#25D366]" /> Chat on WhatsApp
+                  </a>
+                )}
               </div>
             </div>
           ) : messages === null ? (

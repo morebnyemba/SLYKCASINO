@@ -387,10 +387,10 @@ class PlayerViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.G
     permission_classes = [IsAdminUser]
 
     def get_queryset(self):
-        """Newest first, with the wallet balance joined in one query. List
-        filters: ?q= (username, email, name or #id), ?kyc=, ?status=active|suspended,
-        ?page_size= (up to 100)."""
-        from django.db.models import OuterRef, Q, Subquery
+        """Highest wallet balance first (?sort=newest for newest first), with the
+        balance joined in one query. List filters: ?q= (username, email, name
+        or #id), ?kyc=, ?status=active|suspended, ?page_size= (up to 100)."""
+        from django.db.models import F, OuterRef, Q, Subquery
 
         from apps.wallet.models import Wallet
 
@@ -398,10 +398,15 @@ class PlayerViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.G
         qs = Player.objects.annotate(
             wallet_balance=Subquery(wallets.values('balance')[:1]),
             wallet_currency=Subquery(wallets.values('currency')[:1]),
-        ).order_by('-created_at', '-id')
+        )
         if self.action != 'list':
-            return qs
+            return qs.order_by('-created_at', '-id')
         params = self.request.query_params
+        if params.get('sort') == 'newest':
+            qs = qs.order_by('-created_at', '-id')
+        else:
+            # Players without a wallet yet sort last, not first (NULLs are "largest" in Postgres).
+            qs = qs.order_by(F('wallet_balance').desc(nulls_last=True), '-created_at', '-id')
         q = (params.get('q') or '').strip().lstrip('#')
         if q:
             match = Q(username__icontains=q) | Q(email__icontains=q) | Q(full_name__icontains=q)

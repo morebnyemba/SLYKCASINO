@@ -48,6 +48,9 @@ class SiteIdentity(models.Model):
         # the site makes no licensing claim while it is empty.
         default='',
     )
+    # International format, digits only (e.g. 263771234567). Blank hides the
+    # site's WhatsApp support button.
+    whatsapp_number = models.CharField(max_length=20, blank=True, default='')
     updated_at = models.DateTimeField(auto_now=True)
     updated_by_username = models.CharField(max_length=150, blank=True)
 
