@@ -23,6 +23,7 @@ interface IdentityResponse {
   tagline: string;
   logo_url: string;
   license_text: string;
+  whatsapp_number: string;
   updated_at?: string;
   updated_by_username?: string;
 }
@@ -32,6 +33,7 @@ const DEFAULT_IDENTITY: IdentityResponse = {
   tagline: 'Bet smart. Brag often.',
   logo_url: '',
   license_text: '',
+  whatsapp_number: '',
 };
 
 // Keep in sync with backend/apps/branding/tokens.py.
@@ -230,7 +232,7 @@ function IdentitySection() {
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
-    if (data) setForm(data);
+    if (data) setForm({ ...DEFAULT_IDENTITY, ...data, whatsapp_number: data.whatsapp_number ?? '' });
   }, [data]);
 
   const set = (k: keyof IdentityResponse, v: string) => setForm((f) => ({ ...f, [k]: v }));
@@ -248,6 +250,7 @@ function IdentitySection() {
         tagline: form.tagline,
         logo_url: form.logo_url,
         license_text: form.license_text,
+        whatsapp_number: form.whatsapp_number,
       }),
     });
     setSaving(false);
@@ -275,7 +278,7 @@ function IdentitySection() {
       </CardHeader>
       <CardContent className="space-y-4">
         <p className="text-xs text-muted-foreground">
-          The site name, logo, tagline, and gambling licence text shown across the header, footer, login screen, and age gate.
+          The site name, logo, tagline, support WhatsApp number and gambling licence text shown across the header, footer, login screen, and age gate.
         </p>
         {loading && <LoadingState />}
         {error && <p className="text-sm text-red-500">Failed to load: {error}</p>}
@@ -316,6 +319,19 @@ function IdentitySection() {
                   <img src={form.logo_url} alt="Logo preview" className="h-9 w-auto max-w-[120px] shrink-0 rounded border border-border object-contain bg-white p-1" />
                 )}
               </div>
+            </div>
+            <div className="space-y-1 sm:col-span-2">
+              <label className="text-sm font-medium">Support WhatsApp number</label>
+              <input
+                value={form.whatsapp_number}
+                onChange={(e) => set('whatsapp_number', e.target.value)}
+                placeholder="+263 77 123 4567"
+                inputMode="tel"
+                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+              <p className="text-xs text-muted-foreground">
+                Full international number with country code. Players get a WhatsApp support button on every page that opens a chat with this number. Leave blank to hide the button.
+              </p>
             </div>
             <div className="space-y-1 sm:col-span-2">
               <label className="text-sm font-medium">Licence &amp; regulator text</label>

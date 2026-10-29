@@ -296,9 +296,17 @@ def _slug(text: str) -> str:
     return re.sub(r'[^a-z0-9]+', '_', text.lower()).strip('_')[:40]
 
 
+def _totals_min_odds() -> Decimal:
+    from django.conf import settings
+    return _dec(str(getattr(settings, 'SPORTSBOOK_TOTALS_MIN_ODDS', '1.25'))) or Decimal('1')
+
+
 def parse_markets(bets: list[dict[str, Any]], *, include_manual: bool = True) -> list[FeedMarketData]:
-    """Normalise a list of api-football bets ({name, values: [{value, odd}]})."""
+    """Normalise a list of api-football bets ({name, values: [{value, odd}]}).
+    Over/under lines with a near-certain side (priced under
+    SPORTSBOOK_TOTALS_MIN_ODDS, e.g. "Under 4.5" at 1.08) are left out."""
     markets: list[FeedMarketData] = []
+    totals_floor = _totals_min_odds()
     for bet in bets:
         name = str(bet.get('name') or '').strip()
         if not name or name in SKIP:
@@ -327,6 +335,8 @@ def parse_markets(bets: list[dict[str, Any]], *, include_manual: bool = True) ->
             outcomes = tuple(by_line[line].values())
             if len(outcomes) < 2 and spec.kind not in ('manual', 'anytime_scorer', 'first_scorer', 'last_scorer'):
                 continue  # a one-sided line can't be offered sensibly
+            if spec.kind.endswith('over_under') and min(o.odds for o in outcomes) < totals_floor:
+                continue  # an obvious line — no real price on either side
             if spec.split_lines and line is not None:
                 shown = _fmt_line(line) if 'handicap' in spec.kind else format(line.normalize(), 'f')
                 display = f'{spec.name} {shown}'

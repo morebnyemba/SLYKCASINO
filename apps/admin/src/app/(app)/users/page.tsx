@@ -21,15 +21,16 @@ const KYC_TONE: Record<string, 'green' | 'gold' | 'red' | 'slate'> = {
 };
 const select = 'h-10 rounded-xl border border-border bg-background px-3 text-sm';
 
-/** Every registered player, newest first: search by username, email, name or #id. */
+/** Every registered player, highest balance first (or newest first): search by username, email, name or #id. */
 export default function PlayersPage() {
   const [q, setQ] = useState('');
   const [search, setSearch] = useState('');
   const [kyc, setKyc] = useState('');
   const [status, setStatus] = useState('');
+  const [sort, setSort] = useState<'balance' | 'newest'>('balance');
   const [page, setPage] = useState(1);
   const params = new URLSearchParams({
-    page: String(page), page_size: String(PAGE_SIZE),
+    page: String(page), page_size: String(PAGE_SIZE), sort,
     ...(search && { q: search }), ...(kyc && { kyc }), ...(status && { status }),
   });
   const { data, loading, error } = useApi<PlayersResponse>(`/players/?${params}`);
@@ -52,7 +53,7 @@ export default function PlayersPage() {
   return (
     <div className="space-y-5">
       <PageHeader icon={FaUsers} eyebrow="Players" title="Players"
-        description="Every registered player, newest first. Open a player for their balance, tickets, Aviator bets, withdrawals and KYC." />
+        description="Every registered player, highest balance first. Open a player for their balance, tickets, Aviator bets, withdrawals and KYC." />
       {deleted && <Notice tone="green" onClose={() => setDeleted(null)}>Player {deleted} and all their data were permanently deleted.</Notice>}
 
       <form onSubmit={(e) => { e.preventDefault(); setSearch(q.trim()); setPage(1); }} className="flex flex-wrap items-center gap-2">
@@ -66,6 +67,9 @@ export default function PlayersPage() {
         </select>
         <select value={status} onChange={(e) => { setStatus(e.target.value); setPage(1); }} aria-label="Status" className={select}>
           <option value="">Active & suspended</option><option value="active">Active</option><option value="suspended">Suspended</option>
+        </select>
+        <select value={sort} onChange={(e) => { setSort(e.target.value as 'balance' | 'newest'); setPage(1); }} aria-label="Sort" className={select}>
+          <option value="balance">Highest balance</option><option value="newest">Newest first</option>
         </select>
         {(search || kyc || status) && <Btn type="button" onClick={() => { setQ(''); setSearch(''); setKyc(''); setStatus(''); setPage(1); }}>Clear</Btn>}
       </form>

@@ -214,3 +214,21 @@ class AdminPlayerListTests(TestCase):
         self.assertEqual([p['username'] for p in found], ['tendai_m'])
         self.assertEqual([p['username'] for p in api.get('/api/players/', {'q': f'#{target.id}'}).json()['results']], ['tendai_m'])
         self.assertEqual(api.get('/api/players/', {'status': 'suspended'}).json()['count'], 0)
+
+
+class AdminPlayerSortTests(TestCase):
+    def test_highest_balance_first_unless_newest_asked(self):
+        from django.contrib.auth.models import User
+
+        rich = account_services.create_player(username='rich', email='rich@example.com')
+        mid = account_services.create_player(username='mid', email='mid@example.com')
+        account_services.create_player(username='broke', email='broke@example.com')
+        wallet_services.deposit(player_id=rich.id, amount=Decimal('500'), idempotency_key='sort:rich')
+        wallet_services.deposit(player_id=mid.id, amount=Decimal('20'), idempotency_key='sort:mid')
+        api = APIClient()
+        api.force_authenticate(User.objects.create_user('ops', 'o@example.com', 'x', is_staff=True))
+
+        names = [p['username'] for p in api.get('/api/players/').json()['results']]
+        self.assertEqual(names, ['rich', 'mid', 'broke'])
+        newest = [p['username'] for p in api.get('/api/players/', {'sort': 'newest'}).json()['results']]
+        self.assertEqual(newest, ['broke', 'mid', 'rich'])

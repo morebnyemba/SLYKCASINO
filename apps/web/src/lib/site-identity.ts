@@ -5,6 +5,8 @@ export interface SiteIdentity {
   tagline: string;
   logo_url: string;
   license_text: string;
+  /** Digits only, with country code; blank hides the WhatsApp support button. */
+  whatsapp_number: string;
 }
 
 export const DEFAULT_IDENTITY: SiteIdentity = {
@@ -12,6 +14,7 @@ export const DEFAULT_IDENTITY: SiteIdentity = {
   tagline: 'Bet smart. Brag often.',
   logo_url: '',
   license_text: '',
+  whatsapp_number: '',
 };
 
 /**
@@ -29,6 +32,7 @@ export async function fetchSiteIdentity(): Promise<SiteIdentity> {
       logo_url: data.logo_url ?? '',
       // Blank on purpose until the operator enters a licence they actually hold.
       license_text: data.license_text ?? '',
+      whatsapp_number: data.whatsapp_number ?? '',
     };
   } catch {
     return DEFAULT_IDENTITY;

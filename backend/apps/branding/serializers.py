@@ -47,10 +47,18 @@ class SiteThemeSerializer(serializers.ModelSerializer):
 class SiteIdentitySerializer(serializers.ModelSerializer):
     class Meta:
         model = SiteIdentity
-        fields = ['site_name', 'tagline', 'logo_url', 'license_text', 'updated_at', 'updated_by_username']
+        fields = ['site_name', 'tagline', 'logo_url', 'license_text', 'whatsapp_number', 'updated_at', 'updated_by_username']
         read_only_fields = ['updated_at', 'updated_by_username']
 
     def validate_logo_url(self, value):
         if value and not _LOGO_URL_RE.match(value.strip()):
             raise serializers.ValidationError('must be an http(s):// URL or a site-relative path')
         return value
+
+    def validate_whatsapp_number(self, value):
+        # Accept "+263 77 123 4567" etc.; store the digits wa.me expects.
+        digits = re.sub(r'[\s\-().]', '', value or '').removeprefix('+')
+        if digits and not re.fullmatch(r'[1-9]\d{7,14}', digits):
+            raise serializers.ValidationError(
+                'must be a full international number with country code, e.g. +263771234567')
+        return digits

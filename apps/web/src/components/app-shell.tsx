@@ -4,7 +4,7 @@ import { Suspense } from 'react';
 import { usePathname } from 'next/navigation';
 import { SiteHeader } from '@/components/site-header';
 import { AnnouncementBar } from '@/components/announcement-bar';
-import { TawkChat } from '@/components/tawk-chat';
+import { WhatsAppButton } from '@/components/whatsapp-support';
 import { SiteFooter } from '@/components/site-footer';
 import { BottomNav } from '@/components/bottom-nav';
 import { AppSidebar, MobileMenu } from '@/components/app-sidebar';
@@ -48,7 +48,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </div>
       </div>
-      <TawkChat />
+      <WhatsAppButton />
       <MobileMenu />
       <GlobalSearch />
       <BetslipDrawer />

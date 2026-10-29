@@ -2,9 +2,9 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { FaHeadset, FaInfoCircle, FaTimes, FaWallet } from 'react-icons/fa';
+import { FaHeadset, FaInfoCircle, FaTimes, FaWallet, FaWhatsapp } from 'react-icons/fa';
 import { config } from '@/lib/config';
-import { openSupportChat } from '@/components/tawk-chat';
+import { useWhatsAppSupport } from '@/components/whatsapp-support';
 
 interface Announcement {
   enabled: boolean; title?: string; message?: string; tone?: 'info' | 'warning';
@@ -18,6 +18,7 @@ const KEY = 'slyk:announcement-dismissed';
 export function AnnouncementBar() {
   const [a, setA] = useState<Announcement | null>(null);
   const [hidden, setHidden] = useState(true);
+  const whatsapp = useWhatsAppSupport();
 
   useEffect(() => {
     let cancelled = false;
@@ -54,9 +55,10 @@ export function AnnouncementBar() {
             </Link>
           )}
           {a.show_support_button && (
-            <button onClick={openSupportChat} className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-3 py-1.5 text-xs font-bold hover:bg-muted">
-              <FaHeadset size={12} /> Contact support
-            </button>
+            <a href={whatsapp ?? '/livechat'} {...(whatsapp && { target: '_blank', rel: 'noopener noreferrer' })}
+              className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-3 py-1.5 text-xs font-bold hover:bg-muted">
+              {whatsapp ? <FaWhatsapp size={13} className="text-[#25D366]" /> : <FaHeadset size={12} />} Contact support
+            </a>
           )}
           <button onClick={close} aria-label="Close notice" className="rounded-full p-1.5 text-muted-foreground hover:bg-black/10 hover:text-foreground">
             <FaTimes size={12} />
