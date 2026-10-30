@@ -336,10 +336,10 @@ def generate_password_reset_token(email: str):
 # ---------------------------------------------------------------------------
 
 def audit(player_id, event_type, request=None, **metadata):
+    from common.client_ip import client_ip
+
     from .models import AuditLog
-    ip = None
-    if request:
-        ip = request.META.get('HTTP_X_FORWARDED_FOR', '').split(',')[0].strip() or request.META.get('REMOTE_ADDR')
+    ip = client_ip(request) if request else None
     AuditLog.objects.create(
         player_id=player_id,
         event_type=event_type,

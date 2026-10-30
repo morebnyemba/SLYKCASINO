@@ -19,8 +19,9 @@ from rest_framework.permissions import AllowAny, IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import AnonRateThrottle
 from rest_framework.views import APIView
-from rest_framework_simplejwt.exceptions import TokenError
+from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.views import TokenObtainPairView
 
 from . import services
 from .emails import send_password_reset_email, send_verification_email, send_welcome_email
@@ -81,6 +82,22 @@ class RegisterView(APIView):
         token = services.generate_verify_token(player.id)
         send_verification_email(player, token)
         return Response(PlayerSerializer(player).data, status=status.HTTP_201_CREATED)
+
+
+class LoginView(TokenObtainPairView):
+    """POST /api/auth/login/ — simplejwt's login, recorded in the audit log
+    (with the device's IP) so shared-address accounts show up."""
+
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        try:
+            serializer.is_valid(raise_exception=True)
+        except TokenError as exc:
+            raise InvalidToken(exc.args[0]) from exc
+        player = Player.objects.filter(user=serializer.user).only('id').first()
+        if player:
+            services.audit(player.id, 'login', request)
+        return Response(serializer.validated_data, status=status.HTTP_200_OK)
 
 
 class LogoutView(APIView):
@@ -643,4 +660,8 @@ class AdminAuditLogViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         player_id = self.request.query_params.get('player_id')
         if player_id:
             qs = qs.filter(player_id=player_id)
+        # Every action from one address — spots several accounts signing up from it.
+        ip = (self.request.query_params.get('ip') or '').strip()
+        if ip:
+            qs = qs.filter(ip_address=ip)
         return qs[:500]
