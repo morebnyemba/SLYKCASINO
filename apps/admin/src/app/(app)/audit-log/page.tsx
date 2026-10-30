@@ -39,9 +39,10 @@ const PAGE_SIZE = 25;
 export default function AuditLogPage() {
   const [eventType, setEventType] = useState('');
   const [playerId, setPlayerId] = useState('');
+  const [ip, setIp] = useState('');
   const [page, setPage] = useState(1);
 
-  const filters = `${eventType ? `&event_type=${eventType}` : ''}${playerId ? `&player_id=${playerId}` : ''}`;
+  const filters = `${eventType ? `&event_type=${eventType}` : ''}${playerId ? `&player_id=${playerId}` : ''}${ip.trim() ? `&ip=${encodeURIComponent(ip.trim())}` : ''}`;
   const { data, loading, error } = useApi<AuditLogResponse>(`/admin/audit-log/?page=${page}${filters}`);
   const entries = data?.results ?? [];
   const totalPages = data?.count ? Math.ceil(data.count / PAGE_SIZE) : 1;
@@ -65,7 +66,19 @@ export default function AuditLogPage() {
           placeholder="Filter by player ID"
           className="w-48 rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
         />
+        <input
+          type="text"
+          value={ip}
+          onChange={(e) => { setIp(e.target.value); setPage(1); }}
+          placeholder="Filter by IP address"
+          className="w-48 rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+        />
       </div>
+      {ip.trim() && entries.length > 0 && (
+        <p className="text-sm text-muted-foreground">
+          {new Set(entries.map((e) => e.player_id).filter(Boolean)).size} player account(s) on this page used {ip.trim()}.
+        </p>
+      )}
 
       {error && <p className="text-sm text-destructive">{error}</p>}
 
@@ -95,7 +108,13 @@ export default function AuditLogPage() {
                         <Link href={`/players/${e.player_id}`} className="text-gold hover:underline">#{e.player_id}</Link>
                       ) : '—'}
                     </td>
-                    <td className="px-4 py-3 text-muted-foreground">{e.ip_address ?? '—'}</td>
+                    <td className="px-4 py-3 text-muted-foreground">
+                      {e.ip_address ? (
+                        <button onClick={() => { setIp(e.ip_address!); setPage(1); }} title="Show everything from this IP" className="font-mono hover:text-foreground hover:underline">
+                          {e.ip_address}
+                        </button>
+                      ) : '—'}
+                    </td>
                     <td className="px-4 py-3 text-xs text-muted-foreground font-mono">
                       {Object.keys(e.metadata ?? {}).length > 0 ? JSON.stringify(e.metadata) : '—'}
                     </td>

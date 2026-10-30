@@ -105,6 +105,11 @@ DATABASES = {
 # Served behind the nginx gateway under /django-admin/ — keep the admin there too.
 # (The REST API mounts at the root of this service and is exposed via nginx /api/.)
 
+# Reverse proxies in front of Django that append to X-Forwarded-For: 1 for the
+# bundled nginx; 2 if another proxy (Cloudflare, Nginx Proxy Manager) is in
+# front of it. Decides which address the audit log and throttles see.
+TRUSTED_PROXY_COUNT = int(os.environ.get('TRUSTED_PROXY_COUNT', '1'))
+
 REST_FRAMEWORK = {
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 25,
@@ -116,6 +121,8 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
     ],
+    # Throttle per real client (see common/client_ip.py), not per proxy.
+    'NUM_PROXIES': TRUSTED_PROXY_COUNT,
     'DEFAULT_THROTTLE_CLASSES': [
         'rest_framework.throttling.AnonRateThrottle',
         'rest_framework.throttling.UserRateThrottle',
