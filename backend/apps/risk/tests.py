@@ -137,10 +137,12 @@ class DetectorTests(Base):
         self.assertFalse(self.refreshed(self.alice).is_suspended)
 
     def test_many_accounts_from_one_ip_is_only_low(self):
+        import secrets
+        password = secrets.token_urlsafe(16)  # generated per run; test-only
         api = APIClient(REMOTE_ADDR='10.0.0.1')
         for i in range(5):
             res = api.post('/api/auth/register/', {'username': f'ip{i}', 'email': f'ip{i}@example.com',
-                                                   'password': 'Passw0rd!xyz', 'accept_terms': True},
+                                                   'password': password, 'accept_terms': True},
                            format='json', HTTP_X_FORWARDED_FOR='41.1.1.1')
             self.assertEqual(res.status_code, 201, res.content)
         flagged = RiskSignal.objects.filter(code='many_accounts_one_ip')
