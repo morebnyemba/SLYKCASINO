@@ -32,6 +32,8 @@ const EVENT_TYPES = [
   'affiliate_applied', 'affiliate_status', 'affiliate_terms', 'affiliate_programme', 'affiliate_commission_paid',
   'theme_updated', 'identity_updated', 'feed_settings_changed',
   'payment_settings', 'cashout_settings', 'jet_settings',
+  'risk_case_opened', 'risk_case_confirmed', 'risk_case_dismissed', 'risk_restrictions', 'risk_settings',
+  'withdrawal_wallet_violation', 'bonus_refused', 'deposit_refunded', 'ledger_drift', 'wallet_rules',
 ];
 
 const PAGE_SIZE = 25;

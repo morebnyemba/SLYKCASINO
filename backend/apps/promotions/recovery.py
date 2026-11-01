@@ -37,7 +37,9 @@ class RecoveryManager(BaseRecoveryManager):
         self._expire_stale()
 
     def _recredit_uncredited(self) -> None:
-        pending = PromotionClaim.objects.filter(bonus_credited=False, bonus_amount__gt=0)
+        # Forfeited claims (refused by the fraud engine) are never credited.
+        pending = PromotionClaim.objects.filter(bonus_credited=False, bonus_amount__gt=0).exclude(
+            status=PromotionClaim.Status.FORFEITED)
         for claim in pending.iterator():
             self.mark_scanned()
             if self.dry_run:

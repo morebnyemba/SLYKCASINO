@@ -45,6 +45,8 @@ def claim_promotion(*, player_id: int, promotion_id: int) -> PromotionClaim:
         return claim  # idempotent — one claim per (player, promotion)
 
     if promo.bonus_amount > 0:
+        if _refused(claim, promo.code):
+            return claim
         wallet_services.credit(
             player_id=player_id, amount=promo.bonus_amount, kind='bonus',
             idempotency_key=helpers.bonus_credit_key(claim.id), reference=f'claim:{claim.id}',
@@ -81,6 +83,21 @@ def record_wagering(*, player_id: int, amount: Decimal) -> int:
     return completed
 
 
+def _refused(claim: PromotionClaim, code: str) -> bool:
+    """Ask the fraud engine first: a bonus it refuses (account under review,
+    or the same bonus already given to an account using the same payment
+    number) is forfeited, never credited — and never retried by recovery."""
+    from apps.accounts import services as accounts_services
+    from apps.risk import services as risk
+    why = risk.bonus_refusal(claim.player_id, code)
+    if why is None:
+        return False
+    claim.status = PromotionClaim.Status.FORFEITED
+    claim.save(update_fields=['status'])
+    accounts_services.audit(claim.player_id, 'bonus_refused', None, claim_id=claim.id, promotion=code, reason=why)
+    return True
+
+
 def _system_promotion(code: str, name: str) -> Promotion:
     """A hidden, never-claimable promotion that system-granted bonuses hang
     their claims (and wagering) on."""
@@ -108,6 +125,8 @@ def grant_bonus(
         defaults={'bonus_amount': amount, 'wagering_required': required},
     )
     if not created:
+        return claim
+    if _refused(claim, promo.code):
         return claim
     wallet_services.credit(
         player_id=player_id, amount=amount, kind='bonus',
@@ -192,6 +211,8 @@ def on_deposit(*, player_id: int, amount: Decimal, deposit_id: int) -> Promotion
         defaults={'player_id': player_id, 'promotion': promo, 'bonus_amount': bonus, 'wagering_required': required},
     )
     if not created:
+        return claim
+    if _refused(claim, promo.code):
         return claim
     wallet_services.credit(
         player_id=player_id, amount=bonus, kind='bonus',

@@ -294,6 +294,11 @@ class AdminLedgerViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
 class WithdrawView(APIView):
     """POST /api/wallet/withdraw/ {amount, method, account_number, account_name?, bank_name?}
     — ask to be paid out. The amount is held at once; staff send it and mark it paid."""
+    throttle_scope = 'withdraw'
+
+    def get_throttles(self):
+        from rest_framework.throttling import ScopedRateThrottle
+        return [*super().get_throttles(), ScopedRateThrottle()]
 
     def post(self, request):
         from . import withdrawals
@@ -311,6 +316,8 @@ class WithdrawView(APIView):
             # The app never sends this: a tampered request. Recorded for review.
             accounts_services.audit(player.id, 'withdrawal_wallet_violation', request,
                                     wallet=exc.wallet, amount=str(d.get('amount'))[:20])
+            from apps.risk import services as risk
+            risk.on_wallet_tamper(player.id, wallet=exc.wallet, amount=str(d.get('amount'))[:20])
             return Response({'detail': str(exc)}, status=exc.code)
         except withdrawals.WithdrawalError as exc:
             body = {'detail': str(exc)}

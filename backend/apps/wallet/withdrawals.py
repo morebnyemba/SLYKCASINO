@@ -118,6 +118,10 @@ def request(*, player, amount, method: str, account_number: str = '', account_na
     # take their winnings; unplayed deposits come back via refund_deposit.)
     if player.kyc_status != player.Kyc.VERIFIED:
         raise WithdrawalError('Identity verification is required before you can withdraw.', code=403)
+    from apps.risk import services as risk
+    blocked = risk.withdrawals_blocked(player)
+    if blocked:
+        raise WithdrawalError(blocked, code=403)
     amount = _money(amount)
     cfg = WithdrawalSettings.load()
     if amount < cfg.min_amount:
@@ -150,12 +154,16 @@ def request(*, player, amount, method: str, account_number: str = '', account_na
             raise WithdrawalError('Enter the bank, account name and account number.')
 
     fee = fee_for(amount, cfg)
+    held = risk.needs_review(player.id)
     req = WithdrawalRequest.objects.create(
+        risk_hold=held, risk_note='Account under fraud review' if held else '',
         player_id=player.id, amount=amount, fee=fee, method=method, account_number=number[:60],
         account_name=(account_name or '').strip()[:120], bank_name=(bank_name or '').strip()[:80] if method == 'bank' else '',
     )
     services.debit(player_id=player.id, amount=amount, kind=LedgerEntry.Kind.WITHDRAWAL_HOLD,
                    idempotency_key=f'withdrawal:{req.id}:hold', reference=f'withdrawal:{req.id}')
+    # May hold this request (or freeze the account) if it looks wrong.
+    risk.on_withdrawal_request(req)
     _notify(player.id, 'Withdrawal requested',
             f'We’ve received your request for ${amount:.2f} to {req.get_method_display()}. '
             f'You’ll be sent ${req.payout_amount:.2f} after the ${fee:.2f} withdrawal fee, '
@@ -218,6 +226,9 @@ def mark_paid(req_id: int, *, reference: str, by: str = '', confirm_amount=None,
             raise WithdrawalError(f'The amount you confirmed doesn’t match what was to be sent (${req.payout_amount:.2f}).')
     if req.status != OPEN:
         raise WithdrawalError(f'This withdrawal is already {req.get_status_display().lower()}.', code=409)
+    if req.risk_hold:
+        raise WithdrawalError('This withdrawal is held by a fraud check — review the player’s case first '
+                              f'({req.risk_note or "Fraud & risk"}).', code=409)
     # Release the hold and post what was sent plus the fee kept — balance
     # unchanged, and reports now count the money out and the fee earned.
     # (A legacy one was posted long ago.)
@@ -293,6 +304,8 @@ def payload(req: WithdrawalRequest, *, staff: bool = False) -> dict:
         'created_at': req.created_at.isoformat(), 'decided_at': req.decided_at.isoformat() if req.decided_at else None,
         'legacy': req.legacy,
     }
+    if staff:
+        data.update(risk_hold=req.risk_hold, risk_note=req.risk_note)
     if staff:
         data.update(player_id=req.player_id, decided_by=req.decided_by)
     return data

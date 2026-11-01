@@ -7,7 +7,7 @@ import type { IconType } from 'react-icons';
 import {
   BsActivity, BsBroadcast, BsCalendar2Week, BsCashStack, BsChatDots, BsClockHistory, BsGift, BsGrid1X2,
   BsImages, BsList, BsMoonStars, BsPalette, BsPeople, BsPersonBadge, BsBoxArrowRight, BsSun, BsTicketPerforated,
-  BsTrophy, BsXLg, BsDiagram3, BsDatabase, BsCreditCard2Front, BsAirplane, BsPieChart, BsBank,
+  BsTrophy, BsXLg, BsDiagram3, BsDatabase, BsCreditCard2Front, BsAirplane, BsPieChart, BsBank, BsShieldExclamation,
 } from 'react-icons/bs';
 import { useAuth } from '@/lib/auth-context';
 import { useSiteIdentity } from '@/lib/identity-context';
@@ -15,7 +15,7 @@ import { useTheme } from '@/lib/theme-context';
 import { useApi } from '@/lib/use-api';
 import { cx } from '@/components/console/ui';
 
-type Badge = 'kyc' | 'live' | 'commissions' | 'settle' | 'payouts' | 'support';
+type Badge = 'kyc' | 'live' | 'commissions' | 'settle' | 'payouts' | 'support' | 'risk';
 
 interface NavItem { href: string; label: string; icon: IconType; badge?: Badge; match?: string[] }
 interface NavSection { title: string; items: NavItem[] }
@@ -40,6 +40,7 @@ export const NAV: NavSection[] = [
   { title: 'Players', items: [
     { href: '/users', label: 'Players', icon: BsPeople, match: ['/users', '/players'] },
     { href: '/kyc', label: 'KYC review', icon: BsPersonBadge, badge: 'kyc' },
+    { href: '/risk', label: 'Fraud & risk', icon: BsShieldExclamation, badge: 'risk' },
   ] },
   { title: 'Money', items: [
     { href: '/withdrawals', label: 'Withdrawals', icon: BsBank, badge: 'payouts' },
@@ -65,7 +66,7 @@ export function isActive(pathname: string, item: NavItem) {
 interface NavStats {
   queues?: {
     kyc_pending?: number; commissions_pending?: number; payouts_pending?: number; markets_to_settle?: number;
-    withdrawals_pending?: number; support_unread?: number;
+    withdrawals_pending?: number; support_unread?: number; risk_cases_open?: number;
   };
   sportsbook?: { live?: number };
 }
@@ -81,6 +82,7 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
     payouts: (data?.queues?.withdrawals_pending ?? 0) + (data?.queues?.payouts_pending ?? 0),
     support: data?.queues?.support_unread ?? 0,
     settle: data?.queues?.markets_to_settle ?? 0,
+    risk: data?.queues?.risk_cases_open ?? 0,
   };
   return (
     <nav className="flex flex-col gap-5">
@@ -108,7 +110,7 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
                   {count > 0 && (
                     <span className={cx(
                       'min-w-5 rounded-full px-1.5 py-px text-center text-[10.5px] font-bold tabular-nums',
-                      item.badge === 'live' ? 'bg-live text-white' : 'bg-white/15 text-white',
+                      item.badge === 'live' || item.badge === 'risk' ? 'bg-live text-white' : 'bg-white/15 text-white',
                     )}>
                       {count > 99 ? '99+' : count}
                     </span>

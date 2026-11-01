@@ -150,12 +150,26 @@ def _after_new_entry(player_id: int, entry: LedgerEntry) -> None:
     free of import-time dependencies on other apps."""
     if entry.kind in ('bet_stake', 'casino_debit'):
         from apps.promotions import services as promotions_services
+        from apps.risk import services as risk
         promotions_services.record_wagering(player_id=player_id, amount=abs(entry.amount))
+        risk.safely(risk.on_stake, player_id, amount=abs(entry.amount))
     elif entry.kind == 'deposit':
         from apps.affiliates import services as affiliate_services
         from apps.promotions import services as promotions_services
+        from apps.risk import services as risk
+        # Checked first, so a deposit from another account's number blocks its bonus.
+        risk.safely(risk.on_deposit, player_id, amount=entry.amount, phone=_deposit_phone(entry.reference))
         if not affiliate_services.on_deposit(player_id=player_id, amount=entry.amount):
             promotions_services.on_deposit(player_id=player_id, amount=entry.amount, deposit_id=entry.id)
+
+
+def _deposit_phone(reference: str) -> str:
+    """The mobile number a gateway deposit came from ('psp:paynow:<ref>')."""
+    from .models import PaymentTransaction
+    ref = reference.rsplit(':', 1)[-1] if reference.startswith('psp:') else ''
+    if not ref:
+        return ''
+    return PaymentTransaction.objects.filter(reference=ref).values_list('phone', flat=True).first() or ''
 
 
 def debit(

@@ -13,6 +13,7 @@ import { ImpersonateButton } from '@/components/players/impersonate';
 import { PlayerActivity } from '@/components/tickets/tickets';
 import { kindLabel, kindTone, WALLET_LABEL, WALLETS, type WalletId } from '@/lib/ledger-kinds';
 import { DepositRefund } from '@/components/deposit-refund';
+import { PlayerRisk } from '@/components/risk/player-risk';
 
 type PageProps = { params: Promise<{ id: string }> };
 
@@ -274,6 +275,8 @@ export default function PlayerDetailPage({ params }: PageProps) {
           </form>
         </CardContent>
       </Card>
+
+      <PlayerRisk playerId={player.id} onChanged={refetch} />
 
       <DepositRefund playerId={player.id} onDone={refetch} />
 

@@ -399,6 +399,10 @@ def delete_player(player_id: int, *, confirm_username: str, force: bool = False,
         raise DeletionBlocked('staff accounts can’t be deleted here')
     if (confirm_username or '').strip() != check['username']:
         raise DeletionBlocked('type the player’s username exactly to confirm')
+    from apps.risk.models import RiskCase
+    if RiskCase.objects.filter(player_id=player_id, status=RiskCase.Status.OPEN).exists():
+        # Not even `force`: the records are the evidence.
+        raise DeletionBlocked('this player has an open fraud case — close it first (Fraud & risk)')
     if not force:
         problems = []
         if check['balance'] != 0:
