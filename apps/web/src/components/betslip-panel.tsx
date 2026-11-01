@@ -8,6 +8,7 @@ import { LoadCodeForm, ShareSlip } from '@/components/booking-code';
 import { useAuth } from '@/lib/auth-context';
 import { useBetslip, keyOf, type BetLeg, type Selection } from '@/lib/betslip-context';
 import { formatOdds, useSettings } from '@/lib/settings-context';
+import { meetsMinOdds, useWallets, WALLET_IDS, WALLET_LABEL, type WalletId } from '@/lib/wallets';
 import { Spinner } from '@slyk/ui/components/spinner';
 
 const SELECTION_CODE: Record<Selection, string> = { home: '1', draw: 'X', away: '2' };
@@ -24,6 +25,45 @@ function pickLabel(leg: BetLeg): string {
 
 function money(n: number) {
   return `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+/** Which wallet pays for the slip. Each shows its balance and minimum odds;
+ *  one the slip's odds don't reach can't be picked. The server enforces the
+ *  same rules — this only shows them before the player confirms. */
+function WalletPicker({ odds }: { odds: number }) {
+  const { wallet, setWallet } = useBetslip();
+  const { data } = useWallets();
+  const { oddsFormat } = useSettings();
+  if (!data?.wallets) return null;
+  return (
+    <fieldset className="mb-3">
+      <legend className="mb-1.5 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Pay from</legend>
+      <div className="grid grid-cols-3 gap-1.5">
+        {WALLET_IDS.map((id: WalletId) => {
+          const info = data.wallets[id];
+          const ok = meetsMinOdds(info, odds);
+          const chosen = wallet === id;
+          return (
+            <button
+              key={id}
+              type="button"
+              disabled={!ok}
+              onClick={() => setWallet(id)}
+              aria-pressed={chosen}
+              title={ok ? undefined : `Needs odds of ${formatOdds(Number(info.min_odds), oddsFormat)} or more`}
+              className={`rounded-lg border px-2 py-1.5 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-45 ${
+                chosen ? 'border-secondary bg-secondary/10' : 'border-border hover:bg-muted'
+              }`}
+            >
+              <span className="block text-[11px] font-bold">{WALLET_LABEL[id]}</span>
+              <span className="block text-[13px] font-extrabold tabular-nums">{money(Number(info.balance))}</span>
+              <span className="block text-[10px] text-muted-foreground">Min odds {formatOdds(Number(info.min_odds), oddsFormat)}</span>
+            </button>
+          );
+        })}
+      </div>
+    </fieldset>
+  );
 }
 
 /** The slip body, shared by the desktop rail card and the mobile sheet. */
@@ -55,7 +95,7 @@ export function SlipBody({ onClose, variant = 'card' }: {
   const placeLabel = isSingles
     ? `Place ${legs.length} bet${legs.length === 1 ? '' : 's'} · ${money(totalStake)}`
     : `Place bet · ${money(totalStake)}`;
-  const rejected = !!status && /^(Rejected|Enter|Please|Odds changed|Multiples|Placed \d)/.test(status);
+  const rejected = !!status && /^(Rejected|Enter|Please|Choose|Odds changed|Multiples|Placed \d)/.test(status);
 
   return (
     <div className={variant === 'rail'
@@ -224,6 +264,8 @@ export function SlipBody({ onClose, variant = 'card' }: {
                 </div>
               </div>
             )}
+
+            {user && <WalletPicker odds={isSingles ? Math.min(...legs.map((l) => l.odds)) : combinedOdds} />}
 
             <dl className="mb-3 space-y-1 text-[12.5px]">
               {!isSingles && (

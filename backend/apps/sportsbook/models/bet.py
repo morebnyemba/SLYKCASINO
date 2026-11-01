@@ -1,5 +1,7 @@
 from django.db import models
 
+from apps.wallet.models.wallet import Bucket
+
 
 class Selection(models.TextChoices):
     """Which outcome a wager backs. For two-outcome markets (e.g. tennis) only
@@ -42,6 +44,9 @@ class Bet(models.Model):
         'MarketOutcome', null=True, blank=True, on_delete=models.SET_NULL, related_name='bets',
     )
     stake = models.DecimalField(max_digits=12, decimal_places=2)
+    # The wallet (deposit / bonus / winnings) the stake was paid from: refunds
+    # and the stake part of a win go back there, only profit goes to winnings.
+    wallet = models.CharField(max_length=10, choices=Bucket.choices)
     odds = models.DecimalField(max_digits=6, decimal_places=2)
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.OPEN)
     payout = models.DecimalField(max_digits=14, decimal_places=2, default=0)
@@ -59,6 +64,9 @@ class Bet(models.Model):
 
     class Meta:
         db_table = 'sportsbook_bet'
+        constraints = [
+            models.CheckConstraint(check=models.Q(wallet__in=Bucket.values), name='sportsbook_bet_wallet_valid'),
+        ]
         ordering = ['-placed_at']
         indexes = [models.Index(fields=['status', 'placed_at'])]
 

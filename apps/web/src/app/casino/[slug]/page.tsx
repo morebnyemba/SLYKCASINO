@@ -7,6 +7,8 @@ import { Badge } from '@slyk/ui/components/badge';
 import { useAuth } from '@/lib/auth-context';
 import { useApi, authedPost } from '@/lib/use-api';
 import { Spinner } from '@slyk/ui/components/spinner';
+import { WalletSelect } from '@/components/wallet-select';
+import { announceWalletChange, type WalletId } from '@/lib/wallets';
 
 type PageProps = { params: Promise<{ slug: string }>; searchParams: Promise<{ id?: string; demo?: string }> };
 
@@ -54,6 +56,7 @@ export default function GamePage({ params, searchParams }: PageProps) {
   const { data: wallet, refetch: refetchWallet } = useApi<Wallet>('/wallet/');
 
   const [stake, setStake] = useState('5');
+  const [payFrom, setPayFrom] = useState<WalletId | ''>('');
   const [spinning, setSpinning] = useState(false);
   const [reels, setReels] = useState(['🎰', '🎰', '🎰']);
   const [result, setResult] = useState<SpinResult | null>(null);
@@ -97,6 +100,7 @@ export default function GamePage({ params, searchParams }: PageProps) {
     }
 
     if (!accessToken || !gameId) return;
+    if (!payFrom) { setError('Choose which wallet to play from.'); return; }
     setSpinning(true);
 
     // Animate reels while waiting
@@ -106,7 +110,7 @@ export default function GamePage({ params, searchParams }: PageProps) {
 
     const { data, error: err } = await authedPost<SpinResult>(
       `/casino/games/${gameId}/play/`,
-      { stake: parseFloat(stake) },
+      { stake: parseFloat(stake), wallet: payFrom },
       accessToken,
     );
 
@@ -122,6 +126,7 @@ export default function GamePage({ params, searchParams }: PageProps) {
     setResult(data);
     setHistory((h) => [data, ...h.slice(0, 9)]);
     refetchWallet();
+    announceWalletChange();
 
     // Show win reels (same symbol = win feel)
     const win = parseFloat(data.win);
@@ -151,6 +156,7 @@ export default function GamePage({ params, searchParams }: PageProps) {
           <p className="text-center text-sm text-muted-foreground">
             {demoMode ? 'Demo credits' : 'Balance'}: <span className="font-bold text-foreground">{balance} {currency}</span>
           </p>
+          {!demoMode && <div className="flex justify-center"><WalletSelect value={payFrom} onChange={setPayFrom} /></div>}
           {demoMode && (
             <p className="text-center text-xs text-muted-foreground">
               Practice mode — no real money.{' '}

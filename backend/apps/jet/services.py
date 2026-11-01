@@ -86,6 +86,7 @@ def bet_payload(bet: JetBet, *, mine: bool = False) -> dict:
     if mine:
         data['auto_cashout'] = str(bet.auto_cashout) if bet.auto_cashout else None
         data['is_free'] = bet.is_free
+        data['wallet'] = bet.wallet
     return data
 
 
@@ -121,10 +122,12 @@ def _money(value, field: str) -> Decimal:
 
 
 @transaction.atomic
-def place_bet(*, player, stake=None, slot: int = 1, auto_cashout=None, free_bet_id=None, now=None) -> JetBet:
-    """Bet on the round that is taking bets — with money, or with one of the
-    player's free bets (free_bet_id; its amount is the stake). Raises JetError
-    (shown to the player) or wallet_services.InsufficientFunds."""
+def place_bet(*, player, stake=None, slot: int = 1, auto_cashout=None, free_bet_id=None, now=None,
+              wallet=None) -> JetBet:
+    """Bet on the round that is taking bets — with money from the wallet the
+    player chose, or with one of the player's free bets (free_bet_id; its
+    amount is the stake). Raises JetError (shown to the player) or
+    wallet_services.InsufficientFunds."""
     from apps.accounts import services as accounts_services
 
     now = now or timezone.now()
@@ -144,6 +147,12 @@ def place_bet(*, player, stake=None, slot: int = 1, auto_cashout=None, free_bet_
         if free is None:
             raise JetError('That free bet has been used or has expired.')
         stake = free.amount
+        wallet = 'bonus'  # a free bet is promotional money
+    else:
+        try:
+            wallet = wallet_services.betting_bucket(wallet)
+        except wallet_services.WalletRuleError as exc:
+            raise JetError(str(exc))
     stake = _money(stake, 'stake')
     if free is None and (stake < cfg.min_bet or stake > cfg.max_bet):
         raise JetError(f'Bets are ${cfg.min_bet:.2f} to ${cfg.max_bet:.2f}.')
@@ -164,7 +173,7 @@ def place_bet(*, player, stake=None, slot: int = 1, auto_cashout=None, free_bet_
 
     bet = JetBet.objects.create(
         round=rnd, player_id=player.id, display_name=engine.mask_name(player.username),
-        slot=slot, stake=stake, auto_cashout=auto, is_free=free is not None,
+        slot=slot, stake=stake, auto_cashout=auto, is_free=free is not None, wallet=wallet,
     )
     if free is not None:
         # No money moves and the round's (real-money) totals are untouched.
@@ -172,7 +181,7 @@ def place_bet(*, player, stake=None, slot: int = 1, auto_cashout=None, free_bet_
         free.save(update_fields=['status', 'bet'])
     else:
         wallet_services.debit(
-            player_id=player.id, amount=stake, kind='casino_debit',
+            player_id=player.id, amount=stake, kind='casino_debit', bucket=wallet,
             idempotency_key=f'jet:stake:{bet.id}', reference=f'jet:round:{rnd.id}:bet:{bet.id}',
         )
         JetRound.objects.filter(pk=rnd.pk).update(total_stake=F('total_stake') + stake, bet_count=F('bet_count') + 1)
@@ -203,7 +212,7 @@ def _refund(bet: JetBet, now) -> None:
         JetFreeBet.objects.filter(bet=bet).update(status=JetFreeBet.Status.AVAILABLE, bet=None)
     else:
         wallet_services.credit(
-            player_id=bet.player_id, amount=bet.stake, kind='casino_credit',
+            player_id=bet.player_id, amount=bet.stake, kind='casino_credit', bucket=bet.wallet,
             idempotency_key=f'jet:refund:{bet.id}', reference=f'jet:round:{bet.round_id}:bet:{bet.id}:refund',
         )
     bet.status = JetBet.Status.REFUNDED
@@ -224,8 +233,8 @@ def _pay(bet: JetBet, multiplier: Decimal, cfg: JetSettings, now) -> JetBet:
                 idempotency_key=f'jet:freewin:{bet.id}', reference=f'jet:round:{bet.round_id}:bet:{bet.id}:free-bet-win',
             )
     else:
-        wallet_services.credit(
-            player_id=bet.player_id, amount=payout, kind='casino_credit',
+        wallet_services.pay_out(
+            player_id=bet.player_id, source=bet.wallet, stake=bet.stake, payout=payout, kind='casino_credit',
             idempotency_key=f'jet:payout:{bet.id}', reference=f'jet:round:{bet.round_id}:bet:{bet.id}:cashout',
         )
     bet.status = JetBet.Status.CASHED

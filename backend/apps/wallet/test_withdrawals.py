@@ -26,8 +26,12 @@ class WithdrawalTests(TestCase):
         self.user = User.objects.create(username='tendai')
         self.player.user = self.user
         self.player.save(update_fields=['kyc_status', 'user'])
+        # 200 deposited (can't be withdrawn) and 200 of winnings (can).
         services.deposit(player_id=self.player.id, amount=D('200'), idempotency_key='dep:1')
-        WithdrawalSettings.objects.update_or_create(pk=1, defaults={'min_turnover_percent': 0})
+        services.credit(player_id=self.player.id, amount=D('200'), kind='adjustment', bucket='winnings',
+                        idempotency_key='won:1')
+        # The fee has its own tests (FeeTests); here it's off so amounts stay round.
+        WithdrawalSettings.objects.update_or_create(pk=1, defaults={'min_turnover_percent': 0, 'fee_percent': 0})
         self.api = APIClient()
         self.api.force_authenticate(self.user)
         self.staff = APIClient()
@@ -42,7 +46,7 @@ class WithdrawalTests(TestCase):
     def test_request_holds_then_paid_counts_as_withdrawal(self):
         res = self.ask('50')
         self.assertEqual(res.status_code, 201, res.content)
-        self.assertEqual(res.json()['balance'], '150.00')
+        self.assertEqual((res.json()['balance'], res.json()['wallets']['winnings']['balance']), ('350.00', '150.00'))
         rid = res.json()['withdrawal']['id']
         self.assertEqual(res.json()['withdrawal']['account_number'], '••4567')
         self.assertEqual(self.kpis()['withdrawals'], '0.00')  # held, not yet paid
@@ -61,7 +65,7 @@ class WithdrawalTests(TestCase):
         res = self.staff.post(f'/api/admin/withdrawals/{rid}/mark-paid/',
                               {'reference': 'MP241011.1200.A1', 'confirm_amount': '50.00'}, format='json')
         self.assertEqual((res.status_code, res.json()['status']), (200, 'paid'))
-        self.assertEqual(services.get_balance(self.player.id), D('150.00'))
+        self.assertEqual(services.get_balance(self.player.id), D('350.00'))
         k = self.kpis()
         self.assertEqual((k['withdrawals'], k['withdrawal_count']), ('50.00', 1))
         self.assertEqual(self.staff.post(f'/api/admin/withdrawals/{rid}/reject/', {'note': 'oops'}, format='json').status_code, 409)
@@ -72,10 +76,10 @@ class WithdrawalTests(TestCase):
     def test_reject_and_cancel_return_the_money(self):
         a = self.ask('30').json()['withdrawal']['id']
         b = self.ask('20').json()['withdrawal']['id']
-        self.assertEqual(services.get_balance(self.player.id), D('150.00'))
+        self.assertEqual(services.get_balance(self.player.id), D('350.00'))
         self.assertEqual(self.staff.post(f'/api/admin/withdrawals/{a}/reject/', {'note': ''}, format='json').status_code, 400)
         self.staff.post(f'/api/admin/withdrawals/{a}/reject/', {'note': 'Name doesn’t match the account'}, format='json')
-        self.assertEqual(self.api.post(f'/api/wallet/withdrawals/{b}/cancel/').json()['balance'], '200.00')
+        self.assertEqual(self.api.post(f'/api/wallet/withdrawals/{b}/cancel/').json()['balance'], '400.00')
         self.assertEqual(self.api.post(f'/api/wallet/withdrawals/{b}/cancel/').status_code, 409)
         self.assertEqual(self.kpis()['withdrawals'], '0.00')
         mine = self.api.get('/api/wallet/withdrawals/').json()
@@ -117,7 +121,8 @@ class LegacyWithdrawalTests(TestCase):
 
     def setUp(self):
         self.player = account_services.create_player(username='oldtimer')
-        services.deposit(player_id=self.player.id, amount=D('100'), idempotency_key='dep:old')
+        services.credit(player_id=self.player.id, amount=D('100'), kind='adjustment', bucket='winnings',
+                        idempotency_key='dep:old')
         services.debit(player_id=self.player.id, amount=D('30.05'), kind='withdrawal',
                        idempotency_key='withdrawal:req:abc', reference='psp:stub')
         self.req = WithdrawalRequest.objects.create(
@@ -142,31 +147,44 @@ class LegacyWithdrawalTests(TestCase):
 
 
 class PlayThroughTests(TestCase):
-    """Deposit-and-withdraw without playing is refused until deposits are bet."""
+    """Deposits from before the three-wallet split were moved into Winnings, so
+    they still have to be bet once before they can be withdrawn."""
 
     def setUp(self):
+        from apps.wallet.recovery import reconcile_wallet_ledger
         self.player = account_services.create_player(username='quickflip')
         self.player.kyc_status = self.player.Kyc.VERIFIED
         self.player.save(update_fields=['kyc_status'])
-        services.deposit(player_id=self.player.id, amount=D('100'), idempotency_key='dep:qf')
+        wallet = services.ensure_wallet(self.player.id)
+        # What the split migration leaves behind: a legacy deposit, now Winnings.
+        LedgerEntry.objects.create(wallet=wallet, idempotency_key='dep:qf', amount=D('100'), kind='deposit',
+                                   bucket='winnings', legacy=True)
+        reconcile_wallet_ledger()
 
     def ask(self):
         return withdrawals.request(player=self.player, amount='50', **{k: v for k, v in ECOCASH.items()})
 
-    def test_must_bet_deposits_once(self):
+    def test_must_bet_pre_split_deposits_once(self):
         with self.assertRaisesMessage(withdrawals.WithdrawalError, 'bet $100.00 more'):
             self.ask()
-        services.debit(player_id=self.player.id, amount=D('60'), kind='casino_debit', idempotency_key='qf:s1')
-        services.credit(player_id=self.player.id, amount=D('60'), kind='casino_credit', idempotency_key='qf:w1')
+        services.debit(player_id=self.player.id, amount=D('60'), kind='casino_debit', bucket='winnings', idempotency_key='qf:s1')
+        services.credit(player_id=self.player.id, amount=D('60'), kind='casino_credit', bucket='winnings', idempotency_key='qf:w1')
         with self.assertRaisesMessage(withdrawals.WithdrawalError, 'bet $40.00 more'):
             self.ask()
-        services.debit(player_id=self.player.id, amount=D('40'), kind='bet_stake', idempotency_key='qf:s2')
-        services.credit(player_id=self.player.id, amount=D('40'), kind='bet_payout', idempotency_key='qf:w2')
+        services.debit(player_id=self.player.id, amount=D('40'), kind='bet_stake', bucket='winnings', idempotency_key='qf:s2')
+        services.credit(player_id=self.player.id, amount=D('40'), kind='bet_payout', bucket='winnings', idempotency_key='qf:w2')
         self.assertEqual(self.ask().status, 'requested')
 
     def test_rule_can_be_changed_or_switched_off(self):
         WithdrawalSettings.objects.update_or_create(pk=1, defaults={'min_turnover_percent': 0})
         self.assertEqual(self.ask().status, 'requested')
+
+    def test_new_deposits_are_not_counted(self):
+        other = account_services.create_player(username='newcomer')
+        other.kyc_status = other.Kyc.VERIFIED
+        other.save(update_fields=['kyc_status'])
+        services.deposit(player_id=other.id, amount=D('100'), idempotency_key='dep:new')
+        self.assertEqual(withdrawals.turnover_left(other.id), D('0'))
 
 
 class AdminLedgerListTests(TestCase):

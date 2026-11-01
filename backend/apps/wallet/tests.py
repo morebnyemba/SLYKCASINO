@@ -34,7 +34,7 @@ class WalletServiceTests(TestCase):
     def test_withdraw_debits_balance(self):
         wallet_services.credit(
             player_id=self.player.id, amount=Decimal('100.00'),
-            kind='deposit', idempotency_key='test:dep:2',
+            kind='adjustment', bucket='winnings', idempotency_key='test:dep:2',
         )
         wallet_services.debit(
             player_id=self.player.id, amount=Decimal('50.00'),
@@ -84,10 +84,10 @@ class WalletAPITests(TestCase):
         refresh = RefreshToken.for_user(self.player.user)
         self.client = APIClient()
         self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {str(refresh.access_token)}')
-        # Seed with balance
+        # Seed with withdrawable winnings (deposits can't be withdrawn).
         wallet_services.credit(
             player_id=self.player.id, amount=Decimal('1000.00'),
-            kind='deposit', idempotency_key=f'setup:wallet:{self.player.id}',
+            kind='adjustment', bucket='winnings', idempotency_key=f'setup:wallet:{self.player.id}',
         )
         # These tests cover the API, not the play-through rule (see test_withdrawals).
         from apps.wallet.models import WithdrawalSettings

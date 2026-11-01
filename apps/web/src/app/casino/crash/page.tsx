@@ -8,6 +8,8 @@ import { Badge } from '@slyk/ui/components/badge';
 import { useAuth } from '@/lib/auth-context';
 import { useApi, authedPost } from '@/lib/use-api';
 import { config } from '@/lib/config';
+import { WalletSelect } from '@/components/wallet-select';
+import { announceWalletChange, type WalletId } from '@/lib/wallets';
 
 interface Wallet { balance?: string; currency?: string }
 
@@ -48,6 +50,7 @@ export default function CrashPage() {
   const { data: wallet, refetch: refetchWallet } = useApi<Wallet>('/wallet/');
 
   const [stake, setStake] = useState('5');
+  const [payFrom, setPayFrom] = useState<WalletId | ''>('');
   const [autoCashout, setAutoCashout] = useState('');
   const [round, setRound] = useState<CrashRound | null>(null);
   const [multiplier, setMultiplier] = useState(1);
@@ -113,10 +116,11 @@ export default function CrashPage() {
 
   async function placeBet() {
     if (!accessToken) return;
+    if (!payFrom) { setError('Choose which wallet to play from.'); return; }
     setError('');
     setResult(null);
     const { data, error: err } = await authedPost<CrashRound>(
-      '/casino/crash/', { stake: parseFloat(stake) }, accessToken,
+      '/casino/crash/', { stake: parseFloat(stake), wallet: payFrom }, accessToken,
     );
     if (err || !data) { setError(err ?? 'Could not place bet'); return; }
 
@@ -169,6 +173,7 @@ export default function CrashPage() {
           <CardTitle className="text-center text-xl">BetBlits Aviator</CardTitle>
           <p className="text-center text-sm text-muted-foreground">
             Balance: <span className="font-bold text-foreground">{balance} {currency}</span>
+            <WalletSelect value={payFrom} onChange={setPayFrom} className="ml-3" />
           </p>
         </CardHeader>
 

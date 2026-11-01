@@ -23,6 +23,7 @@ import { DepositModal } from '@/components/deposit-modal';
 interface Wallet {
   balance?: string;
   currency?: string;
+  wallets?: Record<'deposit' | 'bonus' | 'winnings', { balance: string }>;
 }
 
 interface Notification {
@@ -101,7 +102,9 @@ function WalletControl({ wallet, onDeposit }: { wallet: Wallet | null; onDeposit
     <div className="flex h-10 min-w-0 items-stretch overflow-hidden rounded-xl border border-border bg-background/60">
       <Link
         href="/account/wallet"
-        title="Wallet"
+        title={wallet?.wallets
+          ? `Deposit ${wallet.wallets.deposit.balance} · Bonus ${wallet.wallets.bonus.balance} · Winnings ${wallet.wallets.winnings.balance}`
+          : 'Wallet'}
         className="flex min-w-0 items-center gap-2 px-2.5 transition-colors hover:bg-muted sm:px-3"
       >
         <FaWallet size={13} className="hidden shrink-0 text-secondary min-[380px]:block" />

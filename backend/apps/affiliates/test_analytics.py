@@ -52,7 +52,7 @@ class AffiliateAnalyticsTests(Base):
         self.b = self.referred('bob_ref', self.affiliate)
         self.play(self.a, staked='30', won='10', deposit='50')
         wallet_services.credit(player_id=self.b.id, amount=D('20'), kind='deposit', idempotency_key='b-dep')
-        wallet_services.debit(player_id=self.b.id, amount=D('5'), kind='casino_debit', idempotency_key='b-jet')
+        wallet_services.debit(player_id=self.b.id, amount=D('5'), kind='casino_debit', bucket='deposit', idempotency_key='b-jet')
         # Someone who wasn't referred never shows up.
         outsider = account_services.create_player(username='outsider')
         self.play(outsider, staked='500', won='0', deposit='900')

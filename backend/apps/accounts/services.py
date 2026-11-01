@@ -277,22 +277,25 @@ def unsuspend_player(player_id: int) -> Player:
 # Manual balance adjustment (staff override on the wallet ledger)
 # ---------------------------------------------------------------------------
 
-def adjust_balance(player_id: int, *, amount: Decimal, reason: str):
-    """Post a signed manual adjustment to the player's wallet ledger.
+def adjust_balance(player_id: int, *, amount: Decimal, reason: str, wallet: str = 'winnings'):
+    """Post a signed manual adjustment to one of the player's three wallets.
 
-    Positive amount credits, negative amount debits. Uses the same
-    append-only ledger primitive as every other money movement.
+    Positive amount credits, negative amount debits (never below zero — the
+    database refuses a negative wallet). Uses the same append-only ledger
+    primitive as every other money movement.
     """
+    if wallet not in ('deposit', 'bonus', 'winnings'):
+        raise ValueError('Choose the deposit, bonus or winnings wallet.')
     amount = Decimal(str(amount))
     idempotency_key = f'adjustment:{uuid.uuid4()}'
     if amount >= 0:
         return wallet_services.credit(
-            player_id=player_id, amount=amount, kind='adjustment',
+            player_id=player_id, amount=amount, kind='adjustment', bucket=wallet,
             idempotency_key=idempotency_key, reference=reason,
         )
     return wallet_services.debit(
-        player_id=player_id, amount=amount, kind='adjustment',
-        idempotency_key=idempotency_key, reference=reason, allow_negative=True,
+        player_id=player_id, amount=amount, kind='adjustment', bucket=wallet,
+        idempotency_key=idempotency_key, reference=reason,
     )
 
 

@@ -17,11 +17,13 @@ class PlayerSerializer(serializers.ModelSerializer):
     # Balance/currency are owned by the wallet domain — derived, never stored here.
     balance = serializers.SerializerMethodField()
     currency = serializers.SerializerMethodField()
+    # The three wallets: deposit, bonus, winnings (only winnings is withdrawable).
+    wallets = serializers.SerializerMethodField()
 
     class Meta:
         model = Player
         fields = [
-            'id', 'username', 'email', 'full_name', 'kyc_status', 'balance', 'currency',
+            'id', 'username', 'email', 'full_name', 'kyc_status', 'balance', 'currency', 'wallets',
             'created_at', 'avatar_url', 'loyalty_tier',
             'is_suspended', 'suspended_reason', 'suspended_at',
         ]
@@ -34,6 +36,11 @@ class PlayerSerializer(serializers.ModelSerializer):
         if hasattr(obj, 'wallet_balance'):
             return f'{(obj.wallet_balance or 0):.2f}'
         return str(wallet_services.get_balance(obj.id))
+
+    def get_wallets(self, obj: Player) -> dict[str, str]:
+        if hasattr(obj, 'wallet_deposit'):
+            return {b: f'{(getattr(obj, f"wallet_{b}") or 0):.2f}' for b in ('deposit', 'bonus', 'winnings')}
+        return {b: str(v) for b, v in wallet_services.get_balances(obj.id).items()}
 
     def get_currency(self, obj: Player) -> str:
         if hasattr(obj, 'wallet_currency'):
@@ -117,6 +124,8 @@ class SuspendPlayerSerializer(serializers.Serializer):
 class AdjustBalanceSerializer(serializers.Serializer):
     amount = serializers.DecimalField(max_digits=12, decimal_places=2)
     reason = serializers.CharField(max_length=255)
+    # Which of the three wallets to adjust.
+    wallet = serializers.ChoiceField(choices=['deposit', 'bonus', 'winnings'], default='winnings')
 
 
 class AuditLogSerializer(serializers.ModelSerializer):

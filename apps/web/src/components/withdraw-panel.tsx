@@ -7,13 +7,13 @@ import { useAuth } from '@/lib/auth-context';
 import { authedPost, useApi } from '@/lib/use-api';
 
 interface Withdrawal {
-  id: number; amount: string; method: string; method_label: string; account_number: string;
+  id: number; amount: string; fee?: string; payout_amount?: string; method: string; method_label: string; account_number: string;
   status: 'requested' | 'paid' | 'rejected' | 'cancelled'; status_label: string; reference: string; note: string;
   created_at: string; legacy?: boolean;
 }
 interface Mine {
   results: Withdrawal[];
-  limits: { min: string; max: string; daily_max: string; left_today: string | null; turnover_left?: string };
+  limits: { min: string; max: string; daily_max: string; left_today: string | null; turnover_left?: string; fee_percent?: string };
   methods: { id: string; label: string }[];
 }
 
@@ -41,26 +41,30 @@ export function WithdrawPanel({ withdrawable, onChanged }: { withdrawable?: stri
     if (!accessToken) return;
     setBusy(true); setMsg(null);
     const { error } = await authedPost('/wallet/withdraw/', {
-      amount, method, account_number: number, account_name: name, ...(isBank ? { bank_name: bank } : {}),
+      amount, wallet: 'winnings', method, account_number: number, account_name: name, ...(isBank ? { bank_name: bank } : {}),
     }, accessToken);
     setBusy(false);
     if (error) { setMsg({ ok: false, text: error }); return; }
-    setMsg({ ok: true, text: `Request sent — $${Number(amount).toFixed(2)} is on hold for you and will be paid to your ${data?.methods.find((m) => m.id === method)?.label ?? method} shortly.` });
+    const sent = Number(amount) - feeOf(Number(amount));
+    setMsg({ ok: true, text: `Request sent — $${Number(amount).toFixed(2)} is on hold and $${sent.toFixed(2)} (after the withdrawal fee) will be paid to your ${data?.methods.find((m) => m.id === method)?.label ?? method} shortly.` });
     setAmount('');
     refetch(); onChanged();
   }
 
   async function cancel(id: number) {
-    if (!accessToken || !confirm('Cancel this withdrawal? The money goes back to your balance.')) return;
+    if (!accessToken || !confirm('Cancel this withdrawal? The money goes back to your Winnings wallet.')) return;
     const { error } = await authedPost(`/wallet/withdrawals/${id}/cancel/`, {}, accessToken);
-    setMsg(error ? { ok: false, text: error } : { ok: true, text: 'Cancelled — the money is back in your balance.' });
+    setMsg(error ? { ok: false, text: error } : { ok: true, text: 'Cancelled — the money is back in your Winnings wallet.' });
     refetch(); onChanged();
   }
 
   const limits = data?.limits;
+  const feePercent = Number(limits?.fee_percent ?? 0);
+  function feeOf(n: number) { return Math.round(n * feePercent) / 100; }
+  const typed = Number(amount) || 0;
   return (
     <div className="space-y-3">
-      <p className="text-sm font-medium">Withdraw</p>
+      <p className="text-sm font-medium">Withdraw from Winnings</p>
       <form onSubmit={submit} className="grid gap-2 sm:grid-cols-2">
         <input type="number" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Amount" aria-label="Amount" className={input} required />
         <select value={method} onChange={(e) => setMethod(e.target.value)} aria-label="Send to" className={input}>
@@ -70,13 +74,18 @@ export function WithdrawPanel({ withdrawable, onChanged }: { withdrawable?: stri
           aria-label={isBank ? 'Account number' : 'Mobile number'} inputMode={isBank ? 'text' : 'tel'} className={input} required />
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name on the account" aria-label="Account name" className={input} required={isBank} />
         {isBank && <input value={bank} onChange={(e) => setBank(e.target.value)} placeholder="Bank, e.g. CBZ" aria-label="Bank" className={`${input} sm:col-span-2`} required />}
+        {typed > 0 && feePercent > 0 && (
+          <p className="text-xs text-muted-foreground sm:col-span-2">
+            {feePercent}% withdrawal fee: ${feeOf(typed).toFixed(2)} — you receive <b className="text-foreground">${(typed - feeOf(typed)).toFixed(2)}</b>.
+          </p>
+        )}
         <button type="submit" disabled={busy || !amount || !number}
           className="flex items-center justify-center gap-1.5 rounded-md bg-secondary px-4 py-2 text-sm font-bold text-secondary-foreground disabled:opacity-50 sm:col-span-2">
           <FaArrowDown size={11} /> {busy ? 'Sending…' : 'Request withdrawal'}
         </button>
       </form>
       <p className="text-xs text-muted-foreground">
-        {withdrawable && <>You can withdraw up to <b>${withdrawable}</b>. </>}
+        {withdrawable && <>Only your Winnings wallet can be withdrawn: up to <b>${withdrawable}</b>. </>}
         {limits && <>Per request ${limits.min}–${limits.max}{limits.left_today ? `; $${limits.left_today} left today` : ''}. </>}
         The amount is held as soon as you ask and our team sends it — usually within a few hours.
         {limits && Number(limits.turnover_left ?? 0) > 0 && (
@@ -90,6 +99,7 @@ export function WithdrawPanel({ withdrawable, onChanged }: { withdrawable?: stri
           {data!.results.map((w) => (
             <li key={w.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm">
               <span className="font-semibold tabular-nums">${w.amount}</span>
+              {Number(w.fee ?? 0) > 0 && <span className="text-xs text-muted-foreground">(${w.payout_amount} after ${w.fee} fee)</span>}
               <span className="text-muted-foreground">{w.legacy ? 'Earlier withdrawal — our team will contact you' : `${w.method_label} ${w.account_number}`}</span>
               <Badge variant={TONE[w.status]}>{w.status_label}</Badge>
               <span className="ml-auto text-xs text-muted-foreground">{new Date(w.created_at).toLocaleString()}</span>

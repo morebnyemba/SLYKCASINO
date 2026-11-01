@@ -1,5 +1,7 @@
 from django.db import models
 
+from apps.wallet.models.wallet import Bucket
+
 from .bet import Selection
 
 
@@ -24,6 +26,9 @@ class BetSlip(models.Model):
 
     player_id = models.BigIntegerField(null=True, blank=True, db_index=True)
     stake = models.DecimalField(max_digits=12, decimal_places=2)
+    # The wallet (deposit / bonus / winnings) the stake was paid from: refunds
+    # and the stake part of a win go back there, only profit goes to winnings.
+    wallet = models.CharField(max_length=10, choices=Bucket.choices)
     combined_odds = models.DecimalField(max_digits=12, decimal_places=2)
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.OPEN)
     payout = models.DecimalField(max_digits=14, decimal_places=2, default=0)
@@ -45,6 +50,9 @@ class BetSlip(models.Model):
 
     class Meta:
         db_table = 'sportsbook_betslip'
+        constraints = [
+            models.CheckConstraint(check=models.Q(wallet__in=Bucket.values), name='sportsbook_betslip_wallet_valid'),
+        ]
         ordering = ['-placed_at']
         indexes = [models.Index(fields=['status', 'placed_at'])]
 

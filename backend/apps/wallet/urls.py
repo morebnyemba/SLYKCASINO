@@ -2,7 +2,7 @@ from django.urls import path
 
 from .views import (
     AdminLedgerViewSet, AdminPaymentGatewayTestView, AdminPaymentGatewayView, AdminPaymentMethodViewSet,
-    AdminWithdrawalSettingsView, AdminWithdrawalsView, DepositView, LedgerView, MyWithdrawalsView, PaymentMethodsView,
+    AdminDepositRefundView, AdminWalletRulesView, AdminWithdrawalSettingsView, AdminWithdrawalsView, DepositView, LedgerView, MyWithdrawalsView, PaymentMethodsView,
     PaymentStatusView, PaynowResultView, PSPWebhookView, WalletView, WithdrawView,
 )
 
@@ -17,6 +17,8 @@ urlpatterns = [
     path('admin/withdrawals/<int:pk>/mark-paid/', AdminWithdrawalsView.as_view(action='paid'), name='admin-withdrawal-paid'),
     path('admin/withdrawals/<int:pk>/reject/', AdminWithdrawalsView.as_view(action='reject'), name='admin-withdrawal-reject'),
     path('admin/withdrawal-settings/', AdminWithdrawalSettingsView.as_view(), name='admin-withdrawal-settings'),
+    path('admin/wallet-rules/', AdminWalletRulesView.as_view(), name='admin-wallet-rules'),
+    path('admin/players/<int:pk>/deposit-refund/', AdminDepositRefundView.as_view(), name='admin-deposit-refund'),
     path('wallet/deposits/<str:reference>/', PaymentStatusView.as_view(), name='wallet-deposit-status'),
     path('wallet/paynow/result/', PaynowResultView.as_view(), name='wallet-paynow-result'),
     path('wallet/webhook/<str:provider>/', PSPWebhookView.as_view(), name='wallet-webhook'),

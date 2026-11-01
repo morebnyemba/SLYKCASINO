@@ -18,17 +18,21 @@ from .models import CrashRound, Game, GameRound
 
 
 @transaction.atomic
-def start_round(*, player_id: int, game_id: int, stake: Decimal) -> GameRound:
-    """Open a round: record intent (PENDING), debit the stake, confirm."""
+def start_round(*, player_id: int, game_id: int, stake: Decimal, wallet: str | None = None) -> GameRound:
+    """Open a round: record intent (PENDING), debit the stake from the wallet
+    the player chose, confirm."""
+    wallet = wallet_services.betting_bucket(wallet)
     errors = helpers.validate_spin_request_structure({'game_id': game_id, 'stake': stake})
     if errors:
         raise ValueError('; '.join(errors))
 
     game = Game.objects.get(pk=game_id, is_active=True)
-    rnd = GameRound.objects.create(player_id=player_id, game=game, stake=stake, status=GameRound.Status.PENDING)
+    rnd = GameRound.objects.create(
+        player_id=player_id, game=game, stake=stake, status=GameRound.Status.PENDING, wallet=wallet,
+    )
 
     wallet_services.debit(
-        player_id=player_id, amount=stake, kind='casino_debit',
+        player_id=player_id, amount=stake, kind='casino_debit', bucket=wallet,
         idempotency_key=helpers.round_debit_key(rnd.id), reference=f'round:{rnd.id}',
     )
     rnd.debit_confirmed = True
@@ -47,8 +51,8 @@ def settle_round(round_id: int, win: Decimal) -> GameRound:
         return rnd  # idempotent
 
     if win and win > 0:
-        wallet_services.credit(
-            player_id=rnd.player_id, amount=win, kind='casino_credit',
+        wallet_services.pay_out(
+            player_id=rnd.player_id, source=rnd.wallet, stake=rnd.stake, payout=win, kind='casino_credit',
             idempotency_key=helpers.round_credit_key(rnd.id), reference=f'round:{rnd.id}',
         )
     rnd.win = win
@@ -62,7 +66,7 @@ def settle_round(round_id: int, win: Decimal) -> GameRound:
 # -- crash (Aviator-style) ---------------------------------------------------
 
 @transaction.atomic
-def place_crash_bet(*, player_id: int, stake: Decimal) -> CrashRound:
+def place_crash_bet(*, player_id: int, stake: Decimal, wallet: str | None = None) -> CrashRound:
     """Open a crash round: commit a provably-fair crash point and debit the stake.
 
     The crash point is derived from `server_seed` (committed via its hash) and the
@@ -70,19 +74,20 @@ def place_crash_bet(*, player_id: int, stake: Decimal) -> CrashRound:
     after settlement."""
     if stake is None or stake <= 0:
         raise ValueError('stake must be positive')
+    wallet = wallet_services.betting_bucket(wallet)
 
     seed = crash_engine.new_server_seed()
     rnd = CrashRound.objects.create(
         player_id=player_id, stake=stake,
         crash_point=Decimal('1.00'),  # placeholder until nonce (the id) is known
         server_seed=seed, server_seed_hash=crash_engine.seed_hash(seed),
-        status=CrashRound.Status.RUNNING,
+        status=CrashRound.Status.RUNNING, wallet=wallet,
     )
     rnd.nonce = rnd.id
     rnd.crash_point = crash_engine.crash_point(seed, rnd.nonce)
 
     wallet_services.debit(
-        player_id=player_id, amount=stake, kind='casino_debit',
+        player_id=player_id, amount=stake, kind='casino_debit', bucket=wallet,
         idempotency_key=helpers.crash_debit_key(rnd.id), reference=f'crash:{rnd.id}',
     )
     rnd.debit_confirmed = True
@@ -113,8 +118,8 @@ def cashout_crash(*, player_id: int, crash_id: int, target=None) -> CrashRound:
         rnd.win = Decimal('0')
     else:
         win = (rnd.stake * chosen).quantize(Decimal('0.01'))
-        wallet_services.credit(
-            player_id=player_id, amount=win, kind='casino_credit',
+        wallet_services.pay_out(
+            player_id=player_id, source=rnd.wallet, stake=rnd.stake, payout=win, kind='casino_credit',
             idempotency_key=helpers.crash_credit_key(rnd.id), reference=f'crash:{rnd.id}',
         )
         rnd.status = CrashRound.Status.CASHED

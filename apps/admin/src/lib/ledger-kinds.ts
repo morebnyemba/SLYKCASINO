@@ -4,6 +4,9 @@ export const LEDGER_KINDS: Record<string, { label: string; tone: string }> = {
   deposit: { label: 'Deposit', tone: 'text-win' },
   withdrawal: { label: 'Withdrawal (paid out)', tone: 'text-gold' },
   withdrawal_hold: { label: 'Withdrawal hold', tone: 'text-muted-foreground' },
+  withdrawal_fee: { label: 'Withdrawal fee', tone: 'text-win' },
+  deposit_refund: { label: 'Deposit refund', tone: 'text-gold' },
+  migration: { label: 'Wallet split', tone: 'text-muted-foreground' },
   bet_stake: { label: 'Sports bet', tone: 'text-sky-400' },
   bet_payout: { label: 'Sports win', tone: 'text-win' },
   casino_debit: { label: 'Aviator bet', tone: 'text-sky-400' },
@@ -13,6 +16,11 @@ export const LEDGER_KINDS: Record<string, { label: string; tone: string }> = {
   affiliate: { label: 'Affiliate commission', tone: 'text-win' },
 };
 
+/** The three player wallets. Only Winnings can be withdrawn. */
+export const WALLETS = ['deposit', 'bonus', 'winnings'] as const;
+export type WalletId = typeof WALLETS[number];
+export const WALLET_LABEL: Record<WalletId, string> = { deposit: 'Deposit', bonus: 'Bonus', winnings: 'Winnings' };
+
 export const kindLabel = (kind: string) => LEDGER_KINDS[kind]?.label ?? kind;
 export const kindTone = (kind: string) => LEDGER_KINDS[kind]?.tone ?? 'text-muted-foreground';
 
@@ -21,6 +29,8 @@ export const KIND_FILTERS: { id: string; label: string }[] = [
   { id: 'deposit', label: 'Deposits' },
   { id: 'withdrawal', label: 'Withdrawals (paid out)' },
   { id: 'withdrawal_hold', label: 'Withdrawal holds' },
+  { id: 'withdrawal_fee', label: 'Withdrawal fees' },
+  { id: 'deposit_refund', label: 'Deposit refunds' },
   { id: 'bet_stake,bet_payout', label: 'Sportsbook' },
   { id: 'casino_debit,casino_credit', label: 'Aviator' },
   { id: 'bonus', label: 'Bonuses' },

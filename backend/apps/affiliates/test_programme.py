@@ -64,7 +64,7 @@ class ProgrammeBase(TestCase):
         return wallet_services.deposit(player_id=player.id, amount=D(amount), idempotency_key=key)
 
     def stake(self, player, amount, key, kind='bet_stake'):
-        return wallet_services.debit(player_id=player.id, amount=D(amount), kind=kind, idempotency_key=key)
+        return wallet_services.debit(player_id=player.id, amount=D(amount), kind=kind, bucket='deposit', idempotency_key=key)
 
 
 class FreshProgrammeTests(TestCase):
@@ -125,21 +125,24 @@ class WageringLockTests(ProgrammeBase):
     def test_bonus_is_locked_until_wagered(self):
         alice = self.referred('alice')
         api = self.client_for(alice)
-        self.deposit(alice, '50', 'a1')                              # balance 65, 15 locked, wager 75
+        self.deposit(alice, '50', 'a1')                              # 50 deposit, 15 bonus, wager 75
         wallet = api.get('/api/wallet/').json()
-        self.assertEqual((wallet['bonus_locked'], wallet['withdrawable']), ('15.00', '50.00'))
+        self.assertEqual((wallet['wallets']['deposit']['balance'], wallet['wallets']['bonus']['balance'],
+                          wallet['bonus_locked'], wallet['withdrawable']), ('50.00', '15.00', '15.00', '0.00'))
 
+        # Neither deposit nor bonus money can be withdrawn.
         res = api.post('/api/wallet/withdraw/', {'amount': '60', 'method': 'ecocash', 'account_number': '0771234567'}, format='json')
-        self.assertEqual(res.status_code, 403)
-        self.assertEqual(res.json()['withdrawable'], '50.00')
+        self.assertEqual(res.status_code, 402)
+        self.assertEqual(res.json()['withdrawable'], '0.00')
 
         self.stake(alice, '40', 's1')
-        wallet_services.credit(player_id=alice.id, amount=D('20'), kind='bet_payout', idempotency_key='w1')
+        wallet_services.credit(player_id=alice.id, amount=D('20'), kind='bet_payout', bucket='winnings', idempotency_key='w1')
         self.assertEqual(api.get('/api/wallet/').json()['bonus_locked'], '15.00')  # 40 of 75 wagered
-        self.stake(alice, '35', 's2', kind='casino_debit')           # 75 wagered: unlocked
-        self.assertEqual(api.get('/api/wallet/').json()['bonus_locked'], '0.00')
+        self.stake(alice, '10', 's2', kind='casino_debit')           # 50 wagered
         self.assertEqual(api.post('/api/wallet/withdraw/', {'amount': '-10'}, format='json').status_code, 400)
-        self.assertEqual(api.post('/api/wallet/withdraw/', {'amount': str(self.balance(alice)), 'method': 'ecocash', 'account_number': '0771234567'}, format='json').status_code, 201)
+        # Only the 20 won can go; the bonus stays in the Bonus wallet whatever the wagering.
+        self.assertEqual(api.get('/api/wallet/').json()['withdrawable'], '20.00')
+        self.assertEqual(api.post('/api/wallet/withdraw/', {'amount': '20', 'method': 'ecocash', 'account_number': '0771234567'}, format='json').status_code, 201)
 
 
 class DepositCommissionTests(ProgrammeBase):
@@ -179,9 +182,11 @@ class CarryOverTests(ProgrammeBase):
         key = f'{month.isoformat()}'
         entries = [self.stake(self.player, '200', f'{key}:s')]
         entries.append(wallet_services.credit(
-            player_id=self.player.id, amount=D(200 - ngr), kind='bet_payout', idempotency_key=f'{key}:w'))
+            player_id=self.player.id, amount=D(200 - ngr), kind='bet_payout', bucket='winnings', idempotency_key=f'{key}:w'))
         when = timezone.make_aware(datetime.combine(month.replace(day=10), time(12)))
-        LedgerEntry.objects.filter(pk__in=[e.pk for e in entries]).update(created_at=when)
+        from apps.wallet.testing import ledger_unlocked
+        with ledger_unlocked():
+            LedgerEntry.objects.filter(pk__in=[e.pk for e in entries]).update(created_at=when)
 
     def test_losing_month_is_earned_back_first(self):
         m1, m2, m3 = date(2026, 1, 1), date(2026, 2, 1), date(2026, 3, 1)

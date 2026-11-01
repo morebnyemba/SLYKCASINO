@@ -149,7 +149,9 @@ def slip_offer(slip: BetSlip, cfg: Optional[CashoutSettings] = None, *, now=None
 
 def _locked_ticket(kind: str, ticket_id: int, player_id: int):
     model = Bet if kind == 'bet' else BetSlip
-    qs = model.objects.select_for_update()
+    # Lock only the ticket row: Postgres refuses FOR UPDATE on the nullable
+    # side of the outer joins select_related adds (event/outcome).
+    qs = model.objects.select_for_update(of=('self',))
     if kind == 'bet':
         qs = qs.select_related('event_ref', 'outcome_ref__market__event')
     ticket = qs.filter(pk=ticket_id, player_id=player_id).first()
@@ -196,8 +198,9 @@ def cash_out(*, kind: str, ticket_id: int, player_id: int, expected: Decimal,
         bet=ticket if kind == 'bet' else None, slip=ticket if kind == 'slip' else None,
         player_id=player_id, amount=paid, stake_portion=stake_portion, full=full,
     )
-    wallet_services.credit(
-        player_id=player_id, amount=paid, kind='bet_payout',
+    # Stake (up to what's paid) back to the wallet it came from; profit to winnings.
+    wallet_services.pay_out(
+        player_id=player_id, source=ticket.wallet, stake=stake_portion, payout=paid, kind='bet_payout',
         idempotency_key=f'cashout:{record.id}', reference=f'{kind}:{ticket.id}:cashout',
     )
     now = timezone.now()

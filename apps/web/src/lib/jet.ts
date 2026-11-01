@@ -5,6 +5,7 @@ import { useAuth } from '@/lib/auth-context';
 import { config } from '@/lib/config';
 import { subscribeChannel } from '@/lib/live-board';
 import { authedPost } from '@/lib/use-api';
+import type { WalletId } from '@/lib/wallets';
 
 export interface JetSettings {
   enabled: boolean;
@@ -61,6 +62,8 @@ interface JetState {
   bets: JetBet[];
   my_bets: JetBet[];
   balance: string | null;
+  /** The player's three balances (deposit / bonus / winnings). */
+  wallets?: Record<WalletId, string> | null;
   free_bets?: FreeBet[];
 }
 
@@ -219,9 +222,9 @@ export function useJet() {
 
   const act = useCallback(async (path: string, body: unknown = {}) => {
     if (!accessToken) return { error: 'Log in to play.' };
-    const res = await authedPost<{ bet: JetBet; balance: string; free_bets?: FreeBet[] }>(path, body, accessToken);
+    const res = await authedPost<{ bet: JetBet; balance: string; wallets?: Record<WalletId, string>; free_bets?: FreeBet[] }>(path, body, accessToken);
     if (res.data) {
-      const { bet, balance, free_bets: freeBets } = res.data;
+      const { bet, balance, wallets, free_bets: freeBets } = res.data;
       setState((prev) => {
         if (!prev) return prev;
         const upsert = (list: JetBet[]) => (list.some((b) => b.id === bet.id)
@@ -229,7 +232,7 @@ export function useJet() {
           : [...list, bet]);
         const drop = bet.status === 'refunded';
         return {
-          ...prev, balance, free_bets: freeBets ?? prev.free_bets,
+          ...prev, balance, wallets: wallets ?? prev.wallets, free_bets: freeBets ?? prev.free_bets,
           my_bets: drop ? prev.my_bets.filter((b) => b.id !== bet.id) : upsert(prev.my_bets),
           bets: drop ? prev.bets.filter((b) => b.id !== bet.id) : upsert(prev.bets),
         };
@@ -243,9 +246,9 @@ export function useJet() {
 
   return {
     state, error, now, reload: load,
-    placeBet: (slot: number, stake: string, autoCashout: string | null, freeBetId?: number) =>
+    placeBet: (slot: number, stake: string, autoCashout: string | null, freeBetId?: number, wallet?: WalletId | null) =>
       act('/jet/bets/', {
-        slot, stake, ...(autoCashout ? { auto_cashout: autoCashout } : {}), ...(freeBetId ? { free_bet_id: freeBetId } : {}),
+        slot, stake, wallet, ...(autoCashout ? { auto_cashout: autoCashout } : {}), ...(freeBetId ? { free_bet_id: freeBetId } : {}),
       }),
     cancelBet: (id: number) => act(`/jet/bets/${id}/cancel/`),
     cashOut: (id: number) => act(`/jet/bets/${id}/cashout/`),

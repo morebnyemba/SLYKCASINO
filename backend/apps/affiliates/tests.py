@@ -71,9 +71,9 @@ class Base(TestCase):
             wallet_services.credit(player_id=player.id, amount=D(deposit), kind='deposit', idempotency_key=f'd{key}')
         else:
             wallet_services.credit(player_id=player.id, amount=D(staked), kind='deposit', idempotency_key=f'd{key}')
-        wallet_services.debit(player_id=player.id, amount=D(staked), kind='bet_stake', idempotency_key=f's{key}')
+        wallet_services.debit(player_id=player.id, amount=D(staked), kind='bet_stake', bucket='deposit', idempotency_key=f's{key}')
         if won:
-            wallet_services.credit(player_id=player.id, amount=D(won), kind='bet_payout', idempotency_key=f'w{key}')
+            wallet_services.credit(player_id=player.id, amount=D(won), kind='bet_payout', bucket='winnings', idempotency_key=f'w{key}')
         if bonus:
             wallet_services.credit(player_id=player.id, amount=D(bonus), kind='bonus', idempotency_key=f'b{key}')
 

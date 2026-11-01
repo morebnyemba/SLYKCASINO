@@ -60,9 +60,9 @@ class RecoveryManager(BaseRecoveryManager):
                     locked.save(update_fields=['status'])
                     self.mark_repaired(f'bet {bet.id}: debit found, promoted to OPEN')
                     return
-                if locked.player_id and wallet_services.get_balance(locked.player_id) >= locked.stake:
+                if locked.player_id and wallet_services.get_balances(locked.player_id)[locked.wallet] >= locked.stake:
                     wallet_services.debit(
-                        player_id=locked.player_id, amount=locked.stake, kind='bet_stake',
+                        player_id=locked.player_id, amount=locked.stake, kind='bet_stake', bucket=locked.wallet,
                         idempotency_key=key, reference=f'bet:{locked.id}',
                     )
                     locked.status = Bet.Status.OPEN

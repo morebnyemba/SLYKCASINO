@@ -13,17 +13,20 @@ import { authedPost, authedRequest, useApi } from '@/lib/use-api';
 
 interface Context {
   balance: string; deposits: string; paid_out: string; net: string; pending: string; bonus_locked: string;
+  deposit_balance?: string; bonus_balance?: string; winnings_balance?: string;
   big_wins_7d: { amount: string; kind: string; created_at: string }[];
 }
 interface Withdrawal {
-  id: number; player_id: number; username: string; kyc_status: string | null; amount: string; method: string;
+  id: number; player_id: number; username: string; kyc_status: string | null; amount: string;
+  /** Withdrawal fee kept, and what the player is actually sent (amount − fee). */
+  fee?: string; payout_amount?: string; method: string;
   method_label: string; account_number: string; account_name: string; bank_name: string;
   status: 'requested' | 'paid' | 'rejected' | 'cancelled'; status_label: string; reference: string; note: string;
   created_at: string; decided_at: string | null; decided_by: string; context?: Context;
   legacy?: boolean; email?: string;
 }
 interface Queue { results: Withdrawal[]; counts: { requested: number }; pending_total: string }
-interface Limits { min_amount: string; max_amount: string; daily_max: string; min_turnover_percent: number | string }
+interface Limits { min_amount: string; max_amount: string; daily_max: string; min_turnover_percent: number | string; fee_percent: string }
 
 const TONE = { requested: 'gold', paid: 'green', rejected: 'red', cancelled: 'slate' } as const;
 type Status = Withdrawal['status'] | 'all';
@@ -128,7 +131,10 @@ function PlayerWithdrawals() {
                         <Link href={`/players/${w.player_id}`} className="font-semibold hover:underline">{w.username}</Link>
                         <p className="text-xs text-muted-foreground">KYC <span className={w.kyc_status === 'verified' ? 'text-win' : 'text-gold'}>{w.kyc_status ?? '—'}</span></p>
                       </td>
-                      <td className={cx(tdClass, 'text-base font-extrabold tabular-nums')}>{money(w.amount)}</td>
+                      <td className={cx(tdClass, 'text-base font-extrabold tabular-nums')}>
+                        {money(w.amount)}
+                        {Number(w.fee ?? 0) > 0 && <p className="text-xs font-semibold text-muted-foreground">send {money(w.payout_amount ?? w.amount)} · fee {money(w.fee!)}</p>}
+                      </td>
                       <td className={tdClass}>
                         <p className="font-semibold">{w.legacy ? <Badge tone="gold">Earlier withdrawal</Badge> : w.method_label}</p>
                         <p className="font-mono text-xs text-muted-foreground">{destination(w)}</p>
@@ -172,7 +178,7 @@ function PlayerWithdrawals() {
           {step === 2 && <Btn variant="primary" disabled={!sent} onClick={() => setStep(3)}>Next: confirm</Btn>}
           {step === 3 && (
             <Btn variant="success" busy={busy} onClick={submit}
-              disabled={text.trim().length < 3 || !acting || Number(confirmAmount) !== Number(acting.w.amount)}>
+              disabled={text.trim().length < 3 || !acting || Number(confirmAmount) !== Number(sendAmount(acting.w))}>
               Confirm paid
             </Btn>
           )}
@@ -215,8 +221,8 @@ function PlayerWithdrawals() {
                 <div className="rounded-xl bg-muted/40 p-4">
                   <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Send exactly</p>
                   <p className="mt-1 flex items-center gap-2 text-3xl font-extrabold tabular-nums">
-                    {money(acting.w.amount)}
-                    <button aria-label="Copy amount" title="Copy amount" onClick={() => navigator.clipboard?.writeText(acting.w.amount)}
+                    {money(sendAmount(acting.w))}
+                    <button aria-label="Copy amount" title="Copy amount" onClick={() => navigator.clipboard?.writeText(sendAmount(acting.w))}
                       className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"><BsCopy size={14} /></button>
                   </p>
                   <p className="mt-3 text-xs font-bold uppercase tracking-wide text-muted-foreground">To ({acting.w.method_label})</p>
@@ -228,7 +234,7 @@ function PlayerWithdrawals() {
                 </div>
                 <label className="flex items-start gap-2 rounded-xl bg-muted/40 p-3">
                   <input type="checkbox" className="mt-0.5 h-4 w-4" checked={sent} onChange={(e) => setSent(e.target.checked)} />
-                  <span>I’ve sent exactly <b>{money(acting.w.amount)}</b> to <b className="font-mono">{acting.w.account_number || 'the player'}</b> and the transfer went through.</span>
+                  <span>I’ve sent exactly <b>{money(sendAmount(acting.w))}</b> to <b className="font-mono">{acting.w.account_number || 'the player'}</b> and the transfer went through.</span>
                 </label>
               </>
             )}
@@ -239,8 +245,8 @@ function PlayerWithdrawals() {
                 <Field label="Transaction reference" hint="The EcoCash/OneMoney/InnBucks or bank confirmation code.">
                   <TextInput value={text} onChange={(e) => setText(e.target.value)} placeholder="MP241011.1530.A12345" autoFocus />
                 </Field>
-                <Field label={`Type the amount you sent to confirm (${money(acting.w.amount)})`}
-                  hint={confirmAmount && Number(confirmAmount) !== Number(acting.w.amount) ? 'That doesn’t match the withdrawal amount.' : 'Must match exactly.'}>
+                <Field label={`Type the amount you sent to confirm (${money(sendAmount(acting.w))})`}
+                  hint={confirmAmount && Number(confirmAmount) !== Number(sendAmount(acting.w)) ? 'That doesn’t match the amount to send.' : 'Must match exactly.'}>
                   <TextInput inputMode="decimal" value={confirmAmount} onChange={(e) => setConfirmAmount(e.target.value.replace(/[^0-9.]/g, ''))} placeholder="0.00" />
                 </Field>
               </>
@@ -253,7 +259,7 @@ function PlayerWithdrawals() {
               <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Amount</p>
               <p className="mt-1 text-2xl font-extrabold tabular-nums">{money(acting.w.amount)}</p>
             </div>
-            <p className="text-muted-foreground">The amount goes straight back to the player’s balance and they’re told why.</p>
+            <p className="text-muted-foreground">The full amount (no fee) goes straight back to the player’s Winnings wallet and they’re told why.</p>
             <Field label="Reason" hint="Shown to the player.">
               <TextInput value={text} onChange={(e) => setText(e.target.value)} placeholder="The account name doesn’t match your verified name" />
             </Field>
@@ -270,6 +276,9 @@ function ContextCell({ c, wide }: { c: Context; wide?: boolean }) {
     <div className={cx('space-y-0.5', wide && 'rounded-xl border border-border p-3')}>
       <p>Deposited <b>{money(c.deposits)}</b> · paid out <b>{money(c.paid_out)}</b></p>
       <p>Net in <b className={net < 0 ? 'text-live' : 'text-win'}>{money(c.net)}</b> · balance {money(c.balance)}</p>
+      {c.winnings_balance != null && (
+        <p className="text-muted-foreground">Deposit {money(c.deposit_balance!)} · Bonus {money(c.bonus_balance!)} · Winnings {money(c.winnings_balance)}</p>
+      )}
       {Number(c.bonus_locked) > 0 && <p className="text-gold">Bonus locked {money(c.bonus_locked)}</p>}
       {c.big_wins_7d.length > 0 && (
         <p className="text-muted-foreground">Big wins (7d): {c.big_wins_7d.map((w) => money(w.amount)).join(', ')}</p>
@@ -299,12 +308,14 @@ function LimitsPanel() {
     { key: 'min_amount', label: 'Minimum per withdrawal ($)', hint: 'Smallest amount a player can ask for.' },
     { key: 'max_amount', label: 'Maximum per withdrawal ($)', hint: 'Largest single request.' },
     { key: 'daily_max', label: 'Daily cap per player ($)', hint: 'Total a player may request per day (0 = no cap).' },
-    { key: 'min_turnover_percent', label: 'Play-through before withdrawing (% of deposits)', hint: '100 = players must bet their deposits at least once (stops deposit-and-withdraw). 0 = off.' },
+    { key: 'min_turnover_percent', label: 'Play-through of pre-split deposits (%)', hint: 'Only deposits made before the three-wallet split (now in Winnings). New deposits can never be withdrawn. 0 = off.' },
+    { key: 'fee_percent', label: 'Withdrawal fee (%)', hint: 'Kept from every withdrawal of winnings; the player is sent the rest.' },
   ];
   return (
-    <Panel title="Withdrawal limits" description="Requests that break a rule are refused straight away with the reason, and never reach the queue: KYC not verified, not enough balance, bonus still being wagered, outside these limits, or deposits not yet played through.">
+    <>
+    <Panel title="Withdrawal limits" description="Only the Winnings wallet can be withdrawn. Requests that break a rule are refused straight away with the reason, and never reach the queue: KYC not verified, not enough winnings, outside these limits, or pre-split deposits not yet played through. Attempts to withdraw Deposit or Bonus money are refused and recorded in the audit log.">
       {notice && <div className="mb-4"><Notice tone={notice.tone} onClose={() => setNotice(null)}>{notice.text}</Notice></div>}
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         {fields.map((f) => (
           <Field key={f.key} label={f.label} hint={f.hint}>
             <TextInput inputMode="decimal" value={form?.[f.key] ?? ''} onChange={(e) => setForm((v) => v && { ...v, [f.key]: e.target.value.replace(/[^0-9.]/g, '') })} />
@@ -312,6 +323,53 @@ function LimitsPanel() {
         ))}
       </div>
       <div className="mt-4 flex justify-end"><Btn variant="primary" busy={busy} onClick={save}>Save limits</Btn></div>
+    </Panel>
+    <WalletRulesPanel />
+    </>
+  );
+}
+
+/** What staff send: the request less its withdrawal fee. */
+function sendAmount(w: Withdrawal) {
+  return w.payout_amount ?? w.amount;
+}
+
+interface WalletRules { deposit_min_odds: string; bonus_min_odds: string; winnings_min_odds: string }
+
+/** Minimum combined odds for a ticket paid from each wallet. */
+function WalletRulesPanel() {
+  const { accessToken } = useAuth();
+  const { data, refetch } = useApi<WalletRules>('/admin/wallet-rules/');
+  const [form, setForm] = useState<WalletRules | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<{ tone: 'green' | 'red'; text: string } | null>(null);
+  useEffect(() => { if (data) setForm(data); }, [data]);
+
+  async function save() {
+    if (!accessToken || !form) return;
+    setBusy(true);
+    const res = await authedRequest('PUT', '/admin/wallet-rules/', accessToken, form);
+    setBusy(false);
+    setNotice(res.error ? { tone: 'red', text: res.error } : { tone: 'green', text: 'Wallet rules saved.' });
+    refetch();
+  }
+
+  const fields: { key: keyof WalletRules; label: string; hint: string }[] = [
+    { key: 'deposit_min_odds', label: 'Deposit wallet — minimum odds', hint: 'Deposited money can be bet but never withdrawn.' },
+    { key: 'bonus_min_odds', label: 'Bonus wallet — minimum odds', hint: 'Promotional money can be bet but never withdrawn.' },
+    { key: 'winnings_min_odds', label: 'Winnings wallet — minimum odds', hint: '1.00 = any odds.' },
+  ];
+  return (
+    <Panel title="Betting wallets" description="Players choose which wallet pays for each ticket. A ticket's combined odds must reach that wallet's minimum. A winning ticket's stake goes back to the wallet it came from; only the profit lands in Winnings.">
+      {notice && <div className="mb-4"><Notice tone={notice.tone} onClose={() => setNotice(null)}>{notice.text}</Notice></div>}
+      <div className="grid gap-4 sm:grid-cols-3">
+        {fields.map((f) => (
+          <Field key={f.key} label={f.label} hint={f.hint}>
+            <TextInput inputMode="decimal" value={form?.[f.key] ?? ''} onChange={(e) => setForm((v) => v && { ...v, [f.key]: e.target.value.replace(/[^0-9.]/g, '') })} />
+          </Field>
+        ))}
+      </div>
+      <div className="mt-4 flex justify-end"><Btn variant="primary" busy={busy} onClick={save}>Save wallet rules</Btn></div>
     </Panel>
   );
 }

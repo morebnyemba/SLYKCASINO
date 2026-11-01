@@ -12,6 +12,9 @@ class WithdrawalSettings(models.Model):
     # Anti deposit-and-withdraw: total bets must reach this % of total deposits
     # before any withdrawal (100 = play your deposits at least once; 0 = off).
     min_turnover_percent = models.PositiveSmallIntegerField(default=100)
+    # Kept from every withdrawal of winnings (5 = 5%): the player is sent the
+    # rest. Fixed on each request when it's made.
+    fee_percent = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal('5.00'))
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -46,6 +49,8 @@ class WithdrawalRequest(models.Model):
 
     player_id = models.BigIntegerField(db_index=True)
     amount = models.DecimalField(max_digits=12, decimal_places=2)
+    # Withdrawal fee kept from `amount`; the player is sent amount - fee.
+    fee = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0'))
     method = models.CharField(max_length=10, choices=Method.choices)
     account_name = models.CharField(max_length=120, blank=True)
     account_number = models.CharField(max_length=60)
@@ -65,6 +70,10 @@ class WithdrawalRequest(models.Model):
     class Meta:
         db_table = 'wallet_withdrawal_request'
         ordering = ['-id']
+
+    @property
+    def payout_amount(self) -> Decimal:
+        return self.amount - self.fee
 
     def __str__(self) -> str:
         return f'Withdrawal {self.id}: {self.amount} to {self.method} ({self.status})'

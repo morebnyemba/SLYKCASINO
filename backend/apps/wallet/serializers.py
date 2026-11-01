@@ -9,18 +9,22 @@ from .models import LedgerEntry, PaymentMethod
 
 
 class LedgerEntrySerializer(serializers.ModelSerializer):
+    transaction_ref = serializers.CharField(read_only=True)
+
     class Meta:
         model = LedgerEntry
-        fields = ['id', 'amount', 'kind', 'reference', 'idempotency_key', 'created_at']
+        fields = ['id', 'transaction_ref', 'amount', 'kind', 'bucket', 'reference', 'idempotency_key', 'created_at']
 
 
 class AdminLedgerEntrySerializer(serializers.ModelSerializer):
     player_id = serializers.IntegerField(source='wallet.player_id', read_only=True)
     username = serializers.CharField(read_only=True, default=None)
+    transaction_ref = serializers.CharField(read_only=True)
 
     class Meta:
         model = LedgerEntry
-        fields = ['id', 'player_id', 'username', 'amount', 'kind', 'reference', 'idempotency_key', 'created_at']
+        fields = ['id', 'transaction_ref', 'player_id', 'username', 'amount', 'kind', 'bucket', 'legacy',
+                  'reference', 'idempotency_key', 'created_at']
 
 
 PUBLIC_METHOD_FIELDS = [

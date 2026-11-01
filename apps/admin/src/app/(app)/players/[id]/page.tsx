@@ -11,7 +11,8 @@ import { LoadingState } from '@slyk/ui/components/spinner';
 import { DeletePlayer } from '@/components/players/delete-player';
 import { ImpersonateButton } from '@/components/players/impersonate';
 import { PlayerActivity } from '@/components/tickets/tickets';
-import { kindLabel, kindTone } from '@/lib/ledger-kinds';
+import { kindLabel, kindTone, WALLET_LABEL, WALLETS, type WalletId } from '@/lib/ledger-kinds';
+import { DepositRefund } from '@/components/deposit-refund';
 
 type PageProps = { params: Promise<{ id: string }> };
 
@@ -24,6 +25,7 @@ interface Player {
   kyc_status: string;
   balance: string;
   currency: string;
+  wallets?: Record<WalletId, string>;
   created_at: string;
   avatar_url: string;
   loyalty_tier: string;
@@ -34,8 +36,10 @@ interface Player {
 
 interface LedgerEntry {
   id: number;
+  transaction_ref?: string;
   amount: string;
   kind: string;
+  bucket?: WalletId;
   reference: string;
   idempotency_key: string;
   created_at: string;
@@ -73,6 +77,7 @@ export default function PlayerDetailPage({ params }: PageProps) {
   const [showSuspendForm, setShowSuspendForm] = useState(false);
   const [adjustAmount, setAdjustAmount] = useState('');
   const [adjustReason, setAdjustReason] = useState('');
+  const [adjustWallet, setAdjustWallet] = useState<WalletId | ''>('');
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState('');
 
@@ -100,12 +105,12 @@ export default function PlayerDetailPage({ params }: PageProps) {
 
   async function handleAdjustBalance(e: React.FormEvent) {
     e.preventDefault();
-    if (!accessToken || !adjustAmount || !adjustReason) return;
+    if (!accessToken || !adjustAmount || !adjustReason || !adjustWallet) return;
     setBusy(true);
     setActionError('');
     const { error } = await authedPost(
       `/players/${id}/adjust-balance/`,
-      { amount: adjustAmount, reason: adjustReason },
+      { amount: adjustAmount, reason: adjustReason, wallet: adjustWallet },
       accessToken,
     );
     setBusy(false);
@@ -142,8 +147,18 @@ export default function PlayerDetailPage({ params }: PageProps) {
       <div className="grid gap-4 sm:grid-cols-3">
         <Card className="overflow-hidden rounded-2xl border-border/70">
           <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground">Balance</p>
+            <p className="text-xs text-muted-foreground">Balance (all wallets)</p>
             <p className="text-xl font-bold">{player.balance} {player.currency}</p>
+            {player.wallets && (
+              <dl className="mt-2 grid grid-cols-3 gap-1 text-xs">
+                {WALLETS.map((w) => (
+                  <div key={w}>
+                    <dt className="text-muted-foreground">{WALLET_LABEL[w]}</dt>
+                    <dd className={`font-semibold tabular-nums ${w === 'winnings' ? 'text-win' : ''}`}>{player.wallets![w]}</dd>
+                  </div>
+                ))}
+              </dl>
+            )}
           </CardContent>
         </Card>
         <Card className="overflow-hidden rounded-2xl border-border/70">
@@ -218,6 +233,15 @@ export default function PlayerDetailPage({ params }: PageProps) {
         <CardHeader><CardTitle className="text-base">Adjust balance</CardTitle></CardHeader>
         <CardContent>
           <form onSubmit={handleAdjustBalance} className="grid gap-3 sm:grid-cols-3">
+            <div className="space-y-1 sm:col-span-3">
+              <label className="text-sm font-medium">Wallet</label>
+              <select value={adjustWallet} onChange={(e) => setAdjustWallet(e.target.value as WalletId)} required
+                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary">
+                <option value="" disabled>Choose which wallet to adjust…</option>
+                {WALLETS.map((w) => <option key={w} value={w}>{WALLET_LABEL[w]} ({player.wallets?.[w] ?? '0.00'})</option>)}
+              </select>
+              <p className="text-xs text-muted-foreground">Only Winnings can be withdrawn — credit Bonus for goodwill money that should be played, not cashed out.</p>
+            </div>
             <div className="space-y-1">
               <label className="text-sm font-medium">Amount</label>
               <input
@@ -241,7 +265,7 @@ export default function PlayerDetailPage({ params }: PageProps) {
             <div>
               <button
                 type="submit"
-                disabled={busy || !adjustAmount || !adjustReason}
+                disabled={busy || !adjustAmount || !adjustReason || !adjustWallet}
                 className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
               >
                 Apply adjustment
@@ -250,6 +274,8 @@ export default function PlayerDetailPage({ params }: PageProps) {
           </form>
         </CardContent>
       </Card>
+
+      <DepositRefund playerId={player.id} onDone={refetch} />
 
       <PlayerActivity playerId={player.id} />
 
@@ -298,6 +324,7 @@ export default function PlayerDetailPage({ params }: PageProps) {
               <thead>
                 <tr className="border-b border-border text-left text-muted-foreground">
                   <th className="px-4 py-3 font-medium">Kind</th>
+                  <th className="px-4 py-3 font-medium">Wallet</th>
                   <th className="px-4 py-3 font-medium">Amount</th>
                   <th className="px-4 py-3 font-medium">Reference</th>
                   <th className="px-4 py-3 font-medium">Date</th>
@@ -306,7 +333,11 @@ export default function PlayerDetailPage({ params }: PageProps) {
               <tbody>
                 {ledger.map((e) => (
                   <tr key={e.id} className="border-b border-border last:border-0">
-                    <td className={`px-4 py-3 font-semibold ${kindTone(e.kind)}`}>{kindLabel(e.kind)}</td>
+                    <td className={`px-4 py-3 font-semibold ${kindTone(e.kind)}`}>
+                      {kindLabel(e.kind)}
+                      {e.transaction_ref && <span className="block font-mono text-[10px] font-normal text-muted-foreground">{e.transaction_ref}</span>}
+                    </td>
+                    <td className="px-4 py-3 text-muted-foreground">{e.bucket ? WALLET_LABEL[e.bucket] : '—'}</td>
                     <td className={`px-4 py-3 font-medium tabular-nums ${Number(e.amount) < 0 ? 'text-foreground' : 'text-emerald-500'}`}>
                       {e.amount}
                     </td>

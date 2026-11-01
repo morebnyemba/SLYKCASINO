@@ -94,7 +94,7 @@ class MultiBetBonusTests(TestCase):
         ]
         for ev, o in zip(self.events, odds):
             Event.objects.filter(pk=ev.id).update(odds=D(o))
-        return sb.place_accumulator(stake=D(stake), legs=legs, player_id=self.player.id)
+        return sb.place_accumulator(wallet='deposit', stake=D(stake), legs=legs, player_id=self.player.id)
 
     def test_tier_from_qualifying_legs_only(self):
         self.assertEqual(sb.multibet_bonus_percent([D('2'), D('2')]), D('0'))

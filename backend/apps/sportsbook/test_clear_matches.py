@@ -26,14 +26,14 @@ class ClearOldMatchesTests(TestCase):
         old_empty = self.match('Old, no bets', 72, status='FT')
         Market.objects.create(event=old_empty, key='ou25', name='Over/Under 2.5')
         old_single = self.match('Old single', 72, status='FT')
-        Bet.objects.create(player_id=1, event='x', event_ref=old_single, stake=D('1'), odds=D('2'), status='won')
+        Bet.objects.create(wallet='deposit', player_id=1, event='x', event_ref=old_single, stake=D('1'), odds=D('2'), status='won')
         old_leg = self.match('Old leg', 72, status='CANC')
-        slip = BetSlip.objects.create(player_id=1, stake=D('1'), combined_odds=D('2'))
+        slip = BetSlip.objects.create(wallet='deposit', player_id=1, stake=D('1'), combined_odds=D('2'))
         BetLeg.objects.create(slip=slip, event='y', event_ref=old_leg, odds=D('2'))
         old_outcome = self.match('Old market bet', 72, status='FT')
         out = MarketOutcome.objects.create(market=Market.objects.create(event=old_outcome, key='btts', name='BTTS'),
                                            key='yes', label='Yes', odds=D('1.8'))
-        Bet.objects.create(player_id=1, event='z', outcome_ref=out, stake=D('1'), odds=D('1.8'))
+        Bet.objects.create(wallet='deposit', player_id=1, event='z', outcome_ref=out, stake=D('1'), odds=D('1.8'))
 
         preview = services.clear_old_matches(dry_run=True)
         self.assertEqual(preview, {'closed': 5, 'deleted': 1, 'kept_with_tickets': 3})
@@ -90,7 +90,7 @@ class ClearOldMatchesTests(TestCase):
             with_markets(f'Old {i}', 72)
         keep = with_markets('Old with a bet', 72, n=2)
         out = MarketOutcome.objects.filter(market__event=keep).first()
-        Bet.objects.create(player_id=1, event='k', outcome_ref=out, stake=D('1'), odds=D('2'))
+        Bet.objects.create(wallet='deposit', player_id=1, event='k', outcome_ref=out, stake=D('1'), odds=D('2'))
         fresh = with_markets('Recent', 1, n=2)
 
         old = Event.objects.filter(starts_at__lte=timezone.now() - timedelta(hours=48)).exclude(pk=keep.pk)
@@ -138,7 +138,7 @@ class EndStaleLiveTests(TestCase):
             score_home=1, score_away=0, provider='api-football', external_id=name)
         playing = mk('Extra time', 150, 'ET')
         frozen = mk('Frozen', 200, '2H')
-        bet = Bet.objects.create(player_id=1, event='Frozen', event_ref=frozen, selection='home', stake=D('5'), odds=D('2'))
+        bet = Bet.objects.create(wallet='deposit', player_id=1, event='Frozen', event_ref=frozen, selection='home', stake=D('5'), odds=D('2'))
 
         # The overdue-live check asks the feed first; it has nothing new for either match.
         with mock.patch('apps.sportsbook.services.ApiFootballClient.fetch_fixtures_by_ids', return_value=[]) as fetch:

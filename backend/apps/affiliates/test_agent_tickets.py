@@ -24,7 +24,7 @@ class AgentTicketTests(TestCase):
         stranger = accounts.register_player(username='stranger', email='s@example.com', password=PASSWORD)
         services.attach_referral(player_id=self.customer.id, code='AGENT')
         event = Event.objects.create(name='A v B', odds=D('2'), starts_at=timezone.now())
-        mk = lambda player, **kw: Bet.objects.create(player_id=player.id, stake=D('10'), odds=D('2'), event='x',  # noqa: E731
+        mk = lambda player, **kw: Bet.objects.create(wallet='deposit', player_id=player.id, stake=D('10'), odds=D('2'), event='x',  # noqa: E731
                                                      event_ref=event, **kw)
         self.open = mk(self.customer)
         self.won = mk(self.customer, status='won', payout=D('20'))
@@ -32,7 +32,7 @@ class AgentTicketTests(TestCase):
         yesterday = mk(self.customer, status='lost')
         Bet.objects.filter(pk=yesterday.pk).update(placed_at=timezone.now() - timedelta(days=1))
         mk(self.customer, status='rejected')
-        self.slip = BetSlip.objects.create(player_id=self.customer.id, stake=D('5'), combined_odds=D('4'))
+        self.slip = BetSlip.objects.create(wallet='deposit', player_id=self.customer.id, stake=D('5'), combined_odds=D('4'))
         BetLeg.objects.create(slip=self.slip, event='leg', event_ref=event, odds=D('2'))
         mk(stranger, status='won')
         self.api = APIClient()
@@ -92,7 +92,7 @@ class LosingTicketCommissionTests(TestCase):
         now = timezone.now()
         self.event = Event.objects.create(name='A v B', odds=D('2'), starts_at=now)
         ago = lambda minutes: now - timedelta(minutes=minutes)  # noqa: E731
-        mk = lambda player, stake, state, settled: Bet.objects.create(  # noqa: E731
+        mk = lambda player, stake, state, settled: Bet.objects.create(wallet='deposit',   # noqa: E731
             player_id=player.id, stake=D(stake), odds=D('2'), event='x', event_ref=self.event, status=state, settled_at=settled)
         self.lost = mk(self.customer, '10', 'lost', ago(5))
         self.fresh = mk(self.customer, '40', 'lost', ago(1))       # settled under 3 minutes ago
@@ -100,7 +100,7 @@ class LosingTicketCommissionTests(TestCase):
         mk(self.customer, '7', 'void', ago(5))
         mk(stranger, '100', 'lost', ago(5))                         # not referred
         mk(self.customer, '9', 'lost', now - timedelta(days=5))     # older than the catch-up window
-        self.slip = BetSlip.objects.create(player_id=self.customer.id, stake=D('5'), combined_odds=D('4'),
+        self.slip = BetSlip.objects.create(wallet='deposit', player_id=self.customer.id, stake=D('5'), combined_odds=D('4'),
                                            status='lost', settled_at=ago(4))
 
     def test_new_agents_get_thirty_percent(self):
@@ -148,7 +148,9 @@ class AgentReportTests(TestCase):
         wallet.deposit(player_id=stranger.id, amount=D('99'), idempotency_key='d3')
         old = wallet.deposit(player_id=self.customer.id, amount=D('7'), idempotency_key='d4')
         from apps.wallet.models import LedgerEntry
-        LedgerEntry.objects.filter(idempotency_key='d4').update(created_at=timezone.now() - timedelta(days=400))
+        from apps.wallet.testing import ledger_unlocked
+        with ledger_unlocked():
+            LedgerEntry.objects.filter(idempotency_key='d4').update(created_at=timezone.now() - timedelta(days=400))
         del old
         services.record_click('AGENT')
         self.api = APIClient()

@@ -1,5 +1,7 @@
 from django.db import models
 
+from apps.wallet.models.wallet import Bucket
+
 
 class GameRound(models.Model):
     """A single play. `player_id` references accounts.Player by ID.
@@ -16,6 +18,9 @@ class GameRound(models.Model):
     player_id = models.BigIntegerField(db_index=True)
     game = models.ForeignKey('casino.Game', on_delete=models.PROTECT, related_name='rounds')
     stake = models.DecimalField(max_digits=12, decimal_places=2)
+    # The wallet (deposit / bonus / winnings) the stake was paid from: refunds
+    # and the stake part of a win go back there, only profit goes to winnings.
+    wallet = models.CharField(max_length=10, choices=Bucket.choices)
     win = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.PENDING)
     debit_confirmed = models.BooleanField(default=False)
@@ -25,6 +30,9 @@ class GameRound(models.Model):
 
     class Meta:
         db_table = 'casino_round'
+        constraints = [
+            models.CheckConstraint(check=models.Q(wallet__in=Bucket.values), name='casino_round_wallet_valid'),
+        ]
         ordering = ['-created_at']
         indexes = [models.Index(fields=['status', 'debit_confirmed', 'created_at'])]
 

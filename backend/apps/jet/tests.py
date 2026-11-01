@@ -71,7 +71,7 @@ class BettingTests(TestCase):
         self.rnd = _round(now=self.now)
 
     def test_bet_debits_and_counts(self):
-        bet = services.place_bet(player=self.player, stake='10', slot=1, auto_cashout='1.5', now=self.now)
+        bet = services.place_bet(wallet='deposit', player=self.player, stake='10', slot=1, auto_cashout='1.5', now=self.now)
         self.assertEqual((bet.status, bet.display_name, bet.auto_cashout), ('active', 't***i', D('1.50')))
         self.assertEqual(_balance(self.player), D('90.00'))
         self.rnd.refresh_from_db()
@@ -83,45 +83,45 @@ class BettingTests(TestCase):
         ]
         for kw in cases:
             with self.assertRaises(services.JetError, msg=kw):
-                services.place_bet(player=self.player, now=self.now, **{'slot': 1, **kw})
-        services.place_bet(player=self.player, stake='5', slot=1, now=self.now)
+                services.place_bet(wallet='deposit', player=self.player, now=self.now, **{'slot': 1, **kw})
+        services.place_bet(wallet='deposit', player=self.player, stake='5', slot=1, now=self.now)
         with self.assertRaisesMessage(services.JetError, 'already have a bet'):
-            services.place_bet(player=self.player, stake='5', slot=1, now=self.now)
-        services.place_bet(player=self.player, stake='5', slot=2, now=self.now)  # second slot is fine
+            services.place_bet(wallet='deposit', player=self.player, stake='5', slot=1, now=self.now)
+        services.place_bet(wallet='deposit', player=self.player, stake='5', slot=2, now=self.now)  # second slot is fine
         with self.assertRaisesMessage(services.JetError, 'closed'):
-            services.place_bet(player=self.player, stake='5', slot=1, now=self.rnd.betting_ends_at + timedelta(seconds=1))
+            services.place_bet(wallet='deposit', player=self.player, stake='5', slot=1, now=self.rnd.betting_ends_at + timedelta(seconds=1))
 
     def test_round_limit_pause_and_self_exclusion(self):
         cfg = JetSettings.load()
         cfg.round_stake_limit = D('15')
         cfg.save()
-        services.place_bet(player=self.player, stake='10', now=self.now)
+        services.place_bet(wallet='deposit', player=self.player, stake='10', now=self.now)
         other, _ = _player('rudo')
         with self.assertRaisesMessage(services.JetError, 'round is full'):
-            services.place_bet(player=other, stake='10', now=self.now)
+            services.place_bet(wallet='deposit', player=other, stake='10', now=self.now)
         cfg.enabled = False
         cfg.save()
         with self.assertRaisesMessage(services.JetError, 'paused'):
-            services.place_bet(player=other, stake='1', now=self.now)
+            services.place_bet(wallet='deposit', player=other, stake='1', now=self.now)
         cfg.enabled = True
         cfg.save()
         other.self_excluded = True
         other.save(update_fields=['self_excluded'])
         with self.assertRaisesMessage(services.JetError, 'self-excluded'):
-            services.place_bet(player=other, stake='1', now=self.now)
+            services.place_bet(wallet='deposit', player=other, stake='1', now=self.now)
 
     def test_not_enough_balance(self):
         poor, _ = _player('poor', funds='1')
         with self.assertRaises(wallet_services.InsufficientFunds):
-            services.place_bet(player=poor, stake='5', now=self.now)
+            services.place_bet(wallet='deposit', player=poor, stake='5', now=self.now)
         self.assertFalse(JetBet.objects.filter(player_id=poor.id).exists())
 
     def test_cancel_during_countdown_refunds(self):
-        bet = services.place_bet(player=self.player, stake='10', now=self.now)
+        bet = services.place_bet(wallet='deposit', player=self.player, stake='10', now=self.now)
         services.cancel_bet(player_id=self.player.id, bet_id=bet.id, now=self.now)
         self.assertEqual(_balance(self.player), D('100.00'))
         services.start_flight(self.rnd.id, now=self.rnd.betting_ends_at)
-        bet2 = JetBet.objects.create(round=self.rnd, player_id=self.player.id, display_name='x', slot=2, stake=D('1'))
+        bet2 = JetBet.objects.create(wallet='deposit', round=self.rnd, player_id=self.player.id, display_name='x', slot=2, stake=D('1'))
         with self.assertRaises(services.JetError):
             services.cancel_bet(player_id=self.player.id, bet_id=bet2.id)
 
@@ -131,7 +131,7 @@ class FlightTests(TestCase):
         self.player, _ = _player('farai')
         self.t0 = timezone.now()
         self.rnd = _round(crash='3.00', now=self.t0)
-        self.bet = services.place_bet(player=self.player, stake='10', now=self.t0)
+        self.bet = services.place_bet(wallet='deposit', player=self.player, stake='10', now=self.t0)
         self.start = self.rnd.betting_ends_at
         services.start_flight(self.rnd.id, now=self.start)
 
@@ -141,7 +141,7 @@ class FlightTests(TestCase):
     def test_manual_cash_out_by_server_clock(self):
         with self.assertRaisesMessage(services.JetError, 'hasn’t started'):
             other = _round(now=self.t0)
-            b = services.place_bet(player=self.player, stake='1', now=self.t0)
+            b = services.place_bet(wallet='deposit', player=self.player, stake='1', now=self.t0)
             services.cash_out(player_id=self.player.id, bet_id=b.id, now=self.t0)
         bet = services.cash_out(player_id=self.player.id, bet_id=self.bet.id, now=self.at('2.00'))
         self.assertEqual((bet.status, bet.cashout_multiplier, bet.payout), ('cashed', D('2.00'), D('20.00')))
@@ -166,9 +166,9 @@ class FlightTests(TestCase):
         a, _ = _player('auto_low')
         b, _ = _player('auto_high')
         c, _ = _player('auto_exact')
-        low = services.place_bet(player=a, stake='10', auto_cashout='1.80', now=self.t0)
-        high = services.place_bet(player=b, stake='10', auto_cashout='4.00', now=self.t0)
-        exact = services.place_bet(player=c, stake='10', auto_cashout='2.50', now=self.t0)
+        low = services.place_bet(wallet='deposit', player=a, stake='10', auto_cashout='1.80', now=self.t0)
+        high = services.place_bet(wallet='deposit', player=b, stake='10', auto_cashout='4.00', now=self.t0)
+        exact = services.place_bet(wallet='deposit', player=c, stake='10', auto_cashout='2.50', now=self.t0)
         services.start_flight(rnd.id, now=rnd.betting_ends_at)
         start = rnd.betting_ends_at
         services.settle_auto_cashouts(rnd.id, now=start + timedelta(seconds=engine.seconds_to(D('2.00'))))
@@ -196,10 +196,10 @@ class RecoveryTests(TestCase):
         p, _ = _player('restart')
         now = timezone.now()
         betting = _round(now=now)
-        b1 = services.place_bet(player=p, stake='5', now=now)
+        b1 = services.place_bet(wallet='deposit', player=p, stake='5', now=now)
         flying = _round(crash='3.00', now=now)
-        auto = services.place_bet(player=p, stake='5', auto_cashout='2', now=now)
-        manual = services.place_bet(player=p, stake='5', slot=2, now=now)
+        auto = services.place_bet(wallet='deposit', player=p, stake='5', auto_cashout='2', now=now)
+        manual = services.place_bet(wallet='deposit', player=p, stake='5', slot=2, now=now)
         services.start_flight(flying.id, now=now)
         self.assertEqual(services.recover(now=now), 2)
         for bet, status in ((b1, 'refunded'), (auto, 'cashed'), (manual, 'refunded')):
@@ -218,7 +218,7 @@ class ApiTests(TestCase):
         self.rnd = _round(crash='5.00')
 
     def test_state_hides_the_crash_point_until_the_crash(self):
-        res = self.api.post('/api/jet/bets/', {'stake': '2', 'slot': 1, 'auto_cashout': '2'}, format='json')
+        res = self.api.post('/api/jet/bets/', {'wallet': 'deposit', 'stake': '2', 'slot': 1, 'auto_cashout': '2'}, format='json')
         self.assertEqual(res.status_code, 201, res.content)
         self.assertEqual(res.json()['balance'], '98.00')
         state = APIClient().get('/api/jet/state/').json()
@@ -235,12 +235,12 @@ class ApiTests(TestCase):
         self.assertEqual(engine.seed_hash(done['server_seed']), done['seed_hash'])
 
     def test_errors_are_player_friendly(self):
-        res = self.api.post('/api/jet/bets/', {'stake': '1000', 'slot': 1}, format='json')
+        res = self.api.post('/api/jet/bets/', {'wallet': 'deposit', 'stake': '1000', 'slot': 1}, format='json')
         self.assertEqual(res.status_code, 409)
         self.assertIn('Bets are', res.json()['detail'])
-        broke = self.api.post('/api/jet/bets/', {'stake': '100', 'slot': 1}, format='json')
+        broke = self.api.post('/api/jet/bets/', {'wallet': 'deposit', 'stake': '100', 'slot': 1}, format='json')
         self.assertEqual(broke.status_code, 201)
-        res = self.api.post('/api/jet/bets/', {'stake': '5', 'slot': 2}, format='json')
+        res = self.api.post('/api/jet/bets/', {'wallet': 'deposit', 'stake': '5', 'slot': 2}, format='json')
         self.assertEqual(res.status_code, 402)
 
     def test_admin_settings_and_stats(self):
@@ -251,7 +251,7 @@ class ApiTests(TestCase):
         self.assertEqual(res.json()['rtp_percent'], '96.00')
         self.assertEqual(admin.put('/api/admin/jet/settings/', {'house_edge_percent': '60'}, format='json').status_code, 400)
         self.assertEqual(admin.put('/api/admin/jet/settings/', {'house_edge_percent': '50'}, format='json').json()['rtp_percent'], '50.00')
-        self.api.post('/api/jet/bets/', {'stake': '2', 'slot': 1}, format='json')
+        self.api.post('/api/jet/bets/', {'wallet': 'deposit', 'stake': '2', 'slot': 1}, format='json')
         stats = admin.get('/api/admin/jet/stats/').json()
         self.assertEqual(stats['live']['round'], self.rnd.id)
         self.assertNotIn('5.00', str(stats['live']))  # never the live crash point
@@ -288,7 +288,7 @@ class BotTests(TestCase):
         from apps.wallet import reporting
         ledger_before = LedgerEntry.objects.count()
         rnd = _round(crash='3.00')
-        res = self.api.post('/api/jet/bets/', {'stake': '2', 'slot': 1, 'auto_cashout': '2'}, format='json')
+        res = self.api.post('/api/jet/bets/', {'wallet': 'deposit', 'stake': '2', 'slot': 1, 'auto_cashout': '2'}, format='json')
         self.assertEqual(res.status_code, 201, res.content)
 
         # Betting: bots arrive over the countdown and appear in the list.
@@ -309,7 +309,7 @@ class BotTests(TestCase):
         # Only the real player's bet exists anywhere that counts.
         self.assertEqual(JetBet.objects.count(), 1)
         self.assertEqual((rnd.bet_count, rnd.total_stake, rnd.total_payout), (1, D('2.00'), D('4.00')))
-        self.assertEqual(LedgerEntry.objects.count(), ledger_before + 2)  # stake + payout
+        self.assertEqual(LedgerEntry.objects.count(), ledger_before + 3)  # stake, stake back, profit
         kpis = reporting.ledger_kpis(None, None, timezone.now() + timedelta(seconds=1))
         self.assertEqual((kpis['casino']['plays'], kpis['casino']['stakes'], kpis['casino']['ggr']), (1, '2.00', '-2.00'))
 
@@ -343,13 +343,13 @@ class FreeBetTests(TestCase):
     def test_win_pays_winnings_as_bonus_and_skips_totals(self):
         from apps.wallet.models import LedgerEntry
         fb = self.free('2.00')
-        bet = services.place_bet(player=self.player, slot=1, auto_cashout='2', free_bet_id=fb.id)
+        bet = services.place_bet(wallet='deposit', player=self.player, slot=1, auto_cashout='2', free_bet_id=fb.id)
         self.assertTrue(bet.is_free)
         self.assertEqual(_balance(self.player), D('10.00'))  # nothing taken
         fb.refresh_from_db()
         self.assertEqual((fb.status, fb.bet_id), ('used', bet.id))
         with self.assertRaises(services.JetError):
-            services.place_bet(player=self.player, slot=2, free_bet_id=fb.id)  # can't reuse
+            services.place_bet(wallet='deposit', player=self.player, slot=2, free_bet_id=fb.id)  # can't reuse
         services.start_flight(self.rnd.id)
         services.crash_round(self.rnd.id)
         bet.refresh_from_db()
@@ -362,13 +362,13 @@ class FreeBetTests(TestCase):
 
     def test_cancel_returns_the_free_bet_and_expired_ones_fail(self):
         fb = self.free()
-        bet = services.place_bet(player=self.player, slot=1, free_bet_id=fb.id)
+        bet = services.place_bet(wallet='deposit', player=self.player, slot=1, free_bet_id=fb.id)
         services.cancel_bet(player_id=self.player.id, bet_id=bet.id)
         fb.refresh_from_db()
         self.assertEqual((fb.status, fb.bet_id), ('available', None))
         stale = JetFreeBet.objects.create(player_id=self.player.id, amount=D('1'), expires_at=timezone.now() - timedelta(minutes=1))
         with self.assertRaisesMessage(services.JetError, 'expired'):
-            services.place_bet(player=self.player, slot=2, free_bet_id=stale.id)
+            services.place_bet(wallet='deposit', player=self.player, slot=2, free_bet_id=stale.id)
 
 
 class ChatAndRainTests(TestCase):
@@ -411,8 +411,8 @@ class ChatAndRainTests(TestCase):
 
     def test_win_bot_announces_big_wins_only(self):
         rnd = _round(crash='30.00')
-        services.place_bet(player=self.player, stake='1', slot=1, auto_cashout='1.5')
-        services.place_bet(player=self.player, stake='2', slot=2, auto_cashout='12')
+        services.place_bet(wallet='deposit', player=self.player, stake='1', slot=1, auto_cashout='1.5')
+        services.place_bet(wallet='deposit', player=self.player, stake='2', slot=2, auto_cashout='12')
         services.start_flight(rnd.id)
         services.crash_round(rnd.id)
         msg = social.announce_round(rnd)

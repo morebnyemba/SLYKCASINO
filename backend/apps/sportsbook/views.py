@@ -203,6 +203,7 @@ class BetViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.Create
             bet = services.place_bet(
                 event=dto.event, stake=dto.stake, odds=dto.odds, player_id=dto.player_id,
                 event_id=dto.event_id, selection=dto.selection, outcome_id=dto.outcome_id,
+                wallet=request.data.get('wallet'),
             )
         except services.OddsChanged as exc:
             return Response(
@@ -255,6 +256,7 @@ class BetSlipViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.Cr
                 stake=dto.stake,
                 legs=[leg.model_dump() for leg in dto.legs],
                 player_id=dto.player_id,
+                wallet=request.data.get('wallet'),
             )
         except services.OddsChanged as exc:
             return Response(

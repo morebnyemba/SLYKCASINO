@@ -78,7 +78,7 @@ class UnpricedEventTests(TestCase):
         event = sb._create_event_from_fixture(fixture)
         self.assertFalse(event.has_odds)
         with self.assertRaises(sb.SelectionUnavailable):
-            sb.place_bet(event='A vs B — Home', stake=Decimal('5'), odds=Decimal('1.95'),
+            sb.place_bet(wallet='deposit', event='A vs B — Home', stake=Decimal('5'), odds=Decimal('1.95'),
                          player_id=self.player.id, event_id=event.id, selection='home')
 
         with patch.object(ApiFootballClient, 'fetch_odds', return_value=[
@@ -88,7 +88,7 @@ class UnpricedEventTests(TestCase):
         event.refresh_from_db()
         self.assertTrue(event.has_odds)
         self.assertEqual(event.odds, Decimal('2.10'))
-        bet = sb.place_bet(event='A vs B — Home', stake=Decimal('5'), odds=Decimal('2.10'),
+        bet = sb.place_bet(wallet='deposit', event='A vs B — Home', stake=Decimal('5'), odds=Decimal('2.10'),
                            player_id=self.player.id, event_id=event.id, selection='home')
         self.assertEqual(bet.odds, Decimal('2.10'))
 
@@ -143,7 +143,7 @@ class ClosedEventBettingTests(TestCase):
         wallet_services.credit(player_id=player.id, amount=Decimal('50'), kind='deposit', idempotency_key='c:dep')
         event = Event.objects.create(name='Closed v Match', odds=Decimal('2'), is_open=False)
         with self.assertRaises(sb.SelectionUnavailable):
-            sb.place_bet(event='x', stake=Decimal('5'), odds=Decimal('2'), player_id=player.id,
+            sb.place_bet(wallet='deposit', event='x', stake=Decimal('5'), odds=Decimal('2'), player_id=player.id,
                          event_id=event.id, selection='home')
 
 
@@ -161,7 +161,7 @@ class KickoffTests(TestCase):
         market = Market.objects.create(event=event, key='btts:ft', name='BTTS', kind='btts')
         yes = MarketOutcome.objects.create(market=market, key='yes', label='Yes', odds=Decimal('1.8'))
         with self.assertRaises(sb.SelectionUnavailable):
-            sb.place_bet(event='x', stake=Decimal('5'), odds=Decimal('2'), player_id=player.id,
+            sb.place_bet(wallet='deposit', event='x', stake=Decimal('5'), odds=Decimal('2'), player_id=player.id,
                          event_id=event.id, selection='home')
         with self.assertRaises(sb.SelectionUnavailable):
-            sb.place_bet(event='x', stake=Decimal('5'), odds=Decimal('1.8'), player_id=player.id, outcome_id=yes.id)
+            sb.place_bet(wallet='deposit', event='x', stake=Decimal('5'), odds=Decimal('1.8'), player_id=player.id, outcome_id=yes.id)

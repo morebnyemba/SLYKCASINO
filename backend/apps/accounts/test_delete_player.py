@@ -44,8 +44,8 @@ class DeletePlayerTests(TestCase):
         self.player = services.register_player(username='gone_soon', email='gone@example.com', password='Passw0rd!Long', currency='USD')
         affiliate_services.attach_referral(player_id=self.player.id, code='PARTNER')
         wallet_services.deposit(player_id=self.player.id, amount=D('50'), idempotency_key='gone:dep')  # + welcome bonus
-        wallet_services.debit(player_id=self.player.id, amount=D('10'), kind='bet_stake', idempotency_key='gone:bet')
-        Bet.objects.create(player_id=self.player.id, event='Match', selection='home', stake=D('10'), odds=D('2.0'),
+        wallet_services.debit(player_id=self.player.id, amount=D('10'), kind='bet_stake', bucket='deposit', idempotency_key='gone:bet')
+        Bet.objects.create(wallet='deposit', player_id=self.player.id, event='Match', selection='home', stake=D('10'), odds=D('2.0'),
                            status=Bet.Status.LOST)
         affiliate_services.update_terms(self.aff.id, cpa_percent='30', cpa_cap='100', cpa_min_deposit='1')
         self.aff.refresh_from_db()
