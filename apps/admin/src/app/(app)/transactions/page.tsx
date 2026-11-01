@@ -5,11 +5,12 @@ import { useEffect, useState } from 'react';
 import { BsChevronLeft, BsChevronRight, BsSearch } from 'react-icons/bs';
 import { FaExchangeAlt } from 'react-icons/fa';
 import { Btn, EmptyState, Notice, PageHeader, TextInput, cx, tableClass, tdClass, thClass, trClass } from '@/components/console/ui';
-import { KIND_FILTERS, kindLabel, kindTone } from '@/lib/ledger-kinds';
+import { KIND_FILTERS, kindLabel, kindTone, WALLET_LABEL, WALLETS, type WalletId } from '@/lib/ledger-kinds';
 import { useApi } from '@/lib/use-api';
 
 interface LedgerEntry {
-  id: number; amount: string; kind: string; reference: string; idempotency_key: string;
+  id: number; transaction_ref?: string; amount: string; kind: string; bucket?: WalletId; legacy?: boolean;
+  reference: string; idempotency_key: string;
   created_at: string; player_id: number; username: string | null;
 }
 interface LedgerResponse { count: number; next: string | null; previous: string | null; results: LedgerEntry[] }
@@ -22,6 +23,7 @@ export default function TransactionsPage() {
   const [q, setQ] = useState('');
   const [search, setSearch] = useState('');
   const [kind, setKind] = useState('');
+  const [bucket, setBucket] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [pageSize, setPageSize] = useState(50);
@@ -35,13 +37,13 @@ export default function TransactionsPage() {
 
   const params = new URLSearchParams({
     page: String(page), page_size: String(pageSize),
-    ...(search && { q: search }), ...(kind && { kind }), ...(from && { date_from: from }), ...(to && { date_to: to }),
+    ...(search && { q: search }), ...(kind && { kind }), ...(bucket && { bucket }), ...(from && { date_from: from }), ...(to && { date_to: to }),
   });
   const { data, loading, error } = useApi<LedgerResponse>(`/admin/ledger/?${params}`);
   const entries = data?.results ?? [];
   const pages = data ? Math.max(1, Math.ceil(data.count / pageSize)) : 1;
-  const filtered = !!(search || kind || from || to);
-  const reset = () => { setQ(''); setSearch(''); setKind(''); setFrom(''); setTo(''); setPage(1); };
+  const filtered = !!(search || kind || bucket || from || to);
+  const reset = () => { setQ(''); setSearch(''); setKind(''); setBucket(''); setFrom(''); setTo(''); setPage(1); };
 
   return (
     <div className="space-y-5">
@@ -55,6 +57,10 @@ export default function TransactionsPage() {
         </div>
         <select value={kind} onChange={(e) => { setKind(e.target.value); setPage(1); }} aria-label="Type" className={select}>
           {KIND_FILTERS.map((k) => <option key={k.id} value={k.id}>{k.label}</option>)}
+        </select>
+        <select value={bucket} onChange={(e) => { setBucket(e.target.value); setPage(1); }} aria-label="Wallet" className={select}>
+          <option value="">All wallets</option>
+          {WALLETS.map((w) => <option key={w} value={w}>{WALLET_LABEL[w]}</option>)}
         </select>
         <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
           From <input type="date" value={from} max={to || undefined} onChange={(e) => { setFrom(e.target.value); setPage(1); }} className={select} aria-label="From date" />
@@ -85,7 +91,7 @@ export default function TransactionsPage() {
           <div className={cx('overflow-x-auto', loading && 'opacity-60')}>
             <table className={tableClass}>
               <thead><tr>
-                <th className={thClass}>Date</th><th className={thClass}>Player</th><th className={thClass}>Type</th>
+                <th className={thClass}>Date</th><th className={thClass}>Player</th><th className={thClass}>Type</th><th className={thClass}>Wallet</th>
                 <th className={cx(thClass, 'text-right')}>Amount</th><th className={thClass}>Reference</th>
               </tr></thead>
               <tbody>
@@ -98,7 +104,13 @@ export default function TransactionsPage() {
                         <Link href={`/players/${e.player_id}`} className="font-semibold hover:underline">{e.username ?? `#${e.player_id}`}</Link>
                         <span className="ml-1.5 font-mono text-[11px] text-muted-foreground">#{e.player_id}</span>
                       </td>
-                      <td className={cx(tdClass, 'font-semibold', kindTone(e.kind))}>{kindLabel(e.kind)}</td>
+                      <td className={cx(tdClass, 'font-semibold', kindTone(e.kind))}>
+                        {kindLabel(e.kind)}
+                        {e.transaction_ref && <span className="block font-mono text-[10px] font-normal text-muted-foreground">{e.transaction_ref}</span>}
+                      </td>
+                      <td className={cx(tdClass, 'text-xs text-muted-foreground')}>
+                        {e.bucket ? WALLET_LABEL[e.bucket] : '—'}{e.legacy && ' (pre-split)'}
+                      </td>
                       <td className={cx(tdClass, 'text-right font-semibold tabular-nums', n < 0 ? 'text-foreground' : 'text-emerald-500')}>
                         {n > 0 ? '+' : n < 0 ? '−' : ''}${Math.abs(n).toFixed(2)}
                       </td>

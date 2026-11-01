@@ -36,21 +36,37 @@ def _get_player_or_404(request):
     return player, None
 
 
+def wallets_payload(player_id: int) -> dict:
+    """The three balances and the rules for betting from each — what the bet
+    slip and wallet screens show."""
+    from .models import WalletRules, WithdrawalSettings
+    dto = services.get_balance_dto(player_id)
+    rules = WalletRules.load()
+    return {
+        'balance': str(dto.balance), 'currency': dto.currency,
+        'wallets': {
+            'deposit': {'balance': str(dto.deposit), 'min_odds': str(rules.deposit_min_odds), 'withdrawable': False},
+            'bonus': {'balance': str(dto.bonus), 'min_odds': str(rules.bonus_min_odds), 'withdrawable': False},
+            'winnings': {'balance': str(dto.winnings), 'min_odds': str(rules.winnings_min_odds), 'withdrawable': True},
+        },
+        'withdrawable': str(dto.winnings),
+        'withdrawal_fee_percent': str(WithdrawalSettings.load().fee_percent),
+    }
+
+
 class WalletView(APIView):
-    """GET /api/wallet/ -> current player's balance."""
+    """GET /api/wallet/ -> current player's three balances (deposit, bonus,
+    winnings), their betting rules, and the deposit options."""
 
     def get(self, request):
         player, err = _get_player_or_404(request)
         if err:
             return err
-        dto = services.get_balance_dto(player.id)
         from apps.promotions import services as promotions_services
         bonus = promotions_services.bonus_status(player.id)
         return Response({
-            'balance': str(dto.balance), 'currency': dto.currency,
-            # Bonus money still being wagered can be played but not withdrawn.
+            **wallets_payload(player.id),
             'bonus_locked': str(bonus['locked']), 'wagering_remaining': str(bonus['wagering_remaining']),
-            'withdrawable': str(max(dto.balance - bonus['locked'], Decimal('0'))),
             'deposit_methods': payments.deposit_methods(),
             'payment_methods': PaymentMethodSerializer(payments.offered_methods(), many=True).data,
             'deposit_gateway': 'paynow' if payments.gateway_enabled() else 'stub',
@@ -247,6 +263,8 @@ class AdminLedgerViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
             qs = qs.filter(wallet__player_id=params['player_id'])
         if params.get('kind'):
             qs = qs.filter(kind__in=params['kind'].split(','))
+        if params.get('bucket'):
+            qs = qs.filter(bucket__in=params['bucket'].split(','))
         q = (params.get('q') or '').strip()
         if q:
             pid = q.lstrip('#')
@@ -287,8 +305,13 @@ class WithdrawView(APIView):
             req = withdrawals.request(
                 player=player, amount=d.get('amount'), method=d.get('method') or '',
                 account_number=d.get('account_number') or '', account_name=d.get('account_name') or '',
-                bank_name=d.get('bank_name') or '',
+                bank_name=d.get('bank_name') or '', wallet=d.get('wallet'),
             )
+        except withdrawals.WalletViolation as exc:
+            # The app never sends this: a tampered request. Recorded for review.
+            accounts_services.audit(player.id, 'withdrawal_wallet_violation', request,
+                                    wallet=exc.wallet, amount=str(d.get('amount'))[:20])
+            return Response({'detail': str(exc)}, status=exc.code)
         except withdrawals.WithdrawalError as exc:
             body = {'detail': str(exc)}
             if exc.withdrawable is not None:
@@ -296,9 +319,8 @@ class WithdrawView(APIView):
             return Response(body, status=exc.code)
         except services.InsufficientFunds as exc:
             return Response({'detail': str(exc)}, status=status.HTTP_402_PAYMENT_REQUIRED)
-        dto = services.get_balance_dto(player.id)
-        return Response({'balance': str(dto.balance), 'currency': dto.currency,
-                         'withdrawal': withdrawals.payload(req)}, status=status.HTTP_201_CREATED)
+        return Response({**wallets_payload(player.id), 'withdrawal': withdrawals.payload(req)},
+                        status=status.HTTP_201_CREATED)
 
 
 class MyWithdrawalsView(APIView):
@@ -319,7 +341,8 @@ class MyWithdrawalsView(APIView):
                        'left_today': str(max(cfg.daily_max - withdrawals.requested_today(player.id), Decimal('0')))
                        if cfg.daily_max else None,
                        'turnover_left': str(withdrawals.turnover_left(player.id, cfg)),
-                       'turnover_percent': cfg.min_turnover_percent},
+                       'turnover_percent': cfg.min_turnover_percent,
+                       'fee_percent': str(cfg.fee_percent)},
             'methods': [{'id': v, 'label': l} for v, l in WithdrawalRequest.Method.choices],
         })
 
@@ -332,8 +355,7 @@ class MyWithdrawalsView(APIView):
             req = withdrawals.cancel(player_id=player.id, req_id=int(pk))
         except withdrawals.WithdrawalError as exc:
             return Response({'detail': str(exc)}, status=exc.code)
-        return Response({'withdrawal': withdrawals.payload(req),
-                         'balance': str(services.get_balance_dto(player.id).balance)})
+        return Response({'withdrawal': withdrawals.payload(req), **wallets_payload(player.id)})
 
 
 class AdminWithdrawalsView(APIView):
@@ -399,7 +421,7 @@ class AdminWithdrawalSettingsView(APIView):
     @staticmethod
     def _out(cfg):
         return {'min_amount': str(cfg.min_amount), 'max_amount': str(cfg.max_amount), 'daily_max': str(cfg.daily_max),
-                'min_turnover_percent': cfg.min_turnover_percent}
+                'min_turnover_percent': cfg.min_turnover_percent, 'fee_percent': str(cfg.fee_percent)}
 
     def get(self, request):
         from .models import WithdrawalSettings
@@ -415,8 +437,12 @@ class AdminWithdrawalSettingsView(APIView):
                     setattr(cfg, f, Decimal(str(request.data[f])).quantize(Decimal('0.01')))
             if 'min_turnover_percent' in request.data:
                 cfg.min_turnover_percent = int(request.data['min_turnover_percent'])
+            if 'fee_percent' in request.data:
+                cfg.fee_percent = Decimal(str(request.data['fee_percent'])).quantize(Decimal('0.01'))
         except (InvalidOperation, ValueError, TypeError):
             return Response({'detail': 'Enter amounts as numbers.'}, status=status.HTTP_400_BAD_REQUEST)
+        if not 0 <= cfg.fee_percent <= 50:
+            return Response({'detail': 'The withdrawal fee must be 0–50%.'}, status=status.HTTP_400_BAD_REQUEST)
         if not 0 <= cfg.min_turnover_percent <= 1000:
             return Response({'detail': 'Play-through must be 0–1000% of deposits.'}, status=status.HTTP_400_BAD_REQUEST)
         if cfg.min_amount <= 0 or cfg.max_amount < cfg.min_amount or cfg.daily_max < 0:
@@ -425,6 +451,71 @@ class AdminWithdrawalSettingsView(APIView):
         cfg.save()
         accounts_services.audit(None, 'withdrawal_settings', request, **self._out(cfg))
         return Response(self._out(cfg))
+
+
+class AdminWalletRulesView(APIView):
+    """GET/PUT /api/admin/wallet-rules/ — minimum ticket odds for betting from
+    each wallet (deposit / bonus / winnings)."""
+    permission_classes = [IsAdminUser]
+    FIELDS = ('deposit_min_odds', 'bonus_min_odds', 'winnings_min_odds')
+
+    def _out(self, rules):
+        return {f: str(getattr(rules, f)) for f in self.FIELDS}
+
+    def get(self, request):
+        from .models import WalletRules
+        return Response(self._out(WalletRules.load()))
+
+    def put(self, request):
+        from .models import WalletRules
+        rules = WalletRules.load()
+        try:
+            for f in self.FIELDS:
+                if f in request.data:
+                    setattr(rules, f, Decimal(str(request.data[f])).quantize(Decimal('0.01')))
+        except (InvalidOperation, ValueError, TypeError):
+            return Response({'detail': 'Enter odds as numbers.'}, status=status.HTTP_400_BAD_REQUEST)
+        if any(not Decimal('1') <= getattr(rules, f) <= Decimal('1000') for f in self.FIELDS):
+            return Response({'detail': 'Minimum odds must be between 1.00 and 1000.'}, status=status.HTTP_400_BAD_REQUEST)
+        rules.save()
+        accounts_services.audit(None, 'wallet_rules', request, **self._out(rules))
+        return Response(self._out(rules))
+
+
+class AdminDepositRefundView(APIView):
+    """GET /api/admin/players/<id>/deposit-refund/ — the player's Deposit
+    balance and the numbers their deposits came from;
+    POST {amount, reason: self_exclusion|account_closure, destination, reference}
+    — record a refund of unplayed deposits staff have sent."""
+    permission_classes = [IsAdminUser]
+
+    def get(self, request, pk: int):
+        from . import withdrawals
+        return Response({'deposit_balance': str(services.get_balances(pk)['deposit']),
+                         'destinations': withdrawals.refund_destinations(pk),
+                         'reasons': withdrawals.REFUND_REASONS})
+
+    def post(self, request, pk: int):
+        from apps.accounts.models import Player
+        from . import withdrawals
+        player = Player.objects.filter(pk=pk).first()
+        if player is None:
+            return Response({'detail': 'Player not found.'}, status=status.HTTP_404_NOT_FOUND)
+        d = request.data
+        try:
+            entry = withdrawals.refund_deposit(
+                player=player, amount=d.get('amount'), reason=str(d.get('reason') or ''),
+                destination=str(d.get('destination') or ''), reference=str(d.get('reference') or ''),
+                by=request.user.get_username(),
+            )
+        except withdrawals.WithdrawalError as exc:
+            return Response({'detail': str(exc)}, status=exc.code)
+        except services.InsufficientFunds as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        accounts_services.audit(player.id, 'deposit_refunded', request, amount=str(-entry.amount),
+                                reason=d.get('reason'), destination=d.get('destination'), reference=d.get('reference'))
+        return Response({'transaction_ref': entry.transaction_ref, **wallets_payload(player.id)},
+                        status=status.HTTP_201_CREATED)
 
 
 class PaymentMethodsView(APIView):

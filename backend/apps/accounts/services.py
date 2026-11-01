@@ -277,22 +277,25 @@ def unsuspend_player(player_id: int) -> Player:
 # Manual balance adjustment (staff override on the wallet ledger)
 # ---------------------------------------------------------------------------
 
-def adjust_balance(player_id: int, *, amount: Decimal, reason: str):
-    """Post a signed manual adjustment to the player's wallet ledger.
+def adjust_balance(player_id: int, *, amount: Decimal, reason: str, wallet: str = 'winnings'):
+    """Post a signed manual adjustment to one of the player's three wallets.
 
-    Positive amount credits, negative amount debits. Uses the same
-    append-only ledger primitive as every other money movement.
+    Positive amount credits, negative amount debits (never below zero — the
+    database refuses a negative wallet). Uses the same append-only ledger
+    primitive as every other money movement.
     """
+    if wallet not in ('deposit', 'bonus', 'winnings'):
+        raise ValueError('Choose the deposit, bonus or winnings wallet.')
     amount = Decimal(str(amount))
     idempotency_key = f'adjustment:{uuid.uuid4()}'
     if amount >= 0:
         return wallet_services.credit(
-            player_id=player_id, amount=amount, kind='adjustment',
+            player_id=player_id, amount=amount, kind='adjustment', bucket=wallet,
             idempotency_key=idempotency_key, reference=reason,
         )
     return wallet_services.debit(
-        player_id=player_id, amount=amount, kind='adjustment',
-        idempotency_key=idempotency_key, reference=reason, allow_negative=True,
+        player_id=player_id, amount=amount, kind='adjustment', bucket=wallet,
+        idempotency_key=idempotency_key, reference=reason,
     )
 
 
@@ -336,10 +339,10 @@ def generate_password_reset_token(email: str):
 # ---------------------------------------------------------------------------
 
 def audit(player_id, event_type, request=None, **metadata):
+    from common.client_ip import client_ip
+
     from .models import AuditLog
-    ip = None
-    if request:
-        ip = request.META.get('HTTP_X_FORWARDED_FOR', '').split(',')[0].strip() or request.META.get('REMOTE_ADDR')
+    ip = client_ip(request) if request else None
     AuditLog.objects.create(
         player_id=player_id,
         event_type=event_type,

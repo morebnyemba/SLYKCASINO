@@ -14,7 +14,8 @@ from django.db import transaction
 
 from . import helpers, utils
 from .dtos import BalanceDTO, LedgerEntryDTO
-from .models import LedgerEntry, Wallet
+from .models import BALANCE_FIELD, Bucket, LedgerEntry, Wallet, WalletRules
+from .models.ledger import FIXED_BUCKET
 from .reporting import (  # noqa: F401  (read-only analytics, re-exported)
     deposit_count, earliest_entry, empty_kpis, first_deposit_amounts, first_deposits, ledger_kpis, ledger_series, player_breakdown, recent_activity,
 )
@@ -22,6 +23,29 @@ from .reporting import (  # noqa: F401  (read-only analytics, re-exported)
 
 class InsufficientFunds(Exception):
     """Raised when a debit would overdraw a wallet."""
+
+
+class WalletRuleError(ValueError):
+    """A bet or movement the wallet rules don't allow (shown to the player)."""
+
+
+BETTING_BUCKETS = (Bucket.DEPOSIT, Bucket.BONUS, Bucket.WINNINGS)
+
+
+def betting_bucket(value) -> str:
+    """The wallet a player chose to pay a stake from. Required — money is never
+    taken from a balance the player didn't pick."""
+    if value not in BETTING_BUCKETS:
+        raise WalletRuleError('Choose which wallet to bet from: Deposit, Bonus or Winnings.')
+    return value
+
+
+def check_min_odds(bucket: str, odds) -> None:
+    """Refuse a ticket whose combined odds are below the wallet's minimum."""
+    minimum = WalletRules.load().min_odds(bucket)
+    if Decimal(str(odds)) < minimum:
+        raise WalletRuleError(
+            f'Bets from your {Bucket(bucket).label} wallet need combined odds of at least {minimum:.2f}.')
 
 
 # -- provisioning / reads ----------------------------------------------------
@@ -45,7 +69,17 @@ def get_currency(player_id: int) -> str:
 
 def get_balance_dto(player_id: int) -> BalanceDTO:
     wallet = ensure_wallet(player_id)
-    return BalanceDTO(player_id=player_id, balance=utils.quantize(wallet.balance), currency=wallet.currency)
+    return BalanceDTO(
+        player_id=player_id, balance=utils.quantize(wallet.balance), currency=wallet.currency,
+        deposit=utils.quantize(wallet.deposit_balance), bonus=utils.quantize(wallet.bonus_balance),
+        winnings=utils.quantize(wallet.winnings_balance),
+    )
+
+
+def get_balances(player_id: int) -> dict[str, Decimal]:
+    """The three bucket balances (zeros when the player has no wallet yet)."""
+    wallet = Wallet.objects.filter(player_id=player_id).first()
+    return {b: utils.quantize(wallet.bucket_balance(b)) if wallet else Decimal('0.00') for b in Bucket.values}
 
 
 # -- the single write primitive ---------------------------------------------
@@ -54,24 +88,36 @@ def get_balance_dto(player_id: int) -> BalanceDTO:
 def post_entry(
     *, player_id: int, amount: Decimal, kind: str,
     idempotency_key: str, reference: str = '', require_non_negative: bool = False,
+    bucket: Optional[str] = None,
 ) -> LedgerEntry:
-    """Append one signed movement and update the cached balance — idempotently.
+    """Append one signed movement on one bucket and update the cached balances —
+    idempotently.
+
+    `bucket` is required except for kinds whose bucket is fixed (deposits,
+    bonuses, withdrawals, affiliate commission — see FIXED_BUCKET), and must
+    match it for those; the database enforces the same rule.
 
     If `idempotency_key` already exists, the existing entry is returned and the
     balance is NOT touched (no double-spend / no duplicate ledger row).
 
     The wallet row is locked with `select_for_update()` for the lifetime of this
     transaction, so concurrent calls for the same player fully serialize. The
-    funds check (when `require_non_negative`) happens *after* acquiring that
-    lock and *before* writing the entry, which is what makes it race-free: two
-    concurrent debits against the same balance can no longer both pass the
-    check (previously the check ran outside the lock — see InsufficientFunds).
+    funds check (when `require_non_negative`) runs on the chosen bucket alone,
+    *after* acquiring that lock and *before* writing the entry, which is what
+    makes it race-free and keeps one balance from ever paying for another.
 
     Checked once before the lock (cheap bail-out for the common idempotent
     retry) and again after acquiring it (correctness for two requests racing
     on the same key), so a retry storm doesn't serialize on row locks it
     doesn't need.
     """
+    fixed = FIXED_BUCKET.get(kind)
+    if bucket is None:
+        bucket = fixed
+    if bucket not in Bucket.values:
+        raise ValueError(f'ledger entry {kind!r} needs a wallet bucket')
+    if fixed is not None and bucket != fixed:
+        raise ValueError(f'{kind} entries belong to the {fixed} wallet, not {bucket}')
     existing = LedgerEntry.objects.filter(idempotency_key=idempotency_key).first()
     if existing is not None:
         return existing
@@ -80,16 +126,18 @@ def post_entry(
     if existing is not None:
         return existing  # idempotent replay: no balance change, no funds re-check
     quantized_amount = utils.quantize(amount)
-    if require_non_negative:
-        projected = utils.quantize(Decimal(wallet.balance) + quantized_amount)
-        if projected < 0:
-            raise InsufficientFunds(f'player {player_id} cannot be debited {abs(quantized_amount)}')
+    field = BALANCE_FIELD[bucket]
+    projected = utils.quantize(Decimal(getattr(wallet, field)) + quantized_amount)
+    if require_non_negative and projected < 0:
+        raise InsufficientFunds(
+            f'Not enough in your {Bucket(bucket).label} wallet — it has {getattr(wallet, field):.2f}.')
     entry = LedgerEntry.objects.create(
         wallet=wallet, idempotency_key=idempotency_key,
-        amount=quantized_amount, kind=kind, reference=reference,
+        amount=quantized_amount, kind=kind, bucket=bucket, reference=reference,
     )
+    setattr(wallet, field, projected)
     wallet.balance = utils.quantize(Decimal(wallet.balance) + quantized_amount)
-    wallet.save(update_fields=['balance', 'updated_at'])
+    wallet.save(update_fields=[field, 'balance', 'updated_at'])
     _after_new_entry(player_id, entry)
     return entry
 
@@ -113,30 +161,61 @@ def _after_new_entry(player_id: int, entry: LedgerEntry) -> None:
 def debit(
     *, player_id: int, amount: Decimal, kind: str,
     idempotency_key: str, reference: str = '', allow_negative: bool = False,
+    bucket: Optional[str] = None,
 ) -> LedgerEntry:
-    """Debit a positive magnitude. Funds are checked unless `allow_negative`."""
+    """Debit a positive magnitude from one bucket. Funds are checked unless
+    `allow_negative` (the database still refuses a negative bucket)."""
     magnitude = utils.quantize(abs(amount))
     return post_entry(
         player_id=player_id, amount=utils.to_debit(magnitude), kind=kind,
         idempotency_key=idempotency_key, reference=reference,
-        require_non_negative=not allow_negative,
+        require_non_negative=not allow_negative, bucket=bucket,
     )
 
 
 def credit(
     *, player_id: int, amount: Decimal, kind: str,
-    idempotency_key: str, reference: str = '',
+    idempotency_key: str, reference: str = '', bucket: Optional[str] = None,
 ) -> LedgerEntry:
     return post_entry(
         player_id=player_id, amount=utils.to_credit(amount), kind=kind,
-        idempotency_key=idempotency_key, reference=reference,
+        idempotency_key=idempotency_key, reference=reference, bucket=bucket,
     )
+
+
+def pay_out(
+    *, player_id: int, source: str, stake: Decimal, payout: Decimal, kind: str,
+    idempotency_key: str, reference: str = '',
+) -> None:
+    """Pay a winning (or cashed-out) ticket: the stake goes back to the wallet
+    it was paid from and only the profit lands in Winnings. So deposit or bonus
+    money can never become withdrawable just by being staked — it has to win.
+    The stake part keeps `idempotency_key`; the profit uses `<key>:profit`."""
+    payout = utils.quantize(payout)
+    back = min(payout, utils.quantize(stake))
+    profit = payout - back
+    if back > 0:
+        credit(player_id=player_id, amount=back, kind=kind, bucket=source,
+               idempotency_key=idempotency_key, reference=reference)
+    if profit > 0:
+        credit(player_id=player_id, amount=profit, kind=kind, bucket=Bucket.WINNINGS,
+               idempotency_key=f'{idempotency_key}:profit', reference=reference)
 
 
 def recompute_balance(player_id: int) -> Decimal:
     """Authoritative balance from the ledger (used by recovery & audits)."""
     amounts = LedgerEntry.objects.filter(wallet__player_id=player_id).values_list('amount', flat=True)
     return utils.sum_entries(amounts)
+
+
+def recompute_balances(player_id: int) -> dict[str, Decimal]:
+    """Authoritative per-bucket balances from the ledger."""
+    from django.db.models import Sum
+
+    rows = (LedgerEntry.objects.filter(wallet__player_id=player_id)
+            .values('bucket').annotate(t=Sum('amount')))
+    totals = {r['bucket']: r['t'] for r in rows}
+    return {b: utils.quantize(totals.get(b) or 0) for b in Bucket.values}
 
 
 def totals_by_kind(
@@ -222,10 +301,18 @@ def withdrawal(
     return entry
 
 
+@transaction.atomic
 def erase_player_data(player_id: int) -> int:
     """Permanently delete a player's wallet, every ledger entry and payment
     record (account deletion). Returns rows deleted."""
+    from django.db import connection
+
     from .models import PaymentTransaction, WithdrawalRequest
+    if connection.vendor == 'postgresql':
+        # The ledger is append-only; permanent deletion is the one sanctioned
+        # exception, opted into for this transaction only.
+        with connection.cursor() as cursor:
+            cursor.execute("SET LOCAL wallet.allow_ledger_delete = 'on'")
     deleted = PaymentTransaction.objects.filter(player_id=player_id).delete()[0]
     deleted += WithdrawalRequest.objects.filter(player_id=player_id).delete()[0]
     deleted += Wallet.objects.filter(player_id=player_id).delete()[0]  # cascades to ledger entries

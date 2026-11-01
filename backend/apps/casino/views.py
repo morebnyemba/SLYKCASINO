@@ -56,7 +56,8 @@ class GameViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.Gen
             return Response({'detail': str(exc)}, status=status.HTTP_403_FORBIDDEN)
 
         try:
-            rnd = services.start_round(player_id=player.id, game_id=int(pk), stake=stake)
+            rnd = services.start_round(player_id=player.id, game_id=int(pk), stake=stake,
+                                       wallet=request.data.get('wallet'))
         except InsufficientFunds as exc:
             return Response({'detail': str(exc)}, status=status.HTTP_402_PAYMENT_REQUIRED)
         except Exception as exc:  # noqa: BLE001
@@ -117,7 +118,7 @@ class CrashViewSet(viewsets.ViewSet):
             return Response({'detail': str(exc)}, status=status.HTTP_403_FORBIDDEN)
 
         try:
-            rnd = services.place_crash_bet(player_id=player.id, stake=stake)
+            rnd = services.place_crash_bet(player_id=player.id, stake=stake, wallet=request.data.get('wallet'))
         except InsufficientFunds as exc:
             return Response({'detail': str(exc)}, status=status.HTTP_402_PAYMENT_REQUIRED)
         except Exception as exc:  # noqa: BLE001

@@ -1,5 +1,7 @@
 from django.db import models
 
+from apps.wallet.models.wallet import Bucket
+
 
 class CrashRound(models.Model):
     """A single Aviator-style crash bet (provably fair, single-player).
@@ -19,6 +21,9 @@ class CrashRound(models.Model):
 
     player_id = models.BigIntegerField(db_index=True)
     stake = models.DecimalField(max_digits=12, decimal_places=2)
+    # The wallet (deposit / bonus / winnings) the stake was paid from: refunds
+    # and the stake part of a win go back there, only profit goes to winnings.
+    wallet = models.CharField(max_length=10, choices=Bucket.choices)
     crash_point = models.DecimalField(max_digits=10, decimal_places=2)
     cashout_multiplier = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     win = models.DecimalField(max_digits=14, decimal_places=2, default=0)
@@ -32,6 +37,9 @@ class CrashRound(models.Model):
 
     class Meta:
         db_table = 'casino_crash_round'
+        constraints = [
+            models.CheckConstraint(check=models.Q(wallet__in=Bucket.values), name='casino_crash_wallet_valid'),
+        ]
         ordering = ['-created_at']
         indexes = [models.Index(fields=['status', 'created_at'])]
 

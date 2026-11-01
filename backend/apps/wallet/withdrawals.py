@@ -1,5 +1,11 @@
 """Player withdrawals: requested by the player, paid by staff.
 
+Only the Winnings wallet can be withdrawn. Deposit and Bonus money never can
+(a request naming either is refused and flagged — see WalletViolation); unplayed
+deposits only go back through a staff refund (refund_deposit). A fee
+(WithdrawalSettings.fee_percent, 5% by default) is kept from every withdrawal
+and posted as its own `withdrawal_fee` ledger entry when the payout is made.
+
 Payouts aren't automatic. When a player asks, the amount is held off their
 balance (`withdrawal_hold`) so it can't be bet or asked for twice. Staff send
 the money themselves (EcoCash, OneMoney, InnBucks, bank) and mark the request
@@ -18,7 +24,7 @@ from django.db.models import Sum
 from django.utils import timezone
 
 from . import services
-from .models import LedgerEntry, WithdrawalRequest, WithdrawalSettings
+from .models import Bucket, LedgerEntry, PaymentTransaction, WithdrawalRequest, WithdrawalSettings
 
 MOBILE = (WithdrawalRequest.Method.ECOCASH, WithdrawalRequest.Method.ONEMONEY, WithdrawalRequest.Method.INNBUCKS)
 OPEN = WithdrawalRequest.Status.REQUESTED
@@ -31,6 +37,16 @@ class WithdrawalError(ValueError):
         super().__init__(message)
         self.withdrawable = withdrawable
         self.code = code
+
+
+class WalletViolation(WithdrawalError):
+    """An attempt to withdraw from the Deposit or Bonus wallet. The player app
+    never offers this, so it means a hand-crafted request: callers record it."""
+
+    def __init__(self, wallet: str):
+        super().__init__('Only your Winnings wallet can be withdrawn. Deposit and Bonus money can be bet, '
+                         'not withdrawn.', code=403)
+        self.wallet = wallet
 
 
 def _notify(player_id: int, title: str, body: str) -> None:
@@ -49,21 +65,32 @@ def _money(value) -> Decimal:
 
 
 def withdrawable(player_id: int) -> Decimal:
-    from apps.promotions import services as promotions_services
-    locked = promotions_services.bonus_status(player_id)['locked']
-    return max(services.get_balance(player_id) - locked, Decimal('0'))
+    """Only the Winnings wallet can be withdrawn."""
+    return services.get_balances(player_id)[Bucket.WINNINGS]
+
+
+def fee_for(amount: Decimal, cfg: WithdrawalSettings | None = None) -> Decimal:
+    cfg = cfg or WithdrawalSettings.load()
+    return (amount * cfg.fee_percent / Decimal('100')).quantize(Decimal('0.01'))
 
 
 def turnover_left(player_id: int, cfg: WithdrawalSettings | None = None) -> Decimal:
     """How much more the player must bet before withdrawing: total stakes must
-    reach min_turnover_percent of total deposits (0 when met or the rule is off)."""
+    reach min_turnover_percent of their deposits from before the three-wallet
+    split (0 when met or the rule is off). That money was moved into Winnings,
+    so this keeps it from being withdrawn unplayed; newer deposits sit in the
+    Deposit wallet, which can't be withdrawn at all."""
     cfg = cfg or WithdrawalSettings.load()
     if not cfg.min_turnover_percent:
         return Decimal('0')
+    deposits = LedgerEntry.objects.filter(
+        wallet__player_id=player_id, kind='deposit', legacy=True,
+    ).aggregate(t=Sum('amount'))['t'] or Decimal('0')
+    if deposits <= 0:
+        return Decimal('0')
     totals = {r['kind']: r['t'] for r in LedgerEntry.objects.filter(
-        wallet__player_id=player_id, kind__in=('deposit', 'bet_stake', 'casino_debit'),
+        wallet__player_id=player_id, kind__in=('bet_stake', 'casino_debit'),
     ).values('kind').annotate(t=Sum('amount'))}
-    deposits = totals.get('deposit') or Decimal('0')
     staked = -((totals.get('bet_stake') or Decimal('0')) + (totals.get('casino_debit') or Decimal('0')))
     needed = (deposits * cfg.min_turnover_percent / 100).quantize(Decimal('0.01'))
     return max(needed - staked, Decimal('0'))
@@ -80,12 +107,15 @@ def requested_today(player_id: int, now=None) -> Decimal:
 
 @transaction.atomic
 def request(*, player, amount, method: str, account_number: str = '', account_name: str = '',
-            bank_name: str = '', now=None) -> WithdrawalRequest:
-    """Ask to be paid out. Raises WithdrawalError or services.InsufficientFunds."""
+            bank_name: str = '', now=None, wallet: str | None = None) -> WithdrawalRequest:
+    """Ask to be paid out of the Winnings wallet. Raises WithdrawalError
+    (WalletViolation for any other wallet) or services.InsufficientFunds."""
+    if wallet not in (None, '', Bucket.WINNINGS):
+        raise WalletViolation(str(wallet)[:20])
     now = now or timezone.now()
     # AML/KYC: nothing leaves the platform until identity is verified. (Self-
     # exclusion deliberately doesn't block withdrawals — players can always
-    # get their own money back.)
+    # take their winnings; unplayed deposits come back via refund_deposit.)
     if player.kyc_status != player.Kyc.VERIFIED:
         raise WithdrawalError('Identity verification is required before you can withdraw.', code=403)
     amount = _money(amount)
@@ -99,13 +129,9 @@ def request(*, player, amount, method: str, account_number: str = '', account_na
         raise WithdrawalError(f'You can withdraw up to ${cfg.daily_max:.2f} a day — ${left:.2f} left today.')
     available = withdrawable(player.id)
     if amount > available:
-        from apps.promotions import services as promotions_services
-        bonus = promotions_services.bonus_status(player.id)
-        if bonus['locked'] > 0:
-            raise WithdrawalError(
-                f"{bonus['locked']} of your balance is bonus money — bet {bonus['wagering_remaining']} more to "
-                f'unlock it. You can withdraw up to {available} now.', withdrawable=available, code=403)
-        raise services.InsufficientFunds(f'You can withdraw up to {available}.')
+        raise WithdrawalError(
+            f'You can withdraw up to ${available:.2f} — only your Winnings wallet can be withdrawn.',
+            withdrawable=available, code=402)
     left = turnover_left(player.id, cfg)
     if left > 0:
         raise WithdrawalError(
@@ -123,15 +149,17 @@ def request(*, player, amount, method: str, account_number: str = '', account_na
         if len(number) < 5 or not (bank_name or '').strip() or not (account_name or '').strip():
             raise WithdrawalError('Enter the bank, account name and account number.')
 
+    fee = fee_for(amount, cfg)
     req = WithdrawalRequest.objects.create(
-        player_id=player.id, amount=amount, method=method, account_number=number[:60],
+        player_id=player.id, amount=amount, fee=fee, method=method, account_number=number[:60],
         account_name=(account_name or '').strip()[:120], bank_name=(bank_name or '').strip()[:80] if method == 'bank' else '',
     )
     services.debit(player_id=player.id, amount=amount, kind=LedgerEntry.Kind.WITHDRAWAL_HOLD,
                    idempotency_key=f'withdrawal:{req.id}:hold', reference=f'withdrawal:{req.id}')
     _notify(player.id, 'Withdrawal requested',
             f'We’ve received your request for ${amount:.2f} to {req.get_method_display()}. '
-            'You’ll be notified as soon as it’s sent.')
+            f'You’ll be sent ${req.payout_amount:.2f} after the ${fee:.2f} withdrawal fee, '
+            'and notified as soon as it’s sent.')
     return req
 
 
@@ -174,8 +202,9 @@ def cancel(*, player_id: int, req_id: int, now=None) -> WithdrawalRequest:
 @transaction.atomic
 def mark_paid(req_id: int, *, reference: str, by: str = '', confirm_amount=None, now=None) -> WithdrawalRequest:
     """Staff sent the money: record the reference and post the withdrawal.
-    `confirm_amount` (when given — the console always sends it) must match the
-    request, so a stale screen or a slip can't mark the wrong one paid."""
+    `confirm_amount` (when given — the console always sends it) must match
+    what was to be sent (the request less its fee), so a stale screen or a
+    slip can't mark the wrong one paid."""
     reference = (reference or '').strip()
     if len(reference) < 3:
         raise WithdrawalError('Enter the EcoCash/bank transaction reference.')
@@ -185,21 +214,25 @@ def mark_paid(req_id: int, *, reference: str, by: str = '', confirm_amount=None,
             typed = Decimal(str(confirm_amount)).quantize(Decimal('0.01'))
         except (InvalidOperation, ValueError, TypeError):
             typed = None
-        if typed != req.amount:
-            raise WithdrawalError(f'The amount you confirmed doesn’t match this withdrawal (${req.amount:.2f}).')
+        if typed != req.payout_amount:
+            raise WithdrawalError(f'The amount you confirmed doesn’t match what was to be sent (${req.payout_amount:.2f}).')
     if req.status != OPEN:
         raise WithdrawalError(f'This withdrawal is already {req.get_status_display().lower()}.', code=409)
-    # Release the hold and post the real withdrawal — balance unchanged, and
-    # reports now count it as money out. (A legacy one was posted long ago.)
+    # Release the hold and post what was sent plus the fee kept — balance
+    # unchanged, and reports now count the money out and the fee earned.
+    # (A legacy one was posted long ago.)
     if not req.legacy:
         _return_hold(req, 'paid')
-        services.debit(player_id=req.player_id, amount=req.amount, kind=LedgerEntry.Kind.WITHDRAWAL,
+        services.debit(player_id=req.player_id, amount=req.payout_amount, kind=LedgerEntry.Kind.WITHDRAWAL,
                        idempotency_key=f'withdrawal:{req.id}:paid', reference=f'withdrawal:{req.id}:{reference}'[:200])
+        if req.fee > 0:
+            services.debit(player_id=req.player_id, amount=req.fee, kind=LedgerEntry.Kind.WITHDRAWAL_FEE,
+                           idempotency_key=f'withdrawal:{req.id}:fee', reference=f'withdrawal:{req.id}:fee')
     req.status, req.reference = WithdrawalRequest.Status.PAID, reference[:120]
     req.decided_by, req.decided_at = by[:150], now or timezone.now()
     req.save(update_fields=['status', 'reference', 'decided_by', 'decided_at'])
     where = 'you' if req.legacy else f'your {req.get_method_display()} ({_tail(req.account_number)})'
-    _notify(req.player_id, 'Withdrawal sent', f'${req.amount:.2f} has been sent to {where}. Reference: {reference}.')
+    _notify(req.player_id, 'Withdrawal sent', f'${req.payout_amount:.2f} has been sent to {where}. Reference: {reference}.')
     return req
 
 
@@ -217,7 +250,7 @@ def reject(req_id: int, *, note: str, by: str = '', now=None) -> WithdrawalReque
     req.decided_by, req.decided_at = by[:150], now or timezone.now()
     req.save(update_fields=['status', 'note', 'decided_by', 'decided_at'])
     _notify(req.player_id, 'Withdrawal not sent',
-            f'Your ${req.amount:.2f} withdrawal was declined and the money is back in your balance. Reason: {note}')
+            f'Your ${req.amount:.2f} withdrawal was declined and the money is back in your Winnings wallet. Reason: {note}')
     return req
 
 
@@ -237,8 +270,11 @@ def player_context(player_id: int) -> dict:
            .order_by('-amount').values('amount', 'kind', 'created_at', 'reference')[:3])
     def m(v) -> str:
         return f'{(v or Decimal("0")):.2f}'
+    balances = services.get_balances(player_id)
     return {
         'balance': m(services.get_balance(player_id)),
+        'deposit_balance': m(balances[Bucket.DEPOSIT]), 'bonus_balance': m(balances[Bucket.BONUS]),
+        'winnings_balance': m(balances[Bucket.WINNINGS]),
         'deposits': m(deposits), 'paid_out': m(paid_out), 'net': m(deposits - paid_out),
         'pending': m(WithdrawalRequest.objects.filter(player_id=player_id, status=OPEN).aggregate(t=Sum('amount'))['t']),
         'bonus_locked': m(promotions_services.bonus_status(player_id)['locked']),
@@ -248,7 +284,8 @@ def player_context(player_id: int) -> dict:
 
 def payload(req: WithdrawalRequest, *, staff: bool = False) -> dict:
     data = {
-        'id': req.id, 'amount': str(req.amount), 'method': req.method, 'method_label': req.get_method_display(),
+        'id': req.id, 'amount': str(req.amount), 'fee': str(req.fee), 'payout_amount': str(req.payout_amount),
+        'method': req.method, 'method_label': req.get_method_display(),
         'account_number': req.account_number if staff else _tail(req.account_number),
         'account_name': req.account_name, 'bank_name': req.bank_name,
         'status': req.status, 'status_label': req.get_status_display(),
@@ -259,3 +296,41 @@ def payload(req: WithdrawalRequest, *, staff: bool = False) -> dict:
     if staff:
         data.update(player_id=req.player_id, decided_by=req.decided_by)
     return data
+
+
+# -- staff refund of unplayed deposits ---------------------------------------
+
+REFUND_REASONS = {'self_exclusion': 'Self-exclusion', 'account_closure': 'Account closure'}
+
+
+def refund_destinations(player_id: int) -> list[str]:
+    """The mobile numbers this player's completed deposits came from — the
+    only places a deposit refund may be sent."""
+    return sorted(set(PaymentTransaction.objects.filter(
+        player_id=player_id, status=PaymentTransaction.Status.PAID,
+    ).exclude(phone='').values_list('phone', flat=True)))
+
+
+@transaction.atomic
+def refund_deposit(*, player, amount, reason: str, destination: str, reference: str, by: str) -> LedgerEntry:
+    """Return unplayed Deposit-wallet money (staff only) when a player
+    self-excludes or their account is closed (suspended first). Only to a
+    number their deposits came from, and only after staff have sent it —
+    `reference` is the EcoCash/bank transaction reference."""
+    if reason not in REFUND_REASONS:
+        raise WithdrawalError('A deposit refund is only for self-exclusion or account closure.')
+    if reason == 'self_exclusion' and not player.self_excluded:
+        raise WithdrawalError('This player isn’t self-excluded.')
+    if reason == 'account_closure' and not player.is_suspended:
+        raise WithdrawalError('Suspend the account before refunding its deposits for closure.')
+    reference = (reference or '').strip()
+    if len(reference) < 3:
+        raise WithdrawalError('Enter the EcoCash/bank transaction reference of the refund you sent.')
+    if destination not in refund_destinations(player.id):
+        raise WithdrawalError('Deposits can only be refunded to a number they were paid from.', code=403)
+    amount = _money(amount)
+    return services.debit(
+        player_id=player.id, amount=amount, kind=LedgerEntry.Kind.DEPOSIT_REFUND,
+        idempotency_key=f'deposit-refund:{player.id}:{reference}'[:200],
+        reference=f'deposit-refund:{reason}:{destination}:{reference}:{by}'[:200],
+    )

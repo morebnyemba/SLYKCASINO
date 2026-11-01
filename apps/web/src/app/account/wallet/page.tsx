@@ -5,23 +5,23 @@ import { FaDownload, FaWallet } from 'react-icons/fa';
 import { Card, CardContent, CardHeader, CardTitle } from '@slyk/ui/components/card';
 import { Badge } from '@slyk/ui/components/badge';
 import { useApi } from '@/lib/use-api';
+import { useWallets, WALLET_HINT, WALLET_IDS, WALLET_LABEL, type WalletsResponse } from '@/lib/wallets';
 import { WithdrawPanel } from '@/components/withdraw-panel';
 import { DepositBonuses } from '@/components/deposit-bonuses';
 import { DepositModal } from '@/components/deposit-modal';
 import { LoadingState, Spinner } from '@slyk/ui/components/spinner';
 
-interface Wallet {
-  balance?: string;
-  currency?: string;
+interface Wallet extends WalletsResponse {
   bonus_locked?: string;
   wagering_remaining?: string;
-  withdrawable?: string;
 }
 
 interface LedgerEntry {
   id: string | number;
+  transaction_ref?: string;
   amount: string;
   kind: string;
+  bucket?: 'deposit' | 'bonus' | 'winnings';
   reference: string;
   created_at: string;
 }
@@ -30,6 +30,9 @@ const KIND_LABEL: Record<string, string> = {
   deposit: 'Deposit',
   withdrawal: 'Withdrawal (paid)',
   withdrawal_hold: 'Withdrawal on hold',
+  withdrawal_fee: 'Withdrawal fee',
+  deposit_refund: 'Deposit refund',
+  migration: 'Wallet split',
   bet_stake: 'Sports bet',
   bet_payout: 'Sports win',
   casino_debit: 'Aviator bet',
@@ -42,13 +45,13 @@ const KIND_LABEL: Record<string, string> = {
 function kindVariant(kind: string): 'default' | 'secondary' | 'destructive' | 'outline' {
   if (['deposit', 'bet_payout', 'casino_credit', 'bonus', 'affiliate'].includes(kind)) return 'default';
   // Only money leaving to the player is shown like a withdrawal; bets are neutral.
-  if (['withdrawal', 'withdrawal_hold'].includes(kind)) return 'destructive';
+  if (['withdrawal', 'withdrawal_hold', 'withdrawal_fee', 'deposit_refund'].includes(kind)) return 'destructive';
   if (['bet_stake', 'casino_debit'].includes(kind)) return 'outline';
   return 'secondary';
 }
 
 export default function WalletPage() {
-  const { data: wallet, loading: wLoading, refetch: refetchWallet } = useApi<Wallet>('/wallet/');
+  const { data: wallet, loading: wLoading, refetch: refetchWallet } = useWallets<Wallet>();
   const { data: ledger, loading: lLoading, refetch: refetchLedger } = useApi<LedgerEntry[]>('/wallet/ledger/');
 
   const [fromDate, setFromDate] = useState('');
@@ -67,9 +70,9 @@ export default function WalletPage() {
   });
 
   function exportCsv() {
-    const header = 'Type,Amount,Reference,Date\n';
+    const header = 'Transaction,Type,Wallet,Amount,Reference,Date\n';
     const rows = entries.map((e) =>
-      [KIND_LABEL[e.kind] ?? e.kind, e.amount, e.reference || '', e.created_at].join(','),
+      [e.transaction_ref ?? '', KIND_LABEL[e.kind] ?? e.kind, e.bucket ?? '', e.amount, e.reference || '', e.created_at].join(','),
     );
     const blob = new Blob([header + rows.join('\n')], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
@@ -97,11 +100,19 @@ export default function WalletPage() {
               {balance} <span className="text-base font-normal text-white/60">{currency}</span>
             </p>
           )}
-          {Number(wallet?.bonus_locked ?? 0) > 0 && (
-            <p className="mt-2 text-xs text-white/75">
-              Includes <b className="text-gold">{wallet!.bonus_locked}</b> bonus — bet <b>{wallet!.wagering_remaining}</b> more to make it withdrawable.
-              You can withdraw up to <b>{wallet!.withdrawable}</b> now.
-            </p>
+          {wallet?.wallets && (
+            <div className="mt-4 grid gap-2 sm:grid-cols-3">
+              {WALLET_IDS.map((id) => (
+                <div key={id} className={`rounded-xl px-3 py-2.5 ${id === 'winnings' ? 'bg-white/20 ring-1 ring-gold/60' : 'bg-white/10'}`}>
+                  <p className="text-[11px] font-bold uppercase tracking-wide text-white/70">{WALLET_LABEL[id]}</p>
+                  <p className="text-xl font-extrabold tabular-nums text-white">{wallet.wallets[id].balance}</p>
+                  <p className="mt-0.5 text-[11px] leading-snug text-white/70">
+                    {WALLET_HINT[id]}
+                    {id !== 'winnings' && <> Bets need odds of {wallet.wallets[id].min_odds}+.</>}
+                  </p>
+                </div>
+              ))}
+            </div>
           )}
         </div>
         <CardContent className="pt-6">
@@ -160,10 +171,12 @@ export default function WalletPage() {
               {allEntries.length === 0 ? 'No transactions yet.' : 'No transactions in this date range.'}
             </p>
           ) : (
-            <table className="w-full text-sm">
+            <div className="overflow-x-auto">
+            <table className="w-full min-w-[560px] text-sm">
               <thead>
                 <tr className="border-b border-border text-left text-xs text-muted-foreground">
                   <th className="px-4 py-2">Type</th>
+                  <th className="px-4 py-2">Wallet</th>
                   <th className="px-4 py-2">Amount</th>
                   <th className="px-4 py-2">Reference</th>
                   <th className="px-4 py-2">Date</th>
@@ -174,7 +187,9 @@ export default function WalletPage() {
                   <tr key={e.id} className="border-b border-border last:border-0">
                     <td className="px-4 py-2">
                       <Badge variant={kindVariant(e.kind)}>{KIND_LABEL[e.kind] ?? e.kind}</Badge>
+                      {e.transaction_ref && <span className="mt-0.5 block font-mono text-[10px] text-muted-foreground">{e.transaction_ref}</span>}
                     </td>
+                    <td className="px-4 py-2 text-muted-foreground">{e.bucket ? WALLET_LABEL[e.bucket] : '—'}</td>
                     <td className={`px-4 py-2 font-mono ${parseFloat(e.amount) >= 0 ? 'text-win' : 'text-down'}`}>
                       {parseFloat(e.amount) >= 0 ? '+' : ''}{e.amount}
                     </td>
@@ -186,6 +201,7 @@ export default function WalletPage() {
                 ))}
               </tbody>
             </table>
+            </div>
           )}
         </CardContent>
       </Card>

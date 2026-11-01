@@ -139,9 +139,9 @@ class BetSerializer(_CashoutMixin, _OutcomeLabelsMixin, serializers.ModelSeriali
         model = Bet
         fields = [
             'id', 'code', 'event', 'selection', 'outcome_ref', 'market_name', 'outcome_label', 'match',
-            'stake', 'odds', 'status', 'payout', 'placed_at', 'settled_at', *CASHOUT_FIELDS,
+            'stake', 'wallet', 'odds', 'status', 'payout', 'placed_at', 'settled_at', *CASHOUT_FIELDS,
         ]
-        read_only_fields = ['code', 'status', 'payout', 'placed_at', 'settled_at', 'outcome_ref', *CASHOUT_FIELDS]
+        read_only_fields = ['code', 'wallet', 'status', 'payout', 'placed_at', 'settled_at', 'outcome_ref', *CASHOUT_FIELDS]
 
 
 class BetLegSerializer(_OutcomeLabelsMixin, serializers.ModelSerializer):
@@ -156,8 +156,8 @@ class BetSlipSerializer(_CashoutMixin, serializers.ModelSerializer):
     class Meta:
         model = BetSlip
         fields = [
-            'id', 'code', 'stake', 'combined_odds', 'status', 'payout', 'bonus_percent', 'bonus',
+            'id', 'code', 'stake', 'wallet', 'combined_odds', 'status', 'payout', 'bonus_percent', 'bonus',
             'placed_at', 'settled_at', 'legs', *CASHOUT_FIELDS,
         ]
-        read_only_fields = ['code', 'combined_odds', 'status', 'payout', 'bonus_percent', 'bonus', 'placed_at', 'settled_at',
+        read_only_fields = ['code', 'wallet', 'combined_odds', 'status', 'payout', 'bonus_percent', 'bonus', 'placed_at', 'settled_at',
                             *CASHOUT_FIELDS]

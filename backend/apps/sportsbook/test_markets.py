@@ -228,7 +228,7 @@ class MarketBettingTests(TestCase):
         self.btts = _market(self.other, 'btts', 'btts:ft', [('yes', '1.80'), ('no', '2.00')])
 
     def _place(self, outcome, stake='10.00', odds=None):
-        return sb.place_bet(
+        return sb.place_bet(wallet='deposit', 
             event=f'{outcome.market.name} — {outcome.label}', stake=D(stake),
             odds=D(odds or str(outcome.odds)), player_id=self.player.id, outcome_id=outcome.id,
         )
@@ -254,7 +254,7 @@ class MarketBettingTests(TestCase):
     def test_settle_from_score_pays_market_bets_and_leaves_1x2_logic_intact(self):
         over = self._place(_outcome(self.ou, 'over'))
         under = self._place(_outcome(self.ou, 'under'))
-        home = sb.place_bet(
+        home = sb.place_bet(wallet='deposit', 
             event='Chelsea v Arsenal — home', stake=D('10.00'), odds=D('2.00'),
             player_id=self.player.id, event_id=self.event.id, selection='home',
         )
@@ -287,7 +287,7 @@ class MarketBettingTests(TestCase):
         self.assertEqual(wallet_services.get_balance(self.player.id) - before, D('10.00'))
 
     def test_accumulator_with_market_legs(self):
-        slip = sb.place_accumulator(stake=D('10.00'), player_id=self.player.id, legs=[
+        slip = sb.place_accumulator(wallet='deposit', stake=D('10.00'), player_id=self.player.id, legs=[
             {'event': 'CvA Over 2.5', 'odds': '1.90', 'outcome_id': _outcome(self.ou, 'over').id},
             {'event': 'SvL BTTS yes', 'odds': '1.80', 'outcome_id': _outcome(self.btts, 'yes').id},
         ])
@@ -303,7 +303,7 @@ class MarketBettingTests(TestCase):
 
     def test_accumulator_rejects_two_legs_on_one_event(self):
         with self.assertRaises(ValueError):
-            sb.place_accumulator(stake=D('5.00'), player_id=self.player.id, legs=[
+            sb.place_accumulator(wallet='deposit', stake=D('5.00'), player_id=self.player.id, legs=[
                 {'event': 'CvA home', 'odds': '2.00', 'event_id': self.event.id, 'selection': 'home'},
                 {'event': 'CvA over', 'odds': '1.90', 'outcome_id': _outcome(self.ou, 'over').id},
             ])
@@ -354,7 +354,7 @@ class MarketApiTests(TestCase):
 
     def test_place_bet_on_outcome_via_api(self):
         over = _outcome(self.ou, 'over')
-        resp = self.client.post('/api/bets/', {
+        resp = self.client.post('/api/bets/', {'wallet': 'deposit',
             'event': 'Chelsea v Arsenal — Over 2.5', 'outcome_id': over.id, 'stake': '5.00', 'odds': '1.90',
         }, format='json')
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
@@ -363,7 +363,7 @@ class MarketApiTests(TestCase):
 
     def test_stale_price_returns_409_with_current_odds(self):
         over = _outcome(self.ou, 'over')
-        resp = self.client.post('/api/bets/', {
+        resp = self.client.post('/api/bets/', {'wallet': 'deposit',
             'event': 'x', 'outcome_id': over.id, 'stake': '5.00', 'odds': '2.50',
         }, format='json')
         self.assertEqual(resp.status_code, status.HTTP_409_CONFLICT)
@@ -371,7 +371,7 @@ class MarketApiTests(TestCase):
         self.assertEqual(resp.data['odds'], '1.90')
 
     def test_1x2_bet_serializes_null_market_labels(self):
-        resp = self.client.post('/api/bets/', {
+        resp = self.client.post('/api/bets/', {'wallet': 'deposit',
             'event': 'Chelsea v Arsenal — home', 'event_id': self.event.id, 'selection': 'home',
             'stake': '5.00', 'odds': '2.00',
         }, format='json')

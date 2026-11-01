@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '@/lib/auth-context';
+import { announceWalletChange, type WalletId } from '@/lib/wallets';
 import { config } from '@/lib/config';
 import { loadBooking } from '@/lib/booking';
 import { onBoardFrame } from '@/lib/live-board';
@@ -139,6 +140,9 @@ interface BetslipContextValue {
   loadCode: (code: string) => Promise<{ ok: boolean; message: string }>;
   status: string | null;
   busy: boolean;
+  /** The wallet the player chose to pay from — nothing is placed until they pick one. */
+  wallet: WalletId | null;
+  setWallet: (w: WalletId) => void;
   /** Event ids with more than one pick — those can't be combined in a multiple. */
   conflictingEvents: Set<string>;
   isOnSlip: (eventId: string | number, selection: Selection) => boolean;
@@ -183,6 +187,7 @@ export function BetslipProvider({ children }: { children: React.ReactNode }) {
   const [legStakes, setLegStakes] = useState<Record<string, string>>({});
   const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [wallet, setWallet] = useState<WalletId | null>(null);
   const [slipOpen, setSlipOpen] = useState(false);
   const [ladder, setLadder] = useState<BonusLadder | null>(null);
 
@@ -401,6 +406,7 @@ export function BetslipProvider({ children }: { children: React.ReactNode }) {
     if (legs.length === 0) { setStatus('Add a selection first.'); return; }
     if (legs.some((l) => l.suspended)) { setStatus('Remove suspended selections to place your bet.'); return; }
     if (legs.some((l) => l.changedFrom != null)) { setStatus('Odds changed — accept the new prices to continue.'); return; }
+    if (!wallet) { setStatus('Choose which wallet to bet from.'); return; }
 
     setBusy(true); setStatus('Placing…');
 
@@ -408,8 +414,9 @@ export function BetslipProvider({ children }: { children: React.ReactNode }) {
       const placeable = legs.filter((l) => (parseFloat(legStakes[keyOf(l)] || '0') || 0) > 0);
       if (placeable.length === 0) { setStatus('Enter a stake for at least one selection.'); setBusy(false); return; }
       const results = await Promise.all(placeable.map((l) => authedPost('/bets/', {
-        ...legPayload(l), stake: parseFloat(legStakes[keyOf(l)] || '0'),
+        ...legPayload(l), stake: parseFloat(legStakes[keyOf(l)] || '0'), wallet,
       }, accessToken)));
+      announceWalletChange();
       const failed = results.filter((r) => r.error);
       const repriced = placeable.filter((l, i) => applyPriceChange(l, results[i].body)).length;
       const placedKeys = new Set(placeable.filter((_, i) => !results[i].error).map(keyOf));
@@ -442,8 +449,9 @@ export function BetslipProvider({ children }: { children: React.ReactNode }) {
         return;
       }
       const res = legs.length === 1
-        ? await authedPost('/bets/', { ...legPayload(legs[0]), stake: stakeNum }, accessToken)
-        : await authedPost('/betslips/', { stake: stakeNum, legs: legs.map(legPayload) }, accessToken);
+        ? await authedPost('/bets/', { ...legPayload(legs[0]), stake: stakeNum, wallet }, accessToken)
+        : await authedPost('/betslips/', { stake: stakeNum, legs: legs.map(legPayload), wallet }, accessToken);
+      announceWalletChange();
       if (res.error) {
         // The API names the first stale outcome; move that leg to its new price.
         const staleId = res.body?.outcome_id;
@@ -472,11 +480,11 @@ export function BetslipProvider({ children }: { children: React.ReactNode }) {
       }
     }
     setBusy(false);
-  }, [accessToken, legs, mode, legStakes, accaStake, conflictingEvents, applyPriceChange, confirmInPlay]);
+  }, [accessToken, legs, mode, legStakes, accaStake, conflictingEvents, applyPriceChange, confirmInPlay, wallet]);
 
   const value: BetslipContextValue = {
     legs, mode, setMode, accaStake, setAccaStake, legStakes, setLegStake,
-    combinedOdds, potentialPayout, bonus, loadCode, status, busy, conflictingEvents,
+    combinedOdds, potentialPayout, bonus, loadCode, status, busy, wallet, setWallet, conflictingEvents,
     isOnSlip, isOutcomeOnSlip, toggleLeg, removeLeg, clear, place,
     hasPriceChanges, hasSuspended, acceptPriceChanges,
     slipOpen, setSlipOpen,

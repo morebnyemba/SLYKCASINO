@@ -174,7 +174,7 @@ class FinishedFixturePollTests(TestCase):
 
     def _bet(self, market_key, outcome_key):
         outcome = MarketOutcome.objects.get(market__key=market_key, key=outcome_key)
-        return self._before_kickoff(lambda: sb.place_bet(
+        return self._before_kickoff(lambda: sb.place_bet(wallet='deposit', 
             event='x', stake=D('10'), odds=outcome.odds, player_id=self.player.id, outcome_id=outcome.id,
         ))
 
@@ -183,7 +183,7 @@ class FinishedFixturePollTests(TestCase):
         return ApiFootballClient.__new__(ApiFootballClient)._normalize(raw)
 
     def test_poll_settles_everything_including_stats_markets(self):
-        home = self._before_kickoff(lambda: sb.place_bet(
+        home = self._before_kickoff(lambda: sb.place_bet(wallet='deposit', 
             event='x', stake=D('10'), odds=D('2.00'), player_id=self.player.id,
             event_id=self.event.id, selection='home'))
         corners = self._bet('over_under:corners:ft:9.5', 'over')

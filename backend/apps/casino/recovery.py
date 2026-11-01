@@ -60,9 +60,9 @@ class RecoveryManager(BaseRecoveryManager):
                     rnd.debit_confirmed = True
                     rnd.save(update_fields=['debit_confirmed'])
                     self.mark_repaired(f'round {round_id}: debit found, confirmed')
-                elif wallet_services.get_balance(rnd.player_id) >= rnd.stake:
+                elif wallet_services.get_balances(rnd.player_id)[rnd.wallet] >= rnd.stake:
                     wallet_services.debit(
-                        player_id=rnd.player_id, amount=rnd.stake, kind='casino_debit',
+                        player_id=rnd.player_id, amount=rnd.stake, kind='casino_debit', bucket=rnd.wallet,
                         idempotency_key=key, reference=f'round:{rnd.id}',
                     )
                     rnd.debit_confirmed = True

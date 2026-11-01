@@ -25,7 +25,7 @@ class ResultPollTests(TestCase):
         ev = Event.objects.create(name=name, odds=D('2'), status=status, provider=provider, external_id=name,
                                   starts_at=timezone.now() - timedelta(minutes=minutes_ago))
         if bet:
-            Bet.objects.create(player_id=self.player.id, event=name, event_ref=ev, selection='home', stake=D('1'), odds=D('2'))
+            Bet.objects.create(wallet='deposit', player_id=self.player.id, event=name, event_ref=ev, selection='home', stake=D('1'), odds=D('2'))
         return ev
 
     def fixture(self, ev, status, home, away):

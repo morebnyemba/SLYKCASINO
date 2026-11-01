@@ -9,6 +9,7 @@ import { BetsList, HistoryStrip } from '@/components/jet/side-panels';
 import { useAuth } from '@/lib/auth-context';
 import { multiplierAt, useJet, useJetChat, type JetBet, type JetRound } from '@/lib/jet';
 import * as sound from '@/lib/jet-sound';
+import { WALLET_IDS, WALLET_LABEL, type WalletId } from '@/lib/wallets';
 
 /** Plays the game's sounds from state changes: take-off, engine, countdown, crash and the player's cash-outs. */
 function useGameSounds(round: JetRound | null, multiplier: number, myBets: JetBet[], now: () => number) {
@@ -139,6 +140,8 @@ export default function AviatorPage() {
   const { state, error, now, placeBet, cancelBet, cashOut } = useJet();
   const [multiplier, setMultiplier] = useState(1);
   const [rulesOpen, setRulesOpen] = useState(false);
+  // The wallet both bet panels pay from — chosen by the player, never assumed.
+  const [wallet, setWallet] = useState<WalletId | ''>('');
   const chat = useJetChat();
   const [chatOpen, setChatOpen] = useState(false);
   const [seen, setSeen] = useState(0);
@@ -175,13 +178,17 @@ export default function AviatorPage() {
     <div className="min-h-dvh bg-[#0e0e0e] p-2 sm:p-3">
       <header className="-mx-2 -mt-2 mb-2 flex items-center gap-3 border-b border-[#2c2d30] bg-[#1b1c1d] px-3 py-2 text-white sm:-mx-3 sm:-mt-3 sm:mb-3">
         <GameLogo name={s.display_name} />
-        {state.balance != null && (
-          <span className="ml-auto text-base font-extrabold tabular-nums text-[#28a909]">
-            {Number(state.balance).toFixed(2)} <span className="text-xs font-bold text-white/60">USD</span>
-          </span>
+        {state.wallets && (
+          <select value={wallet} onChange={(e) => setWallet(e.target.value as WalletId)} aria-label="Pay from"
+            className="ml-auto max-w-[11rem] rounded-full border border-[#2c2d30] bg-[#141516] px-3 py-1.5 text-sm font-extrabold tabular-nums text-[#28a909]">
+            <option value="" disabled>Pay from…</option>
+            {WALLET_IDS.map((id) => (
+              <option key={id} value={id}>{WALLET_LABEL[id]} · {Number(state.wallets![id]).toFixed(2)}</option>
+            ))}
+          </select>
         )}
         <button onClick={() => setRulesOpen((v) => !v)} aria-label="How to play"
-          className={`${state.balance == null ? 'ml-auto' : ''} flex items-center gap-1.5 rounded-full bg-[#141516] px-3 py-1.5 text-xs font-bold text-white/80 hover:text-white`}>
+          className={`${state.wallets ? '' : 'ml-auto'} flex items-center gap-1.5 rounded-full bg-[#141516] px-3 py-1.5 text-xs font-bold text-white/80 hover:text-white`}>
           <BsInfoCircle size={13} /> <span className="hidden sm:inline">How to play</span>
         </button>
         <SoundToggles />
@@ -245,7 +252,12 @@ export default function AviatorPage() {
                 key={slot} slot={slot} settings={s} round={round} bet={myBet(slot)} multiplier={multiplier}
                 loggedIn={!!user}
                 freeBet={(state.free_bets ?? [])[slot - 1]}
-                onPlace={async (stake, auto, freeId) => { const r = await placeBet(slot, stake, auto, freeId); if (!r.error) sound.playBet(); return r; }}
+                onPlace={async (stake, auto, freeId) => {
+                  if (!freeId && !wallet) return { error: 'Choose which wallet to play from (top right).' };
+                  const r = await placeBet(slot, stake, auto, freeId, wallet || null);
+                  if (!r.error) sound.playBet();
+                  return r;
+                }}
                 onCancel={async (id) => { const r = await cancelBet(id); if (!r.error) sound.playBet(); return r; }}
                 onCashOut={cashOut}
               />

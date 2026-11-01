@@ -232,3 +232,46 @@ class AdminPlayerSortTests(TestCase):
         self.assertEqual(names, ['rich', 'mid', 'broke'])
         newest = [p['username'] for p in api.get('/api/players/', {'sort': 'newest'}).json()['results']]
         self.assertEqual(newest, ['broke', 'mid', 'rich'])
+
+
+class ClientIpTests(TestCase):
+    def _ip(self, xff=None, remote='172.18.0.5', **settings):
+        from django.test import RequestFactory
+
+        from common.client_ip import client_ip
+
+        meta = {'REMOTE_ADDR': remote}
+        if xff is not None:
+            meta['HTTP_X_FORWARDED_FOR'] = xff
+        with self.settings(**settings):
+            return client_ip(RequestFactory().get('/', **meta))
+
+    def test_uses_the_address_our_proxy_saw_not_a_spoofed_header(self):
+        self.assertEqual(self._ip('41.60.1.2'), '41.60.1.2')
+        # The player sent "X-Forwarded-For: 8.8.8.8"; nginx appended their real address.
+        self.assertEqual(self._ip('8.8.8.8, 41.60.1.2'), '41.60.1.2')
+        self.assertEqual(self._ip('8.8.8.8, 41.60.1.2, 172.70.0.1', TRUSTED_PROXY_COUNT=2), '41.60.1.2')
+        self.assertEqual(self._ip(None), '172.18.0.5')
+        self.assertEqual(self._ip('41.60.1.2', TRUSTED_PROXY_COUNT=0), '172.18.0.5')
+        self.assertIsNone(self._ip('not-an-ip'))
+
+    def test_signup_and_login_record_the_device_ip_and_admin_can_filter_by_it(self):
+        import secrets
+
+        from django.contrib.auth.models import User
+
+        password = secrets.token_urlsafe(16)
+        client = APIClient(REMOTE_ADDR='172.18.0.5')
+        for name in ('alt_one', 'alt_two'):
+            res = client.post('/api/auth/register/', {'username': name, 'email': f'{name}@example.com', 'password': password, 'accept_terms': True},
+                              format='json', HTTP_X_FORWARDED_FOR='41.60.1.2')
+            self.assertEqual(res.status_code, 201, res.content)
+        res = client.post('/api/auth/login/', {'username': 'alt_one', 'password': password},
+                          format='json', HTTP_X_FORWARDED_FOR='41.60.1.2')
+        self.assertEqual(res.status_code, 200)
+
+        admin = APIClient()
+        admin.force_authenticate(User.objects.create_user('ops', 'o@example.com', 'x', is_staff=True))
+        rows = admin.get('/api/admin/audit-log/', {'ip': '41.60.1.2'}).json()['results']
+        self.assertEqual(sorted(r['event_type'] for r in rows), ['login', 'register', 'register'])
+        self.assertEqual(admin.get('/api/admin/audit-log/', {'ip': '172.18.0.5'}).json()['count'], 0)

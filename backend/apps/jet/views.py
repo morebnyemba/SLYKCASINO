@@ -25,6 +25,11 @@ def _balance(player_id: int) -> str:
     return str(get_balance_dto(player_id).balance)
 
 
+def _wallets(player_id: int) -> dict:
+    dto = get_balance_dto(player_id)
+    return {'deposit': str(dto.deposit), 'bonus': str(dto.bonus), 'winnings': str(dto.winnings)}
+
+
 class StateView(APIView):
     """GET /api/jet/state/ — everything the game screen needs to draw itself:
     rules and limits, the current (or last) round, its bets, recent crash
@@ -48,6 +53,7 @@ class StateView(APIView):
             'bets': sorted(listed, key=lambda b: -Decimal(b['stake'])),
             'my_bets': [services.bet_payload(b, mine=True) for b in bets if player and b.player_id == player.id],
             'balance': _balance(player.id) if player else None,
+            'wallets': _wallets(player.id) if player else None,
             'free_bets': social.free_bets_for(player.id) if player else [],
         })
 
@@ -73,10 +79,11 @@ class BetView(APIView):
         try:
             bet = services.place_bet(player=player, stake=request.data.get('stake'), slot=slot,
                                      auto_cashout=request.data.get('auto_cashout'),
-                                     free_bet_id=request.data.get('free_bet_id'))
+                                     free_bet_id=request.data.get('free_bet_id'),
+                                     wallet=request.data.get('wallet'))
         except (services.JetError, InsufficientFunds) as exc:
             return _error(exc)
-        return Response({'bet': services.bet_payload(bet, mine=True), 'balance': _balance(player.id),
+        return Response({'bet': services.bet_payload(bet, mine=True), 'balance': _balance(player.id), 'wallets': _wallets(player.id),
                          'free_bets': social.free_bets_for(player.id)},
                         status=status.HTTP_201_CREATED)
 
@@ -95,7 +102,7 @@ class BetActionView(APIView):
             bet = fn(player_id=player.id, bet_id=int(pk))
         except services.JetError as exc:
             return _error(exc)
-        return Response({'bet': services.bet_payload(bet, mine=True), 'balance': _balance(player.id),
+        return Response({'bet': services.bet_payload(bet, mine=True), 'balance': _balance(player.id), 'wallets': _wallets(player.id),
                          'free_bets': social.free_bets_for(player.id)})
 
 

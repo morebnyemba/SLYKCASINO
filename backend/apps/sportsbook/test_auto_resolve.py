@@ -48,7 +48,7 @@ class AutoResolveTests(TestCase):
         outcome = MarketOutcome.objects.filter(
             market__event=event, market__kind=market_kind, market__metric=metric, key=key,
         ).first()
-        return self._before_kickoff(event, lambda: sb.place_bet(
+        return self._before_kickoff(event, lambda: sb.place_bet(wallet='deposit', 
             event='x', stake=D(stake), odds=outcome.odds, player_id=self.player.id, outcome_id=outcome.id,
         ))
 
@@ -57,7 +57,7 @@ class AutoResolveTests(TestCase):
 
     def test_finished_match_settles_what_it_can_and_voids_the_rest(self):
         event = self._event(8)
-        main = self._before_kickoff(event, lambda: sb.place_bet(
+        main = self._before_kickoff(event, lambda: sb.place_bet(wallet='deposit', 
             event='x', stake=D('10'), odds=D('2.00'), player_id=self.player.id, event_id=event.id, selection='home'))
         goals = self._bet(event, 'over_under', 'over')          # 3 goals: won
         corners = self._bet(event, 'over_under', 'over', metric='corners')
@@ -132,7 +132,7 @@ class AutoResolveIsolationTests(TestCase):
         past = timezone.now() - timedelta(hours=8)
         events = [Event.objects.create(name=f'Team {i} vs Other {i}', starts_at=past, status='FT',
                                        score_home=1, score_away=0) for i in range(2)]
-        bets = [Bet.objects.create(event=e.name, event_ref=e, selection='home', stake=D('1'), odds=D('2'))
+        bets = [Bet.objects.create(wallet='deposit', event=e.name, event_ref=e, selection='home', stake=D('1'), odds=D('2'))
                 for e in events]
         real = sb._auto_resolve_event
 

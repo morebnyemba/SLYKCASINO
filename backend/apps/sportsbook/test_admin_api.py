@@ -106,7 +106,7 @@ class AdminEventTests(AdminApiBase):
         self.assertEqual(self.api.get('/api/admin/sportsbook/events/?state=upcoming&q=caps').json()['count'], 1)
         self.assertEqual(self.api.get('/api/admin/sportsbook/events/?state=live').json()['count'], 0)
         self.assertEqual(self.api.get('/api/admin/sportsbook/events/summary/').json()['upcoming'], 1)
-        Bet.objects.create(event='x', event_ref_id=eid, stake=D('1'), odds=D('1.9'))
+        Bet.objects.create(wallet='deposit', event='x', event_ref_id=eid, stake=D('1'), odds=D('1.9'))
         self.assertEqual(self.api.delete(f'/api/admin/sportsbook/events/{eid}/').status_code, 409)
 
     def test_locked_prices_survive_the_feed(self):
@@ -142,10 +142,10 @@ class AdminTicketsTests(TestCase):
         from apps.sportsbook.models import Bet, BetLeg, BetSlip
 
         self.player = account_services.create_player(username='punter')
-        self.single = Bet.objects.create(player_id=self.player.id, event='A v B', selection='home', stake=D('5'), odds=D('2'))
-        self.multi = BetSlip.objects.create(player_id=self.player.id, stake=D('2'), combined_odds=D('6'))
+        self.single = Bet.objects.create(wallet='deposit', player_id=self.player.id, event='A v B', selection='home', stake=D('5'), odds=D('2'))
+        self.multi = BetSlip.objects.create(wallet='deposit', player_id=self.player.id, stake=D('2'), combined_odds=D('6'))
         BetLeg.objects.create(slip=self.multi, event='C v D', selection='away', odds=D('3'))
-        Bet.objects.create(player_id=account_services.create_player(username='someone').id, event='E v F',
+        Bet.objects.create(wallet='deposit', player_id=account_services.create_player(username='someone').id, event='E v F',
                            selection='draw', stake=D('1'), odds=D('3'))
         self.api = APIClient()
         self.api.force_authenticate(User.objects.create_user('ops', 'o@example.com', 'x', is_staff=True))
@@ -171,8 +171,8 @@ class AdminTicketsTests(TestCase):
         from apps.sportsbook.models import Bet, BetSlip
         same = timezone.now()
         for _ in range(3):  # several tickets in the very same instant
-            Bet.objects.filter(pk=Bet.objects.create(player_id=self.player.id, event='X', stake=D('1'), odds=D('2')).pk).update(placed_at=same)
-            BetSlip.objects.filter(pk=BetSlip.objects.create(player_id=self.player.id, stake=D('1'), combined_odds=D('4')).pk).update(placed_at=same)
+            Bet.objects.filter(pk=Bet.objects.create(wallet='deposit', player_id=self.player.id, event='X', stake=D('1'), odds=D('2')).pk).update(placed_at=same)
+            BetSlip.objects.filter(pk=BetSlip.objects.create(wallet='deposit', player_id=self.player.id, stake=D('1'), combined_odds=D('4')).pk).update(placed_at=same)
         seen, cursor = [], None
         while True:
             body = self.api.get('/api/admin/tickets/', {'limit': 2, **({'cursor': cursor} if cursor else {})}).json()

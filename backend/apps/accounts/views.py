@@ -19,8 +19,9 @@ from rest_framework.permissions import AllowAny, IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import AnonRateThrottle
 from rest_framework.views import APIView
-from rest_framework_simplejwt.exceptions import TokenError
+from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.views import TokenObtainPairView
 
 from . import services
 from .emails import send_password_reset_email, send_verification_email, send_welcome_email
@@ -81,6 +82,22 @@ class RegisterView(APIView):
         token = services.generate_verify_token(player.id)
         send_verification_email(player, token)
         return Response(PlayerSerializer(player).data, status=status.HTTP_201_CREATED)
+
+
+class LoginView(TokenObtainPairView):
+    """POST /api/auth/login/ — simplejwt's login, recorded in the audit log
+    (with the device's IP) so shared-address accounts show up."""
+
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        try:
+            serializer.is_valid(raise_exception=True)
+        except TokenError as exc:
+            raise InvalidToken(exc.args[0]) from exc
+        player = Player.objects.filter(user=serializer.user).only('id').first()
+        if player:
+            services.audit(player.id, 'login', request)
+        return Response(serializer.validated_data, status=status.HTTP_200_OK)
 
 
 class LogoutView(APIView):
@@ -273,8 +290,10 @@ class DataExportView(APIView):
             for entry in LedgerEntry.objects.filter(wallet=wallet):
                 ledger_entries.append({
                     'id': entry.id,
+                    'transaction_ref': entry.transaction_ref,
                     'amount': str(entry.amount),
                     'kind': entry.kind,
+                    'wallet': entry.bucket,
                     'reference': entry.reference,
                     'created_at': entry.created_at.isoformat(),
                 })
@@ -334,7 +353,10 @@ class DataExportView(APIView):
                 'deposit_limit_daily': str(player.deposit_limit_daily) if player.deposit_limit_daily else None,
                 'email_verified': player.email_verified,
             },
-            'wallet': {'balance': balance, 'currency': currency},
+            'wallet': {'balance': balance, 'currency': currency,
+                       'deposit': str(wallet.deposit_balance) if wallet else '0',
+                       'bonus': str(wallet.bonus_balance) if wallet else '0',
+                       'winnings': str(wallet.winnings_balance) if wallet else '0'},
             'ledger': ledger_entries,
             'bets': bets,
             'casino_rounds': rounds,
@@ -398,6 +420,9 @@ class PlayerViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.G
         qs = Player.objects.annotate(
             wallet_balance=Subquery(wallets.values('balance')[:1]),
             wallet_currency=Subquery(wallets.values('currency')[:1]),
+            wallet_deposit=Subquery(wallets.values('deposit_balance')[:1]),
+            wallet_bonus=Subquery(wallets.values('bonus_balance')[:1]),
+            wallet_winnings=Subquery(wallets.values('winnings_balance')[:1]),
         )
         if self.action != 'list':
             return qs.order_by('-created_at', '-id')
@@ -450,18 +475,21 @@ class PlayerViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.G
         try:
             entry = services.adjust_balance(
                 int(pk), amount=ser.validated_data['amount'], reason=ser.validated_data['reason'],
+                wallet=ser.validated_data['wallet'],
             )
         except Exception as exc:  # noqa: BLE001 — surfaces InsufficientFunds etc. to the admin
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         services.audit(
             int(pk), 'balance_adjusted', request,
             amount=str(ser.validated_data['amount']), reason=ser.validated_data['reason'],
+            wallet=ser.validated_data['wallet'],
         )
         from apps.wallet import services as wallet_services
         return Response({
             'entry_id': entry.id,
             'amount': str(entry.amount),
             'balance': str(wallet_services.get_balance(int(pk))),
+            'wallets': {b: str(v) for b, v in wallet_services.get_balances(int(pk)).items()},
         })
 
     @action(detail=True, methods=['post'])
@@ -643,4 +671,8 @@ class AdminAuditLogViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         player_id = self.request.query_params.get('player_id')
         if player_id:
             qs = qs.filter(player_id=player_id)
+        # Every action from one address — spots several accounts signing up from it.
+        ip = (self.request.query_params.get('ip') or '').strip()
+        if ip:
+            qs = qs.filter(ip_address=ip)
         return qs[:500]

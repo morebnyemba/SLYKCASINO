@@ -6,6 +6,7 @@ import { Spinner } from '@slyk/ui/components/spinner';
 import { useAuth } from '@/lib/auth-context';
 import { config } from '@/lib/config';
 import { authedPost } from '@/lib/use-api';
+import { WALLET_CHANGED } from '@/lib/wallets';
 
 /** The live cash-out offer on an open ticket, as the API returns it. */
 export interface CashoutOffer {
@@ -17,7 +18,7 @@ export interface CashoutOffer {
 }
 
 /** Other parts of the page (the header balance) listen for this. */
-export const WALLET_CHANGED = 'slyk:wallet-changed';
+export { WALLET_CHANGED };
 
 const POLL_MS = 8000;
 

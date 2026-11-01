@@ -281,7 +281,7 @@ def _schedule_confirmation(kind: str, obj_id: int) -> None:
 def place_bet(
     *, event: str, stake: Decimal, odds: Decimal, player_id: Optional[int] = None,
     event_id: Optional[int] = None, selection: str = Selection.HOME,
-    outcome_id: Optional[int] = None,
+    outcome_id: Optional[int] = None, wallet: Optional[str] = None,
 ) -> Bet:
     """Place a bet. For an identified player the stake is debited from the wallet
     atomically; raising InsufficientFunds rolls the whole placement back.
@@ -289,10 +289,16 @@ def place_bet(
     `event_id`/`selection` soft-link the bet to its market so a single result can
     settle every bet on it (see settle_event). `outcome_id` instead backs an
     outcome of a secondary market (goals, handicaps…); its live price is checked
-    and OddsChanged is raised if the player's price is stale."""
+    and OddsChanged is raised if the player's price is stale.
+
+    `wallet` is the balance the player chose to pay from (required for a
+    player); the ticket's odds must meet that wallet's minimum (WalletRules)."""
     errors = helpers.validate_bet_request_structure({'event': event, 'stake': stake, 'odds': odds})
     if errors:
         raise ValueError('; '.join(errors))
+    if player_id is not None:
+        wallet = wallet_services.betting_bucket(wallet)
+        wallet_services.check_min_odds(wallet, odds)
     if selection not in Selection.values:
         selection = Selection.HOME
     outcome = None
@@ -310,7 +316,7 @@ def place_bet(
         # Anonymous compatibility path — no wallet movement (documented).
         bet = Bet.objects.create(
             event=event, stake=utils.quantize(stake), odds=odds, status=placed_status,
-            event_ref_id=event_id, selection=selection, outcome_ref=outcome,
+            event_ref_id=event_id, selection=selection, outcome_ref=outcome, wallet=wallet or 'deposit',
         )
         if in_play:
             _schedule_confirmation('bet', bet.id)
@@ -320,10 +326,10 @@ def place_bet(
     bet = Bet.objects.create(
         player_id=player_id, event=event, stake=utils.quantize(stake),
         odds=odds, status=Bet.Status.PENDING, event_ref_id=event_id, selection=selection,
-        outcome_ref=outcome,
+        outcome_ref=outcome, wallet=wallet,
     )
     wallet_services.debit(
-        player_id=player_id, amount=bet.stake, kind='bet_stake',
+        player_id=player_id, amount=bet.stake, kind='bet_stake', bucket=wallet,
         idempotency_key=helpers.stake_idempotency_key(bet.id), reference=f'bet:{bet.id}',
     )
     bet.status = placed_status
@@ -386,8 +392,8 @@ def settle_bet(bet_id: int, outcome: str) -> Bet:
     if outcome == 'won':
         payout = utils.calculate_payout(bet.stake, bet.odds)
         if bet.player_id:
-            wallet_services.credit(
-                player_id=bet.player_id, amount=payout, kind='bet_payout',
+            wallet_services.pay_out(
+                player_id=bet.player_id, source=bet.wallet, stake=bet.stake, payout=payout, kind='bet_payout',
                 idempotency_key=helpers.payout_idempotency_key(bet.id), reference=f'bet:{bet.id}',
             )
         bet.payout = payout
@@ -395,7 +401,7 @@ def settle_bet(bet_id: int, outcome: str) -> Bet:
     elif outcome == 'void':
         if bet.player_id:
             wallet_services.credit(
-                player_id=bet.player_id, amount=bet.stake, kind='bet_payout',
+                player_id=bet.player_id, amount=bet.stake, kind='bet_payout', bucket=bet.wallet,
                 idempotency_key=f'{helpers.payout_idempotency_key(bet.id)}:refund',
                 reference=f'bet:{bet.id}',
             )
@@ -488,15 +494,20 @@ def _slip_bonus(slip: BetSlip, won_odds: list[Decimal], payout: Decimal) -> Deci
 # -- accumulators ------------------------------------------------------------
 
 @transaction.atomic
-def place_accumulator(*, stake: Decimal, legs: list[dict], player_id: Optional[int] = None) -> BetSlip:
+def place_accumulator(
+    *, stake: Decimal, legs: list[dict], player_id: Optional[int] = None, wallet: Optional[str] = None,
+) -> BetSlip:
     """Place a multi-leg accumulator. `legs` is a list of dicts with keys
     `event` (label), `odds`, optional `event_id` and `selection`. Combined odds
     are the product of every leg; a single stake is debited for an identified
     player, rolling back atomically on InsufficientFunds. A leg may carry
     `outcome_id` to back a secondary-market outcome (price-checked); at most one
-    leg per event is allowed."""
+    leg per event is allowed. `wallet` is the balance the player chose to pay
+    from; the combined odds must meet its minimum."""
     if not legs or len(legs) < 2:
         raise ValueError('an accumulator needs at least 2 selections')
+    if player_id is not None:
+        wallet = wallet_services.betting_bucket(wallet)
 
     combined = Decimal('1')
     normalised: list[dict] = []
@@ -533,12 +544,14 @@ def place_accumulator(*, stake: Decimal, legs: list[dict], player_id: Optional[i
             'event_id': event_id, 'outcome': outcome,
         })
     combined_odds = utils.quantize(combined)
+    if player_id is not None:
+        wallet_services.check_min_odds(wallet, combined_odds)
 
     placed_status = BetSlip.Status.ACCEPTING if in_play else BetSlip.Status.OPEN
     status_ = placed_status if player_id is None else BetSlip.Status.PENDING
     slip = BetSlip.objects.create(
         player_id=player_id, stake=utils.quantize(stake),
-        combined_odds=combined_odds, status=status_,
+        combined_odds=combined_odds, status=status_, wallet=wallet or 'deposit',
         bonus_percent=multibet_bonus_percent([n['odds'] for n in normalised]),
     )
     BetLeg.objects.bulk_create([
@@ -549,7 +562,7 @@ def place_accumulator(*, stake: Decimal, legs: list[dict], player_id: Optional[i
 
     if player_id is not None:
         wallet_services.debit(
-            player_id=player_id, amount=slip.stake, kind='bet_stake',
+            player_id=player_id, amount=slip.stake, kind='bet_stake', bucket=wallet,
             idempotency_key=helpers.slip_stake_idempotency_key(slip.id), reference=f'slip:{slip.id}',
         )
         slip.status = placed_status
@@ -582,8 +595,8 @@ def _settle_slip_if_ready(slip_id: int) -> BetSlip:
         payout = utils.calculate_payout(slip.stake, effective)
         bonus = _slip_bonus(slip, won_odds, payout)
         if slip.player_id:
-            wallet_services.credit(
-                player_id=slip.player_id, amount=payout, kind='bet_payout',
+            wallet_services.pay_out(
+                player_id=slip.player_id, source=slip.wallet, stake=slip.stake, payout=payout, kind='bet_payout',
                 idempotency_key=helpers.slip_payout_idempotency_key(slip.id),
                 reference=f'slip:{slip.id}',
             )
@@ -649,7 +662,7 @@ def _reject_accepting(obj, reason: str, *, now) -> None:
     if obj.player_id:
         key = helpers.slip_payout_idempotency_key(obj.id) if is_slip else helpers.payout_idempotency_key(obj.id)
         wallet_services.credit(
-            player_id=obj.player_id, amount=obj.stake, kind='bet_payout',
+            player_id=obj.player_id, amount=obj.stake, kind='bet_payout', bucket=obj.wallet,
             idempotency_key=f'{key}:refund', reference=f'{"slip" if is_slip else "bet"}:{obj.id}',
         )
     obj.status = obj.Status.REJECTED

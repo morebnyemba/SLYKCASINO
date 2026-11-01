@@ -52,13 +52,13 @@ class CasinoPlayTests(TestCase):
 
     def test_play_requires_auth(self):
         anon = APIClient()
-        resp = anon.post(f'/api/casino/games/{self.game.id}/play/', {'stake': '10.00'}, format='json')
+        resp = anon.post(f'/api/casino/games/{self.game.id}/play/', {'wallet': 'deposit', 'stake': '10.00'}, format='json')
         self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_play_debits_stake(self):
         before = wallet_services.get_balance(self.player.id)
         resp = self.client.post(
-            f'/api/casino/games/{self.game.id}/play/', {'stake': '50.00'}, format='json',
+            f'/api/casino/games/{self.game.id}/play/', {'wallet': 'deposit', 'stake': '50.00'}, format='json',
         )
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
         after = wallet_services.get_balance(self.player.id)
@@ -70,14 +70,14 @@ class CasinoPlayTests(TestCase):
     def test_round_created(self):
         before = GameRound.objects.filter(player_id=self.player.id).count()
         self.client.post(
-            f'/api/casino/games/{self.game.id}/play/', {'stake': '10.00'}, format='json',
+            f'/api/casino/games/{self.game.id}/play/', {'wallet': 'deposit', 'stake': '10.00'}, format='json',
         )
         after = GameRound.objects.filter(player_id=self.player.id).count()
         self.assertEqual(after, before + 1)
 
     def test_round_settled_after_play(self):
         resp = self.client.post(
-            f'/api/casino/games/{self.game.id}/play/', {'stake': '10.00'}, format='json',
+            f'/api/casino/games/{self.game.id}/play/', {'wallet': 'deposit', 'stake': '10.00'}, format='json',
         )
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
         round_id = resp.data['round']['id']
@@ -86,7 +86,7 @@ class CasinoPlayTests(TestCase):
 
     def test_play_insufficient_funds_returns_402(self):
         resp = self.client.post(
-            f'/api/casino/games/{self.game.id}/play/', {'stake': '9999.00'}, format='json',
+            f'/api/casino/games/{self.game.id}/play/', {'wallet': 'deposit', 'stake': '9999.00'}, format='json',
         )
         self.assertEqual(resp.status_code, status.HTTP_402_PAYMENT_REQUIRED)
 
@@ -124,14 +124,14 @@ class CrashApiTests(TestCase):
 
     def test_bet_debits_and_hides_crash_point(self):
         before = wallet_services.get_balance(self.player.id)
-        resp = self.client.post('/api/casino/crash/', {'stake': '20.00'}, format='json')
+        resp = self.client.post('/api/casino/crash/', {'wallet': 'deposit', 'stake': '20.00'}, format='json')
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
         self.assertEqual(wallet_services.get_balance(self.player.id), before - Decimal('20.00'))
         self.assertIsNone(resp.data['crash_point'])   # hidden while running
         self.assertIsNone(resp.data['server_seed'])   # seed not revealed yet
 
     def test_cashout_below_crash_point_wins(self):
-        resp = self.client.post('/api/casino/crash/', {'stake': '10.00'}, format='json')
+        resp = self.client.post('/api/casino/crash/', {'wallet': 'deposit', 'stake': '10.00'}, format='json')
         crash_id = resp.data['id']
         self._backdate(crash_id, seconds=2, crash_point='100.00')  # current ~1.34x, no bust
         after_bet = wallet_services.get_balance(self.player.id)
@@ -144,7 +144,7 @@ class CrashApiTests(TestCase):
         self.assertIsNotNone(out.data['round']['server_seed'])  # revealed after settle
 
     def test_cashout_at_or_above_crash_point_busts(self):
-        resp = self.client.post('/api/casino/crash/', {'stake': '10.00'}, format='json')
+        resp = self.client.post('/api/casino/crash/', {'wallet': 'deposit', 'stake': '10.00'}, format='json')
         crash_id = resp.data['id']
         self._backdate(crash_id, seconds=5, crash_point='1.00')  # already crashed
         out = self.client.post(f'/api/casino/crash/{crash_id}/cashout/', {'multiplier': '1.50'}, format='json')
@@ -152,7 +152,7 @@ class CrashApiTests(TestCase):
         self.assertEqual(Decimal(out.data['round']['win']), Decimal('0'))
 
     def test_cashout_is_idempotent(self):
-        resp = self.client.post('/api/casino/crash/', {'stake': '10.00'}, format='json')
+        resp = self.client.post('/api/casino/crash/', {'wallet': 'deposit', 'stake': '10.00'}, format='json')
         crash_id = resp.data['id']
         self._backdate(crash_id, seconds=2, crash_point='100.00')
         self.client.post(f'/api/casino/crash/{crash_id}/cashout/', {'multiplier': '1.20'}, format='json')

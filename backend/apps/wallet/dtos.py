@@ -11,15 +11,20 @@ class BalanceDTO(BaseDTO):
     player_id: int
     balance: Decimal
     currency: str
+    deposit: Decimal = Decimal('0')
+    bonus: Decimal = Decimal('0')
+    winnings: Decimal = Decimal('0')
 
 
 class LedgerEntryDTO(BaseDTO):
     id: int
     amount: Decimal
     kind: str
+    bucket: str = ''
     reference: str = ''
     idempotency_key: str
     created_at: datetime
+    transaction_ref: str = ''
 
 
 class PostEntryDTO(BaseDTO):

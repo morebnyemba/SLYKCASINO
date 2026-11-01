@@ -26,14 +26,14 @@ class TicketTests(TestCase):
                                                                              country='International Clubs'),
                                          starts_at=timezone.now() - timedelta(minutes=80))
         self.done = Event.objects.create(name='A v B', odds=D('2'), status='FT', starts_at=timezone.now() - timedelta(days=1))
-        mk = lambda **kw: Bet.objects.create(player_id=self.player.id, stake=D('10'), odds=D('2'), **kw)  # noqa: E731
+        mk = lambda **kw: Bet.objects.create(wallet='deposit', player_id=self.player.id, stake=D('10'), odds=D('2'), **kw)  # noqa: E731
         self.single_live = mk(event='live', event_ref=self.live, selection='home')
         self.single_won = mk(event='won', event_ref=self.done, status='won', payout=D('20'))
         self.single_lost = mk(event='lost', event_ref=self.done, status='lost')
-        self.slip = BetSlip.objects.create(player_id=self.player.id, stake=D('5'), combined_odds=D('4'))
+        self.slip = BetSlip.objects.create(wallet='deposit', player_id=self.player.id, stake=D('5'), combined_odds=D('4'))
         BetLeg.objects.create(slip=self.slip, event='leg', event_ref=self.live, odds=D('2'))
         BetLeg.objects.create(slip=self.slip, event='leg2', event_ref=self.done, odds=D('2'), result='won')
-        Bet.objects.create(player_id=self.other.id, stake=D('1'), odds=D('2'), event='not mine')
+        Bet.objects.create(wallet='deposit', player_id=self.other.id, stake=D('1'), odds=D('2'), event='not mine')
         self.api = APIClient()
         self.api.force_authenticate(self.player.user)
 

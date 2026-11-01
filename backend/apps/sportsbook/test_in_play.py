@@ -209,7 +209,7 @@ class LiveFeedTests(InPlayBase):
 
     def test_bets_awaiting_acceptance_are_rejected_once_the_match_is_over(self):
         self.feed()
-        bet = sb.place_bet(event='Arsenal', stake=D('10'), odds=D('1.50'), player_id=self.player.id,
+        bet = sb.place_bet(wallet='deposit', event='Arsenal', stake=D('10'), odds=D('1.50'), player_id=self.player.id,
                            event_id=self.event.id, selection='home')
         Event.objects.filter(pk=self.event.pk).update(status='FT', starts_at=None)
         later = bet.placed_at + timedelta(seconds=8)
@@ -230,7 +230,7 @@ class LiveFeedTests(InPlayBase):
 @LIVE
 class InPlayPlacementTests(InPlayBase):
     def place_over(self, odds='1.80', stake='10'):
-        return sb.place_bet(event='Over 2.5', stake=D(stake), odds=D(odds), player_id=self.player.id,
+        return sb.place_bet(wallet='deposit', event='Over 2.5', stake=D(stake), odds=D(odds), player_id=self.player.id,
                             outcome_id=self.over_2_5().id)
 
     def test_live_bet_holds_stake_while_accepting_then_opens(self):
@@ -262,7 +262,7 @@ class InPlayPlacementTests(InPlayBase):
 
     def test_goal_during_delay_rejects(self):
         self.feed(at=self.t0)
-        bet = sb.place_bet(event='Arsenal', stake=D('10'), odds=D('1.50'), player_id=self.player.id,
+        bet = sb.place_bet(wallet='deposit', event='Arsenal', stake=D('10'), odds=D('1.50'), player_id=self.player.id,
                            event_id=self.event.id, selection='home')
         self.assertEqual(bet.status, Bet.Status.ACCEPTING)
         later = bet.placed_at + timedelta(seconds=8)
@@ -278,12 +278,12 @@ class InPlayPlacementTests(InPlayBase):
     def test_placement_checks_live_price_and_state(self):
         self.feed(at=self.t0)
         with self.assertRaises(sb.OddsChanged) as caught:
-            sb.place_bet(event='Arsenal', stake=D('5'), odds=D('2.00'), player_id=self.player.id,
+            sb.place_bet(wallet='deposit', event='Arsenal', stake=D('5'), odds=D('2.00'), player_id=self.player.id,
                          event_id=self.event.id, selection='home')
         self.assertEqual((caught.exception.event_id, caught.exception.selection), (self.event.id, 'home'))
         # A pre-match market the live feed doesn't offer is suspended in play.
         with self.assertRaises(sb.SelectionUnavailable):
-            sb.place_bet(event='0-0', stake=D('5'), odds=D('3.00'), player_id=self.player.id,
+            sb.place_bet(wallet='deposit', event='0-0', stake=D('5'), odds=D('3.00'), player_id=self.player.id,
                          outcome_id=self.pre_match_only.id)
         self.feed(blocked=True)
         with self.assertRaises(sb.SelectionUnavailable):
@@ -302,7 +302,7 @@ class InPlayPlacementTests(InPlayBase):
         self.feed(at=self.t0)
         other = Event.objects.create(name='Pre vs Match', starts_at=self.t0 + timedelta(days=1),
                                      odds=D('2.0'), odds_draw=D('3.0'), odds_away=D('4.0'))
-        slip = sb.place_accumulator(stake=D('10'), player_id=self.player.id, legs=[
+        slip = sb.place_accumulator(wallet='deposit', stake=D('10'), player_id=self.player.id, legs=[
             {'event': 'Over 2.5', 'odds': D('1.80'), 'outcome_id': self.over_2_5().id},
             {'event': 'Pre', 'odds': D('2.0'), 'event_id': other.id, 'selection': 'home'},
         ])
@@ -323,7 +323,7 @@ class LiveBettingOffTests(InPlayBase):
     def test_disabled_by_setting(self):
         sb.apply_live_odds(_snapshot(), now=timezone.now())
         with self.assertRaises(sb.SelectionUnavailable):
-            sb.place_bet(event='Arsenal', stake=D('5'), odds=D('1.50'), player_id=self.player.id,
+            sb.place_bet(wallet='deposit', event='Arsenal', stake=D('5'), odds=D('1.50'), player_id=self.player.id,
                          event_id=self.event.id, selection='home')
         with patch.object(ApiFootballClient, 'fetch_live_odds') as fetch:
             self.assertEqual(sb.sync_live_odds(), 0)

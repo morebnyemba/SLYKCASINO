@@ -48,7 +48,7 @@ class OfferPricingTests(TestCase):
         self.ev = _event('Dynamos vs CAPS United')
 
     def single(self, odds='2.00', stake='10'):
-        return sb.place_bet(event=self.ev.name, stake=D(stake), odds=D(odds), player_id=self.player.id,
+        return sb.place_bet(wallet='deposit', event=self.ev.name, stake=D(stake), odds=D(odds), player_id=self.player.id,
                             event_id=self.ev.id, selection='home')
 
     def test_value_follows_the_price_less_margin(self):
@@ -90,7 +90,7 @@ class OfferPricingTests(TestCase):
     def test_secondary_market_outcome(self):
         market = Market.objects.create(event=self.ev, key='btts:ft', name='Both teams to score', group='goals', kind='btts')
         yes = MarketOutcome.objects.create(market=market, key='yes', label='Yes', odds=D('1.80'))
-        bet = sb.place_bet(event='BTTS', stake=D('10'), odds=D('1.80'), player_id=self.player.id, outcome_id=yes.id)
+        bet = sb.place_bet(wallet='deposit', event='BTTS', stake=D('10'), odds=D('1.80'), player_id=self.player.id, outcome_id=yes.id)
         MarketOutcome.objects.filter(pk=yes.pk).update(odds=D('1.20'))
         bet.refresh_from_db()
         self.assertEqual(cashout.bet_offer(bet).value, D('14.25'))  # 10 x 1.8 / 1.2 x 0.95
@@ -100,7 +100,7 @@ class OfferPricingTests(TestCase):
 
     def test_multiple_banks_won_legs_and_dies_on_a_lost_one(self):
         other = _event('Highlanders vs FC Platinum', odds=D('1.50'))
-        slip = sb.place_accumulator(stake=D('10'), player_id=self.player.id, legs=[
+        slip = sb.place_accumulator(wallet='deposit', stake=D('10'), player_id=self.player.id, legs=[
             {'event': self.ev.name, 'event_id': self.ev.id, 'selection': 'home', 'odds': D('2.00')},
             {'event': other.name, 'event_id': other.id, 'selection': 'home', 'odds': D('1.50')},
         ])
@@ -119,7 +119,7 @@ class CashOutApiTests(TestCase):
         self.api = APIClient()
         self.api.force_authenticate(user)
         self.ev = _event('Dynamos vs CAPS United')
-        self.bet = sb.place_bet(event=self.ev.name, stake=D('10'), odds=D('2.00'), player_id=self.player.id,
+        self.bet = sb.place_bet(wallet='deposit', event=self.ev.name, stake=D('10'), odds=D('2.00'), player_id=self.player.id,
                                 event_id=self.ev.id, selection='home')
         Event.objects.filter(pk=self.ev.pk).update(odds=D('1.25'))  # offer now 15.20
 
@@ -145,7 +145,9 @@ class CashOutApiTests(TestCase):
         self.bet.refresh_from_db()
         self.assertEqual(self.bet.status, 'cashed_out')
         self.assertEqual(_balance(self.player), before + D('15.20'))
-        self.assertEqual(LedgerEntry.objects.filter(reference__endswith=':cashout').count(), 1)
+        # Paid once: the stake back to the wallet it came from, the profit to winnings.
+        paid = LedgerEntry.objects.filter(reference__endswith=':cashout').order_by('id')
+        self.assertEqual([(e.bucket, e.amount) for e in paid], [('deposit', D('10.00')), ('winnings', D('5.20'))])
 
     def test_value_dropped_since_the_player_saw_it(self):
         Event.objects.filter(pk=self.ev.pk).update(odds=D('1.60'))  # now 11.87
@@ -191,7 +193,7 @@ class CashOutApiTests(TestCase):
 
     def test_multiple_full_cash_out(self):
         other = _event('Highlanders vs FC Platinum', odds=D('1.50'))
-        slip = sb.place_accumulator(stake=D('10'), player_id=self.player.id, legs=[
+        slip = sb.place_accumulator(wallet='deposit', stake=D('10'), player_id=self.player.id, legs=[
             {'event': other.name, 'event_id': other.id, 'selection': 'home', 'odds': D('1.50')},
             {'event': 'Bosso v Chicken Inn', 'event_id': _event('Bosso v Chicken Inn').id, 'selection': 'home', 'odds': D('2.00')},
         ])

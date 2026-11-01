@@ -13,6 +13,8 @@ from decimal import Decimal
 
 from django.db import models
 
+from apps.wallet.models.wallet import Bucket
+
 
 class JetSettings(models.Model):
     """Operator settings (one row). Every limit here is shown to players."""
@@ -99,6 +101,9 @@ class JetBet(models.Model):
     display_name = models.CharField(max_length=20)
     slot = models.PositiveSmallIntegerField(default=1)
     stake = models.DecimalField(max_digits=10, decimal_places=2)
+    # The wallet (deposit / bonus / winnings) the stake was paid from: refunds
+    # and the stake part of a win go back there, only profit goes to winnings.
+    wallet = models.CharField(max_length=10, choices=Bucket.choices)
     auto_cashout = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     status = models.CharField(max_length=8, choices=Status.choices, default=Status.ACTIVE, db_index=True)
     cashout_multiplier = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
@@ -112,6 +117,7 @@ class JetBet(models.Model):
         db_table = 'jet_bet'
         ordering = ['-id']
         constraints = [
+            models.CheckConstraint(check=models.Q(wallet__in=Bucket.values), name='jet_bet_wallet_valid'),
             models.UniqueConstraint(fields=['round', 'player_id', 'slot'], name='jet_one_bet_per_slot'),
         ]
 

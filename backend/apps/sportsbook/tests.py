@@ -53,14 +53,14 @@ class BetPlacementTests(TestCase):
 
     def test_bet_requires_auth(self):
         anon_client = APIClient()
-        resp = anon_client.post('/api/bets/', {
+        resp = anon_client.post('/api/bets/', {'wallet': 'deposit',
             'event': 'Test Match', 'stake': '10.00', 'odds': '2.00',
         }, format='json')
         self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_place_bet_debits_wallet(self):
         before = wallet_services.get_balance(self.player.id)
-        resp = self.client.post('/api/bets/', {
+        resp = self.client.post('/api/bets/', {'wallet': 'deposit',
             'event': 'Test Match', 'stake': '50.00', 'odds': '2.00',
         }, format='json')
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
@@ -68,7 +68,7 @@ class BetPlacementTests(TestCase):
         self.assertEqual(before - after, Decimal('50.00'))
 
     def test_settle_bet_won_credits_wallet(self):
-        bet = sportsbook_services.place_bet(
+        bet = sportsbook_services.place_bet(wallet='deposit', 
             event='Test Match', stake=Decimal('100.00'),
             odds=Decimal('2.00'), player_id=self.player.id,
         )
@@ -79,7 +79,7 @@ class BetPlacementTests(TestCase):
         self.assertEqual(after - before, Decimal('200.00'))
 
     def test_settle_bet_lost_no_credit(self):
-        bet = sportsbook_services.place_bet(
+        bet = sportsbook_services.place_bet(wallet='deposit', 
             event='Test Match', stake=Decimal('50.00'),
             odds=Decimal('2.00'), player_id=self.player.id,
         )
@@ -89,7 +89,7 @@ class BetPlacementTests(TestCase):
         self.assertEqual(before, after)
 
     def test_settled_bet_has_correct_status(self):
-        bet = sportsbook_services.place_bet(
+        bet = sportsbook_services.place_bet(wallet='deposit', 
             event='Test Match', stake=Decimal('10.00'),
             odds=Decimal('2.00'), player_id=self.player.id,
         )
@@ -103,7 +103,7 @@ class SettleEventTests(TestCase):
         self.event = _make_event('Man Utd vs Arsenal')
 
     def _bet(self, selection, stake='50.00', odds='2.00'):
-        return sportsbook_services.place_bet(
+        return sportsbook_services.place_bet(wallet='deposit', 
             event=f'Man Utd vs Arsenal — {selection}', stake=Decimal(stake), odds=Decimal(odds),
             player_id=self.player.id, event_id=self.event.id, selection=selection,
         )
@@ -135,7 +135,7 @@ class SettleEventTests(TestCase):
 
     def test_settle_event_ignores_unlinked_bets(self):
         # A free-text bet with no event link must not be touched.
-        sportsbook_services.place_bet(
+        sportsbook_services.place_bet(wallet='deposit', 
             event='Some Other Match', stake=Decimal('20.00'), odds=Decimal('1.50'),
             player_id=self.player.id,
         )
@@ -161,7 +161,7 @@ class AccumulatorTests(TestCase):
 
     def test_place_accumulator_debits_once_and_multiplies_odds(self):
         before = wallet_services.get_balance(self.player.id)
-        slip = sportsbook_services.place_accumulator(
+        slip = sportsbook_services.place_accumulator(wallet='deposit', 
             stake=Decimal('10.00'), legs=self._legs(), player_id=self.player.id,
         )
         after = wallet_services.get_balance(self.player.id)
@@ -172,12 +172,12 @@ class AccumulatorTests(TestCase):
 
     def test_accumulator_needs_two_legs(self):
         with self.assertRaises(ValueError):
-            sportsbook_services.place_accumulator(
+            sportsbook_services.place_accumulator(wallet='deposit', 
                 stake=Decimal('10.00'), legs=self._legs()[:1], player_id=self.player.id,
             )
 
     def test_accumulator_wins_only_when_all_legs_win(self):
-        slip = sportsbook_services.place_accumulator(
+        slip = sportsbook_services.place_accumulator(wallet='deposit', 
             stake=Decimal('10.00'), legs=self._legs(), player_id=self.player.id,
         )
         before = wallet_services.get_balance(self.player.id)
@@ -192,7 +192,7 @@ class AccumulatorTests(TestCase):
         self.assertEqual(after - before, Decimal('60.00'))
 
     def test_accumulator_loses_if_any_leg_loses(self):
-        slip = sportsbook_services.place_accumulator(
+        slip = sportsbook_services.place_accumulator(wallet='deposit', 
             stake=Decimal('10.00'), legs=self._legs(), player_id=self.player.id,
         )
         before = wallet_services.get_balance(self.player.id)
@@ -207,7 +207,7 @@ class AccumulatorTests(TestCase):
         refresh = RefreshToken.for_user(self.player.user)
         client = APIClient()
         client.credentials(HTTP_AUTHORIZATION=f'Bearer {str(refresh.access_token)}')
-        resp = client.post('/api/betslips/', {'stake': '5.00', 'legs': self._legs()}, format='json')
+        resp = client.post('/api/betslips/', {'wallet': 'deposit', 'stake': '5.00', 'legs': self._legs()}, format='json')
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
         self.assertEqual(resp.data['combined_odds'], '6.00')
         self.assertEqual(len(resp.data['legs']), 2)
@@ -270,7 +270,7 @@ class ApiFootballSyncTests(TestCase):
         self.assertFalse(sportsbook_services.trading_state(self.event)['bettable'])
 
     def test_sync_fixture_settles_linked_bets_on_finish(self):
-        bet = sportsbook_services.place_bet(
+        bet = sportsbook_services.place_bet(wallet='deposit', 
             event='Chelsea vs Arsenal — home', stake=Decimal('20.00'), odds=Decimal('2.00'),
             player_id=self.player.id, event_id=self.event.id, selection='home',
         )
