@@ -51,6 +51,10 @@ class WithdrawalRequest(models.Model):
     amount = models.DecimalField(max_digits=12, decimal_places=2)
     # Withdrawal fee kept from `amount`; the player is sent amount - fee.
     fee = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0'))
+    # Held by the fraud engine (apps.risk): it can't be marked paid until a
+    # superuser closes the player's case.
+    risk_hold = models.BooleanField(default=False)
+    risk_note = models.CharField(max_length=300, blank=True)
     method = models.CharField(max_length=10, choices=Method.choices)
     account_name = models.CharField(max_length=120, blank=True)
     account_number = models.CharField(max_length=60)

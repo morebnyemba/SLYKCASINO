@@ -39,6 +39,7 @@ def admin_stats(request):
     from apps.sportsbook.services import live_now
     from apps.livechat.support import unread_threads as support_unread_threads
     from apps.wallet.models import LedgerEntry, PaymentTransaction, WithdrawalRequest
+    from apps.risk.models import RiskCase
 
     now = timezone.now()
     start = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -92,6 +93,7 @@ def admin_stats(request):
             'commissions_pending': Commission.objects.filter(status=Commission.Status.PENDING).count(),
             'payouts_pending': Payout.objects.filter(status=Payout.Status.REQUESTED).count(),
             'withdrawals_pending': WithdrawalRequest.objects.filter(status=WithdrawalRequest.Status.REQUESTED).count(),
+            'risk_cases_open': RiskCase.objects.filter(status=RiskCase.Status.OPEN).count(),
             'support_unread': support_unread_threads(),
             # Only markets someone actually bet on — the rest settle (or void) on
             # their own and need nobody's attention.

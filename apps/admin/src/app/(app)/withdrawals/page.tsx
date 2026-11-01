@@ -24,6 +24,8 @@ interface Withdrawal {
   status: 'requested' | 'paid' | 'rejected' | 'cancelled'; status_label: string; reference: string; note: string;
   created_at: string; decided_at: string | null; decided_by: string; context?: Context;
   legacy?: boolean; email?: string;
+  /** Held by the fraud engine: can't be paid until the player's case is closed. */
+  risk_hold?: boolean; risk_note?: string;
 }
 interface Queue { results: Withdrawal[]; counts: { requested: number }; pending_total: string }
 interface Limits { min_amount: string; max_amount: string; daily_max: string; min_turnover_percent: number | string; fee_percent: string }
@@ -151,9 +153,12 @@ function PlayerWithdrawals() {
                         {w.decided_by && <p className="text-[11px] text-muted-foreground">by {w.decided_by}</p>}
                       </td>
                       <td className={cx(tdClass, 'text-right')}>
+                        {w.risk_hold && w.status === 'requested' && (
+                          <p className="mb-1.5 text-right"><Link href="/risk"><Badge tone="red" dot>Held: fraud check</Badge></Link></p>
+                        )}
                         {w.status === 'requested' && (
                           <div className="flex justify-end gap-2">
-                            <Btn size="sm" variant="success" icon={BsCheck2Circle} onClick={() => { setActing({ w, verb: 'mark-paid' }); setText(''); setStep(1); setChecked(false); setSent(false); setConfirmAmount(''); }}>Mark paid</Btn>
+                            <Btn size="sm" variant="success" icon={BsCheck2Circle} disabled={w.risk_hold} title={w.risk_hold ? w.risk_note || 'Held by a fraud check' : undefined} onClick={() => { setActing({ w, verb: 'mark-paid' }); setText(''); setStep(1); setChecked(false); setSent(false); setConfirmAmount(''); }}>Mark paid</Btn>
                             <Btn size="sm" variant="danger" icon={BsXCircle} onClick={() => { setActing({ w, verb: 'reject' }); setText(''); }}>Reject</Btn>
                           </div>
                         )}

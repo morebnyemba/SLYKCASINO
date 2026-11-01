@@ -45,6 +45,7 @@ DOMAIN_APPS = [
     'apps.branding',
     'apps.affiliates',
     'apps.jet',
+    'apps.risk',
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + DOMAIN_APPS
@@ -132,6 +133,9 @@ REST_FRAMEWORK = {
         'user': '300/minute',
         'auth': '10/minute',   # used explicitly on auth endpoints
         'ticket_lookup': '30/minute',  # public "check a ticket" by code
+        # Per IP / per player, against scripted signups and withdrawal probing.
+        'register': os.environ.get('THROTTLE_REGISTER', '20/hour'),
+        'withdraw': os.environ.get('THROTTLE_WITHDRAW', '10/hour'),
     },
 }
 
@@ -299,6 +303,12 @@ CELERY_TASK_TIME_LIMIT = 300
 # Periodic reconciliation. Each manager is idempotent, so cadence is a safety
 # knob, not a correctness one — running more often just narrows drift windows.
 CELERY_BEAT_SCHEDULE = {
+    'risk-sweep': {
+        # Hourly fraud patterns no single event shows (big winnings, linked
+        # accounts backing the same selections).
+        'task': 'apps.risk.tasks.sweep',
+        'schedule': 3600.0,
+    },
     'wallet-reconcile-ledger': {
         'task': 'apps.wallet.tasks.reconcile_ledger',
         'schedule': 300.0,   # every 5 min
@@ -397,6 +407,9 @@ CELERY_BEAT_SCHEDULE = {
 # ---------------------------------------------------------------------------
 # Email
 # ---------------------------------------------------------------------------
+# Staff emailed when the fraud engine opens a case (comma separated).
+RISK_ALERT_EMAILS = [e.strip() for e in os.environ.get('RISK_ALERT_EMAILS', '').split(',') if e.strip()]
+
 EMAIL_BACKEND = os.environ.get('EMAIL_BACKEND', 'django.core.mail.backends.console.EmailBackend')
 EMAIL_HOST = os.environ.get('EMAIL_HOST', 'localhost')
 EMAIL_PORT = int(os.environ.get('EMAIL_PORT', '587'))

@@ -46,9 +46,14 @@ class AuthRateThrottle(AnonRateThrottle):
     scope = 'auth'
 
 
+class RegisterRateThrottle(AnonRateThrottle):
+    """Signups per IP per hour, on top of the per-minute auth limit."""
+    scope = 'register'
+
+
 class RegisterView(APIView):
     permission_classes = [AllowAny]
-    throttle_classes = [AuthRateThrottle]
+    throttle_classes = [AuthRateThrottle, RegisterRateThrottle]
 
     def post(self, request):
         ser = RegisterSerializer(data=request.data)
@@ -63,6 +68,9 @@ class RegisterView(APIView):
                 currency=d.get('currency', 'USD'),
             )
             services.audit(player.id, 'register', request)
+            from apps.risk import services as risk
+            from common.client_ip import client_ip
+            risk.safely(risk.on_register, player.id, client_ip(request))
         except ValueError as exc:
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         except IntegrityError:

@@ -20,6 +20,7 @@ api_patterns = [
     path('', include('apps.branding.urls')),       # branding/theme/
     path('', include('apps.affiliates.urls')),     # affiliates/
     path('', include('apps.jet.urls')),            # jet/ (crash game)
+    path('', include('apps.risk.urls')),           # admin/risk/ (fraud engine)
     path('health/', views.health),
     path('admin/stats/', views.admin_stats),
     path('admin/analytics/', views.admin_analytics),

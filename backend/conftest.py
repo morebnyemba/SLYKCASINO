@@ -16,3 +16,11 @@ def _any_odds_from_any_wallet(request, django_db_blocker):
         WalletRules.objects.update_or_create(pk=1, defaults={
             'deposit_min_odds': 1, 'bonus_min_odds': 1, 'winnings_min_odds': 1,
         })
+
+
+@pytest.fixture(autouse=True)
+def _fresh_rate_limits():
+    """Rate-limit counters live in the cache and test user ids repeat, so
+    start every test with none."""
+    from django.core.cache import cache
+    cache.clear()
