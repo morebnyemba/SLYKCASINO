@@ -69,14 +69,23 @@ def players_with_number(number: str, *, exclude: int | None = None) -> dict[int,
 
 
 def ips_of(player_id: int) -> set[str]:
+    """The player's signup/login IPs — never a Cloudflare address, which is
+    what was recorded before nginx resolved visitor IPs behind Cloudflare and
+    would tie together everyone who used the site."""
     from apps.accounts.models import AuditLog
-    return set(AuditLog.objects.filter(player_id=player_id, event_type__in=('register', 'login'))
-               .exclude(ip_address=None).values_list('ip_address', flat=True).distinct())
+    from common.cloudflare import is_cloudflare
+    ips = (AuditLog.objects.filter(player_id=player_id, event_type__in=('register', 'login'))
+           .exclude(ip_address=None).values_list('ip_address', flat=True).distinct())
+    return {ip for ip in ips if not is_cloudflare(ip)}
 
 
 def players_on_ips(ips, *, exclude: int | None = None, since=None) -> dict[int, set[str]]:
     from apps.accounts.models import AuditLog
-    qs = AuditLog.objects.filter(ip_address__in=list(ips), event_type__in=('register', 'login')).exclude(player_id=None)
+    from common.cloudflare import is_cloudflare
+    ips = [ip for ip in ips if not is_cloudflare(ip)]
+    if not ips:
+        return defaultdict(set)
+    qs = AuditLog.objects.filter(ip_address__in=ips, event_type__in=('register', 'login')).exclude(player_id=None)
     if since is not None:
         qs = qs.filter(created_at__gte=since)
     found: dict[int, set[str]] = defaultdict(set)

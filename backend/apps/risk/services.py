@@ -221,8 +221,9 @@ def _suspended(ids) -> set[int]:
 
 def on_register(player_id: int, ip: Optional[str]) -> None:
     """Many accounts from one IP, or an IP a suspended account used."""
-    if not ip:
-        return
+    from common.cloudflare import is_cloudflare
+    if not ip or is_cloudflare(ip):
+        return  # Cloudflare's address, not the player's: proves nothing
     cfg = RiskSettings.load()
     since = timezone.now() - timedelta(days=cfg.window_days)
     others = set(linking.players_on_ips([ip], exclude=player_id, since=since))

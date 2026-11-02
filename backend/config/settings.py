@@ -106,9 +106,10 @@ DATABASES = {
 # Served behind the nginx gateway under /django-admin/ — keep the admin there too.
 # (The REST API mounts at the root of this service and is exposed via nginx /api/.)
 
-# Reverse proxies in front of Django that append to X-Forwarded-For: 1 for the
-# bundled nginx; 2 if another proxy (Cloudflare, Nginx Proxy Manager) is in
-# front of it. Decides which address the audit log and throttles see.
+# Reverse proxies in front of Django that append to X-Forwarded-For. Keep 1
+# (the bundled nginx) — also behind Cloudflare, whose visitor IP nginx already
+# resolves (nginx/*/cloudflare-realip.conf.template). Decides which address the
+# audit log, the fraud engine and the rate limits see.
 TRUSTED_PROXY_COUNT = int(os.environ.get('TRUSTED_PROXY_COUNT', '1'))
 
 REST_FRAMEWORK = {

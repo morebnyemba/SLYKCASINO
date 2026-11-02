@@ -14,6 +14,8 @@ interface AuditLogEntry {
   player_id: number | null;
   event_type: string;
   ip_address: string | null;
+  /** A Cloudflare edge address (logged before visitor IPs were resolved), not the player's. */
+  ip_is_cloudflare?: boolean;
   metadata: Record<string, unknown>;
   created_at: string;
 }
@@ -116,6 +118,9 @@ export default function AuditLogPage() {
                           {e.ip_address}
                         </button>
                       ) : '—'}
+                      {e.ip_is_cloudflare && (
+                        <span className="ml-1.5 rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold" title="Cloudflare’s address, recorded before real visitor IPs were tracked — not the player’s">Cloudflare</span>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-xs text-muted-foreground font-mono">
                       {Object.keys(e.metadata ?? {}).length > 0 ? JSON.stringify(e.metadata) : '—'}

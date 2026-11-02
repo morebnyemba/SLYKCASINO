@@ -129,9 +129,16 @@ class AdjustBalanceSerializer(serializers.Serializer):
 
 
 class AuditLogSerializer(serializers.ModelSerializer):
+    # Recorded before nginx resolved visitor IPs behind Cloudflare: not the player's.
+    ip_is_cloudflare = serializers.SerializerMethodField()
+
     class Meta:
         model = AuditLog
-        fields = ['id', 'player_id', 'event_type', 'ip_address', 'metadata', 'created_at']
+        fields = ['id', 'player_id', 'event_type', 'ip_address', 'ip_is_cloudflare', 'metadata', 'created_at']
+
+    def get_ip_is_cloudflare(self, obj) -> bool:
+        from common.cloudflare import is_cloudflare
+        return bool(obj.ip_address) and is_cloudflare(obj.ip_address)
         read_only_fields = fields
 
 
