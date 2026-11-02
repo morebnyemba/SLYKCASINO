@@ -172,7 +172,8 @@ def in_play_bettable(event: Event, *, now=None) -> bool:
 
     if not live_betting_enabled() or not event.is_open or event.status not in IN_PLAY_STATUSES:
         return False
-    if event.live_odds_at is None:
+    # Past the lock minute, or held by the guard/staff (live_guard).
+    if event.live_locked_at or event.live_hold_reason or event.live_odds_at is None:
         return False
     now = now or timezone.now()
     return event.live_odds_at >= now - timedelta(seconds=_live_setting('SPORTSBOOK_LIVE_ODDS_STALE', 30))
@@ -194,11 +195,14 @@ def pre_match_bettable(event: Event) -> bool:
 def trading_state(event: Event, *, now=None) -> dict:
     """What a player can back right now: `in_play` (trading live), `bettable`
     (the event takes bets at all) and `main_open` (the 1X2 buttons are live)."""
+    from .live_guard import closed_reason
     live = in_play_bettable(event, now=now)
     return {
         'in_play': live,
         'bettable': live or pre_match_bettable(event),
         'main_open': (live and event.live_main_open) or pre_match_bettable(event),
+        # Why a match in play isn't taking bets (past the lock minute, or held).
+        'live_closed': closed_reason(event) if event.status in IN_PLAY_STATUSES else None,
     }
 
 
@@ -335,6 +339,8 @@ def place_bet(
     bet.status = placed_status
     bet.save(update_fields=['status'])
     if in_play:
+        from . import live_guard
+        live_guard.check_stake_burst(event_id, selection=selection, outcome_id=outcome.id if outcome else None)
         _schedule_confirmation('bet', bet.id)
     return bet
 
@@ -568,6 +574,10 @@ def place_accumulator(
         slip.status = placed_status
         slip.save(update_fields=['status'])
     if in_play:
+        from . import live_guard
+        for n in normalised:
+            live_guard.check_stake_burst(n['event_id'], selection=n['selection'],
+                                         outcome_id=n['outcome'].id if n['outcome'] else None)
         _schedule_confirmation('slip', slip.id)
     return slip
 
@@ -1069,6 +1079,8 @@ def sync_fixture(fixture: FixtureUpdate) -> Optional[Event]:
         if getattr(event, field) != value:
             setattr(event, field, value)
             update_fields.append(field)
+    from . import live_guard
+    update_fields += live_guard.check_clock(event)
     if update_fields:
         event.save(update_fields=update_fields)
 
@@ -1516,7 +1528,16 @@ def apply_live_odds(snapshot: LiveOddsSnapshot, *, now=None) -> Optional[Event]:
     )
     if event is None:
         return None
+    from datetime import timedelta
+
+    from . import live_guard
+
     now = now or timezone.now()
+    old_score, old_elapsed = (event.score_home, event.score_away), event.elapsed
+    old_prices = (event.odds, event.odds_draw, event.odds_away)
+    # Consecutive live prices only: the first live price after pre-match (or a
+    # quiet feed) may legitimately be far from the last one.
+    was_live = event.live_odds_at is not None and now - event.live_odds_at <= timedelta(seconds=60)
     fields: list[str] = []
     fields += _note_goal(event, snapshot.goals_home, snapshot.goals_away, now=now)
     code = _LIVE_STATUS_CODES.get((snapshot.status or '').strip().lower())
@@ -1532,7 +1553,13 @@ def apply_live_odds(snapshot: LiveOddsSnapshot, *, now=None) -> Optional[Event]:
             setattr(event, field, value)
             fields.append(field)
 
-    tradable = not snapshot.blocked and event.is_open and event.status in IN_PLAY_STATUSES
+    fields += live_guard.check_feed(event, old_score=old_score, old_elapsed=old_elapsed, now=now)
+    fields += live_guard.check_clock(event, now=now)
+    if (snapshot.one_x_two is not None and was_live and not event.prices_locked
+            and event.status in IN_PLAY_STATUSES):
+        fields += live_guard.check_price_jump(event, old_prices, snapshot.one_x_two, now=now)
+    tradable = (not snapshot.blocked and event.is_open and event.status in IN_PLAY_STATUSES
+                and not event.live_locked_at and not event.live_hold_reason)
     if not tradable:
         if event.live_odds_at is not None or event.live_main_open:
             event.live_odds_at, event.live_main_open = None, False

@@ -12,6 +12,7 @@ import {
 import { LeaguePicker } from '@/components/sportsbook/league-picker';
 import { LeagueTag, SourceBadge, StateBadge, TeamCrest } from '@/components/sportsbook/match-bits';
 import { SettlePanel, type MarketRow } from '@/components/sportsbook/settle-panel';
+import { LiveControl } from '@/components/sportsbook/live-guard';
 import { useAuth } from '@/lib/auth-context';
 import { authedRequest, useApi } from '@/lib/use-api';
 import {
@@ -155,6 +156,8 @@ export default function MatchPage() {
           <span className="rounded-lg bg-white/10 px-2.5 py-1">{match.bets_count} open bets</span>
           <span className="rounded-lg bg-white/10 px-2.5 py-1">{match.trading.bettable ? 'Taking bets' : 'Not taking bets'}</span>
           {match.prices_locked && <span className="flex items-center gap-1 rounded-lg bg-gold/25 px-2.5 py-1 text-gold"><BsLockFill size={10} /> Manual prices</span>}
+          {match.live_hold_reason && <span className="rounded-lg bg-live/80 px-2.5 py-1 font-semibold text-white">In-play suspended</span>}
+          {match.live_locked_at && <span className="rounded-lg bg-white/15 px-2.5 py-1">In-play closed (lock minute)</span>}
           {match.source === 'feed' && match.state !== 'upcoming' && (
             <button onClick={() => void checkResult()} disabled={checking}
               className="ml-auto flex items-center gap-1.5 rounded-lg bg-white/15 px-2.5 py-1 font-semibold hover:bg-white/25 disabled:opacity-60">
@@ -164,6 +167,8 @@ export default function MatchPage() {
         </div>
         {checkMsg && <div className="relative mt-3"><Notice tone={checkMsg.tone}>{checkMsg.text}</Notice></div>}
       </section>
+
+      <LiveControl match={match} onChange={(m) => { setMatch(m); refetch(); }} />
 
       <div className="grid gap-6 xl:grid-cols-2">
         {/* Details */}

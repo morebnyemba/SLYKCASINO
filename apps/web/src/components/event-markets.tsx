@@ -113,7 +113,7 @@ export function EventMarkets({ ev }: { ev: EventItem }) {
     odds: Number(ev.odds),
     odds_draw: ev.odds_draw != null ? Number(ev.odds_draw) : null,
     odds_away: ev.odds_away != null ? Number(ev.odds_away) : null,
-    in_play: ev.in_play, bettable: ev.bettable, main_open: ev.main_open,
+    in_play: ev.in_play, bettable: ev.bettable, main_open: ev.main_open, live_closed: ev.live_closed,
     score_home: ev.score_home, score_away: ev.score_away, elapsed: ev.elapsed, status: ev.status,
   });
   const initialMarkets = useMemo(() => ev.markets ?? [], [ev.markets]);
@@ -131,7 +131,7 @@ export function EventMarkets({ ev }: { ev: EventItem }) {
     ...ev,
     ...Object.fromEntries(Object.entries({
       score_home: live.score_home, score_away: live.score_away, elapsed: live.elapsed, status: live.status,
-      in_play: live.in_play, bettable: live.bettable, main_open: live.main_open,
+      in_play: live.in_play, bettable: live.bettable, main_open: live.main_open, live_closed: live.live_closed,
     }).filter(([, v]) => v !== undefined)),
   };
   const inPlay = isLive(cur);
@@ -356,7 +356,7 @@ export function EventMarkets({ ev }: { ev: EventItem }) {
       {(closed || finished) && (
         <p className="rounded-xl border border-border bg-card px-4 py-3 text-sm font-semibold text-muted-foreground">
           {finished ? 'This match has finished — markets are settled or awaiting settlement.'
-            : inPlay ? 'In-play betting is suspended on this match right now.'
+            : inPlay ? (cur.live_closed ? `${cur.live_closed} on this match.` : 'In-play betting is suspended on this match right now.')
             : 'Betting is closed on this match.'}
         </p>
       )}

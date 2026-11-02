@@ -273,8 +273,10 @@ class AdminEventSerializer(serializers.ModelSerializer):
             'starts_at', 'status', 'elapsed', 'score_home', 'score_away', 'ht_score_home', 'ht_score_away',
             'odds', 'odds_draw', 'odds_away', 'previous_odds', 'has_odds', 'prices_locked',
             'featured', 'is_open', 'markets_count', 'bets_count',
+            'live_locked_at', 'live_hold_reason', 'live_hold_at',
         ]
-        read_only_fields = ['id', 'provider', 'external_id', 'previous_odds']
+        read_only_fields = ['id', 'provider', 'external_id', 'previous_odds',
+                            'live_locked_at', 'live_hold_reason', 'live_hold_at']
         extra_kwargs = {'name': {'required': False}}
 
     def get_source(self, obj) -> str:
@@ -401,6 +403,29 @@ class AdminEventViewSet(viewsets.ModelViewSet):
         except ValueError as exc:
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response({'found': found, 'match': self.get_serializer(self.get_queryset().get(pk=pk)).data})
+
+    @action(detail=True, methods=['post'], url_path='live-hold')
+    def live_hold(self, request, pk=None):
+        """POST {reason} — suspend in-play betting on this match until reopened.
+        Bets still in their acceptance delay are rejected and refunded."""
+        from . import live_guard
+        reason = str(request.data.get('reason') or '').strip()
+        if len(reason) < 3:
+            return Response({'detail': 'Say why — it goes on the record.'}, status=status.HTTP_400_BAD_REQUEST)
+        event = self.get_object()
+        live_guard.hold(event, f'Suspended by {request.user.get_username()}: {reason}', by=request.user.get_username())
+        return Response(self.get_serializer(self.get_queryset().get(pk=pk)).data)
+
+    @action(detail=True, methods=['post'], url_path='live-release')
+    def live_release(self, request, pk=None):
+        """POST — reopen in-play betting held by the guard or by staff. Past the
+        lock minute the match stays closed: that can't be undone."""
+        from . import live_guard
+        event = self.get_object()
+        if not event.live_hold_reason:
+            return Response({'detail': 'This match isn’t held.'}, status=status.HTTP_409_CONFLICT)
+        live_guard.release(event, by=request.user.get_username())
+        return Response(self.get_serializer(self.get_queryset().get(pk=pk)).data)
 
     @action(detail=False, methods=['post'])
     def cleanup(self, request):

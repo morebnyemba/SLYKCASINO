@@ -90,13 +90,17 @@ def _snapshot(fixture='555', *, home='1.50', goals=(0, 0), blocked=False, status
     if home is not None and one_x_two is not None:
         one_x_two = (D(home), one_x_two[1], one_x_two[2])
     return LiveOddsSnapshot(
-        external_id=fixture, status=status, elapsed=60, goals_home=goals[0], goals_away=goals[1],
+        external_id=fixture, status=status, elapsed=30, goals_home=goals[0], goals_away=goals[1],
         blocked=blocked, one_x_two=one_x_two, markets=tuple(markets),
     )
 
 
 class InPlayBase(TestCase):
     def setUp(self):
+        # These cover acceptance, pricing and feed handling; the guard (lock
+        # minute, price-jump and stake-burst holds) has its own tests.
+        from apps.sportsbook.models import LiveTradingSettings
+        LiveTradingSettings.objects.update_or_create(pk=1, defaults={'price_jump_percent': 0, 'burst_amount': 0})
         self.t0 = timezone.now()
         self.event = Event.objects.create(
             name='Arsenal vs Chelsea', provider=ApiFootballClient.provider_name, external_id='555',
@@ -127,7 +131,7 @@ class LiveFeedTests(InPlayBase):
         self.assertTrue(sb.in_play_bettable(self.event))
         self.assertTrue(Market.objects.get(event=self.event, key='btts:ft').is_open)
         self.assertFalse(Market.objects.get(event=self.event, key='correct_score:1h').is_open)
-        self.assertEqual(sb.trading_state(self.event), {'in_play': True, 'bettable': True, 'main_open': True})
+        self.assertEqual(sb.trading_state(self.event), {'in_play': True, 'bettable': True, 'main_open': True, 'live_closed': None})
 
     def test_blocked_feed_suspends_and_goals_are_stamped(self):
         self.feed()
