@@ -249,3 +249,48 @@ class RateLimitTests(Base):
         codes = [api.post('/api/wallet/withdraw/', {'amount': '1'}, format='json').status_code for _ in range(11)]
         self.assertEqual(codes[-1], 429)
         self.assertNotIn(429, codes[:10])
+
+
+class CloudflareTests(Base):
+    """Before nginx resolved visitor IPs behind Cloudflare, every request was
+    logged with a Cloudflare edge address. Those must never link players."""
+
+    def test_cloudflare_ranges(self):
+        from common.cloudflare import is_cloudflare
+        self.assertTrue(is_cloudflare('172.68.10.1'))
+        self.assertTrue(is_cloudflare('2606:4700::1'))
+        self.assertFalse(is_cloudflare('41.60.10.20'))
+        self.assertFalse(is_cloudflare('not-an-ip'))
+
+    def test_django_reads_the_visitor_ip_nginx_resolved(self):
+        from django.test import RequestFactory
+
+        from common.client_ip import client_ip
+        # What nginx forwards once it has swapped Cloudflare's address for the
+        # visitor's (verified against a real nginx with this config).
+        req = RequestFactory().get('/', REMOTE_ADDR='172.18.0.5', HTTP_X_FORWARDED_FOR='6.6.6.6, 41.60.10.20')
+        self.assertEqual(client_ip(req), '41.60.10.20')
+
+    def test_cloudflare_addresses_never_link_players(self):
+        cf = '172.68.10.1'
+        for p in (self.alice, self.bob):
+            AuditLog.objects.create(player_id=p.id, event_type='login', ip_address=cf)
+        self.assertEqual(linking.linked_accounts(self.alice.id), {})
+        AuditLog.objects.create(player_id=self.alice.id, event_type='login', ip_address='41.60.10.20')
+        AuditLog.objects.create(player_id=self.bob.id, event_type='login', ip_address='41.60.10.20')
+        self.assertEqual(linking.linked_accounts(self.alice.id), {self.bob.id: {'IP address'}})
+
+    def test_signup_from_a_cloudflare_address_raises_nothing(self):
+        carol = make_player('carol')
+        for p in (self.alice, self.bob, carol):
+            AuditLog.objects.create(player_id=p.id, event_type='register', ip_address='172.68.10.1')
+        dave = make_player('dave')
+        risk.on_register(dave.id, '172.68.10.1')
+        self.assertFalse(RiskSignal.objects.exists())
+
+    def test_audit_log_marks_cloudflare_addresses(self):
+        AuditLog.objects.create(player_id=self.alice.id, event_type='login', ip_address='172.68.10.1')
+        api = APIClient()
+        api.force_authenticate(User.objects.create_user('ops', 'o@example.com', 'x', is_staff=True))
+        row = api.get('/api/admin/audit-log/', {'player_id': self.alice.id}).json()['results'][0]
+        self.assertTrue(row['ip_is_cloudflare'])

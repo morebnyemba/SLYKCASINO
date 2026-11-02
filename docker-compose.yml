@@ -209,6 +209,9 @@ services:
       - "443:443"
     environment:
       DOMAIN: ${DOMAIN}             # substituted into the .template by the entrypoint
+      # A proxy between Cloudflare and this nginx (e.g. Nginx Proxy Manager) whose
+      # CF-Connecting-IP header may be trusted, as a CIDR. Default: none.
+      REAL_IP_TRUSTED: ${REAL_IP_TRUSTED:-127.0.0.1/32}
     volumes:
       - ./nginx/templates:/etc/nginx/templates:ro
       - letsencrypt:/etc/letsencrypt:ro

@@ -170,6 +170,9 @@ services:
     # serves whichever domain .env sets.
     environment:
       DOMAIN: ${DOMAIN}
+      # A proxy between Cloudflare and this nginx (e.g. Nginx Proxy Manager) whose
+      # CF-Connecting-IP header may be trusted, as a CIDR. Default: none.
+      REAL_IP_TRUSTED: ${REAL_IP_TRUSTED:-127.0.0.1/32}
     ports:
       - "80:80"
       - "443:443"
