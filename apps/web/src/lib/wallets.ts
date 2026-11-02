@@ -17,11 +17,16 @@ export const WALLET_LABEL: Record<WalletId, string> = {
 
 export const WALLET_HINT: Record<WalletId, string> = {
   deposit: 'Money you deposited. Bet it — it can’t be withdrawn.',
-  bonus: 'Promotional money. Bet it — it can’t be withdrawn.',
+  bonus: 'Promotional money for sports bets. Win it into Winnings — it can’t be withdrawn as it is.',
   winnings: 'What you’ve won. The only balance you can withdraw.',
 };
 
 export interface WalletInfo { balance: string; min_odds: string; withdrawable: boolean }
+
+/** The Bonus wallet's rules and the player's progress towards unlocking it. */
+export interface BonusRules {
+  wins: number; wins_needed: number; max_conversion: string; min_legs: number; min_leg_odds: string;
+}
 
 export interface WalletsResponse {
   balance: string;
@@ -29,6 +34,18 @@ export interface WalletsResponse {
   wallets: Record<WalletId, WalletInfo>;
   withdrawable: string;
   withdrawal_fee_percent: string;
+  bonus_rules?: BonusRules;
+}
+
+/** Wallets a game (Aviator, casino) can be played from: never Bonus. */
+export const GAME_WALLET_IDS: WalletId[] = ['deposit', 'winnings'];
+
+/** Whether a slip may be paid from the Bonus wallet (the server checks the same). */
+export function bonusEligible(rules: BonusRules | undefined, legOdds: number[], isMultiple: boolean): string | null {
+  if (!rules) return null;
+  if (!isMultiple || legOdds.length < rules.min_legs) return `Bonus bets need one multiple of ${rules.min_legs}+ selections`;
+  if (legOdds.some((o) => o + 1e-9 < Number(rules.min_leg_odds))) return `Every selection needs odds of ${rules.min_leg_odds}+`;
+  return null;
 }
 
 /** Fired after anything that moves money (a bet, a cash-out) so balances refresh. */

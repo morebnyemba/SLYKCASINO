@@ -4,8 +4,8 @@ from .gateway import PaymentGateway
 from .ledger import LedgerEntry
 from .method import PaymentMethod
 from .payment import PaymentTransaction
-from .rules import WalletRules
+from .rules import BonusRollover, WalletRules
 from .wallet import BALANCE_FIELD, Bucket, Wallet
 from .withdrawal import WithdrawalRequest, WithdrawalSettings
 
-__all__ = ['Bucket', 'BALANCE_FIELD', 'Wallet', 'LedgerEntry', 'PaymentGateway', 'PaymentMethod', 'PaymentTransaction', 'WithdrawalRequest', 'WithdrawalSettings', 'WalletRules']
+__all__ = ['Bucket', 'BALANCE_FIELD', 'Wallet', 'LedgerEntry', 'PaymentGateway', 'PaymentMethod', 'PaymentTransaction', 'WithdrawalRequest', 'WithdrawalSettings', 'WalletRules', 'BonusRollover']

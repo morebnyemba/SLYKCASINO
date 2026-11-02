@@ -144,6 +144,11 @@ export function DepositModal({ open, onClose, initialAmount }: { open: boolean; 
   const [phone, setPhone] = useState('');
   const [card, setCard] = useState('');
   const [applyBonus, setApplyBonus] = useState(true);
+  // A promo code: checked with the server as the player applies it, sent with the deposit.
+  const [promoInput, setPromoInput] = useState('');
+  const [promo, setPromo] = useState<{ code: string; name: string; bonus?: string } | null>(null);
+  const [promoError, setPromoError] = useState<string | null>(null);
+  const [promoChecking, setPromoChecking] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [bonusWarning, setBonusWarning] = useState<string | null>(null);
@@ -215,6 +220,23 @@ export function DepositModal({ open, onClose, initialAmount }: { open: boolean; 
     onClose();
   }
 
+  async function applyPromo() {
+    if (!accessToken || !promoInput.trim()) return;
+    setPromoChecking(true); setPromoError(null);
+    const { data, error: err } = await authedPost<{ code: string; name: string; bonus?: string }>(
+      '/promo-codes/check/', { code: promoInput.trim(), amount: parseFloat(amount) || undefined }, accessToken);
+    setPromoChecking(false);
+    if (err || !data) { setPromo(null); setPromoError(err ?? 'That promo code isn’t valid.'); return; }
+    setPromo(data);
+  }
+  // The bonus depends on the amount: re-check when it changes.
+  useEffect(() => {
+    if (!promo) return;
+    const t = window.setTimeout(() => { void applyPromo(); }, 400);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [amount]);
+
   if (!open) return null;
 
   const gateway = wallet?.deposit_gateway === 'paynow';
@@ -231,7 +253,9 @@ export function DepositModal({ open, onClose, initialAmount }: { open: boolean; 
     .filter((t) => Number(t.min_deposit) > numAmount && bestTier(Number(t.min_deposit), tiers).bonus > auto.bonus)
     .sort((a, b) => Number(a.min_deposit) - Number(b.min_deposit))[0];
   const bonusAmount = applyBonus && depositPromo ? Number(depositPromo.bonus_amount) : 0;
+  const promoBonus = promo?.bonus != null ? Number(promo.bonus) : 0;
   const totalCredited = numAmount + bonusAmount;
+
   const balance = Number(wallet?.balance ?? 0);
   const currency = wallet?.currency ?? 'USD';
 
@@ -254,7 +278,8 @@ export function DepositModal({ open, onClose, initialAmount }: { open: boolean; 
 
     const { data, error: depErr } = await authedPost<{ balance?: string } & Partial<PendingPayment>>(
       '/wallet/deposit/',
-      { amount: numAmount, idempotency_key: idempotencyKeyRef.current, method: selected.id, phone },
+      { amount: numAmount, idempotency_key: idempotencyKeyRef.current, method: selected.id, phone,
+        ...(promo ? { promo_code: promo.code } : {}) },
       accessToken,
     );
     if (depErr || !data) {
@@ -286,7 +311,8 @@ export function DepositModal({ open, onClose, initialAmount }: { open: boolean; 
       }
     }
 
-    setResult({ amount: numAmount, bonus: creditedBonus, balance: newBalance + creditedBonus });
+    // A promo code's bonus is credited by the server with the deposit itself.
+    setResult({ amount: numAmount, bonus: creditedBonus + promoBonus, balance: newBalance + creditedBonus });
     refetchWallet();
     setPayment(null);
     setStep('success');
@@ -301,7 +327,8 @@ export function DepositModal({ open, onClose, initialAmount }: { open: boolean; 
       v: bonusAmount > 0 ? `+$${bonusAmount.toFixed(2)} (${depositPromo!.name})` : 'None',
       accent: bonusAmount > 0,
     },
-    ...(auto.tier ? [{ k: 'Deposit bonus', v: `+$${auto.bonus.toFixed(2)} (${Number(auto.tier.percent)}%, automatic)`, accent: true }] : []),
+    ...(promo ? [{ k: 'Promo code', v: `+$${promoBonus.toFixed(2)} (${promo.code}) → Bonus wallet`, accent: true }]
+      : auto.tier ? [{ k: 'Deposit bonus', v: `+$${auto.bonus.toFixed(2)} (${Number(auto.tier.percent)}%, automatic)`, accent: true }] : []),
     { k: 'Fee', v: 'Free', win: true },
   ];
 
@@ -404,7 +431,30 @@ export function DepositModal({ open, onClose, initialAmount }: { open: boolean; 
       {limitHint && numAmount > 0 && (
         <p className="mt-2 text-[12.5px] font-semibold text-live">{limitHint}</p>
       )}
-      {auto.tier && (
+      <div className="mt-3">
+        <p className="mb-1.5 text-[12.5px] font-bold text-muted-foreground">Promo code (optional)</p>
+        <div className="flex gap-2">
+          <input
+            value={promoInput}
+            onChange={(e) => { setPromoInput(e.target.value.toUpperCase()); setPromo(null); setPromoError(null); }}
+            placeholder="e.g. WELCOME50"
+            aria-label="Promo code"
+            autoCapitalize="characters"
+            className="min-w-0 flex-1 rounded-xl border border-border bg-input px-3 py-2.5 text-sm font-bold uppercase tracking-wide outline-none focus:ring-2 focus:ring-ring"
+          />
+          <button onClick={() => void applyPromo()} disabled={!promoInput.trim() || promoChecking}
+            className="rounded-xl border border-border px-4 text-sm font-bold hover:bg-muted disabled:opacity-50">
+            {promoChecking ? <Spinner size={14} /> : promo ? 'Applied' : 'Apply'}
+          </button>
+        </div>
+        {promoError && <p className="mt-1.5 text-[12.5px] font-semibold text-live">{promoError}</p>}
+        {promo && (
+          <p className="mt-1.5 text-[12.5px] font-semibold text-gold">
+            {promo.name}{promo.bonus != null ? ` — +$${promoBonus.toFixed(2)} into your Bonus wallet` : ''} (replaces the automatic deposit bonus).
+          </p>
+        )}
+      </div>
+      {auto.tier && !promo && (
         <div className="mt-3 rounded-xl border border-gold/40 bg-gold/10 px-3.5 py-2.5">
           <p className="text-[13.5px] font-bold text-gold">+${auto.bonus.toFixed(2)} {auto.tier.name} ({Number(auto.tier.percent)}%)</p>
           <p className="text-[11.5px] text-muted-foreground">

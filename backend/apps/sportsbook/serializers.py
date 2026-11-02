@@ -46,6 +46,7 @@ class EventSerializer(serializers.ModelSerializer):
     in_play = serializers.SerializerMethodField()
     bettable = serializers.SerializerMethodField()
     main_open = serializers.SerializerMethodField()
+    live_closed = serializers.SerializerMethodField()
 
     def _state(self, obj):
         from .services import trading_state
@@ -63,13 +64,16 @@ class EventSerializer(serializers.ModelSerializer):
     def get_main_open(self, obj) -> bool:
         return self._state(obj)['main_open']
 
+    def get_live_closed(self, obj):
+        return self._state(obj)['live_closed']
+
     class Meta:
         model = Event
         fields = [
             'id', 'name', 'sport', 'odds', 'odds_draw', 'odds_away', 'previous_odds', 'has_odds',
             'featured', 'is_open', 'starts_at', 'home_team', 'away_team', 'league',
             'status', 'elapsed', 'score_home', 'score_away', 'ht_score_home', 'ht_score_away',
-            'markets_count', 'in_play', 'bettable', 'main_open',
+            'markets_count', 'in_play', 'bettable', 'main_open', 'live_closed',
         ]
         read_only_fields = ['status', 'elapsed', 'score_home', 'score_away', 'ht_score_home', 'ht_score_away']
 

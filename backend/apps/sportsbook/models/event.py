@@ -68,6 +68,13 @@ class Event(models.Model):
     last_goal_at = models.DateTimeField(null=True, blank=True)
     # Whether the live feed is currently offering the headline 1X2.
     live_main_open = models.BooleanField(default=False)
+    # In-play trading closes for good once the match clock reaches the lock
+    # minute (LiveTradingSettings): set once, never cleared (live_guard).
+    live_locked_at = models.DateTimeField(null=True, blank=True)
+    # In-play trading suspended by the guard (suspicious price move, bad feed
+    # data, a burst of money on one pick) or by staff, until staff reopen it.
+    live_hold_reason = models.CharField(max_length=200, blank=True, default='')
+    live_hold_at = models.DateTimeField(null=True, blank=True)
     # When the result poll last asked the provider about this match, so each run
     # asks the ones it hasn't checked for longest (services.settle_finished_fixtures).
     result_checked_at = models.DateTimeField(null=True, blank=True)

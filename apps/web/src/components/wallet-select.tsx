@@ -1,9 +1,9 @@
 'use client';
 
-import { useWallets, WALLET_IDS, WALLET_LABEL, type WalletId } from '@/lib/wallets';
+import { GAME_WALLET_IDS, useWallets, WALLET_LABEL, type WalletId } from '@/lib/wallets';
 
-/** "Pay from" for a game: the player picks Deposit, Bonus or Winnings and sees
- *  each balance. Nothing is charged until one is chosen. */
+/** "Pay from" for a game: the player picks Deposit or Winnings (bonus money is
+ *  for sports bets only) and sees each balance. Nothing is charged until one is chosen. */
 export function WalletSelect({ value, onChange, className = '' }: {
   value: WalletId | '';
   onChange: (w: WalletId) => void;
@@ -20,7 +20,7 @@ export function WalletSelect({ value, onChange, className = '' }: {
         className="rounded-md border border-border bg-background px-2 py-1 text-sm font-semibold"
       >
         <option value="" disabled>Choose a wallet</option>
-        {WALLET_IDS.map((id) => (
+        {GAME_WALLET_IDS.map((id) => (
           <option key={id} value={id}>{WALLET_LABEL[id]} · ${Number(data.wallets[id].balance).toFixed(2)}</option>
         ))}
       </select>

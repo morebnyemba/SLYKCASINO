@@ -20,8 +20,10 @@ from .models import CrashRound, Game, GameRound
 @transaction.atomic
 def start_round(*, player_id: int, game_id: int, stake: Decimal, wallet: str | None = None) -> GameRound:
     """Open a round: record intent (PENDING), debit the stake from the wallet
-    the player chose, confirm."""
+    the player chose (never Bonus: sportsbook only), confirm."""
+    from apps.wallet import bonus
     wallet = wallet_services.betting_bucket(wallet)
+    bonus.not_for_games(wallet)
     errors = helpers.validate_spin_request_structure({'game_id': game_id, 'stake': stake})
     if errors:
         raise ValueError('; '.join(errors))
@@ -74,7 +76,9 @@ def place_crash_bet(*, player_id: int, stake: Decimal, wallet: str | None = None
     after settlement."""
     if stake is None or stake <= 0:
         raise ValueError('stake must be positive')
+    from apps.wallet import bonus
     wallet = wallet_services.betting_bucket(wallet)
+    bonus.not_for_games(wallet)
 
     seed = crash_engine.new_server_seed()
     rnd = CrashRound.objects.create(

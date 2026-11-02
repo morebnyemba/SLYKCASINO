@@ -9,7 +9,7 @@ import { BetsList, HistoryStrip } from '@/components/jet/side-panels';
 import { useAuth } from '@/lib/auth-context';
 import { multiplierAt, useJet, useJetChat, type JetBet, type JetRound } from '@/lib/jet';
 import * as sound from '@/lib/jet-sound';
-import { WALLET_IDS, WALLET_LABEL, type WalletId } from '@/lib/wallets';
+import { GAME_WALLET_IDS, WALLET_LABEL, type WalletId } from '@/lib/wallets';
 
 /** Plays the game's sounds from state changes: take-off, engine, countdown, crash and the player's cash-outs. */
 function useGameSounds(round: JetRound | null, multiplier: number, myBets: JetBet[], now: () => number) {
@@ -182,7 +182,7 @@ export default function AviatorPage() {
           <select value={wallet} onChange={(e) => setWallet(e.target.value as WalletId)} aria-label="Pay from"
             className="ml-auto max-w-[11rem] rounded-full border border-[#2c2d30] bg-[#141516] px-3 py-1.5 text-sm font-extrabold tabular-nums text-[#28a909]">
             <option value="" disabled>Pay from…</option>
-            {WALLET_IDS.map((id) => (
+            {GAME_WALLET_IDS.map((id) => (
               <option key={id} value={id}>{WALLET_LABEL[id]} · {Number(state.wallets![id]).toFixed(2)}</option>
             ))}
           </select>

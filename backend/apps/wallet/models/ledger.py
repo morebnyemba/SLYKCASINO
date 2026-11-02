@@ -12,6 +12,7 @@ FIXED_BUCKET = {
     'deposit': Bucket.DEPOSIT,
     'deposit_refund': Bucket.DEPOSIT,
     'bonus': Bucket.BONUS,
+    'bonus_forfeit': Bucket.BONUS,
     'withdrawal': Bucket.WINNINGS,
     'withdrawal_hold': Bucket.WINNINGS,
     'withdrawal_fee': Bucket.WINNINGS,
@@ -56,6 +57,11 @@ class LedgerEntry(models.Model):
         AFFILIATE = 'affiliate', 'Affiliate commission'
         # Only the one-off move of pre-split balances into the buckets.
         MIGRATION = 'migration', 'Wallet split'
+        # The Bonus wallet moving to Winnings after its rollover (a pair of
+        # entries: out of Bonus, into Winnings), and bonus money over the
+        # conversion cap being forfeited.
+        BONUS_CONVERSION = 'bonus_conversion', 'Bonus converted to winnings'
+        BONUS_FORFEIT = 'bonus_forfeit', 'Bonus forfeited'
 
     wallet = models.ForeignKey(
         'wallet.Wallet', on_delete=models.CASCADE, related_name='entries',
@@ -87,6 +93,12 @@ class LedgerEntry(models.Model):
                 check=Q(legacy=True) | ~Q(kind__in=['bet_payout', 'casino_credit', 'bonus', 'affiliate'])
                 | Q(amount__gte=0), name='ledger_payout_is_credit'),
             models.CheckConstraint(check=Q(legacy=True) | ~Q(kind='migration'), name='ledger_migration_only_legacy'),
+            # Bonus money leaves the Bonus wallet only to Winnings, through a
+            # conversion: out of Bonus, into Winnings — never the other way.
+            models.CheckConstraint(
+                check=~Q(kind='bonus_conversion') | Q(bucket='bonus', amount__lte=0) | Q(bucket='winnings', amount__gte=0),
+                name='ledger_bonus_conversion_direction'),
+            models.CheckConstraint(check=~Q(kind='bonus_forfeit') | Q(amount__lte=0), name='ledger_bonus_forfeit_is_debit'),
         ]
 
     def __str__(self) -> str:

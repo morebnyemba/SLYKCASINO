@@ -66,9 +66,21 @@ def check_deposit(method: str, amount: Decimal) -> None:
         raise ValueError(f'The maximum {pm.name} deposit is ${pm.max_deposit:.2f}.')
 
 
-def start_deposit(*, player_id: int, amount: Decimal, method: str, phone: str = '', currency: str = 'USD') -> PaymentTransaction:
+def check_promo_code(code: str, *, player_id: int, amount: Decimal) -> str:
+    """The normalised promo code if this player can use it on this deposit
+    ('' when none was entered). Raises ValueError with the reason."""
+    if not (code or '').strip():
+        return ''
+    from apps.promotions import promo_codes
+    return promo_codes.find(code, player_id=player_id, amount=amount).code
+
+
+def start_deposit(*, player_id: int, amount: Decimal, method: str, phone: str = '', currency: str = 'USD',
+                  promo_code: str = '') -> PaymentTransaction:
     """Create a pending transaction and ask Paynow to collect it. Raises
-    ValueError for bad input and paynow.PaynowError if Paynow refuses."""
+    ValueError for bad input (an unusable promo code too) and
+    paynow.PaynowError if Paynow refuses."""
+    promo_code = check_promo_code(promo_code, player_id=player_id, amount=amount)
     if method not in paynow.METHODS:
         raise ValueError('That payment method is not available.')
     if method in paynow.MOBILE_METHODS:
@@ -77,7 +89,7 @@ def start_deposit(*, player_id: int, amount: Decimal, method: str, phone: str = 
         phone = ''
     txn = PaymentTransaction.objects.create(
         reference=f'DEP{uuid.uuid4().hex[:16].upper()}', player_id=player_id, provider='paynow',
-        method=method, phone=phone, amount=amount, currency=currency,
+        method=method, phone=phone, amount=amount, currency=currency, promo_code=promo_code,
     )
     try:
         started = paynow.initiate(reference=txn.reference, amount=amount, method=method, phone=phone)

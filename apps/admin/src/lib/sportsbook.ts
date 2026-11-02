@@ -14,7 +14,12 @@ export interface AdminMatch {
   external_id: string | null;
   source: 'feed' | 'manual';
   state: MatchState;
-  trading: { in_play: boolean; bettable: boolean; main_open: boolean };
+  trading: { in_play: boolean; bettable: boolean; main_open: boolean; live_closed?: string | null };
+  /** In-play betting closed for good at the lock minute (never reopens). */
+  live_locked_at?: string | null;
+  /** In-play betting suspended by the guard or staff, until staff reopen it. */
+  live_hold_reason?: string;
+  live_hold_at?: string | null;
   league: number | null;
   league_detail: LeagueRef | null;
   home_team: TeamRef | null;

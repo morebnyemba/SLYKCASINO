@@ -7,6 +7,8 @@ export const LEDGER_KINDS: Record<string, { label: string; tone: string }> = {
   withdrawal_fee: { label: 'Withdrawal fee', tone: 'text-win' },
   deposit_refund: { label: 'Deposit refund', tone: 'text-gold' },
   migration: { label: 'Wallet split', tone: 'text-muted-foreground' },
+  bonus_conversion: { label: 'Bonus unlocked', tone: 'text-win' },
+  bonus_forfeit: { label: 'Bonus forfeited (over limit)', tone: 'text-muted-foreground' },
   bet_stake: { label: 'Sports bet', tone: 'text-sky-400' },
   bet_payout: { label: 'Sports win', tone: 'text-win' },
   casino_debit: { label: 'Aviator bet', tone: 'text-sky-400' },

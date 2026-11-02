@@ -21,6 +21,34 @@ class CashoutSettings(models.Model):
         return obj
 
 
+class LiveTradingSettings(models.Model):
+    """Operator controls for in-play markets (one row). See live_guard.
+
+    Every automatic lock/hold is OFF by default (the operator's rule: markets
+    stay open unless genuinely suspended or closed — by the feed or by staff).
+    Each can be switched on here if ever needed."""
+    # In-play betting on a match closes for good at this match minute (0 = never).
+    lock_minute = models.PositiveSmallIntegerField(default=0)
+    # A match-result price moving at least this much in one update with no goal
+    # suspends the match for review (0 = off).
+    price_jump_percent = models.PositiveSmallIntegerField(default=0)
+    # More than this staked in play on one selection within `burst_minutes`
+    # suspends the match for review (0 = off).
+    burst_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    burst_minutes = models.PositiveSmallIntegerField(default=5)
+    # Suspend when the feed's score goes down or its clock runs backwards.
+    hold_on_bad_feed = models.BooleanField(default=False)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'sportsbook_live_trading_settings'
+
+    @classmethod
+    def load(cls) -> 'LiveTradingSettings':
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj
+
+
 class Cashout(models.Model):
     """One cash-out taken on a single bet or an accumulator slip. Its id keys
     the wallet credit, so a retried request can never pay twice."""

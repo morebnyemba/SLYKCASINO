@@ -42,6 +42,8 @@ export interface EventItem {
   ht_score_away?: number | null;
   /** Trading in play right now (live betting on and the live feed fresh). */
   in_play?: boolean;
+  /** Why a match in play isn't taking bets (e.g. "In-play betting closes at 60'"). */
+  live_closed?: string | null;
   /** Takes bets at all right now (pre-match open, or trading in play). */
   bettable?: boolean;
   /** The 1X2 buttons are live (in play the feed can suspend them on their own). */

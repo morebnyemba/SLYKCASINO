@@ -56,9 +56,10 @@ class SeparationTests(Base):
             sb.place_bet(odds=D('4.99'), wallet='deposit', **bet)
         with self.assertRaisesMessage(services.WalletRuleError, 'at least 10.00'):
             sb.place_bet(odds=D('9.50'), wallet='bonus', **bet)
+        with self.assertRaisesMessage(services.WalletRuleError, 'multiple of at least 10'):
+            sb.place_bet(odds=D('12'), wallet='bonus', **bet)   # bonus money: 10-leg multiples only
         sb.place_bet(odds=D('5'), wallet='deposit', **bet)
-        sb.place_bet(odds=D('10'), wallet='bonus', **bet)
-        self.assertEqual(balances(self.player), {'deposit': '90.00', 'bonus': '40.00', 'winnings': '0.00'})
+        self.assertEqual(balances(self.player), {'deposit': '90.00', 'bonus': '50.00', 'winnings': '0.00'})
 
     def test_never_takes_from_a_wallet_the_player_did_not_choose(self):
         # 100 in Deposit, nothing in Winnings: a Winnings bet is refused, not topped up.
@@ -84,17 +85,17 @@ class SeparationTests(Base):
 class PayoutTests(Base):
     def test_stake_returns_to_its_wallet_and_only_profit_is_winnings(self):
         dep = sb.place_bet(event='A v B', stake=D('10'), odds=D('5'), player_id=self.player.id, wallet='deposit')
-        bon = sb.place_bet(event='C v D', stake=D('10'), odds=D('12'), player_id=self.player.id, wallet='bonus')
         sb.settle_bet(dep.id, 'won')   # pays 50: 10 back to Deposit, 40 to Winnings
-        sb.settle_bet(bon.id, 'won')   # pays 120: 10 back to Bonus, 110 to Winnings
-        self.assertEqual(balances(self.player), {'deposit': '100.00', 'bonus': '50.00', 'winnings': '150.00'})
+        self.assertEqual(balances(self.player), {'deposit': '100.00', 'bonus': '50.00', 'winnings': '40.00'})
+        # (Bonus tickets pay back into the Bonus wallet: see test_bonus_rules.)
 
     def test_void_refunds_the_source_wallet_and_a_loss_pays_nothing(self):
-        void = sb.place_bet(event='A v B', stake=D('10'), odds=D('11'), player_id=self.player.id, wallet='bonus')
+        services.credit(player_id=self.player.id, amount=D('10'), kind='adjustment', bucket='winnings', idempotency_key='w')
+        void = sb.place_bet(event='A v B', stake=D('10'), odds=D('11'), player_id=self.player.id, wallet='winnings')
         lost = sb.place_bet(event='C v D', stake=D('10'), odds=D('6'), player_id=self.player.id, wallet='deposit')
         sb.settle_bet(void.id, 'void')
         sb.settle_bet(lost.id, 'lost')
-        self.assertEqual(balances(self.player), {'deposit': '90.00', 'bonus': '50.00', 'winnings': '0.00'})
+        self.assertEqual(balances(self.player), {'deposit': '90.00', 'bonus': '50.00', 'winnings': '10.00'})
 
     def test_cashing_out_cannot_turn_a_deposit_into_winnings(self):
         from apps.sportsbook.cashout import cash_out
