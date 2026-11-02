@@ -153,23 +153,35 @@ def _after_new_entry(player_id: int, entry: LedgerEntry) -> None:
         from apps.risk import services as risk
         promotions_services.record_wagering(player_id=player_id, amount=abs(entry.amount))
         risk.safely(risk.on_stake, player_id, amount=abs(entry.amount))
+    elif entry.kind == 'bonus':
+        # New bonus money starts the rollover count again (wallet.bonus).
+        from . import bonus
+        bonus.reset(player_id)
     elif entry.kind == 'deposit':
         from apps.affiliates import services as affiliate_services
         from apps.promotions import services as promotions_services
         from apps.risk import services as risk
+        payment = _deposit_payment(entry.reference)
         # Checked first, so a deposit from another account's number blocks its bonus.
-        risk.safely(risk.on_deposit, player_id, amount=entry.amount, phone=_deposit_phone(entry.reference))
-        if not affiliate_services.on_deposit(player_id=player_id, amount=entry.amount):
+        risk.safely(risk.on_deposit, player_id, amount=entry.amount, phone=payment.phone if payment else '')
+        welcomed = affiliate_services.on_deposit(player_id=player_id, amount=entry.amount)
+        if payment is not None and payment.promo_code:
+            # A promo code replaces the automatic deposit promotion (one bonus per deposit).
+            from apps.promotions import promo_codes
+            promo_codes.apply_to_deposit(player_id=player_id, code=payment.promo_code, amount=entry.amount,
+                                         deposit_entry_id=entry.id)
+        elif not welcomed:
             promotions_services.on_deposit(player_id=player_id, amount=entry.amount, deposit_id=entry.id)
 
 
-def _deposit_phone(reference: str) -> str:
-    """The mobile number a gateway deposit came from ('psp:paynow:<ref>')."""
+def _deposit_payment(reference: str):
+    """The payment a deposit came from ('psp:<provider>:<our reference>'), for
+    its mobile number and promo code; None for other deposits."""
     from .models import PaymentTransaction
     ref = reference.rsplit(':', 1)[-1] if reference.startswith('psp:') else ''
     if not ref:
-        return ''
-    return PaymentTransaction.objects.filter(reference=ref).values_list('phone', flat=True).first() or ''
+        return None
+    return PaymentTransaction.objects.filter(reference=ref).first()
 
 
 def debit(
@@ -202,10 +214,17 @@ def pay_out(
     idempotency_key: str, reference: str = '',
 ) -> None:
     """Pay a winning (or cashed-out) ticket: the stake goes back to the wallet
-    it was paid from and only the profit lands in Winnings. So deposit or bonus
-    money can never become withdrawable just by being staked — it has to win.
-    The stake part keeps `idempotency_key`; the profit uses `<key>:profit`."""
+    it was paid from and only the profit lands in Winnings. So deposit money can
+    never become withdrawable just by being staked — it has to win. Bonus
+    tickets pay everything back into the Bonus wallet (wallet.bonus: it reaches
+    Winnings only through the rollover). The stake part keeps
+    `idempotency_key`; the profit uses `<key>:profit`."""
     payout = utils.quantize(payout)
+    if source == Bucket.BONUS:
+        if payout > 0:
+            credit(player_id=player_id, amount=payout, kind=kind, bucket=Bucket.BONUS,
+                   idempotency_key=idempotency_key, reference=reference)
+        return
     back = min(payout, utils.quantize(stake))
     profit = payout - back
     if back > 0:

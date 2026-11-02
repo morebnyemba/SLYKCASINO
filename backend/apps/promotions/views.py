@@ -283,3 +283,76 @@ class DepositBonusListView(APIView):
         for row in data:
             row['used'] = row['id'] in used
         return Response(data)
+
+
+class AdminPromoCodeViewSet(viewsets.ModelViewSet):
+    """Staff: /api/admin/promo-codes/ — create, edit and deactivate promo codes
+    (PATCH {active: false}). A code that has been used can't be deleted, only
+    deactivated, so its history stays."""
+    permission_classes = [IsAdminUser]
+
+    def get_serializer_class(self):
+        from .serializers import PromoCodeSerializer
+        return PromoCodeSerializer
+
+    def get_queryset(self):
+        from .models import PromoCode
+        return PromoCode.objects.all()
+
+    def list(self, request, *args, **kwargs):
+        from . import promo_codes
+        data = self.get_serializer(self.get_queryset(), many=True).data
+        stats = promo_codes.stats()
+        for row in data:
+            s = stats.get(row['id'], {})
+            row['uses'], row['total_given'] = s.get('uses', 0), s.get('total', '0.00')
+        return Response(data)
+
+    def perform_create(self, serializer):
+        promo = serializer.save(created_by=self.request.user.get_username())
+        accounts_services.audit(None, 'promo_code_created', self.request, id=promo.id, code=promo.code,
+                                kind=promo.kind, value=str(promo.value))
+
+    def perform_update(self, serializer):
+        promo = serializer.save()
+        accounts_services.audit(None, 'promo_code_updated', self.request, id=promo.id, code=promo.code,
+                                active=promo.active, fields=sorted(serializer.validated_data))
+
+    def destroy(self, request, *args, **kwargs):
+        promo = self.get_object()
+        if promo.redemptions.exists():
+            return Response({'detail': 'This code has been used — deactivate it instead.'},
+                            status=status.HTTP_409_CONFLICT)
+        accounts_services.audit(None, 'promo_code_deleted', request, id=promo.id, code=promo.code)
+        promo.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class PromoCodeCheckView(APIView):
+    """POST /api/promo-codes/check/ {code, amount?} — can I use this code, and
+    what would I get? Rate-limited so codes can't be guessed."""
+    permission_classes = [IsAuthenticated]
+    throttle_scope = 'promo_check'
+
+    def get_throttles(self):
+        from rest_framework.throttling import ScopedRateThrottle
+        return [*super().get_throttles(), ScopedRateThrottle()]
+
+    def post(self, request):
+        from decimal import Decimal, InvalidOperation
+
+        from . import promo_codes
+        player = accounts_services.get_current_player(request)
+        if player is None:
+            return Response({'detail': 'Player not found.'}, status=status.HTTP_404_NOT_FOUND)
+        amount = None
+        if request.data.get('amount') not in (None, ''):
+            try:
+                amount = Decimal(str(request.data['amount']))
+            except (InvalidOperation, ValueError):
+                return Response({'detail': 'Enter a valid amount.'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            return Response({'valid': True, **promo_codes.preview(str(request.data.get('code') or ''),
+                                                                   player_id=player.id, amount=amount)})
+        except promo_codes.PromoError as exc:
+            return Response({'valid': False, 'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)

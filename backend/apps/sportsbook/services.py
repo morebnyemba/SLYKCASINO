@@ -303,6 +303,9 @@ def place_bet(
     if player_id is not None:
         wallet = wallet_services.betting_bucket(wallet)
         wallet_services.check_min_odds(wallet, odds)
+        if wallet == 'bonus':
+            from apps.wallet import bonus
+            bonus.check_ticket(player_id, stake=stake, leg_odds=[odds], is_multiple=False)
     if selection not in Selection.values:
         selection = Selection.HOME
     outcome = None
@@ -552,6 +555,9 @@ def place_accumulator(
     combined_odds = utils.quantize(combined)
     if player_id is not None:
         wallet_services.check_min_odds(wallet, combined_odds)
+        if wallet == 'bonus':
+            from apps.wallet import bonus
+            bonus.check_ticket(player_id, stake=stake, leg_odds=[n['odds'] for n in normalised], is_multiple=True)
 
     placed_status = BetSlip.Status.ACCEPTING if in_play else BetSlip.Status.OPEN
     status_ = placed_status if player_id is None else BetSlip.Status.PENDING
@@ -603,7 +609,8 @@ def _settle_slip_if_ready(slip_id: int) -> BetSlip:
         for odds in won_odds:
             effective *= odds
         payout = utils.calculate_payout(slip.stake, effective)
-        bonus = _slip_bonus(slip, won_odds, payout)
+        # No multi-bet bonus on bonus-money tickets (a promotion on a promotion).
+        bonus = _slip_bonus(slip, won_odds, payout) if slip.wallet != 'bonus' else Decimal('0')
         if slip.player_id:
             wallet_services.pay_out(
                 player_id=slip.player_id, source=slip.wallet, stake=slip.stake, payout=payout, kind='bet_payout',
@@ -622,6 +629,13 @@ def _settle_slip_if_ready(slip_id: int) -> BetSlip:
 
     slip.settled_at = timezone.now()
     slip.save(update_fields=['status', 'payout', 'bonus', 'settled_at'])
+    if slip.wallet == 'bonus' and slip.player_id:
+        # Counts towards (or resets) the Bonus wallet's rollover; an all-void
+        # ticket only got its stake back and counts as neither.
+        from apps.wallet import bonus as bonus_rules
+        lost = slip.status == BetSlip.Status.LOST
+        if lost or any(leg.result == BetLeg.Result.WON for leg in legs):
+            bonus_rules.ticket_settled(slip.player_id, won=not lost, ticket=f'slip:{slip.id}')
     return slip
 
 

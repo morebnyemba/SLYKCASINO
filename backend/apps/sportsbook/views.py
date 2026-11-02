@@ -434,6 +434,7 @@ class AdminLiveTradingSettingsView(APIView):
     lists the matches held right now."""
     permission_classes = [IsAdminUser]
     FIELDS = ('lock_minute', 'price_jump_percent', 'burst_minutes')
+    FLAGS = ('hold_on_bad_feed',)
 
     def _payload(self):
         from .models import Event, LiveTradingSettings
@@ -441,7 +442,7 @@ class AdminLiveTradingSettingsView(APIView):
         held = Event.objects.exclude(live_hold_reason='').exclude(
             status__in=('FT', 'AET', 'PEN')).order_by('-live_hold_at')[:50]
         return {
-            **{f: getattr(cfg, f) for f in self.FIELDS}, 'burst_amount': f'{cfg.burst_amount:.2f}',
+            **{f: getattr(cfg, f) for f in (*self.FIELDS, *self.FLAGS)}, 'burst_amount': f'{cfg.burst_amount:.2f}',
             'held': [{'id': e.id, 'name': e.name, 'status': e.status, 'elapsed': e.elapsed,
                       'reason': e.live_hold_reason, 'held_at': e.live_hold_at} for e in held],
         }
@@ -459,6 +460,9 @@ class AdminLiveTradingSettingsView(APIView):
             for f in self.FIELDS:
                 if f in request.data:
                     setattr(cfg, f, int(request.data[f]))
+            for f in self.FLAGS:
+                if f in request.data:
+                    setattr(cfg, f, bool(request.data[f]))
             if 'burst_amount' in request.data:
                 cfg.burst_amount = Decimal(str(request.data['burst_amount'])).quantize(Decimal('0.01'))
         except (InvalidOperation, ValueError, TypeError):
@@ -469,5 +473,5 @@ class AdminLiveTradingSettingsView(APIView):
                             status=status.HTTP_400_BAD_REQUEST)
         cfg.save()
         accounts_services.audit(None, 'live_trading_settings', request,
-                                **{f: str(getattr(cfg, f)) for f in (*self.FIELDS, 'burst_amount')})
+                                **{f: str(getattr(cfg, f)) for f in (*self.FIELDS, *self.FLAGS, 'burst_amount')})
         return Response(self._payload())

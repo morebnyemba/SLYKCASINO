@@ -13,7 +13,7 @@ from rest_framework.views import APIView
 
 from apps.accounts import services as accounts_services
 
-from . import paynow, payments
+from . import bonus, paynow, payments
 from . import psp as psp_registry
 from . import services
 from .models import LedgerEntry, PaymentGateway, PaymentMethod, PaymentTransaction
@@ -51,6 +51,8 @@ def wallets_payload(player_id: int) -> dict:
         },
         'withdrawable': str(dto.winnings),
         'withdrawal_fee_percent': str(WithdrawalSettings.load().fee_percent),
+        # Bonus wallet rules and how far the player is towards unlocking it.
+        'bonus_rules': bonus.progress(player_id),
     }
 
 
@@ -120,13 +122,25 @@ class DepositView(APIView):
         if payments.gateway_enabled():
             return self._start_gateway_deposit(request, player, amount)
 
+        try:
+            promo_code = payments.check_promo_code(str(request.data.get('promo_code') or ''),
+                                                   player_id=player.id, amount=amount)
+        except ValueError as exc:
+            return Response({'detail': str(exc), 'code': 'promo_code'}, status=status.HTTP_400_BAD_REQUEST)
         idempotency_key = request.data.get('idempotency_key') or f'deposit:req:{uuid.uuid4()}'
+        # The stub gateway records a payment too, so the deposit carries its
+        # promo code exactly like a Paynow one.
+        txn = PaymentTransaction.objects.create(
+            reference=f'STUB{uuid.uuid4().hex[:16].upper()}', player_id=player.id, provider='stub',
+            method=str(request.data.get('method', '') or 'stub')[:20], amount=amount, promo_code=promo_code,
+            status=PaymentTransaction.Status.PAID,
+        )
         entry = services.credit(
             player_id=player.id,
             amount=amount,
             kind='deposit',
             idempotency_key=idempotency_key,
-            reference='psp:stub',
+            reference=f'psp:stub:{txn.reference}',
         )
         dto = services.get_balance_dto(player.id)
         return Response({
@@ -145,6 +159,7 @@ class DepositView(APIView):
             txn = payments.start_deposit(
                 player_id=player.id, amount=amount, currency=dto.currency,
                 method=str(request.data.get('method', '')), phone=str(request.data.get('phone', '')),
+                promo_code=str(request.data.get('promo_code') or ''),
             )
         except ValueError as exc:
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
@@ -462,12 +477,15 @@ class AdminWithdrawalSettingsView(APIView):
 
 class AdminWalletRulesView(APIView):
     """GET/PUT /api/admin/wallet-rules/ — minimum ticket odds for betting from
-    each wallet (deposit / bonus / winnings)."""
+    each wallet (deposit / bonus / winnings), and the Bonus wallet's rules:
+    selections per ticket, odds per selection, wins in a row to unlock, and
+    the most that can move to Winnings."""
     permission_classes = [IsAdminUser]
-    FIELDS = ('deposit_min_odds', 'bonus_min_odds', 'winnings_min_odds')
+    FIELDS = ('deposit_min_odds', 'bonus_min_odds', 'winnings_min_odds', 'bonus_min_leg_odds', 'bonus_max_conversion')
+    INTS = ('bonus_min_legs', 'bonus_wins_to_convert')
 
     def _out(self, rules):
-        return {f: str(getattr(rules, f)) for f in self.FIELDS}
+        return {**{f: str(getattr(rules, f)) for f in self.FIELDS}, **{f: getattr(rules, f) for f in self.INTS}}
 
     def get(self, request):
         from .models import WalletRules
@@ -480,10 +498,17 @@ class AdminWalletRulesView(APIView):
             for f in self.FIELDS:
                 if f in request.data:
                     setattr(rules, f, Decimal(str(request.data[f])).quantize(Decimal('0.01')))
+            for f in self.INTS:
+                if f in request.data:
+                    setattr(rules, f, int(request.data[f]))
         except (InvalidOperation, ValueError, TypeError):
-            return Response({'detail': 'Enter odds as numbers.'}, status=status.HTTP_400_BAD_REQUEST)
-        if any(not Decimal('1') <= getattr(rules, f) <= Decimal('1000') for f in self.FIELDS):
+            return Response({'detail': 'Enter numbers.'}, status=status.HTTP_400_BAD_REQUEST)
+        odds = ('deposit_min_odds', 'bonus_min_odds', 'winnings_min_odds', 'bonus_min_leg_odds')
+        if any(not Decimal('1') <= getattr(rules, f) <= Decimal('1000') for f in odds):
             return Response({'detail': 'Minimum odds must be between 1.00 and 1000.'}, status=status.HTTP_400_BAD_REQUEST)
+        if not 1 <= rules.bonus_min_legs <= 30 or not 1 <= rules.bonus_wins_to_convert <= 10 or rules.bonus_max_conversion < 0:
+            return Response({'detail': 'Selections 1–30, wins to unlock 1–10, and a non-negative unlock limit.'},
+                            status=status.HTTP_400_BAD_REQUEST)
         rules.save()
         accounts_services.audit(None, 'wallet_rules', request, **self._out(rules))
         return Response(self._out(rules))

@@ -2,13 +2,14 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { Badge, Btn, Field, Notice, Panel, TextInput } from '@/components/console/ui';
+import { Badge, Btn, Field, Notice, Panel, Switch, TextInput } from '@/components/console/ui';
 import { useAuth } from '@/lib/auth-context';
 import type { AdminMatch } from '@/lib/sportsbook';
 import { authedPost, authedRequest, useApi } from '@/lib/use-api';
 
 interface LiveSettings {
   lock_minute: number | string; price_jump_percent: number | string; burst_amount: string; burst_minutes: number | string;
+  hold_on_bad_feed: boolean;
   held: { id: number; name: string; status: string; elapsed: number | null; reason: string; held_at: string }[];
 }
 
@@ -37,7 +38,7 @@ export function LiveGuardPanel() {
 
   return (
     <Panel title="Live market protection"
-      description="In-play betting on a match closes for good at the lock minute (by the match clock; half-time doesn't count). Matches are suspended for review when a price jumps with no goal, the score or clock goes backwards, or too much money lands on one selection. Bets still in their acceptance delay are refused and refunded.">
+      description="Markets stay open unless the feed or your team suspends them — every automatic lock below is off (0) by default. Switch one on only if you need it: closing in-play betting at a match minute, or suspending a match for review on a price jump with no goal, bad feed data, or too much money on one selection. You can always suspend a match by hand from its page.">
       {notice && <div className="mb-4"><Notice tone={notice.tone} onClose={() => setNotice(null)}>{notice.text}</Notice></div>}
       {(data?.held.length ?? 0) > 0 && (
         <div className="mb-4 space-y-2">
@@ -52,7 +53,7 @@ export function LiveGuardPanel() {
         </div>
       )}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <Field label="Close in-play betting at minute" hint="0 = never.">
+        <Field label="Close in-play betting at minute" hint="0 = never (default).">
           <TextInput inputMode="numeric" value={form?.lock_minute ?? ''} onChange={set('lock_minute')} />
         </Field>
         <Field label="Suspend on a price jump of (%)" hint="Match-result price, in one update, with no goal. 0 = off.">
@@ -65,7 +66,11 @@ export function LiveGuardPanel() {
           <TextInput inputMode="numeric" value={form?.burst_minutes ?? ''} onChange={set('burst_minutes')} />
         </Field>
       </div>
-      <div className="mt-4 flex justify-end"><Btn variant="primary" busy={busy} onClick={save}>Save live protection</Btn></div>
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+        <Switch checked={!!form?.hold_on_bad_feed} onChange={(v) => setForm((f) => f && { ...f, hold_on_bad_feed: v })}
+          label="Suspend when the feed's score goes down or its clock runs backwards" />
+        <Btn variant="primary" busy={busy} onClick={save}>Save live protection</Btn>
+      </div>
     </Panel>
   );
 }

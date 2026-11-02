@@ -17,6 +17,8 @@ class PaymentTransaction(models.Model):
     provider = models.CharField(max_length=20, default='paynow')
     method = models.CharField(max_length=20)
     phone = models.CharField(max_length=20, blank=True)
+    # A promo code the player entered with this deposit (promotions.promo_codes).
+    promo_code = models.CharField(max_length=40, blank=True)
     amount = models.DecimalField(max_digits=12, decimal_places=2)
     currency = models.CharField(max_length=8, default='USD')
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.PENDING, db_index=True)

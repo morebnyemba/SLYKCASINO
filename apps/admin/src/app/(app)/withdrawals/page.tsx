@@ -339,7 +339,10 @@ function sendAmount(w: Withdrawal) {
   return w.payout_amount ?? w.amount;
 }
 
-interface WalletRules { deposit_min_odds: string; bonus_min_odds: string; winnings_min_odds: string }
+interface WalletRules {
+  deposit_min_odds: string; bonus_min_odds: string; winnings_min_odds: string;
+  bonus_min_legs: number | string; bonus_min_leg_odds: string; bonus_wins_to_convert: number | string; bonus_max_conversion: string;
+}
 
 /** Minimum combined odds for a ticket paid from each wallet. */
 function WalletRulesPanel() {
@@ -363,11 +366,15 @@ function WalletRulesPanel() {
     { key: 'deposit_min_odds', label: 'Deposit wallet — minimum odds', hint: 'Deposited money can be bet but never withdrawn.' },
     { key: 'bonus_min_odds', label: 'Bonus wallet — minimum odds', hint: 'Promotional money can be bet but never withdrawn.' },
     { key: 'winnings_min_odds', label: 'Winnings wallet — minimum odds', hint: '1.00 = any odds.' },
+    { key: 'bonus_min_legs', label: 'Bonus ticket — minimum selections', hint: 'Bonus money is staked in full on one multiple of at least this many.' },
+    { key: 'bonus_min_leg_odds', label: 'Bonus ticket — minimum odds per selection', hint: 'Every selection on a bonus ticket.' },
+    { key: 'bonus_wins_to_convert', label: 'Bonus — wins in a row to unlock', hint: 'Winning bonus tickets pay back into Bonus; after this many in a row it moves to Winnings.' },
+    { key: 'bonus_max_conversion', label: 'Bonus — most that unlocks ($)', hint: 'Anything above this is forfeited when the Bonus wallet unlocks.' },
   ];
   return (
-    <Panel title="Betting wallets" description="Players choose which wallet pays for each ticket. A ticket's combined odds must reach that wallet's minimum. A winning ticket's stake goes back to the wallet it came from; only the profit lands in Winnings.">
+    <Panel title="Betting wallets" description="Players choose which wallet pays for each ticket, and its combined odds must reach that wallet's minimum. A winning Deposit or Winnings ticket returns its stake to that wallet and pays the profit into Winnings. Bonus money is for sports only: the whole Bonus wallet on one multiple; winnings return to Bonus until enough wins in a row unlock it into Winnings, up to the limit.">
       {notice && <div className="mb-4"><Notice tone={notice.tone} onClose={() => setNotice(null)}>{notice.text}</Notice></div>}
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {fields.map((f) => (
           <Field key={f.key} label={f.label} hint={f.hint}>
             <TextInput inputMode="decimal" value={form?.[f.key] ?? ''} onChange={(e) => setForm((v) => v && { ...v, [f.key]: e.target.value.replace(/[^0-9.]/g, '') })} />

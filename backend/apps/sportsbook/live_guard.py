@@ -1,4 +1,6 @@
-"""In-play market protection.
+"""In-play market protection. Every automatic part is OFF by default — markets
+stay open unless the feed or staff genuinely suspend them — and each can be
+switched on in LiveTradingSettings.
 
 - **Lock:** a match stops trading in play for good once its clock reaches
   LiveTradingSettings.lock_minute (60' by default). By the match clock, not
@@ -83,7 +85,10 @@ def release(event: Event, *, by: str) -> Event:
 
 def check_feed(event: Event, *, old_score, old_elapsed, now=None) -> list[str]:
     """Hold on data that can't be right: the score going down (a goal ruled out
-    is a reason to stop too) or the clock running backwards."""
+    is a reason to stop too) or the clock running backwards. Only when the
+    operator switched it on (hold_on_bad_feed)."""
+    if not LiveTradingSettings.load().hold_on_bad_feed:
+        return []
     new_score = (event.score_home, event.score_away)
     if None not in (*old_score, *new_score) and sum(new_score) < sum(old_score):
         return hold(event, f'Score went from {old_score[0]}-{old_score[1]} to {new_score[0]}-{new_score[1]}',

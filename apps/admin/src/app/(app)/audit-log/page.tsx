@@ -37,6 +37,7 @@ const EVENT_TYPES = [
   'risk_case_opened', 'risk_case_confirmed', 'risk_case_dismissed', 'risk_restrictions', 'risk_settings',
   'withdrawal_wallet_violation', 'bonus_refused', 'deposit_refunded', 'ledger_drift', 'wallet_rules',
   'live_market_held', 'live_market_released', 'live_trading_settings',
+  'promo_code_created', 'promo_code_updated', 'promo_code_deleted',
 ];
 
 const PAGE_SIZE = 25;

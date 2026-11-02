@@ -151,6 +151,8 @@ def place_bet(*, player, stake=None, slot: int = 1, auto_cashout=None, free_bet_
     else:
         try:
             wallet = wallet_services.betting_bucket(wallet)
+            from apps.wallet import bonus
+            bonus.not_for_games(wallet)
         except wallet_services.WalletRuleError as exc:
             raise JetError(str(exc))
     stake = _money(stake, 'stake')

@@ -8,7 +8,7 @@ import { LoadCodeForm, ShareSlip } from '@/components/booking-code';
 import { useAuth } from '@/lib/auth-context';
 import { useBetslip, keyOf, type BetLeg, type Selection } from '@/lib/betslip-context';
 import { formatOdds, useSettings } from '@/lib/settings-context';
-import { meetsMinOdds, useWallets, WALLET_IDS, WALLET_LABEL, type WalletId } from '@/lib/wallets';
+import { bonusEligible, meetsMinOdds, useWallets, WALLET_IDS, WALLET_LABEL, type WalletId } from '@/lib/wallets';
 import { Spinner } from '@slyk/ui/components/spinner';
 
 const SELECTION_CODE: Record<Selection, string> = { home: '1', draw: 'X', away: '2' };
@@ -30,18 +30,28 @@ function money(n: number) {
 /** Which wallet pays for the slip. Each shows its balance and minimum odds;
  *  one the slip's odds don't reach can't be picked. The server enforces the
  *  same rules — this only shows them before the player confirms. */
-function WalletPicker({ odds }: { odds: number }) {
-  const { wallet, setWallet } = useBetslip();
+function WalletPicker({ odds, legOdds, isMultiple }: { odds: number; legOdds: number[]; isMultiple: boolean }) {
+  const { wallet, setWallet, setAccaStake } = useBetslip();
   const { data } = useWallets();
   const { oddsFormat } = useSettings();
+  const bonusBalance = data?.wallets?.bonus.balance;
+  // A bonus bet always stakes the whole Bonus wallet.
+  useEffect(() => {
+    if (wallet === 'bonus' && bonusBalance != null) setAccaStake(Number(bonusBalance).toFixed(2));
+  }, [wallet, bonusBalance, setAccaStake]);
   if (!data?.wallets) return null;
+  const rules = data.bonus_rules;
+  const bonusProblem = bonusEligible(rules, legOdds, isMultiple);
   return (
     <fieldset className="mb-3">
       <legend className="mb-1.5 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Pay from</legend>
       <div className="grid grid-cols-3 gap-1.5">
         {WALLET_IDS.map((id: WalletId) => {
           const info = data.wallets[id];
-          const ok = meetsMinOdds(info, odds);
+          const why = id === 'bonus'
+            ? (Number(info.balance) <= 0 ? 'Your Bonus wallet is empty' : bonusProblem)
+            : null;
+          const ok = meetsMinOdds(info, odds) && !why;
           const chosen = wallet === id;
           return (
             <button
@@ -50,18 +60,27 @@ function WalletPicker({ odds }: { odds: number }) {
               disabled={!ok}
               onClick={() => setWallet(id)}
               aria-pressed={chosen}
-              title={ok ? undefined : `Needs odds of ${formatOdds(Number(info.min_odds), oddsFormat)} or more`}
+              title={ok ? undefined : why ?? `Needs odds of ${formatOdds(Number(info.min_odds), oddsFormat)} or more`}
               className={`rounded-lg border px-2 py-1.5 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-45 ${
                 chosen ? 'border-secondary bg-secondary/10' : 'border-border hover:bg-muted'
               }`}
             >
               <span className="block text-[11px] font-bold">{WALLET_LABEL[id]}</span>
               <span className="block text-[13px] font-extrabold tabular-nums">{money(Number(info.balance))}</span>
-              <span className="block text-[10px] text-muted-foreground">Min odds {formatOdds(Number(info.min_odds), oddsFormat)}</span>
+              <span className="block text-[10px] text-muted-foreground">
+                {id === 'bonus' && rules ? `${rules.min_legs}+ picks @ ${rules.min_leg_odds}+` : `Min odds ${formatOdds(Number(info.min_odds), oddsFormat)}`}
+              </span>
             </button>
           );
         })}
       </div>
+      {wallet === 'bonus' && rules && (
+        <p className="mt-2 rounded-lg bg-gold/10 px-3 py-2 text-[11.5px] font-semibold leading-snug text-gold">
+          Bonus bet: stakes your whole Bonus wallet on one multiple of {rules.min_legs}+ selections at {rules.min_leg_odds}+ each.
+          Winnings go back into Bonus; win {rules.wins_needed} in a row to move up to ${Number(rules.max_conversion).toFixed(0)} into
+          Winnings ({rules.wins} of {rules.wins_needed} so far). No cash-out.
+        </p>
+      )}
     </fieldset>
   );
 }
@@ -77,7 +96,7 @@ export function SlipBody({ onClose, variant = 'card' }: {
   const {
     legs, mode, setMode, accaStake, setAccaStake, legStakes, setLegStake,
     combinedOdds, potentialPayout, bonus, status, busy,
-    removeLeg, clear, place, conflictingEvents, hasPriceChanges, hasSuspended, acceptPriceChanges,
+    removeLeg, clear, place, conflictingEvents, hasPriceChanges, hasSuspended, acceptPriceChanges, wallet,
   } = useBetslip();
 
   const hasLegs = legs.length > 0;
@@ -240,6 +259,7 @@ export function SlipBody({ onClose, variant = 'card' }: {
                   <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm font-bold text-muted-foreground">Stake $</span>
                   <input
                     value={accaStake}
+                    readOnly={wallet === 'bonus'}
                     onChange={(e) => setAccaStake(e.target.value.replace(/[^0-9.]/g, ''))}
                     inputMode="decimal"
                     placeholder="0.00"
@@ -247,6 +267,7 @@ export function SlipBody({ onClose, variant = 'card' }: {
                     className="w-full rounded-xl border border-border bg-input py-2.5 pl-[4.5rem] pr-3 text-right text-base font-extrabold tabular-nums outline-none focus:ring-2 focus:ring-ring"
                   />
                 </div>
+                {wallet !== 'bonus' && (
                 <div className="mt-2 grid grid-cols-5 gap-1.5">
                   {QUICK_STAKES.map((v) => (
                     <button
@@ -262,10 +283,12 @@ export function SlipBody({ onClose, variant = 'card' }: {
                     </button>
                   ))}
                 </div>
+                )}
               </div>
             )}
 
-            {user && <WalletPicker odds={isSingles ? Math.min(...legs.map((l) => l.odds)) : combinedOdds} />}
+            {user && <WalletPicker odds={isSingles ? Math.min(...legs.map((l) => l.odds)) : combinedOdds}
+              legOdds={legs.map((l) => l.odds)} isMultiple={!isSingles && legs.length > 1} />}
 
             <dl className="mb-3 space-y-1 text-[12.5px]">
               {!isSingles && (

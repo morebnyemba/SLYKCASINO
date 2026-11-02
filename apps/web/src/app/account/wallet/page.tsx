@@ -33,6 +33,8 @@ const KIND_LABEL: Record<string, string> = {
   withdrawal_fee: 'Withdrawal fee',
   deposit_refund: 'Deposit refund',
   migration: 'Wallet split',
+  bonus_conversion: 'Bonus unlocked',
+  bonus_forfeit: 'Bonus over the limit (forfeited)',
   bet_stake: 'Sports bet',
   bet_payout: 'Sports win',
   casino_debit: 'Aviator bet',
@@ -108,7 +110,12 @@ export default function WalletPage() {
                   <p className="text-xl font-extrabold tabular-nums text-white">{wallet.wallets[id].balance}</p>
                   <p className="mt-0.5 text-[11px] leading-snug text-white/70">
                     {WALLET_HINT[id]}
-                    {id !== 'winnings' && <> Bets need odds of {wallet.wallets[id].min_odds}+.</>}
+                    {id === 'deposit' && <> Bets need odds of {wallet.wallets[id].min_odds}+.</>}
+                    {id === 'bonus' && wallet.bonus_rules && <>
+                      {' '}Stake it all on one {wallet.bonus_rules.min_legs}+ selection multiple at {wallet.bonus_rules.min_leg_odds}+ each.
+                      Win {wallet.bonus_rules.wins_needed} in a row to move up to ${Number(wallet.bonus_rules.max_conversion).toFixed(0)} to
+                      Winnings — <b>{wallet.bonus_rules.wins} of {wallet.bonus_rules.wins_needed}</b> so far.
+                    </>}
                   </p>
                 </div>
               ))}

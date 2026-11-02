@@ -115,6 +115,8 @@ def bet_offer(bet: Bet, cfg: Optional[CashoutSettings] = None, *, now=None) -> O
         return Offer(False, reason='Cash-out is not available.')
     if bet.status != Bet.Status.OPEN or not bet.player_id:
         return Offer(False, reason='This bet can’t be cashed out.')
+    if bet.wallet == 'bonus':
+        return Offer(False, reason='Bonus bets can’t be cashed out.')
     outcome = bet.outcome_ref
     price = _current_price(bet.event_ref, bet.selection, outcome, cfg, now=now)
     if price is None:
@@ -128,6 +130,8 @@ def slip_offer(slip: BetSlip, cfg: Optional[CashoutSettings] = None, *, now=None
         return Offer(False, reason='Cash-out is not available.')
     if slip.status != BetSlip.Status.OPEN or not slip.player_id:
         return Offer(False, reason='This ticket can’t be cashed out.')
+    if slip.wallet == 'bonus':
+        return Offer(False, reason='Bonus bets can’t be cashed out.')
     numerator, denominator, pending = Decimal('1'), Decimal('1'), 0
     for leg in slip.legs.all():
         if leg.result == BetLeg.Result.LOST:

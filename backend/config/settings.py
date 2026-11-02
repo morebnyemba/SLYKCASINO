@@ -137,6 +137,7 @@ REST_FRAMEWORK = {
         # Per IP / per player, against scripted signups and withdrawal probing.
         'register': os.environ.get('THROTTLE_REGISTER', '20/hour'),
         'withdraw': os.environ.get('THROTTLE_WITHDRAW', '10/hour'),
+        'promo_check': os.environ.get('THROTTLE_PROMO_CHECK', '20/hour'),
     },
 }
 

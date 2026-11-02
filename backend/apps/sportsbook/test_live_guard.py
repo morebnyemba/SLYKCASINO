@@ -30,8 +30,10 @@ def snap(*, elapsed=30, goals=(0, 0), home='1.50', status='Second Half'):
 class GuardTests(InPlayBase):
     def setUp(self):
         super().setUp()
+        # Every automatic protection is off by default; these tests switch it on.
         LiveTradingSettings.objects.update_or_create(pk=1, defaults={
-            'lock_minute': 60, 'price_jump_percent': 50, 'burst_amount': D('500'), 'burst_minutes': 5})
+            'lock_minute': 60, 'price_jump_percent': 50, 'burst_amount': D('500'), 'burst_minutes': 5,
+            'hold_on_bad_feed': True})
         self.now = timezone.now()
 
     def apply(self, seconds=0, **kw):
@@ -105,6 +107,23 @@ class GuardTests(InPlayBase):
 
 
 @LIVE
+class DefaultsTests(InPlayBase):
+    """Out of the box nothing locks or holds automatically: markets stay open
+    unless the feed or staff genuinely suspend them."""
+
+    def test_nothing_locks_or_holds_by_default(self):
+        LiveTradingSettings.objects.all().delete()
+        now = timezone.now()
+        sb.apply_live_odds(snap(elapsed=30, home='1.50'), now=now)
+        sb.apply_live_odds(snap(elapsed=85, home='4.00'), now=now + timedelta(seconds=5))    # late, big jump
+        sb.apply_live_odds(snap(elapsed=80, goals=(0, 0)), now=now + timedelta(seconds=10))  # clock back
+        self.event.refresh_from_db()
+        self.assertIsNone(self.event.live_locked_at)
+        self.assertEqual(self.event.live_hold_reason, '')
+        self.assertTrue(sb.in_play_bettable(self.event, now=now + timedelta(seconds=11)))
+
+
+@LIVE
 class StaffControlTests(InPlayBase):
     def setUp(self):
         super().setUp()
@@ -122,7 +141,8 @@ class StaffControlTests(InPlayBase):
         res = self.staff.post(url + 'live-release/', format='json')
         self.assertEqual(res.json()['live_hold_reason'], '')
         self.assertEqual(self.staff.post(url + 'live-release/', format='json').status_code, 409)
-        # Past the lock minute, reopening a hold doesn't reopen betting.
+        # Past the lock minute (when switched on), reopening a hold doesn't reopen betting.
+        LiveTradingSettings.objects.update_or_create(pk=1, defaults={'lock_minute': 60})
         sb.apply_live_odds(snap(elapsed=61), now=timezone.now())
         self.staff.post(url + 'live-hold/', {'reason': 'checking'}, format='json')
         self.staff.post(url + 'live-release/', format='json')
