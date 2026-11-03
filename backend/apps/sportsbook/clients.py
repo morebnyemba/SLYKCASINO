@@ -10,7 +10,7 @@ from typing import Any, Optional
 import requests
 from django.conf import settings
 
-from .market_feed import FeedMarketData, parse_live_odds, parse_markets
+from .market_feed import FeedMarketData, main_suspended, parse_live_odds, parse_markets
 
 logger = logging.getLogger(__name__)
 
@@ -393,12 +393,13 @@ class ApiFootballClient:
             page += 1
         return snapshots
 
-    def fetch_live_odds(self) -> list['LiveOddsSnapshot']:
+    def fetch_live_odds(self) -> Optional[list['LiveOddsSnapshot']]:
         """In-play odds for every live fixture api-football prices (one call,
-        refreshed by the provider every few seconds). Returns [] (logged) on any
-        missing key, network, or payload error."""
+        refreshed by the provider every few seconds). Returns None (logged) on
+        any missing key, network, rate-limit or payload error — a failed poll
+        says nothing about the matches, so the caller must not act on it."""
         if not self.api_key:
-            return []
+            return None
         try:
             resp = requests.get(
                 f'{self.base_url}/odds/live', timeout=5, headers={'x-apisports-key': self.api_key},
@@ -407,10 +408,10 @@ class ApiFootballClient:
             payload = resp.json()
         except (requests.RequestException, ValueError):
             logger.warning('api-football fetch_live_odds failed', exc_info=True)
-            return []
+            return None
         if payload.get('errors'):
             logger.warning('api-football fetch_live_odds errors: %s', payload.get('errors'))
-            return []
+            return None
         snapshots = []
         for raw in payload.get('response', []):
             snapshot = self._normalize_live_odds(raw)
@@ -444,7 +445,9 @@ class ApiFootballClient:
             elapsed=int(elapsed) if isinstance(elapsed, (int, float)) else None,
             goals_home=goals('home'),
             goals_away=goals('away'),
-            blocked=bool(flags.get('blocked') or flags.get('stopped') or flags.get('finished')),
+            blocked=bool(flags.get('blocked') or flags.get('stopped')),
+            finished=bool(flags.get('finished')),
+            main_suspended=main_suspended(raw.get('odds') or []),
             one_x_two=one_x_two,
             markets=tuple(markets),
         )
@@ -599,7 +602,9 @@ class OddsSnapshot:
 @dataclass(frozen=True)
 class LiveOddsSnapshot:
     """One fixture from the in-play odds feed. `blocked` means the provider has
-    stopped trading it (a goal/VAR check, stoppage, or the final whistle)."""
+    paused trading it for a moment (a dangerous attack, a goal/VAR check, a
+    stoppage); `main_suspended` that its match-result prices are paused;
+    `finished` that the match is over."""
 
     external_id: str
     status: str
@@ -609,6 +614,8 @@ class LiveOddsSnapshot:
     blocked: bool
     one_x_two: Optional[tuple[Decimal, Optional[Decimal], Decimal]]
     markets: tuple['FeedMarketData', ...] = ()
+    finished: bool = False
+    main_suspended: bool = False
 
 
 @dataclass(frozen=True)

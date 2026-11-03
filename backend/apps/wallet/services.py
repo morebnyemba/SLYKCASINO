@@ -48,6 +48,29 @@ def check_min_odds(bucket: str, odds) -> None:
             f'Bets from your {Bucket(bucket).label} wallet need combined odds of at least {minimum:.2f}.')
 
 
+def check_ticket_limits(*, stake, selections: int, bucket: Optional[str] = None) -> None:
+    """Refuse a sportsbook ticket outside the operator's limits: the stake
+    (min_stake..max_stake, except a Bonus ticket, which must stake the whole
+    Bonus wallet) and the number of selections (max_selections)."""
+    rules = WalletRules.load()
+    if selections > rules.max_selections:
+        raise WalletRuleError(f'A ticket can have at most {rules.max_selections} selections.')
+    if bucket == Bucket.BONUS:
+        return
+    stake = Decimal(str(stake))
+    if stake < rules.min_stake:
+        raise WalletRuleError(f'The minimum stake is ${rules.min_stake:.2f}.')
+    if stake > rules.max_stake:
+        raise WalletRuleError(f'The maximum stake is ${rules.max_stake:.2f}.')
+
+
+def betting_limits() -> dict:
+    """The limits every ticket must meet, for the bet slip (public)."""
+    rules = WalletRules.load()
+    return {'min_stake': f'{rules.min_stake:.2f}', 'max_stake': f'{rules.max_stake:.2f}',
+            'max_selections': rules.max_selections}
+
+
 # -- provisioning / reads ----------------------------------------------------
 
 def ensure_wallet(player_id: int, *, currency: str = 'USD') -> Wallet:

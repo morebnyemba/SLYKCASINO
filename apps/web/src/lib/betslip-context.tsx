@@ -123,8 +123,21 @@ export function bonusFor(ladder: BonusLadder | null, legs: BetLeg[]) {
   return { percent, qualifying, next };
 }
 
+/** Stake and selection limits every ticket must meet (set by staff). */
+export interface TicketLimits { minStake: number; maxStake: number; maxSelections: number }
+
+/** Why a stake can't be placed, or null. Bonus tickets stake the whole wallet, so only the selection limit applies. */
+export function stakeProblem(limits: TicketLimits | null, stake: number, wallet: WalletId | null): string | null {
+  if (!limits || wallet === 'bonus') return null;
+  if (stake < limits.minStake) return `The minimum stake is $${limits.minStake.toFixed(2)}.`;
+  if (stake > limits.maxStake) return `The maximum stake is $${limits.maxStake.toFixed(2)}.`;
+  return null;
+}
+
 interface BetslipContextValue {
   legs: BetLeg[];
+  /** Stake and selection limits (null until loaded). */
+  limits: TicketLimits | null;
   mode: SlipMode;
   setMode: (m: SlipMode) => void;
   accaStake: string;
@@ -190,21 +203,37 @@ export function BetslipProvider({ children }: { children: React.ReactNode }) {
   const [wallet, setWallet] = useState<WalletId | null>(null);
   const [slipOpen, setSlipOpen] = useState(false);
   const [ladder, setLadder] = useState<BonusLadder | null>(null);
+  const [limits, setLimits] = useState<TicketLimits | null>(null);
+  const limitsRef = useRef(limits);
+  limitsRef.current = limits;
 
+  // Staff can change the bonus ladder and ticket limits at any time: re-read
+  // them every minute so the slip follows (the API enforces them regardless).
   useEffect(() => {
     let cancelled = false;
-    fetch(`${config.apiUrl}/multibet-bonus/`)
+    const load = () => fetch(`${config.apiUrl}/multibet-bonus/`)
       .then((r) => (r.ok ? r.json() : null))
-      .then((d: { min_odds: string; cap: string; tiers: { min_legs: number; percent: string }[] } | null) => {
+      .then((d: {
+        min_odds: string; cap: string; tiers: { min_legs: number; percent: string }[];
+        limits?: { min_stake: string; max_stake: string; max_selections: number };
+      } | null) => {
         if (cancelled || !d) return;
         setLadder({
           minOdds: Number(d.min_odds),
           cap: Number(d.cap) || 0,
           tiers: d.tiers.map((t) => ({ minLegs: t.min_legs, percent: Number(t.percent) })),
         });
+        if (d.limits) {
+          setLimits({
+            minStake: Number(d.limits.min_stake), maxStake: Number(d.limits.max_stake),
+            maxSelections: d.limits.max_selections,
+          });
+        }
       })
-      .catch(() => { /* no bonus shown */ });
-    return () => { cancelled = true; };
+      .catch(() => { /* no bonus shown; the API still enforces limits */ });
+    void load();
+    const timer = window.setInterval(load, 60000);
+    return () => { cancelled = true; window.clearInterval(timer); };
   }, []);
 
   // Restore a slip the player was building before navigating/refreshing.
@@ -317,7 +346,13 @@ export function BetslipProvider({ children }: { children: React.ReactNode }) {
       const key = keyOf(leg);
       if (prev.some((l) => keyOf(l) === key)) return prev.filter((l) => keyOf(l) !== key);
       // One pick per market: tapping another price in the same market swaps it.
-      return [...prev.filter((l) => !sameMarket(l, leg)), leg];
+      const next = [...prev.filter((l) => !sameMarket(l, leg)), leg];
+      const max = limitsRef.current?.maxSelections;
+      if (max && next.length > max) {
+        setStatus(`A ticket can have at most ${max} selections.`);
+        return prev;
+      }
+      return next;
     });
   }, []);
 
@@ -413,6 +448,8 @@ export function BetslipProvider({ children }: { children: React.ReactNode }) {
     if (mode === 'singles') {
       const placeable = legs.filter((l) => (parseFloat(legStakes[keyOf(l)] || '0') || 0) > 0);
       if (placeable.length === 0) { setStatus('Enter a stake for at least one selection.'); setBusy(false); return; }
+      const problem = placeable.map((l) => stakeProblem(limits, parseFloat(legStakes[keyOf(l)] || '0'), wallet)).find(Boolean);
+      if (problem) { setStatus(problem); setBusy(false); return; }
       const results = await Promise.all(placeable.map((l) => authedPost('/bets/', {
         ...legPayload(l), stake: parseFloat(legStakes[keyOf(l)] || '0'), wallet,
       }, accessToken)));
@@ -443,6 +480,9 @@ export function BetslipProvider({ children }: { children: React.ReactNode }) {
     } else {
       const stakeNum = Number(accaStake);
       if (!stakeNum || stakeNum <= 0) { setStatus('Enter a valid stake.'); setBusy(false); return; }
+      const problem = stakeProblem(limits, stakeNum, wallet)
+        ?? (limits && legs.length > limits.maxSelections ? `A ticket can have at most ${limits.maxSelections} selections.` : null);
+      if (problem) { setStatus(problem); setBusy(false); return; }
       if (conflictingEvents.size > 0) {
         setStatus('Multiples can’t combine two picks from the same match — remove one or switch to Singles.');
         setBusy(false);
@@ -480,10 +520,10 @@ export function BetslipProvider({ children }: { children: React.ReactNode }) {
       }
     }
     setBusy(false);
-  }, [accessToken, legs, mode, legStakes, accaStake, conflictingEvents, applyPriceChange, confirmInPlay, wallet]);
+  }, [accessToken, legs, mode, legStakes, accaStake, conflictingEvents, applyPriceChange, confirmInPlay, wallet, limits]);
 
   const value: BetslipContextValue = {
-    legs, mode, setMode, accaStake, setAccaStake, legStakes, setLegStake,
+    legs, limits, mode, setMode, accaStake, setAccaStake, legStakes, setLegStake,
     combinedOdds, potentialPayout, bonus, loadCode, status, busy, wallet, setWallet, conflictingEvents,
     isOnSlip, isOutcomeOnSlip, toggleLeg, removeLeg, clear, place,
     hasPriceChanges, hasSuspended, acceptPriceChanges,

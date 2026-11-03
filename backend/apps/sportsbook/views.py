@@ -434,7 +434,7 @@ class AdminLiveTradingSettingsView(APIView):
     lists the matches held right now."""
     permission_classes = [IsAdminUser]
     FIELDS = ('lock_minute', 'price_jump_percent', 'burst_minutes')
-    FLAGS = ('hold_on_bad_feed',)
+    FLAGS = ('hold_on_bad_feed', 'suspend_on_feed_pause')
 
     def _payload(self):
         from .models import Event, LiveTradingSettings

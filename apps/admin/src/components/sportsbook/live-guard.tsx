@@ -9,7 +9,7 @@ import { authedPost, authedRequest, useApi } from '@/lib/use-api';
 
 interface LiveSettings {
   lock_minute: number | string; price_jump_percent: number | string; burst_amount: string; burst_minutes: number | string;
-  hold_on_bad_feed: boolean;
+  hold_on_bad_feed: boolean; suspend_on_feed_pause: boolean;
   held: { id: number; name: string; status: string; elapsed: number | null; reason: string; held_at: string }[];
 }
 
@@ -67,8 +67,12 @@ export function LiveGuardPanel() {
         </Field>
       </div>
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-        <Switch checked={!!form?.hold_on_bad_feed} onChange={(v) => setForm((f) => f && { ...f, hold_on_bad_feed: v })}
-          label="Suspend when the feed's score goes down or its clock runs backwards" />
+        <div className="space-y-2">
+          <Switch checked={!!form?.hold_on_bad_feed} onChange={(v) => setForm((f) => f && { ...f, hold_on_bad_feed: v })}
+            label="Suspend when the feed's score goes down or its clock runs backwards" />
+          <Switch checked={!!form?.suspend_on_feed_pause} onChange={(v) => setForm((f) => f && { ...f, suspend_on_feed_pause: v })}
+            label="Suspend markets every time the odds feed pauses (off: they stay open, and bets placed during a pause are only accepted once the feed resumes with no goal and the same price)" />
+        </div>
         <Btn variant="primary" busy={busy} onClick={save}>Save live protection</Btn>
       </div>
     </Panel>

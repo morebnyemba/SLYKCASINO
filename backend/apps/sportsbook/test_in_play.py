@@ -133,7 +133,9 @@ class LiveFeedTests(InPlayBase):
         self.assertFalse(Market.objects.get(event=self.event, key='correct_score:1h').is_open)
         self.assertEqual(sb.trading_state(self.event), {'in_play': True, 'bettable': True, 'main_open': True, 'live_closed': None})
 
-    def test_blocked_feed_suspends_and_goals_are_stamped(self):
+    def test_blocked_feed_suspends_when_the_operator_asks_and_goals_are_stamped(self):
+        from apps.sportsbook.models import LiveTradingSettings
+        LiveTradingSettings.objects.filter(pk=1).update(suspend_on_feed_pause=True)
         self.feed()
         self.feed(blocked=True, goals=(1, 0))
         self.event.refresh_from_db()
@@ -141,6 +143,31 @@ class LiveFeedTests(InPlayBase):
         self.assertFalse(sb.in_play_bettable(self.event))
         self.assertEqual((self.event.score_home, self.event.score_away), (1, 0))
         self.assertIsNotNone(self.event.last_goal_at)
+
+    def test_a_feed_pause_keeps_the_match_open_at_its_last_prices(self):
+        self.feed()
+        self.feed(blocked=True, home='1.20')
+        self.event.refresh_from_db()
+        self.assertTrue(sb.in_play_bettable(self.event))
+        self.assertTrue(self.event.live_feed_paused)
+        self.assertEqual(self.event.odds, D('1.50'))  # paused prices aren't taken
+        self.assertTrue(self.over_2_5().is_open)
+        self.feed(home='1.40')
+        self.event.refresh_from_db()
+        self.assertFalse(self.event.live_feed_paused)
+        self.assertEqual(self.event.odds, D('1.40'))
+
+    def test_a_pause_on_a_match_never_priced_live_does_not_open_it(self):
+        self.feed(blocked=True)
+        self.event.refresh_from_db()
+        self.assertFalse(sb.in_play_bettable(self.event))
+
+    def test_finished_flag_always_closes(self):
+        self.feed()
+        sb.apply_live_odds(LiveOddsSnapshot(external_id='555', status='Second Half', elapsed=70, goals_home=0,
+                                            goals_away=0, blocked=False, finished=True, one_x_two=None), now=timezone.now())
+        self.event.refresh_from_db()
+        self.assertFalse(sb.in_play_bettable(self.event))
 
     def test_stale_feed_suspends(self):
         self.feed(at=self.t0 - timedelta(seconds=45))
@@ -169,13 +196,24 @@ class LiveFeedTests(InPlayBase):
             self.assertEqual(sb.sync_live_odds(), 1)
         fetch.assert_called_once()
 
-    def test_matches_dropped_from_the_feed_are_suspended(self):
-        self.feed()
+    def test_matches_dropped_from_the_feed_are_suspended_after_the_stale_window(self):
+        self.feed(at=self.t0)
         with patch.object(ApiFootballClient, 'fetch_live_odds', return_value=[]):
-            sb.sync_live_odds()
+            sb.sync_live_odds(now=self.t0 + timedelta(seconds=10))  # one missed poll
+        self.event.refresh_from_db()
+        self.assertIsNotNone(self.event.live_odds_at)
+        with patch.object(ApiFootballClient, 'fetch_live_odds', return_value=[]):
+            sb.sync_live_odds(now=self.t0 + timedelta(seconds=31))
         self.event.refresh_from_db()
         self.assertIsNone(self.event.live_odds_at)
         self.assertFalse(sb.trading_state(self.event)['bettable'])
+
+    def test_a_failed_poll_locks_nothing(self):
+        self.feed()
+        with patch.object(ApiFootballClient, 'fetch_live_odds', return_value=None):
+            self.assertEqual(sb.sync_live_odds(), 0)
+        self.event.refresh_from_db()
+        self.assertTrue(sb.in_play_bettable(self.event))
 
     def test_every_change_is_published_to_the_board(self):
         import json
@@ -289,9 +327,29 @@ class InPlayPlacementTests(InPlayBase):
         with self.assertRaises(sb.SelectionUnavailable):
             sb.place_bet(wallet='deposit', event='0-0', stake=D('5'), odds=D('3.00'), player_id=self.player.id,
                          outcome_id=self.pre_match_only.id)
+        from apps.sportsbook.models import LiveTradingSettings
+        LiveTradingSettings.objects.filter(pk=1).update(suspend_on_feed_pause=True)
         self.feed(blocked=True)
         with self.assertRaises(sb.SelectionUnavailable):
             self.place_over()
+
+    def test_bet_struck_during_a_pause_waits_for_the_feed(self):
+        self.feed(at=self.t0)
+        self.feed(at=self.t0 + timedelta(seconds=2), blocked=True)
+        bet = self.place_over()
+        # Still paused after the delay: the bet waits.
+        self.feed(at=bet.placed_at + timedelta(seconds=7), blocked=True)
+        self.assertEqual(sb.confirm_live_bet('bet', bet.id, now=bet.placed_at + timedelta(seconds=7)), 'accepting')
+        # Feed resumes at the same price: accepted.
+        self.feed(at=bet.placed_at + timedelta(seconds=9))
+        self.assertEqual(sb.confirm_live_bet('bet', bet.id, now=bet.placed_at + timedelta(seconds=9)), 'open')
+
+    def test_bet_struck_during_a_pause_is_refused_if_a_goal_follows(self):
+        self.feed(at=self.t0)
+        self.feed(at=self.t0 + timedelta(seconds=2), blocked=True)
+        bet = self.place_over()
+        self.feed(at=bet.placed_at + timedelta(seconds=7), goals=(1, 0))
+        self.assertEqual(sb.confirm_live_bet('bet', bet.id, now=bet.placed_at + timedelta(seconds=7)), 'rejected')
 
     def test_sweep_confirms_accepting_bets(self):
         self.feed(at=self.t0)

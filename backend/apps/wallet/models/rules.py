@@ -6,8 +6,9 @@ from django.db import models
 class WalletRules(models.Model):
     """Operator rules for betting from each wallet (one row): the lowest
     combined odds a ticket may have to be paid for from that balance, and the
-    Bonus wallet's rules (wallet.bonus)."""
-    deposit_min_odds = models.DecimalField(max_digits=8, decimal_places=2, default=Decimal('5.00'))
+    Bonus wallet's rules (wallet.bonus), and the stake and selection limits on
+    every sportsbook ticket."""
+    deposit_min_odds = models.DecimalField(max_digits=8, decimal_places=2, default=Decimal('1.50'))
     bonus_min_odds = models.DecimalField(max_digits=8, decimal_places=2, default=Decimal('10.00'))
     winnings_min_odds = models.DecimalField(max_digits=8, decimal_places=2, default=Decimal('1.00'))
     # Bonus tickets: sportsbook multiples only, the whole Bonus wallet staked,
@@ -19,6 +20,13 @@ class WalletRules(models.Model):
     # (the rest is forfeited).
     bonus_wins_to_convert = models.PositiveSmallIntegerField(default=2)
     bonus_max_conversion = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('500.00'))
+    # Every sportsbook ticket (a single, or a multiple's one stake): the stake
+    # must be within min..max, and a multiple can't have more selections than
+    # max_selections. Bonus tickets stake the whole Bonus wallet, so the stake
+    # limits don't apply to them; the selection limit does.
+    min_stake = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.50'))
+    max_stake = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('1000.00'))
+    max_selections = models.PositiveSmallIntegerField(default=15)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
