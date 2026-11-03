@@ -18,19 +18,19 @@ function Bolt({ size }: { size: number }) {
 }
 
 export default async function OpengraphImage() {
-  const [{ site_name: name, tagline }, wordmark] = await Promise.all([fetchSiteIdentity(), brandDataUrl('wordmark.png')]);
+  const [{ site_name: name, tagline }, wordmark] = await Promise.all([fetchSiteIdentity(), brandDataUrl('wordmark-dark.png')]);
   return new ImageResponse(
     (
       <div style={{
         width: '100%', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
         padding: 72, color: 'white', fontFamily: 'sans-serif',
-        background: 'linear-gradient(135deg, #060D24 0%, #0B2A7A 55%, #0149EB 100%)',
+        background: 'linear-gradient(135deg, #0A0B2E 0%, #1A1470 50%, #2A3BE0 100%)',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
           {wordmark
-            ? <img src={wordmark} height={120} width={423} style={{ objectFit: 'contain' }} />
+            ? <img src={wordmark} height={120} width={414} style={{ objectFit: 'contain' }} />
             : <>
-                <div style={{ width: 72, height: 72, borderRadius: 20, background: '#0149EB', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Bolt size={44} /></div>
+                <div style={{ width: 72, height: 72, borderRadius: 20, background: '#0048F7', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Bolt size={44} /></div>
                 <div style={{ fontSize: 56, fontWeight: 800, letterSpacing: -1 }}>{name}</div>
               </>}
         </div>

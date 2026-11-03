@@ -3,10 +3,23 @@
 import Link from 'next/link';
 import { useSiteIdentity } from '@/lib/identity-context';
 
-// Brand artwork (public/brand): the BetBlits wordmark (~3.5:1, on a
-// transparent background) and the square BB bolt mark. An operator-uploaded logo (Branding) overrides them.
-export const BRAND_WORDMARK = { src: '/brand/wordmark.webp', width: 847, height: 240 };
+// Brand artwork (public/brand): the BetBlits wordmark (~3.45:1, transparent) in
+// two versions — navy "Bet" for light backgrounds, white "Bet" for dark ones —
+// and the square bolt-tile mark. An operator-uploaded logo (Branding) overrides them.
+export const BRAND_WORDMARK = { src: '/brand/wordmark.webp', width: 1036, height: 300 };
+export const BRAND_WORDMARK_DARK = { src: '/brand/wordmark-dark.webp', width: 1036, height: 300 };
 export const BRAND_MARK = { src: '/brand/mark.webp', width: 512, height: 512 };
+
+/** The wordmark for the current theme. `on="dark"` forces the white-text
+ *  version (for always-dark surfaces such as gradient panels). */
+export function Wordmark({ alt, className = '', on }: { alt: string; className?: string; on?: 'dark' }) {
+  const img = (w: typeof BRAND_WORDMARK, extra: string) => (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img src={w.src} width={w.width} height={w.height} alt={alt} className={`w-auto object-contain ${extra} ${className}`} />
+  );
+  if (on === 'dark') return img(BRAND_WORDMARK_DARK, '');
+  return <>{img(BRAND_WORDMARK, 'brand-on-light')}{img(BRAND_WORDMARK_DARK, 'brand-on-dark')}</>;
+}
 
 /** The site logo, linking home. `markOnly` shows just the square mark (collapsed rail). */
 export function Logo({ markOnly = false, className = '', imgClassName = 'h-11' }: {
@@ -24,11 +37,8 @@ export function Logo({ markOnly = false, className = '', imgClassName = 'h-11' }
         // eslint-disable-next-line @next/next/no-img-element
         <img src={identity.logo_url} alt={identity.site_name} className="h-8 w-auto max-w-[160px] object-contain" />
       ) : (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={BRAND_WORDMARK.src} width={BRAND_WORDMARK.width} height={BRAND_WORDMARK.height} alt={identity.site_name}
-          className={`w-auto object-contain drop-shadow-[0_2px_8px_rgba(1,73,235,0.25)] transition-transform duration-300 group-hover:scale-[1.03] ${imgClassName}`}
-        />
+        <Wordmark alt={identity.site_name}
+          className={`drop-shadow-[0_2px_8px_rgba(70,40,255,0.22)] transition-transform duration-300 group-hover:scale-[1.03] ${imgClassName}`} />
       )}
     </Link>
   );
@@ -41,7 +51,7 @@ export function LogoMark({ className = '' }: { className?: string }) {
     // eslint-disable-next-line @next/next/no-img-element
     <img
       src={identity.logo_url || BRAND_MARK.src} width={BRAND_MARK.width} height={BRAND_MARK.height} alt=""
-      className={`h-9 w-9 shrink-0 object-contain drop-shadow-[0_2px_6px_rgba(1,73,235,0.3)] ${className}`}
+      className={`h-9 w-9 shrink-0 object-contain drop-shadow-[0_2px_6px_rgba(90,50,255,0.35)] ${className}`}
     />
   );
 }

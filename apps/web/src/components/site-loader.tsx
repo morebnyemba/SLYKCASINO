@@ -3,11 +3,12 @@
 import { useEffect, useState } from 'react';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { useSiteIdentity } from '@/lib/identity-context';
-import { BRAND_MARK, BRAND_WORDMARK } from '@/components/logo';
+import { BRAND_MARK, Wordmark } from '@/components/logo';
 
 /**
- * The one loader used across the site: the "B" mark breathing inside a spinning
- * blue-to-gold ring (the logo's colours), with the wordmark underneath. Used for the
+ * The one loader used across the site: the bolt-tile mark breathing inside a
+ * spinning cyan → blue → violet → magenta ring (the logo's ring), with the
+ * wordmark underneath. Used for the
  * first-load splash, page changes and route loading screens so every wait looks
  * the same. An operator-uploaded logo replaces the artwork.
  */
@@ -18,7 +19,7 @@ export function SiteLoader({ caption }: { caption?: string }) {
     <div role="status" aria-live="polite" className="flex flex-col items-center gap-3">
       <div className="relative h-24 w-24">
         {/* Soft glow behind the mark */}
-        <div className="absolute inset-3 rounded-full bg-[radial-gradient(circle,rgba(40,140,255,0.35),transparent_70%)] blur-md" aria-hidden />
+        <div className="absolute inset-3 rounded-full bg-[radial-gradient(circle,rgba(110,60,255,0.4),transparent_70%)] blur-md" aria-hidden />
         {/* Track + spinning comet ring */}
         <div className="absolute inset-0 rounded-full border-[3px] border-muted" aria-hidden />
         <div className="brand-ring absolute inset-0 animate-spin rounded-full [animation-duration:1.1s]" aria-hidden />
@@ -31,8 +32,7 @@ export function SiteLoader({ caption }: { caption?: string }) {
       {custom ? (
         <p className="text-sm font-black tracking-tight">{identity.site_name}</p>
       ) : (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={BRAND_WORDMARK.src} alt={identity.site_name} width={BRAND_WORDMARK.width} height={BRAND_WORDMARK.height} className="h-8 w-auto" />
+        <Wordmark alt={identity.site_name} className="h-8" />
       )}
       <p className="text-xs font-medium text-muted-foreground">{caption ?? 'Loading…'}</p>
     </div>

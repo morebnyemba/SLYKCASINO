@@ -33,8 +33,8 @@ export default function AdminLoginPage() {
 
   const field = 'h-11 w-full rounded-xl border border-border bg-input/60 px-3.5 text-sm outline-none transition-colors focus:border-secondary focus:ring-2 focus:ring-secondary/30';
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[radial-gradient(120%_80%_at_0%_0%,#0B3BB8_0%,#0A1F5C_45%,#060D24_100%)] p-4">
-      <div className="pointer-events-none absolute -left-32 -top-32 h-96 w-96 rounded-full bg-[#0149EB]/25 blur-3xl" />
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[radial-gradient(120%_80%_at_0%_0%,#2A3BE0_0%,#1A1470_45%,#0A0B2E_100%)] p-4">
+      <div className="pointer-events-none absolute -left-32 -top-32 h-96 w-96 rounded-full bg-[#8A2BFF]/25 blur-3xl" />
       <div className="pointer-events-none absolute -bottom-40 -right-24 h-96 w-96 rounded-full bg-[#0CBBFB]/20 blur-3xl" />
       <div className="relative w-full max-w-[400px]">
         <div className="mb-6 flex flex-col items-center gap-3 text-center text-white">
@@ -43,8 +43,8 @@ export default function AdminLoginPage() {
             <img src={identity.logo_url} alt={identity.site_name} className="h-11 w-auto max-w-[220px] object-contain" />
           ) : (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src="/admin-portal/brand/wordmark.webp" alt={identity.site_name} width={847} height={240}
-              className="h-16 w-auto drop-shadow-[0_6px_20px_rgba(40,140,255,0.3)]" />
+            <img src="/admin-portal/brand/wordmark-dark.webp" alt={identity.site_name} width={1036} height={300}
+              className="h-16 w-auto drop-shadow-[0_6px_20px_rgba(120,60,255,0.3)]" />
           )}
           <div>
             <p className="text-2xl font-extrabold tracking-tight">{identity.site_name}</p>

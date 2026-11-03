@@ -41,7 +41,7 @@ export default async function MatchImage({ params }: { params: Promise<{ event: 
     : '';
   const odds = [['1', ev.odds], ['X', ev.odds_draw], ['2', ev.odds_away]].filter(([, o]) => o != null && Number(o) > 0) as [string, string | number][];
   const [homeCrest, awayCrest, wordmark] = await Promise.all([
-    crestData(ev.home_team?.logo_url), crestData(ev.away_team?.logo_url), brandDataUrl('wordmark.png'),
+    crestData(ev.home_team?.logo_url), crestData(ev.away_team?.logo_url), brandDataUrl('wordmark-dark.png'),
   ]);
   const crest = (url?: string | null) => (url
     ? <img src={url} width={150} height={150} style={{ objectFit: 'contain' }} />
@@ -52,11 +52,11 @@ export default async function MatchImage({ params }: { params: Promise<{ event: 
       <div style={{
         width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'space-between',
         padding: '56px 72px', color: 'white', fontFamily: 'sans-serif',
-        background: 'linear-gradient(135deg, #060D24 0%, #0B2A7A 60%, #0149EB 100%)',
+        background: 'linear-gradient(135deg, #0A0B2E 0%, #1A1470 55%, #2A3BE0 100%)',
       }}>
         <div style={{ display: 'flex', width: '100%', justifyContent: 'space-between', fontSize: 30, color: 'rgba(255,255,255,0.8)' }}>
           {wordmark
-            ? <img src={wordmark} height={72} width={254} style={{ objectFit: 'contain' }} />
+            ? <img src={wordmark} height={72} width={248} style={{ objectFit: 'contain' }} />
             : <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontWeight: 800, color: 'white' }}><Bolt size={34} />BetBlits</div>}
           <div>{ev.league?.name ?? 'Sportsbook'}</div>
         </div>
