@@ -131,7 +131,7 @@ class WageringLockTests(ProgrammeBase):
                           wallet['bonus_locked'], wallet['withdrawable']), ('50.00', '15.00', '15.00', '0.00'))
 
         # Neither deposit nor bonus money can be withdrawn.
-        res = api.post('/api/wallet/withdraw/', {'amount': '60', 'method': 'ecocash', 'account_number': '0771234567'}, format='json')
+        res = api.post('/api/wallet/withdraw/', {'wallet': 'winnings', 'amount': '60', 'method': 'ecocash', 'account_number': '0771234567'}, format='json')
         self.assertEqual(res.status_code, 402)
         self.assertEqual(res.json()['withdrawable'], '0.00')
 
@@ -139,10 +139,10 @@ class WageringLockTests(ProgrammeBase):
         wallet_services.credit(player_id=alice.id, amount=D('20'), kind='bet_payout', bucket='winnings', idempotency_key='w1')
         self.assertEqual(api.get('/api/wallet/').json()['bonus_locked'], '15.00')  # 40 of 75 wagered
         self.stake(alice, '10', 's2', kind='casino_debit')           # 50 wagered
-        self.assertEqual(api.post('/api/wallet/withdraw/', {'amount': '-10'}, format='json').status_code, 400)
+        self.assertEqual(api.post('/api/wallet/withdraw/', {'wallet': 'winnings', 'amount': '-10'}, format='json').status_code, 400)
         # Only the 20 won can go; the bonus stays in the Bonus wallet whatever the wagering.
         self.assertEqual(api.get('/api/wallet/').json()['withdrawable'], '20.00')
-        self.assertEqual(api.post('/api/wallet/withdraw/', {'amount': '20', 'method': 'ecocash', 'account_number': '0771234567'}, format='json').status_code, 201)
+        self.assertEqual(api.post('/api/wallet/withdraw/', {'wallet': 'winnings', 'amount': '20', 'method': 'ecocash', 'account_number': '0771234567'}, format='json').status_code, 201)
 
 
 class DepositCommissionTests(ProgrammeBase):

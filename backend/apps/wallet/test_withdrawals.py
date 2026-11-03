@@ -38,7 +38,7 @@ class WithdrawalTests(TestCase):
         self.staff.force_authenticate(User.objects.create_user('cashier', 'c@example.com', 'pw', is_staff=True))
 
     def ask(self, amount, **dest):
-        return self.api.post('/api/wallet/withdraw/', {'amount': amount, **(dest or ECOCASH)}, format='json')
+        return self.api.post('/api/wallet/withdraw/', {'wallet': 'winnings', 'amount': amount, **(dest or ECOCASH)}, format='json')
 
     def kpis(self):
         return reporting.ledger_kpis([self.player.id], None, timezone.now() + timezone.timedelta(seconds=1))
@@ -123,7 +123,7 @@ class LegacyWithdrawalTests(TestCase):
         self.player = account_services.create_player(username='oldtimer')
         services.credit(player_id=self.player.id, amount=D('100'), kind='adjustment', bucket='winnings',
                         idempotency_key='dep:old')
-        services.debit(player_id=self.player.id, amount=D('30.05'), kind='withdrawal',
+        services.debit(player_id=self.player.id, amount=D('30.05'), kind='withdrawal', bucket='winnings',
                        idempotency_key='withdrawal:req:abc', reference='psp:stub')
         self.req = WithdrawalRequest.objects.create(
             player_id=self.player.id, amount=D('30.05'), method='unknown', account_number='', legacy=True)
@@ -162,7 +162,7 @@ class PlayThroughTests(TestCase):
         reconcile_wallet_ledger()
 
     def ask(self):
-        return withdrawals.request(player=self.player, amount='50', **{k: v for k, v in ECOCASH.items()})
+        return withdrawals.request(wallet='winnings', player=self.player, amount='50', **{k: v for k, v in ECOCASH.items()})
 
     def test_must_bet_pre_split_deposits_once(self):
         with self.assertRaisesMessage(withdrawals.WithdrawalError, 'bet $100.00 more'):

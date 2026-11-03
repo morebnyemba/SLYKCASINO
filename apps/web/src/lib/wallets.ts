@@ -16,9 +16,9 @@ export const WALLET_LABEL: Record<WalletId, string> = {
 };
 
 export const WALLET_HINT: Record<WalletId, string> = {
-  deposit: 'Money you deposited. Bet it — it can’t be withdrawn.',
+  deposit: 'Money you deposited. Bet it, or withdraw it at a high fee.',
   bonus: 'Promotional money for sports bets. Win it into Winnings — it can’t be withdrawn as it is.',
-  winnings: 'What you’ve won. The only balance you can withdraw.',
+  winnings: 'What you’ve won. Withdraw it at a small fee.',
 };
 
 export interface WalletInfo { balance: string; min_odds: string; withdrawable: boolean }
@@ -34,6 +34,8 @@ export interface WalletsResponse {
   wallets: Record<WalletId, WalletInfo>;
   withdrawable: string;
   withdrawal_fee_percent: string;
+  /** Fee on a withdrawal the player takes from the Deposit wallet. */
+  deposit_withdrawal_fee_percent?: string;
   bonus_rules?: BonusRules;
 }
 

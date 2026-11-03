@@ -24,11 +24,12 @@ class CashoutSettings(models.Model):
 class LiveTradingSettings(models.Model):
     """Operator controls for in-play markets (one row). See live_guard.
 
-    Every automatic lock/hold is OFF by default (the operator's rule: markets
-    stay open unless genuinely suspended or closed — by the feed or by staff).
-    Each can be switched on here if ever needed."""
+    The operator's rule: in-play betting stays open from kick-off until the
+    75th minute of every live match, when all its markets lock for good.
+    Every other automatic hold is OFF by default (markets stay open unless the
+    feed or staff suspend them); each can be switched on here."""
     # In-play betting on a match closes for good at this match minute (0 = never).
-    lock_minute = models.PositiveSmallIntegerField(default=0)
+    lock_minute = models.PositiveSmallIntegerField(default=75)
     # A match-result price moving at least this much in one update with no goal
     # suspends the match for review (0 = off).
     price_jump_percent = models.PositiveSmallIntegerField(default=0)

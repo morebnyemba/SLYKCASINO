@@ -20,6 +20,8 @@ interface Withdrawal {
   id: number; player_id: number; username: string; kyc_status: string | null; amount: string;
   /** Withdrawal fee kept, and what the player is actually sent (amount − fee). */
   fee?: string; payout_amount?: string; method: string;
+  /** Which wallet it is paid from: Winnings, or Deposit (at the deposit fee). */
+  wallet?: 'winnings' | 'deposit';
   method_label: string; account_number: string; account_name: string; bank_name: string;
   status: 'requested' | 'paid' | 'rejected' | 'cancelled'; status_label: string; reference: string; note: string;
   created_at: string; decided_at: string | null; decided_by: string; context?: Context;
@@ -28,7 +30,10 @@ interface Withdrawal {
   risk_hold?: boolean; risk_note?: string;
 }
 interface Queue { results: Withdrawal[]; counts: { requested: number }; pending_total: string }
-interface Limits { min_amount: string; max_amount: string; daily_max: string; min_turnover_percent: number | string; fee_percent: string }
+interface Limits {
+  min_amount: string; max_amount: string; daily_max: string; min_turnover_percent: number | string; fee_percent: string;
+  deposit_fee_percent: string;
+}
 
 const TONE = { requested: 'gold', paid: 'green', rejected: 'red', cancelled: 'slate' } as const;
 type Status = Withdrawal['status'] | 'all';
@@ -59,7 +64,9 @@ function PlayerWithdrawals() {
   const [status, setStatus] = useState<Status>('requested');
   const [q, setQ] = useState('');
   const [search, setSearch] = useState('');
-  const { data, loading, refetch } = useApi<Queue>(`/admin/withdrawals/?status=${status}${search ? `&q=${encodeURIComponent(search)}` : ''}`);
+  const [source, setSource] = useState<'' | 'winnings' | 'deposit'>('');
+  const { data, loading, refetch } = useApi<Queue>(
+    `/admin/withdrawals/?status=${status}${search ? `&q=${encodeURIComponent(search)}` : ''}${source ? `&wallet=${source}` : ''}`);
   const [acting, setActing] = useState<{ w: Withdrawal; verb: 'mark-paid' | 'reject' } | null>(null);
   const [text, setText] = useState('');
   // Paying is three steps: 1 check the player, 2 send the money, 3 confirm with the reference.
@@ -98,6 +105,10 @@ function PlayerWithdrawals() {
           { id: 'requested', label: 'To pay', count: status === 'requested' ? list.length : undefined },
           { id: 'paid', label: 'Paid' }, { id: 'rejected', label: 'Rejected' }, { id: 'cancelled', label: 'Cancelled' }, { id: 'all', label: 'All' },
         ]} />
+        <select value={source} onChange={(e) => setSource(e.target.value as typeof source)} aria-label="Paid from"
+          className="h-10 rounded-xl border border-border bg-background px-3 text-sm">
+          <option value="">Winnings & deposit</option><option value="winnings">From Winnings</option><option value="deposit">From Deposit (high fee)</option>
+        </select>
         <form onSubmit={(e) => { e.preventDefault(); setSearch(q.trim()); }} className="ml-auto flex items-center gap-2">
           <TextInput value={q} onChange={(e) => setQ(e.target.value)} placeholder="Player, number or reference" className="w-64" />
           <Btn type="submit" icon={BsSearch}>Search</Btn>
@@ -135,6 +146,7 @@ function PlayerWithdrawals() {
                       </td>
                       <td className={cx(tdClass, 'text-base font-extrabold tabular-nums')}>
                         {money(w.amount)}
+                        {w.wallet === 'deposit' && <p><Badge tone="gold">From Deposit</Badge></p>}
                         {Number(w.fee ?? 0) > 0 && <p className="text-xs font-semibold text-muted-foreground">send {money(w.payout_amount ?? w.amount)} · fee {money(w.fee!)}</p>}
                       </td>
                       <td className={tdClass}>
@@ -314,13 +326,14 @@ function LimitsPanel() {
     { key: 'max_amount', label: 'Maximum per withdrawal ($)', hint: 'Largest single request.' },
     { key: 'daily_max', label: 'Daily cap per player ($)', hint: 'Total a player may request per day (0 = no cap).' },
     { key: 'min_turnover_percent', label: 'Play-through of pre-split deposits (%)', hint: 'Only deposits made before the three-wallet split (now in Winnings). New deposits can never be withdrawn. 0 = off.' },
-    { key: 'fee_percent', label: 'Withdrawal fee (%)', hint: 'Kept from every withdrawal of winnings; the player is sent the rest.' },
+    { key: 'fee_percent', label: 'Winnings withdrawal fee (%)', hint: 'Kept from every withdrawal of winnings; the player is sent the rest.' },
+    { key: 'deposit_fee_percent', label: 'Deposit withdrawal fee (%)', hint: 'Kept when a player chooses to withdraw from their Deposit wallet.' },
   ];
   return (
     <>
-    <Panel title="Withdrawal limits" description="Only the Winnings wallet can be withdrawn. Requests that break a rule are refused straight away with the reason, and never reach the queue: KYC not verified, not enough winnings, outside these limits, or pre-split deposits not yet played through. Attempts to withdraw Deposit or Bonus money are refused and recorded in the audit log.">
+    <Panel title="Withdrawal limits" description="Players withdraw from Winnings, or from Deposit at the higher deposit fee — never from Bonus. Requests that break a rule are refused straight away with the reason, and never reach the queue: KYC not verified, not enough winnings, outside these limits, or pre-split deposits not yet played through. Attempts to withdraw Bonus money are refused and recorded in the audit log.">
       {notice && <div className="mb-4"><Notice tone={notice.tone} onClose={() => setNotice(null)}>{notice.text}</Notice></div>}
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {fields.map((f) => (
           <Field key={f.key} label={f.label} hint={f.hint}>
             <TextInput inputMode="decimal" value={form?.[f.key] ?? ''} onChange={(e) => setForm((v) => v && { ...v, [f.key]: e.target.value.replace(/[^0-9.]/g, '') })} />

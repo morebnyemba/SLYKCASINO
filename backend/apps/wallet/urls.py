@@ -3,7 +3,7 @@ from django.urls import path
 from .views import (
     AdminLedgerViewSet, AdminPaymentGatewayTestView, AdminPaymentGatewayView, AdminPaymentMethodViewSet,
     AdminDepositRefundView, AdminWalletRulesView, AdminWithdrawalSettingsView, AdminWithdrawalsView, DepositView, LedgerView, MyWithdrawalsView, PaymentMethodsView,
-    PaymentStatusView, PaynowResultView, PSPWebhookView, WalletView, WithdrawView,
+    PaymentStatusView, PaynowResultView, PSPWebhookView, WalletView, WithdrawQuoteView, WithdrawView,
 )
 
 urlpatterns = [
@@ -11,6 +11,7 @@ urlpatterns = [
     path('wallet/ledger/', LedgerView.as_view(), name='wallet-ledger'),
     path('wallet/deposit/', DepositView.as_view(), name='wallet-deposit'),
     path('wallet/withdraw/', WithdrawView.as_view(), name='wallet-withdraw'),
+    path('wallet/withdraw/quote/', WithdrawQuoteView.as_view(), name='wallet-withdraw-quote'),
     path('wallet/withdrawals/', MyWithdrawalsView.as_view(), name='wallet-withdrawals'),
     path('wallet/withdrawals/<int:pk>/cancel/', MyWithdrawalsView.as_view(), name='wallet-withdrawal-cancel'),
     path('admin/withdrawals/', AdminWithdrawalsView.as_view(), name='admin-withdrawals'),

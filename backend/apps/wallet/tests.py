@@ -38,7 +38,7 @@ class WalletServiceTests(TestCase):
         )
         wallet_services.debit(
             player_id=self.player.id, amount=Decimal('50.00'),
-            kind='withdrawal', idempotency_key='test:wdraw:2',
+            kind='withdrawal', bucket='winnings', idempotency_key='test:wdraw:2',
         )
         self.assertEqual(wallet_services.get_balance(self.player.id), Decimal('50.00'))
 
@@ -47,7 +47,7 @@ class WalletServiceTests(TestCase):
         with self.assertRaises(InsufficientFunds):
             wallet_services.debit(
                 player_id=self.player.id, amount=Decimal('500.00'),
-                kind='withdrawal', idempotency_key='test:wdraw:3',
+                kind='withdrawal', bucket='winnings', idempotency_key='test:wdraw:3',
             )
 
     def test_ledger_entry_created_on_deposit(self):
@@ -99,19 +99,19 @@ class WalletAPITests(TestCase):
         self.assertEqual(Decimal(resp.data['balance']), Decimal('1200.00'))
 
     def test_withdraw_via_api_debits_balance(self):
-        resp = self.client.post('/api/wallet/withdraw/', {'amount': '100.00', **DEST}, format='json')
+        resp = self.client.post('/api/wallet/withdraw/', {'wallet': 'winnings', 'amount': '100.00', **DEST}, format='json')
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
         self.assertEqual(Decimal(resp.data['balance']), Decimal('900.00'))
 
     def test_withdraw_insufficient_funds_returns_402(self):
-        self.client.post('/api/wallet/withdraw/', {'amount': '500.00', **DEST}, format='json')
-        resp = self.client.post('/api/wallet/withdraw/', {'amount': '600.00', **DEST}, format='json')
+        self.client.post('/api/wallet/withdraw/', {'wallet': 'winnings', 'amount': '500.00', **DEST}, format='json')
+        resp = self.client.post('/api/wallet/withdraw/', {'wallet': 'winnings', 'amount': '600.00', **DEST}, format='json')
         self.assertEqual(resp.status_code, status.HTTP_402_PAYMENT_REQUIRED)
 
     def test_withdraw_requires_kyc_verification(self):
         self.player.kyc_status = self.player.Kyc.PENDING
         self.player.save(update_fields=['kyc_status'])
-        resp = self.client.post('/api/wallet/withdraw/', {'amount': '50.00', **DEST}, format='json')
+        resp = self.client.post('/api/wallet/withdraw/', {'wallet': 'winnings', 'amount': '50.00', **DEST}, format='json')
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
 
 

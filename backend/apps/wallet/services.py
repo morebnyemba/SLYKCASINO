@@ -15,7 +15,7 @@ from django.db import transaction
 from . import helpers, utils
 from .dtos import BalanceDTO, LedgerEntryDTO
 from .models import BALANCE_FIELD, Bucket, LedgerEntry, Wallet, WalletRules
-from .models.ledger import FIXED_BUCKET
+from .models.ledger import FIXED_BUCKET, WITHDRAWAL_BUCKETS, WITHDRAWAL_KINDS
 from .reporting import (  # noqa: F401  (read-only analytics, re-exported)
     deposit_count, earliest_entry, empty_kpis, first_deposit_amounts, first_deposits, ledger_kpis, ledger_series, player_breakdown, recent_activity,
 )
@@ -118,6 +118,8 @@ def post_entry(
         raise ValueError(f'ledger entry {kind!r} needs a wallet bucket')
     if fixed is not None and bucket != fixed:
         raise ValueError(f'{kind} entries belong to the {fixed} wallet, not {bucket}')
+    if kind in WITHDRAWAL_KINDS and bucket not in WITHDRAWAL_BUCKETS:
+        raise ValueError(f'{kind} entries can only touch the Winnings or Deposit wallet, not {bucket}')
     existing = LedgerEntry.objects.filter(idempotency_key=idempotency_key).first()
     if existing is not None:
         return existing
@@ -321,7 +323,7 @@ def withdrawal(
 ) -> LedgerEntry:
     """Debit a withdrawal from the wallet and notify the player."""
     entry = debit(
-        player_id=player_id, amount=amount, kind='withdrawal',
+        player_id=player_id, amount=amount, kind='withdrawal', bucket='winnings',
         idempotency_key=idempotency_key, reference=reference,
     )
     from apps.notifications import services as notif_services

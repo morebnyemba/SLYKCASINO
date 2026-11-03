@@ -38,7 +38,7 @@ export function LiveGuardPanel() {
 
   return (
     <Panel title="Live market protection"
-      description="Markets stay open unless the feed or your team suspends them — every automatic lock below is off (0) by default. Switch one on only if you need it: closing in-play betting at a match minute, or suspending a match for review on a price jump with no goal, bad feed data, or too much money on one selection. You can always suspend a match by hand from its page.">
+      description="Every live match trades from kick-off until the lock minute (75 by default, by the match clock), when all its markets lock until full time. Otherwise markets stay open unless the feed or your team suspends them: the other automatic holds below are off (0) by default — switch one on only if you need it. You can always suspend a match by hand from its page.">
       {notice && <div className="mb-4"><Notice tone={notice.tone} onClose={() => setNotice(null)}>{notice.text}</Notice></div>}
       {(data?.held.length ?? 0) > 0 && (
         <div className="mb-4 space-y-2">
@@ -53,7 +53,7 @@ export function LiveGuardPanel() {
         </div>
       )}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <Field label="Close in-play betting at minute" hint="0 = never (default).">
+        <Field label="Close in-play betting at minute" hint="75 by default. 0 = never.">
           <TextInput inputMode="numeric" value={form?.lock_minute ?? ''} onChange={set('lock_minute')} />
         </Field>
         <Field label="Suspend on a price jump of (%)" hint="Match-result price, in one update, with no goal. 0 = off.">

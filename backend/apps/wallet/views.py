@@ -45,12 +45,13 @@ def wallets_payload(player_id: int) -> dict:
     return {
         'balance': str(dto.balance), 'currency': dto.currency,
         'wallets': {
-            'deposit': {'balance': str(dto.deposit), 'min_odds': str(rules.deposit_min_odds), 'withdrawable': False},
+            'deposit': {'balance': str(dto.deposit), 'min_odds': str(rules.deposit_min_odds), 'withdrawable': True},
             'bonus': {'balance': str(dto.bonus), 'min_odds': str(rules.bonus_min_odds), 'withdrawable': False},
             'winnings': {'balance': str(dto.winnings), 'min_odds': str(rules.winnings_min_odds), 'withdrawable': True},
         },
         'withdrawable': str(dto.winnings),
         'withdrawal_fee_percent': str(WithdrawalSettings.load().fee_percent),
+        'deposit_withdrawal_fee_percent': str(WithdrawalSettings.load().deposit_fee_percent),
         # Bonus wallet rules and how far the player is towards unlocking it.
         'bonus_rules': bonus.progress(player_id),
     }
@@ -325,7 +326,7 @@ class WithdrawView(APIView):
             req = withdrawals.request(
                 player=player, amount=d.get('amount'), method=d.get('method') or '',
                 account_number=d.get('account_number') or '', account_name=d.get('account_name') or '',
-                bank_name=d.get('bank_name') or '', wallet=d.get('wallet'),
+                bank_name=d.get('bank_name') or '', wallet=str(d.get('wallet') or ''),
             )
         except withdrawals.WalletViolation as exc:
             # The app never sends this: a tampered request. Recorded for review.
@@ -343,6 +344,26 @@ class WithdrawView(APIView):
             return Response({'detail': str(exc)}, status=status.HTTP_402_PAYMENT_REQUIRED)
         return Response({**wallets_payload(player.id), 'withdrawal': withdrawals.payload(req)},
                         status=status.HTTP_201_CREATED)
+
+
+class WithdrawQuoteView(APIView):
+    """POST /api/wallet/withdraw/quote/ {amount, wallet} — the fee and what
+    the player would be sent, shown before they confirm. Moves no money."""
+
+    def post(self, request):
+        from . import withdrawals
+        player, err = _get_player_or_404(request)
+        if err:
+            return err
+        wallet = str(request.data.get('wallet') or '')
+        if wallet == 'bonus':
+            return Response({'detail': 'Bonus money can be bet on sports, not withdrawn.'}, status=status.HTTP_403_FORBIDDEN)
+        try:
+            out = withdrawals.quote(request.data.get('amount'), wallet)
+        except withdrawals.WithdrawalError as exc:
+            return Response({'detail': str(exc)}, status=exc.code)
+        out['available'] = str(withdrawals.withdrawable(player.id, wallet))
+        return Response(out)
 
 
 class MyWithdrawalsView(APIView):
@@ -364,7 +385,7 @@ class MyWithdrawalsView(APIView):
                        if cfg.daily_max else None,
                        'turnover_left': str(withdrawals.turnover_left(player.id, cfg)),
                        'turnover_percent': cfg.min_turnover_percent,
-                       'fee_percent': str(cfg.fee_percent)},
+                       'fee_percent': str(cfg.fee_percent), 'deposit_fee_percent': str(cfg.deposit_fee_percent)},
             'methods': [{'id': v, 'label': l} for v, l in WithdrawalRequest.Method.choices],
         })
 
@@ -397,6 +418,8 @@ class AdminWithdrawalsView(APIView):
             qs = qs.filter(status=state)
         if (request.query_params.get('player_id') or '').isdigit():
             qs = qs.filter(player_id=int(request.query_params['player_id']))
+        if request.query_params.get('wallet') in ('winnings', 'deposit'):
+            qs = qs.filter(wallet=request.query_params['wallet'])
         q = (request.query_params.get('q') or '').strip()
         if q:
             ids = list(Player.objects.filter(Q(username__icontains=q) | Q(email__icontains=q)).values_list('id', flat=True)[:200])
@@ -443,7 +466,8 @@ class AdminWithdrawalSettingsView(APIView):
     @staticmethod
     def _out(cfg):
         return {'min_amount': str(cfg.min_amount), 'max_amount': str(cfg.max_amount), 'daily_max': str(cfg.daily_max),
-                'min_turnover_percent': cfg.min_turnover_percent, 'fee_percent': str(cfg.fee_percent)}
+                'min_turnover_percent': cfg.min_turnover_percent, 'fee_percent': str(cfg.fee_percent),
+                'deposit_fee_percent': str(cfg.deposit_fee_percent)}
 
     def get(self, request):
         from .models import WithdrawalSettings
@@ -459,12 +483,13 @@ class AdminWithdrawalSettingsView(APIView):
                     setattr(cfg, f, Decimal(str(request.data[f])).quantize(Decimal('0.01')))
             if 'min_turnover_percent' in request.data:
                 cfg.min_turnover_percent = int(request.data['min_turnover_percent'])
-            if 'fee_percent' in request.data:
-                cfg.fee_percent = Decimal(str(request.data['fee_percent'])).quantize(Decimal('0.01'))
+            for f in ('fee_percent', 'deposit_fee_percent'):
+                if f in request.data:
+                    setattr(cfg, f, Decimal(str(request.data[f])).quantize(Decimal('0.01')))
         except (InvalidOperation, ValueError, TypeError):
             return Response({'detail': 'Enter amounts as numbers.'}, status=status.HTTP_400_BAD_REQUEST)
-        if not 0 <= cfg.fee_percent <= 50:
-            return Response({'detail': 'The withdrawal fee must be 0–50%.'}, status=status.HTTP_400_BAD_REQUEST)
+        if not 0 <= cfg.fee_percent <= 50 or not 0 <= cfg.deposit_fee_percent <= 90:
+            return Response({'detail': 'Fees: winnings 0–50%, deposit 0–90%.'}, status=status.HTTP_400_BAD_REQUEST)
         if not 0 <= cfg.min_turnover_percent <= 1000:
             return Response({'detail': 'Play-through must be 0–1000% of deposits.'}, status=status.HTTP_400_BAD_REQUEST)
         if cfg.min_amount <= 0 or cfg.max_amount < cfg.min_amount or cfg.daily_max < 0:
