@@ -43,7 +43,7 @@ def give_winnings(player, amount, key):
 
 
 def ask(player, amount='10', number='0771234567'):
-    return withdrawals.request(player=player, amount=amount, method='ecocash', account_number=number)
+    return withdrawals.request(wallet='winnings', player=player, amount=amount, method='ecocash', account_number=number)
 
 
 class Base(TestCase):
@@ -116,7 +116,7 @@ class DetectorTests(Base):
     def test_tampered_withdrawal_request_suspends(self):
         api = APIClient()
         api.force_authenticate(self.alice.user)
-        res = api.post('/api/wallet/withdraw/', {'amount': '10', 'wallet': 'deposit', 'method': 'ecocash',
+        res = api.post('/api/wallet/withdraw/', {'amount': '10', 'wallet': 'bonus', 'method': 'ecocash',
                                                  'account_number': '0771234567'}, format='json')
         self.assertEqual(res.status_code, 403)
         self.assertTrue(self.refreshed(self.alice).is_suspended)
@@ -246,7 +246,7 @@ class RateLimitTests(Base):
     def test_withdrawal_requests_are_rate_limited(self):
         api = APIClient()
         api.force_authenticate(self.bob.user)
-        codes = [api.post('/api/wallet/withdraw/', {'amount': '1'}, format='json').status_code for _ in range(11)]
+        codes = [api.post('/api/wallet/withdraw/', {'wallet': 'winnings', 'amount': '1'}, format='json').status_code for _ in range(11)]
         self.assertEqual(codes[-1], 429)
         self.assertNotIn(429, codes[:10])
 

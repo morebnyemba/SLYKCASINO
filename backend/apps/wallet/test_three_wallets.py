@@ -137,16 +137,45 @@ class PayoutTests(Base):
 
 class WithdrawalTests(Base):
     def test_only_winnings_can_be_withdrawn(self):
-        res = self.api.post('/api/wallet/withdraw/', {'amount': '10', **ECOCASH}, format='json')
+        res = self.api.post('/api/wallet/withdraw/', {'wallet': 'winnings', 'amount': '10', **ECOCASH}, format='json')
         self.assertEqual((res.status_code, res.json()['withdrawable']), (402, '0.00'))
 
-    def test_asking_for_deposit_or_bonus_money_is_refused_and_flagged(self):
-        for wallet in ('deposit', 'bonus'):
-            res = self.api.post('/api/wallet/withdraw/', {'amount': '10', 'wallet': wallet, **ECOCASH}, format='json')
-            self.assertEqual(res.status_code, 403)
+    def test_asking_for_bonus_money_is_refused_and_flagged(self):
+        res = self.api.post('/api/wallet/withdraw/', {'amount': '10', 'wallet': 'bonus', **ECOCASH}, format='json')
+        self.assertEqual(res.status_code, 403)
         flagged = AuditLog.objects.filter(event_type='withdrawal_wallet_violation', player_id=self.player.id)
-        self.assertEqual(sorted(f.metadata['wallet'] for f in flagged), ['bonus', 'deposit'])
-        self.assertEqual(balances(self.player)['deposit'], '100.00')
+        self.assertEqual([f.metadata['wallet'] for f in flagged], ['bonus'])
+        self.assertEqual(balances(self.player)['bonus'], '50.00')
+
+    def test_the_player_must_choose_a_source(self):
+        res = self.api.post('/api/wallet/withdraw/', {'amount': '10', **ECOCASH}, format='json')
+        self.assertEqual(res.status_code, 400)
+        self.assertIn('Choose the wallet', res.json()['detail'])
+
+    def test_deposit_withdrawals_keep_a_50_percent_fee(self):
+        WithdrawalSettings.objects.update_or_create(pk=1, defaults={'min_turnover_percent': 0})
+        quote = self.api.post('/api/wallet/withdraw/quote/', {'amount': '40', 'wallet': 'deposit'}, format='json').json()
+        self.assertEqual((quote['fee_percent'], quote['fee'], quote['payout_amount'], quote['available']),
+                         ('50.00', '20.00', '20.00', '100.00'))
+        res = self.api.post('/api/wallet/withdraw/', {'amount': '40', 'wallet': 'deposit', **ECOCASH}, format='json')
+        self.assertEqual(res.status_code, 201, res.content)
+        w = res.json()['withdrawal']
+        self.assertEqual((w['wallet'], w['fee'], w['payout_amount']), ('deposit', '20.00', '20.00'))
+        self.assertEqual(balances(self.player)['deposit'], '60.00')            # held from Deposit
+        withdrawals.mark_paid(w['id'], reference='MP-9', confirm_amount='20')
+        entries = {e.kind: (e.bucket, e.amount) for e in LedgerEntry.objects.filter(
+            reference__startswith=f"withdrawal:{w['id']}:", kind__in=('withdrawal', 'withdrawal_fee'))}
+        self.assertEqual(entries, {'withdrawal': ('deposit', D('-20.00')), 'withdrawal_fee': ('deposit', D('-20.00'))})
+        self.assertEqual(balances(self.player), {'deposit': '60.00', 'bonus': '50.00', 'winnings': '0.00'})
+        staff = APIClient()
+        staff.force_authenticate(User.objects.create_user('cashier', 'c@example.com', 'x', is_staff=True))
+        rows = staff.get('/api/admin/withdrawals/', {'status': 'all', 'wallet': 'deposit'}).json()['results']
+        self.assertEqual([(r['id'], r['wallet'], r['fee']) for r in rows], [(w['id'], 'deposit', '20.00')])
+        self.assertEqual(staff.get('/api/admin/withdrawals/', {'status': 'all', 'wallet': 'winnings'}).json()['results'], [])
+
+    def test_minimum_withdrawal_is_one_dollar(self):
+        WithdrawalSettings.objects.all().delete()
+        self.assertEqual(WithdrawalSettings.load().min_amount, D('1.00'))
 
     def test_five_percent_fee_is_kept_and_recorded(self):
         services.credit(player_id=self.player.id, amount=D('100'), kind='adjustment', bucket='winnings', idempotency_key='w')
@@ -185,7 +214,7 @@ class DatabaseRuleTests(Base):
         with self.assertRaises(ValueError):
             services.credit(player_id=self.player.id, amount=D('5'), kind='bonus', bucket='deposit', idempotency_key='y')
         wallet = Wallet.objects.get(player_id=self.player.id)
-        for kind, bucket in (('deposit', 'winnings'), ('withdrawal', 'deposit'), ('bonus', 'winnings')):
+        for kind, bucket in (('deposit', 'winnings'), ('withdrawal', 'bonus'), ('withdrawal_fee', 'bonus'), ('bonus', 'winnings')):
             with self.assertRaises(IntegrityError), transaction.atomic():
                 LedgerEntry.objects.create(wallet=wallet, idempotency_key=f'raw:{kind}', amount=D('-1'), kind=kind, bucket=bucket)
 

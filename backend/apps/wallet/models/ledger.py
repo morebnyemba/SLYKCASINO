@@ -13,18 +13,20 @@ FIXED_BUCKET = {
     'deposit_refund': Bucket.DEPOSIT,
     'bonus': Bucket.BONUS,
     'bonus_forfeit': Bucket.BONUS,
-    'withdrawal': Bucket.WINNINGS,
-    'withdrawal_hold': Bucket.WINNINGS,
-    'withdrawal_fee': Bucket.WINNINGS,
     'affiliate': Bucket.WINNINGS,
 }
+# Withdrawals come from Winnings (5% fee) or, at the player's choice, from
+# Deposit (50% fee) — never from Bonus.
+WITHDRAWAL_KINDS = ('withdrawal', 'withdrawal_hold', 'withdrawal_fee')
+WITHDRAWAL_BUCKETS = (Bucket.WINNINGS, Bucket.DEPOSIT)
 
 
 def _bucket_rule() -> Q:
     rule = Q(legacy=True)
     for kind, bucket in FIXED_BUCKET.items():
         rule |= Q(kind=kind, bucket=bucket)
-    return rule | ~Q(kind__in=list(FIXED_BUCKET))
+    rule |= Q(kind__in=list(WITHDRAWAL_KINDS), bucket__in=list(WITHDRAWAL_BUCKETS))
+    return rule | ~Q(kind__in=[*FIXED_BUCKET, *WITHDRAWAL_KINDS])
 
 
 class LedgerEntry(models.Model):

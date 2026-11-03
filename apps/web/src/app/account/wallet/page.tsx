@@ -110,7 +110,11 @@ export default function WalletPage() {
                   <p className="text-xl font-extrabold tabular-nums text-white">{wallet.wallets[id].balance}</p>
                   <p className="mt-0.5 text-[11px] leading-snug text-white/70">
                     {WALLET_HINT[id]}
-                    {id === 'deposit' && <> Bets need odds of {wallet.wallets[id].min_odds}+.</>}
+                    {id === 'deposit' && <>
+                      {wallet.deposit_withdrawal_fee_percent && <> ({Number(wallet.deposit_withdrawal_fee_percent)}% fee.)</>}
+                      {' '}Bets need odds of {wallet.wallets[id].min_odds}+.
+                    </>}
+                    {id === 'winnings' && <> ({Number(wallet.withdrawal_fee_percent)}% fee.)</>}
                     {id === 'bonus' && wallet.bonus_rules && <>
                       {' '}Stake it all on one {wallet.bonus_rules.min_legs}+ selection multiple at {wallet.bonus_rules.min_leg_odds}+ each.
                       Win {wallet.bonus_rules.wins_needed} in a row to move up to ${Number(wallet.bonus_rules.max_conversion).toFixed(0)} to
@@ -134,7 +138,7 @@ export default function WalletPage() {
               </button>
             </div>
 
-            <WithdrawPanel withdrawable={wallet?.withdrawable} onChanged={() => { refetchWallet(); refetchLedger(); }} />
+            <WithdrawPanel onChanged={() => { refetchWallet(); refetchLedger(); }} />
           </div>
 
         </CardContent>

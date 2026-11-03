@@ -15,6 +15,8 @@ class WithdrawalSettings(models.Model):
     # Kept from every withdrawal of winnings (5 = 5%): the player is sent the
     # rest. Fixed on each request when it's made.
     fee_percent = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal('5.00'))
+    # Kept from a withdrawal the player chose to take from their Deposit wallet.
+    deposit_fee_percent = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal('50.00'))
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -51,6 +53,9 @@ class WithdrawalRequest(models.Model):
     amount = models.DecimalField(max_digits=12, decimal_places=2)
     # Withdrawal fee kept from `amount`; the player is sent amount - fee.
     fee = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0'))
+    # Which wallet it is paid from: Winnings, or Deposit (at the higher fee).
+    wallet = models.CharField(max_length=10, default='winnings',
+                              choices=[('winnings', 'Winnings'), ('deposit', 'Deposit')])
     # Held by the fraud engine (apps.risk): it can't be marked paid until a
     # superuser closes the player's case.
     risk_hold = models.BooleanField(default=False)

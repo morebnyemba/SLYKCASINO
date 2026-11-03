@@ -108,19 +108,28 @@ class GuardTests(InPlayBase):
 
 @LIVE
 class DefaultsTests(InPlayBase):
-    """Out of the box nothing locks or holds automatically: markets stay open
-    unless the feed or staff genuinely suspend them."""
+    """Out of the box every live match trades from kick-off to the 75th minute
+    and then locks; nothing else locks or holds automatically."""
 
-    def test_nothing_locks_or_holds_by_default(self):
+    def test_open_until_75_then_locked_and_nothing_else_holds(self):
         LiveTradingSettings.objects.all().delete()
         now = timezone.now()
         sb.apply_live_odds(snap(elapsed=30, home='1.50'), now=now)
-        sb.apply_live_odds(snap(elapsed=85, home='4.00'), now=now + timedelta(seconds=5))    # late, big jump
-        sb.apply_live_odds(snap(elapsed=80, goals=(0, 0)), now=now + timedelta(seconds=10))  # clock back
+        sb.apply_live_odds(snap(elapsed=74, home='4.00'), now=now + timedelta(seconds=5))   # big jump, no goal
+        sb.apply_live_odds(snap(elapsed=70, goals=(0, 0)), now=now + timedelta(seconds=10))  # clock back
         self.event.refresh_from_db()
-        self.assertIsNone(self.event.live_locked_at)
         self.assertEqual(self.event.live_hold_reason, '')
+        self.assertIsNone(self.event.live_locked_at)
         self.assertTrue(sb.in_play_bettable(self.event, now=now + timedelta(seconds=11)))
+        sb.apply_live_odds(snap(elapsed=75), now=now + timedelta(seconds=15))
+        self.event.refresh_from_db()
+        self.assertIsNotNone(self.event.live_locked_at)
+        self.assertFalse(sb.in_play_bettable(self.event, now=now + timedelta(seconds=16)))
+        self.assertEqual(sb.trading_state(self.event)['live_closed'], "In-play betting closes at 75'")
+        # Every market on the match is closed to bets now, not just the match result.
+        with self.assertRaises(sb.SelectionUnavailable):
+            sb.place_bet(wallet='deposit', event='O', stake=D('1'), odds=self.over_2_5().odds, player_id=self.player.id,
+                         outcome_id=self.over_2_5().id)
 
 
 @LIVE
