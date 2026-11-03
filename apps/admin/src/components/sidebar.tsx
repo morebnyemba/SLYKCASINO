@@ -137,7 +137,7 @@ function Brand() {
         // basePath isn't added to plain <img> src, so the brand files are addressed in full.
         // eslint-disable-next-line @next/next/no-img-element
         <img src="/admin-portal/brand/mark.webp" alt="" width={512} height={512}
-          className="h-10 w-10 shrink-0 object-contain drop-shadow-[0_2px_6px_rgba(40,140,255,0.35)]" />
+          className="h-10 w-10 shrink-0 object-contain drop-shadow-[0_2px_6px_rgba(120,60,255,0.4)]" />
       )}
       <span className="min-w-0 leading-tight">
         <span className="block truncate text-[15px] font-extrabold text-white">{identity.site_name}</span>
@@ -171,7 +171,7 @@ function SidebarFooter() {
       </div>
       {user && (
         <div className="flex items-center gap-2.5 rounded-xl bg-white/[0.04] p-2.5">
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#1F6FFF] to-[#0B2A7A] text-xs font-extrabold uppercase text-white">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#2A5BFF] to-[#8906E1] text-xs font-extrabold uppercase text-white">
             {user.username.slice(0, 2)}
           </span>
           <span className="min-w-0 flex-1 leading-tight">
@@ -192,7 +192,7 @@ function SidebarFooter() {
   );
 }
 
-const SHELL = 'bg-[radial-gradient(120%_60%_at_0%_0%,#0B3BB8_0%,#0A1F5C_45%,#060D24_100%)]';
+const SHELL = 'bg-[radial-gradient(120%_60%_at_0%_0%,#2A3BE0_0%,#1A1470_45%,#0A0B2E_100%)]';
 
 /** Desktop: fixed rail. Mobile: a top bar with a drawer. */
 export function Sidebar() {

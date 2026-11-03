@@ -2,7 +2,7 @@
 
 import { FaBolt, FaGift, FaLock } from 'react-icons/fa';
 import { useSiteIdentity } from '@/lib/identity-context';
-import { BRAND_WORDMARK } from '@/components/logo';
+import { Wordmark } from '@/components/logo';
 import { useApi } from '@/lib/use-api';
 
 interface WelcomeTerms { programme?: { welcome_bonus_percent: string; welcome_bonus_cap: string } }
@@ -35,15 +35,13 @@ export function AuthShell({ title, subtitle, children }: { title: string; subtit
   return (
     <div className="flex min-h-[70vh] items-center justify-center py-4">
       <div className="grid w-full max-w-3xl overflow-hidden rounded-3xl border border-border bg-card shadow-2xl md:grid-cols-2">
-        <div className="relative hidden flex-col justify-between overflow-hidden bg-gradient-to-br from-primary via-[#0B3BB8] to-[#0A1F5C] p-8 text-white md:flex">
+        <div className="relative hidden flex-col justify-between overflow-hidden bg-gradient-to-br from-primary via-[#3A1FC8] to-[#140A52] p-8 text-white md:flex">
           <div className="pointer-events-none absolute -right-10 -top-10 h-48 w-48 rounded-full bg-white/10 blur-2xl" />
           <div>
             {identity.logo_url ? (
               <p className="text-xs font-bold uppercase tracking-widest text-white/60">{identity.site_name}</p>
             ) : (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={BRAND_WORDMARK.src} alt={identity.site_name} width={BRAND_WORDMARK.width} height={BRAND_WORDMARK.height}
-                className="-ml-1 h-11 w-auto drop-shadow-[0_4px_14px_rgba(0,0,0,0.35)]" />
+              <Wordmark on="dark" alt={identity.site_name} className="-ml-1 h-11 drop-shadow-[0_4px_14px_rgba(0,0,0,0.35)]" />
             )}
             <p className="mt-3 text-3xl font-black leading-tight">{identity.tagline || 'Bet smart. Brag often.'}</p>
           </div>

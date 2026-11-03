@@ -55,7 +55,7 @@ export const viewport: Viewport = {
   initialScale: 1,
   // Lets the header pad itself below the notch (env(safe-area-inset-top)).
   viewportFit: 'cover',
-  themeColor: '#060D24',
+  themeColor: '#0C1446',
 };
 
 // Applied before paint so switching themes never flashes the previous theme on load.

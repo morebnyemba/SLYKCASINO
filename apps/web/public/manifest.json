@@ -5,8 +5,8 @@
   "start_url": "/sportsbook",
   "scope": "/",
   "display": "standalone",
-  "background_color": "#060D24",
-  "theme_color": "#060D24",
+  "background_color": "#0C1446",
+  "theme_color": "#0C1446",
   "orientation": "portrait-primary",
   "icons": [
     {
