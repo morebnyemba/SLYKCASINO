@@ -39,6 +39,12 @@ class LiveTradingSettings(models.Model):
     burst_minutes = models.PositiveSmallIntegerField(default=5)
     # Suspend when the feed's score goes down or its clock runs backwards.
     hold_on_bad_feed = models.BooleanField(default=False)
+    # The feed pauses a match for a few seconds many times a game (a dangerous
+    # attack, a VAR check). Off (default): its markets stay open at the last
+    # prices, and in-play bets placed meanwhile wait until the feed resumes and
+    # are then accepted only if the price held and no goal went in. On: every
+    # pause suspends the match's markets (the old behaviour).
+    suspend_on_feed_pause = models.BooleanField(default=False)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

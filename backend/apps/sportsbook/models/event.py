@@ -68,6 +68,10 @@ class Event(models.Model):
     last_goal_at = models.DateTimeField(null=True, blank=True)
     # Whether the live feed is currently offering the headline 1X2.
     live_main_open = models.BooleanField(default=False)
+    # The feed has paused this match for a moment (LiveTradingSettings.
+    # suspend_on_feed_pause off): its markets stay open at the last prices, and
+    # in-play bets wait for the feed to resume before they're accepted.
+    live_feed_paused = models.BooleanField(default=False)
     # In-play trading closes for good once the match clock reaches the lock
     # minute (LiveTradingSettings): set once, never cleared (live_guard).
     live_locked_at = models.DateTimeField(null=True, blank=True)

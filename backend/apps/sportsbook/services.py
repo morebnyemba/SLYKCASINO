@@ -22,7 +22,8 @@ from .clients import (
 )
 from .dtos import BetDTO
 from .models import (
-    Bet, BetLeg, BetSlip, Event, LeagueSetting, Market, MarketOutcome, MultiBetBonusTier, Selection, Team,
+    Bet, BetLeg, BetSlip, Event, LeagueSetting, LiveTradingSettings, Market, MarketOutcome, MultiBetBonusTier,
+    Selection, Team,
 )
 from .settlement import GoalEvent, Score, settle_outcome
 
@@ -176,7 +177,7 @@ def in_play_bettable(event: Event, *, now=None) -> bool:
     if event.live_locked_at or event.live_hold_reason or event.live_odds_at is None:
         return False
     now = now or timezone.now()
-    return event.live_odds_at >= now - timedelta(seconds=_live_setting('SPORTSBOOK_LIVE_ODDS_STALE', 30))
+    return event.live_odds_at >= now - timedelta(seconds=_live_setting('SPORTSBOOK_LIVE_ODDS_STALE', 60))
 
 
 def _started(event: Event) -> bool:
@@ -302,6 +303,8 @@ def place_bet(
         raise ValueError('; '.join(errors))
     if player_id is not None:
         wallet = wallet_services.betting_bucket(wallet)
+    wallet_services.check_ticket_limits(stake=stake, selections=1, bucket=wallet)
+    if player_id is not None:
         wallet_services.check_min_odds(wallet, odds)
         if wallet == 'bonus':
             from apps.wallet import bonus
@@ -475,8 +478,9 @@ def multibet_bonus_percent(leg_odds) -> Decimal:
 
 
 def multibet_bonus_info() -> dict:
-    """The bonus ladder, for the bet slip."""
+    """The bonus ladder, and the stake/selection limits, for the bet slip."""
     return {
+        'limits': wallet_services.betting_limits(),
         'min_odds': str(multibet_bonus_min_odds()),
         'cap': str(multibet_bonus_cap()),
         'tiers': [
@@ -517,6 +521,7 @@ def place_accumulator(
         raise ValueError('an accumulator needs at least 2 selections')
     if player_id is not None:
         wallet = wallet_services.betting_bucket(wallet)
+    wallet_services.check_ticket_limits(stake=stake, selections=len(legs), bucket=wallet)
 
     combined = Decimal('1')
     normalised: list[dict] = []
@@ -661,6 +666,8 @@ def _live_recheck(
         return 'the score changed'
     if not in_play_bettable(event, now=now):
         return 'betting was suspended'
+    if event.live_feed_paused:
+        return _WAIT  # accepted only once the feed resumes at the same price
     if outcome_id is not None:
         outcome = MarketOutcome.objects.select_related('market').filter(pk=outcome_id).first()
         if (
@@ -731,7 +738,7 @@ def confirm_live_bet(kind: str, obj_id: int, *, now=None) -> str:
     ]
     reason = next((r for r in reasons if r not in (None, _WAIT)), None)
     if reason is None and _WAIT in reasons:
-        stale = timedelta(seconds=_live_setting('SPORTSBOOK_LIVE_ODDS_STALE', 30))
+        stale = timedelta(seconds=_live_setting('SPORTSBOOK_LIVE_ODDS_STALE', 60))
         if now - obj.placed_at < delay + stale:
             return obj.status
         reason = 'the live price could not be confirmed'
@@ -1572,15 +1579,32 @@ def apply_live_odds(snapshot: LiveOddsSnapshot, *, now=None) -> Optional[Event]:
     if (snapshot.one_x_two is not None and was_live and not event.prices_locked
             and event.status in IN_PLAY_STATUSES):
         fields += live_guard.check_price_jump(event, old_prices, snapshot.one_x_two, now=now)
-    tradable = (not snapshot.blocked and event.is_open and event.status in IN_PLAY_STATUSES
-                and not event.live_locked_at and not event.live_hold_reason)
+    # A brief pause by the feed (a dangerous attack, a VAR check) keeps the
+    # match open at its last live prices unless the operator chose to suspend
+    # on every pause; a match that was never priced live can't ride one out.
+    paused = snapshot.blocked or snapshot.main_suspended
+    stale = timedelta(seconds=_live_setting('SPORTSBOOK_LIVE_ODDS_STALE', 60))
+    ride_out = (paused and not LiveTradingSettings.load().suspend_on_feed_pause
+                and event.live_odds_at is not None and now - event.live_odds_at <= stale)
+    tradable = (not snapshot.finished and (not paused or ride_out) and event.is_open
+                and event.status in IN_PLAY_STATUSES and not event.live_locked_at and not event.live_hold_reason)
     if not tradable:
-        if event.live_odds_at is not None or event.live_main_open:
-            event.live_odds_at, event.live_main_open = None, False
-            fields += ['live_odds_at', 'live_main_open']
+        if event.live_odds_at is not None or event.live_main_open or event.live_feed_paused:
+            event.live_odds_at, event.live_main_open, event.live_feed_paused = None, False, False
+            fields += ['live_odds_at', 'live_main_open', 'live_feed_paused']
         if fields:
             event.save(update_fields=sorted(set(fields)))  # post_save publishes the new state
         return event
+    if ride_out:
+        # Prices and markets stay as they were; bets placed now wait (_live_recheck).
+        event.live_feed_paused = True
+        event.live_odds_at = now
+        fields += ['live_feed_paused', 'live_odds_at']
+        event.save(update_fields=sorted(set(fields)))
+        return event
+    if event.live_feed_paused:
+        event.live_feed_paused = False
+        fields.append('live_feed_paused')
 
     # An operator's hand-set prices stand; the feed still drives score and state.
     if snapshot.one_x_two is not None and not event.prices_locked:
@@ -1636,16 +1660,24 @@ def sync_live_odds(*, now=None) -> int:
     if not anything_maybe_live(now=now):
         return 0
     snapshots = ApiFootballClient().fetch_live_odds()
+    if snapshots is None:
+        # A failed or rate-limited poll says nothing about the matches: leave
+        # them trading. If the feed stays down, in_play_bettable lets their
+        # prices go stale and suspends them by itself.
+        return 0
     for snapshot in snapshots:
         apply_live_odds(snapshot, now=now)
-    # Matches that dropped out of the feed (or a failed poll) stop trading now,
-    # and the save publishes the lock to every open board and slip.
+    # A match missing from the feed for longer than the stale window has
+    # stopped being priced: stop trading it, and the save publishes the lock to
+    # every open board and slip. One missed poll doesn't lock it.
+    from datetime import timedelta
     priced = {s.external_id for s in snapshots}
+    stale = timedelta(seconds=_live_setting('SPORTSBOOK_LIVE_ODDS_STALE', 60))
     for event in Event.objects.filter(
-        provider=ApiFootballClient.provider_name, live_odds_at__isnull=False,
+        provider=ApiFootballClient.provider_name, live_odds_at__lt=now - stale,
     ).exclude(external_id__in=priced):
-        event.live_odds_at, event.live_main_open = None, False
-        event.save(update_fields=['live_odds_at', 'live_main_open'])
+        event.live_odds_at, event.live_main_open, event.live_feed_paused = None, False, False
+        event.save(update_fields=['live_odds_at', 'live_main_open', 'live_feed_paused'])
     return len(snapshots)
 
 

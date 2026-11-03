@@ -403,6 +403,14 @@ def _live_value(raw: dict[str, Any]) -> Optional[dict[str, Any]]:
 LIVE_MANUAL_PREFIX = 'In play: '
 
 
+def main_suspended(odds: list[dict[str, Any]]) -> bool:
+    """Whether the feed has paused the match-result (1X2) prices."""
+    for bet in odds or []:
+        if LIVE_BETS.get(str(bet.get('name') or '').strip().lower()) == 'Match Winner':
+            return any(v.get('suspended') for v in bet.get('values') or [])
+    return False
+
+
 def parse_live_odds(
     odds: list[dict[str, Any]], *, first_half: bool = True, include_manual: bool = False,
 ) -> tuple[Optional[tuple[Decimal, Optional[Decimal], Decimal]], list[FeedMarketData]]:

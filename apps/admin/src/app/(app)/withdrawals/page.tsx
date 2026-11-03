@@ -4,12 +4,13 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { BsBank, BsCheck2Circle, BsCopy, BsSearch, BsXCircle } from 'react-icons/bs';
 import { PayoutsTab } from '@/components/affiliates/payouts-tab';
+import { WithdrawalLimitsPanel } from '@/components/settings/betting-rules';
 import {
   Badge, Btn, Drawer, EmptyState, Field, Notice, PageHeader, Panel, Tabs, TextInput, cx, money,
   tableClass, tdClass, thClass, trClass,
 } from '@/components/console/ui';
 import { useAuth } from '@/lib/auth-context';
-import { authedPost, authedRequest, useApi } from '@/lib/use-api';
+import { authedPost, useApi } from '@/lib/use-api';
 
 interface Context {
   balance: string; deposits: string; paid_out: string; net: string; pending: string; bonus_locked: string;
@@ -30,10 +31,6 @@ interface Withdrawal {
   risk_hold?: boolean; risk_note?: string;
 }
 interface Queue { results: Withdrawal[]; counts: { requested: number }; pending_total: string }
-interface Limits {
-  min_amount: string; max_amount: string; daily_max: string; min_turnover_percent: number | string; fee_percent: string;
-  deposit_fee_percent: string;
-}
 
 const TONE = { requested: 'gold', paid: 'green', rejected: 'red', cancelled: 'slate' } as const;
 type Status = Withdrawal['status'] | 'all';
@@ -48,7 +45,15 @@ export default function WithdrawalsPage() {
       <Tabs value={tab} onChange={setTab} items={[
         { id: 'players', label: 'Player withdrawals' }, { id: 'affiliates', label: 'Affiliate payouts' }, { id: 'limits', label: 'Limits' },
       ]} />
-      {tab === 'players' ? <PlayerWithdrawals /> : tab === 'affiliates' ? <PayoutsTab /> : <LimitsPanel />}
+      {tab === 'players' ? <PlayerWithdrawals /> : tab === 'affiliates' ? <PayoutsTab /> : (
+        <div className="space-y-6">
+          <WithdrawalLimitsPanel />
+          <p className="text-sm text-muted-foreground">
+            Stake limits, selections per ticket and each wallet&rsquo;s minimum odds are under{' '}
+            <Link href="/betting-rules" className="font-semibold text-secondary hover:underline">Betting rules</Link>.
+          </p>
+        </div>
+      )}
     </div>
   );
 }
@@ -304,97 +309,7 @@ function ContextCell({ c, wide }: { c: Context; wide?: boolean }) {
   );
 }
 
-function LimitsPanel() {
-  const { accessToken } = useAuth();
-  const { data, refetch } = useApi<Limits>('/admin/withdrawal-settings/');
-  const [form, setForm] = useState<Limits | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState<{ tone: 'green' | 'red'; text: string } | null>(null);
-  useEffect(() => { if (data) setForm(data); }, [data]);
-
-  async function save() {
-    if (!accessToken || !form) return;
-    setBusy(true);
-    const res = await authedRequest('PUT', '/admin/withdrawal-settings/', accessToken, form);
-    setBusy(false);
-    setNotice(res.error ? { tone: 'red', text: res.error } : { tone: 'green', text: 'Limits saved.' });
-    refetch();
-  }
-
-  const fields: { key: keyof Limits; label: string; hint: string }[] = [
-    { key: 'min_amount', label: 'Minimum per withdrawal ($)', hint: 'Smallest amount a player can ask for.' },
-    { key: 'max_amount', label: 'Maximum per withdrawal ($)', hint: 'Largest single request.' },
-    { key: 'daily_max', label: 'Daily cap per player ($)', hint: 'Total a player may request per day (0 = no cap).' },
-    { key: 'min_turnover_percent', label: 'Play-through of pre-split deposits (%)', hint: 'Only deposits made before the three-wallet split (now in Winnings). New deposits can never be withdrawn. 0 = off.' },
-    { key: 'fee_percent', label: 'Winnings withdrawal fee (%)', hint: 'Kept from every withdrawal of winnings; the player is sent the rest.' },
-    { key: 'deposit_fee_percent', label: 'Deposit withdrawal fee (%)', hint: 'Kept when a player chooses to withdraw from their Deposit wallet.' },
-  ];
-  return (
-    <>
-    <Panel title="Withdrawal limits" description="Players withdraw from Winnings, or from Deposit at the higher deposit fee — never from Bonus. Requests that break a rule are refused straight away with the reason, and never reach the queue: KYC not verified, not enough winnings, outside these limits, or pre-split deposits not yet played through. Attempts to withdraw Bonus money are refused and recorded in the audit log.">
-      {notice && <div className="mb-4"><Notice tone={notice.tone} onClose={() => setNotice(null)}>{notice.text}</Notice></div>}
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        {fields.map((f) => (
-          <Field key={f.key} label={f.label} hint={f.hint}>
-            <TextInput inputMode="decimal" value={form?.[f.key] ?? ''} onChange={(e) => setForm((v) => v && { ...v, [f.key]: e.target.value.replace(/[^0-9.]/g, '') })} />
-          </Field>
-        ))}
-      </div>
-      <div className="mt-4 flex justify-end"><Btn variant="primary" busy={busy} onClick={save}>Save limits</Btn></div>
-    </Panel>
-    <WalletRulesPanel />
-    </>
-  );
-}
-
 /** What staff send: the request less its withdrawal fee. */
 function sendAmount(w: Withdrawal) {
   return w.payout_amount ?? w.amount;
-}
-
-interface WalletRules {
-  deposit_min_odds: string; bonus_min_odds: string; winnings_min_odds: string;
-  bonus_min_legs: number | string; bonus_min_leg_odds: string; bonus_wins_to_convert: number | string; bonus_max_conversion: string;
-}
-
-/** Minimum combined odds for a ticket paid from each wallet. */
-function WalletRulesPanel() {
-  const { accessToken } = useAuth();
-  const { data, refetch } = useApi<WalletRules>('/admin/wallet-rules/');
-  const [form, setForm] = useState<WalletRules | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState<{ tone: 'green' | 'red'; text: string } | null>(null);
-  useEffect(() => { if (data) setForm(data); }, [data]);
-
-  async function save() {
-    if (!accessToken || !form) return;
-    setBusy(true);
-    const res = await authedRequest('PUT', '/admin/wallet-rules/', accessToken, form);
-    setBusy(false);
-    setNotice(res.error ? { tone: 'red', text: res.error } : { tone: 'green', text: 'Wallet rules saved.' });
-    refetch();
-  }
-
-  const fields: { key: keyof WalletRules; label: string; hint: string }[] = [
-    { key: 'deposit_min_odds', label: 'Deposit wallet — minimum odds', hint: 'Deposited money can be bet but never withdrawn.' },
-    { key: 'bonus_min_odds', label: 'Bonus wallet — minimum odds', hint: 'Promotional money can be bet but never withdrawn.' },
-    { key: 'winnings_min_odds', label: 'Winnings wallet — minimum odds', hint: '1.00 = any odds.' },
-    { key: 'bonus_min_legs', label: 'Bonus ticket — minimum selections', hint: 'Bonus money is staked in full on one multiple of at least this many.' },
-    { key: 'bonus_min_leg_odds', label: 'Bonus ticket — minimum odds per selection', hint: 'Every selection on a bonus ticket.' },
-    { key: 'bonus_wins_to_convert', label: 'Bonus — wins in a row to unlock', hint: 'Winning bonus tickets pay back into Bonus; after this many in a row it moves to Winnings.' },
-    { key: 'bonus_max_conversion', label: 'Bonus — most that unlocks ($)', hint: 'Anything above this is forfeited when the Bonus wallet unlocks.' },
-  ];
-  return (
-    <Panel title="Betting wallets" description="Players choose which wallet pays for each ticket, and its combined odds must reach that wallet's minimum. A winning Deposit or Winnings ticket returns its stake to that wallet and pays the profit into Winnings. Bonus money is for sports only: the whole Bonus wallet on one multiple; winnings return to Bonus until enough wins in a row unlock it into Winnings, up to the limit.">
-      {notice && <div className="mb-4"><Notice tone={notice.tone} onClose={() => setNotice(null)}>{notice.text}</Notice></div>}
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {fields.map((f) => (
-          <Field key={f.key} label={f.label} hint={f.hint}>
-            <TextInput inputMode="decimal" value={form?.[f.key] ?? ''} onChange={(e) => setForm((v) => v && { ...v, [f.key]: e.target.value.replace(/[^0-9.]/g, '') })} />
-          </Field>
-        ))}
-      </div>
-      <div className="mt-4 flex justify-end"><Btn variant="primary" busy={busy} onClick={save}>Save wallet rules</Btn></div>
-    </Panel>
-  );
 }

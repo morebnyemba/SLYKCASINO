@@ -278,7 +278,7 @@ SPORTSBOOK_LIVE_ODDS_INTERVAL = float(os.environ.get('SPORTSBOOK_LIVE_ODDS_INTER
 # poll, skipped while nothing could be live). api-football refreshes live data
 # about every 15s, so faster gains nothing: 15s is ~240 requests per hour of play.
 SPORTSBOOK_LIVE_SCORES_INTERVAL = float(os.environ.get('SPORTSBOOK_LIVE_SCORES_INTERVAL', '15'))
-SPORTSBOOK_LIVE_ODDS_STALE = int(os.environ.get('SPORTSBOOK_LIVE_ODDS_STALE', '30'))
+SPORTSBOOK_LIVE_ODDS_STALE = int(os.environ.get('SPORTSBOOK_LIVE_ODDS_STALE', '60'))
 SPORTSBOOK_LIVE_BET_DELAY = int(os.environ.get('SPORTSBOOK_LIVE_BET_DELAY', '6'))
 
 # Multi-bet bonus: legs priced below SPORTSBOOK_ACCA_BONUS_MIN_ODDS don't count

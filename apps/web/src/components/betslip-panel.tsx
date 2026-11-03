@@ -94,7 +94,7 @@ export function SlipBody({ onClose, variant = 'card' }: {
   const { user } = useAuth();
   const { oddsFormat } = useSettings();
   const {
-    legs, mode, setMode, accaStake, setAccaStake, legStakes, setLegStake,
+    legs, limits, mode, setMode, accaStake, setAccaStake, legStakes, setLegStake,
     combinedOdds, potentialPayout, bonus, status, busy,
     removeLeg, clear, place, conflictingEvents, hasPriceChanges, hasSuspended, acceptPriceChanges, wallet,
   } = useBetslip();
@@ -267,6 +267,11 @@ export function SlipBody({ onClose, variant = 'card' }: {
                     className="w-full rounded-xl border border-border bg-input py-2.5 pl-[4.5rem] pr-3 text-right text-base font-extrabold tabular-nums outline-none focus:ring-2 focus:ring-ring"
                   />
                 </div>
+                {wallet !== 'bonus' && limits && (
+                  <p className="mt-1.5 text-[11px] text-muted-foreground">
+                    Stake ${limits.minStake.toFixed(2)}–${limits.maxStake.toFixed(2)} · up to {limits.maxSelections} selections
+                  </p>
+                )}
                 {wallet !== 'bonus' && (
                 <div className="mt-2 grid grid-cols-5 gap-1.5">
                   {QUICK_STAKES.map((v) => (

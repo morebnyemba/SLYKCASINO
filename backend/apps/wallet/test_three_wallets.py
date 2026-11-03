@@ -44,7 +44,7 @@ class SeparationTests(Base):
     def test_money_lands_in_its_own_wallet(self):
         self.assertEqual(balances(self.player), {'deposit': '100.00', 'bonus': '50.00', 'winnings': '0.00'})
         body = self.api.get('/api/wallet/').json()
-        self.assertEqual(body['wallets']['deposit']['min_odds'], '5.00')
+        self.assertEqual(body['wallets']['deposit']['min_odds'], '1.50')
         self.assertEqual(body['wallets']['bonus']['min_odds'], '10.00')
         self.assertEqual((body['balance'], body['withdrawable']), ('150.00', '0.00'))
 
@@ -52,8 +52,8 @@ class SeparationTests(Base):
         bet = dict(event='A v B', stake=D('10'), player_id=self.player.id)
         with self.assertRaisesMessage(services.WalletRuleError, 'Choose which wallet'):
             sb.place_bet(odds=D('6'), **bet)
-        with self.assertRaisesMessage(services.WalletRuleError, 'at least 5.00'):
-            sb.place_bet(odds=D('4.99'), wallet='deposit', **bet)
+        with self.assertRaisesMessage(services.WalletRuleError, 'at least 1.50'):
+            sb.place_bet(odds=D('1.49'), wallet='deposit', **bet)
         with self.assertRaisesMessage(services.WalletRuleError, 'at least 10.00'):
             sb.place_bet(odds=D('9.50'), wallet='bonus', **bet)
         with self.assertRaisesMessage(services.WalletRuleError, 'multiple of at least 10'):
@@ -68,12 +68,12 @@ class SeparationTests(Base):
         self.assertEqual(balances(self.player), {'deposit': '100.00', 'bonus': '50.00', 'winnings': '0.00'})
 
     def test_minimum_odds_apply_to_the_combined_odds_of_a_multiple(self):
-        legs = [{'event': 'A', 'odds': D('2')}, {'event': 'B', 'odds': D('2')}]
-        with self.assertRaisesMessage(services.WalletRuleError, 'at least 5.00'):
+        legs = [{'event': 'A', 'odds': D('1.2')}, {'event': 'B', 'odds': D('1.2')}]
+        with self.assertRaisesMessage(services.WalletRuleError, 'at least 1.50'):
             sb.place_accumulator(stake=D('10'), legs=legs, player_id=self.player.id, wallet='deposit')
         legs.append({'event': 'C', 'odds': D('1.5')})
         slip = sb.place_accumulator(stake=D('10'), legs=legs, player_id=self.player.id, wallet='deposit')
-        self.assertEqual((slip.combined_odds, slip.wallet), (D('6.00'), 'deposit'))
+        self.assertEqual((slip.combined_odds, slip.wallet), (D('2.16'), 'deposit'))
 
     def test_api_refuses_a_bet_without_a_wallet(self):
         res = self.api.post('/api/bets/', {'event': 'A v B', 'stake': '5', 'odds': '6'}, format='json')

@@ -504,10 +504,12 @@ class AdminWalletRulesView(APIView):
     """GET/PUT /api/admin/wallet-rules/ — minimum ticket odds for betting from
     each wallet (deposit / bonus / winnings), and the Bonus wallet's rules:
     selections per ticket, odds per selection, wins in a row to unlock, and
-    the most that can move to Winnings."""
+    the most that can move to Winnings. Also the stake and selection limits on
+    every ticket. Changes apply to the next bet and the bet slip at once."""
     permission_classes = [IsAdminUser]
-    FIELDS = ('deposit_min_odds', 'bonus_min_odds', 'winnings_min_odds', 'bonus_min_leg_odds', 'bonus_max_conversion')
-    INTS = ('bonus_min_legs', 'bonus_wins_to_convert')
+    FIELDS = ('deposit_min_odds', 'bonus_min_odds', 'winnings_min_odds', 'bonus_min_leg_odds', 'bonus_max_conversion',
+              'min_stake', 'max_stake')
+    INTS = ('bonus_min_legs', 'bonus_wins_to_convert', 'max_selections')
 
     def _out(self, rules):
         return {**{f: str(getattr(rules, f)) for f in self.FIELDS}, **{f: getattr(rules, f) for f in self.INTS}}
@@ -533,6 +535,14 @@ class AdminWalletRulesView(APIView):
             return Response({'detail': 'Minimum odds must be between 1.00 and 1000.'}, status=status.HTTP_400_BAD_REQUEST)
         if not 1 <= rules.bonus_min_legs <= 30 or not 1 <= rules.bonus_wins_to_convert <= 10 or rules.bonus_max_conversion < 0:
             return Response({'detail': 'Selections 1–30, wins to unlock 1–10, and a non-negative unlock limit.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        if rules.min_stake <= 0 or rules.max_stake < rules.min_stake:
+            return Response({'detail': 'The minimum stake must be above $0 and at most the maximum stake.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        if not 2 <= rules.max_selections <= 50:
+            return Response({'detail': 'Selections per ticket: 2–50.'}, status=status.HTTP_400_BAD_REQUEST)
+        if rules.bonus_min_legs > rules.max_selections:
+            return Response({'detail': 'Bonus tickets can’t need more selections than a ticket may have.'},
                             status=status.HTTP_400_BAD_REQUEST)
         rules.save()
         accounts_services.audit(None, 'wallet_rules', request, **self._out(rules))

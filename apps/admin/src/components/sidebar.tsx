@@ -7,7 +7,7 @@ import type { IconType } from 'react-icons';
 import {
   BsActivity, BsBroadcast, BsCalendar2Week, BsCashStack, BsChatDots, BsClockHistory, BsGift, BsGrid1X2,
   BsImages, BsList, BsMoonStars, BsPalette, BsPeople, BsPersonBadge, BsBoxArrowRight, BsSun, BsTicketPerforated,
-  BsTrophy, BsXLg, BsDiagram3, BsDatabase, BsCreditCard2Front, BsAirplane, BsPieChart, BsBank, BsShieldExclamation, BsTicket,
+  BsTrophy, BsXLg, BsDiagram3, BsDatabase, BsCreditCard2Front, BsAirplane, BsPieChart, BsBank, BsShieldExclamation, BsTicket, BsSliders,
 } from 'react-icons/bs';
 import { useAuth } from '@/lib/auth-context';
 import { useSiteIdentity } from '@/lib/identity-context';
@@ -54,6 +54,7 @@ export const NAV: NavSection[] = [
     { href: '/banners', label: 'Banners', icon: BsImages },
   ] },
   { title: 'Settings', items: [
+    { href: '/betting-rules', label: 'Betting rules', icon: BsSliders },
     { href: '/branding', label: 'Branding', icon: BsPalette },
     { href: '/audit-log', label: 'Audit log', icon: BsClockHistory },
   ] },
