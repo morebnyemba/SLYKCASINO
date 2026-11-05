@@ -8,7 +8,7 @@ import { BRAND_MARK, Wordmark } from '@/components/logo';
 /**
  * The one loader used across the site: the bolt-tile mark breathing inside a
  * spinning cyan → blue → violet → magenta ring (the logo's ring), with the
- * wordmark underneath. Used for the
+ * text wordmark underneath. Used for the
  * first-load splash, page changes and route loading screens so every wait looks
  * the same. An operator-uploaded logo replaces the artwork.
  */
@@ -32,7 +32,7 @@ export function SiteLoader({ caption }: { caption?: string }) {
       {custom ? (
         <p className="text-sm font-black tracking-tight">{identity.site_name}</p>
       ) : (
-        <Wordmark alt={identity.site_name} className="h-8" />
+        <Wordmark art="loader" alt={identity.site_name} className="h-7" />
       )}
       <p className="text-xs font-medium text-muted-foreground">{caption ?? 'Loading…'}</p>
     </div>
