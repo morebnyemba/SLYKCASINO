@@ -9,16 +9,25 @@ import { useSiteIdentity } from '@/lib/identity-context';
 export const BRAND_WORDMARK = { src: '/brand/wordmark.webp', width: 1036, height: 300 };
 export const BRAND_WORDMARK_DARK = { src: '/brand/wordmark-dark.webp', width: 1036, height: 300 };
 export const BRAND_MARK = { src: '/brand/mark.webp', width: 512, height: 512 };
+// Text-only wordmark (~4.4:1) shown under the loader, same two versions.
+export const LOADER_WORDMARK = { src: '/brand/loader-wordmark.webp', width: 700, height: 160 };
+export const LOADER_WORDMARK_DARK = { src: '/brand/loader-wordmark-dark.webp', width: 700, height: 160 };
 
 /** The wordmark for the current theme. `on="dark"` forces the white-text
  *  version (for always-dark surfaces such as gradient panels). */
-export function Wordmark({ alt, className = '', on }: { alt: string; className?: string; on?: 'dark' }) {
+export function Wordmark({ alt, className = '', on, art }: {
+  alt: string; className?: string; on?: 'dark';
+  /** Use the text-only loader artwork instead of the icon + text wordmark. */
+  art?: 'loader';
+}) {
+  const [BRAND_WORDMARK_LIGHT, BRAND_WORDMARK_ON_DARK] = art === 'loader'
+    ? [LOADER_WORDMARK, LOADER_WORDMARK_DARK] : [BRAND_WORDMARK, BRAND_WORDMARK_DARK];
   const img = (w: typeof BRAND_WORDMARK, extra: string) => (
     // eslint-disable-next-line @next/next/no-img-element
     <img src={w.src} width={w.width} height={w.height} alt={alt} className={`w-auto object-contain ${extra} ${className}`} />
   );
-  if (on === 'dark') return img(BRAND_WORDMARK_DARK, '');
-  return <>{img(BRAND_WORDMARK, 'brand-on-light')}{img(BRAND_WORDMARK_DARK, 'brand-on-dark')}</>;
+  if (on === 'dark') return img(BRAND_WORDMARK_ON_DARK, '');
+  return <>{img(BRAND_WORDMARK_LIGHT, 'brand-on-light')}{img(BRAND_WORDMARK_ON_DARK, 'brand-on-dark')}</>;
 }
 
 /** The site logo, linking home. `markOnly` shows just the square mark (collapsed rail). */
