@@ -3,13 +3,19 @@ stay open unless the feed or staff genuinely suspend them — and each can be
 switched on in LiveTradingSettings.
 
 - **Lock:** a match stops trading in play for good once its clock reaches
-  LiveTradingSettings.lock_minute (60' by default). By the match clock, not
+  LiveTradingSettings.lock_minute (75' by default). By the match clock, not
   the wall clock: half-time doesn't count. Set once and never cleared, so a
-  feed that later reports an earlier minute can't reopen it.
+  feed that later reports an earlier minute can't reopen it. If the feed goes
+  silent the clock can't be read, so a wall-clock cut-off (kick-off + lock
+  minute + a half-time and stoppage allowance) locks the match anyway.
 - **Hold:** a match is suspended for review when the feed looks wrong or the
   market looks attacked — a match-result price jumping with no goal, the score
   going down or the clock going backwards, or a burst of in-play money on one
   selection. Staff can also suspend by hand. Only staff reopen a hold.
+
+While LiveTradingSettings.keep_markets_open is on (the default) the
+automatic holds are disabled: nothing suspends a market before the lock
+minute except staff, and what play has already decided (outcome_decided).
 
 Either one makes services.in_play_bettable() false, so new in-play bets are
 refused and bets still in their acceptance delay are rejected and refunded.
@@ -31,9 +37,27 @@ GOAL_GRACE = timedelta(minutes=2)
 CLOCK_SLACK = 2
 
 
-def closed_reason(event: Event) -> Optional[str]:
+# Half-time (15') plus stoppage-time allowance after the lock minute, for the
+# wall-clock cut-off used only when the feed's match clock can't be read.
+WALL_CLOCK_ALLOWANCE = timedelta(minutes=18)
+
+
+def keep_markets_open() -> bool:
+    return LiveTradingSettings.load().keep_markets_open
+
+
+def wall_clock_locked(event: Event, *, now=None) -> bool:
+    """Past the lock by the wall clock alone — the safety net for a silent
+    feed. A healthy feed locks at the real lock minute, earlier than this."""
+    minute = LiveTradingSettings.current().lock_minute
+    if not minute or event.starts_at is None:
+        return False
+    return (now or timezone.now()) >= event.starts_at + timedelta(minutes=minute) + WALL_CLOCK_ALLOWANCE
+
+
+def closed_reason(event: Event, *, now=None) -> Optional[str]:
     """Why in-play trading is shut on this match (None = it isn't)."""
-    if event.live_locked_at:
+    if event.live_locked_at or wall_clock_locked(event, now=now):
         minute = LiveTradingSettings.load().lock_minute
         return f'In-play betting closes at {minute}\''
     if event.live_hold_reason:
@@ -87,7 +111,8 @@ def check_feed(event: Event, *, old_score, old_elapsed, now=None) -> list[str]:
     """Hold on data that can't be right: the score going down (a goal ruled out
     is a reason to stop too) or the clock running backwards. Only when the
     operator switched it on (hold_on_bad_feed)."""
-    if not LiveTradingSettings.load().hold_on_bad_feed:
+    cfg = LiveTradingSettings.load()
+    if cfg.keep_markets_open or not cfg.hold_on_bad_feed:
         return []
     new_score = (event.score_home, event.score_away)
     if None not in (*old_score, *new_score) and sum(new_score) < sum(old_score):
@@ -104,8 +129,9 @@ def check_price_jump(event: Event, old_prices, new_prices, *, now=None) -> list[
     now = now or timezone.now()
     if event.last_goal_at and now - event.last_goal_at < GOAL_GRACE:
         return []
-    limit = Decimal(LiveTradingSettings.load().price_jump_percent)
-    if not limit:
+    cfg = LiveTradingSettings.load()
+    limit = Decimal(cfg.price_jump_percent)
+    if cfg.keep_markets_open or not limit:
         return []
     for label, old, new in zip(('home', 'draw', 'away'), old_prices, new_prices):
         if not old or not new:
@@ -124,7 +150,7 @@ def check_stake_burst(event_id: Optional[int], *, selection: str = '', outcome_i
     if event_id is None:
         return
     cfg = LiveTradingSettings.load()
-    if not cfg.burst_amount:
+    if cfg.keep_markets_open or not cfg.burst_amount:
         return
     now = now or timezone.now()
     since = now - timedelta(minutes=cfg.burst_minutes)
@@ -155,3 +181,85 @@ def _flag_recent_bettors(event: Event, reason: str) -> None:
         risk.safely(risk.flag, pid, 'live_bet_before_suspension', risk.Severity.LOW,
                     f'Bet in play on {event.name} just before it was suspended ({reason}).',
                     dedupe=f'event:{event.id}', data={'event_id': event.id, 'reason': reason})
+
+
+# -- outcomes play has already decided -----------------------------------------
+
+# Markets that stay open to the lock minute can still never offer a price on
+# something already settled by the score or the clock: that is not a market
+# that "might still happen", it is free money. Only outcomes that can no longer
+# change are shut — everything undecided stays open.
+
+def _goals(event: Event) -> Optional[tuple[int, int]]:
+    if event.score_home is None or event.score_away is None:
+        return None
+    return event.score_home, event.score_away
+
+
+def _line_decided(total: int, line, key: str) -> bool:
+    return line is not None and key in ('over', 'under') and total > line
+
+
+def outcome_decided(event: Event, market, outcome) -> bool:
+    """Whether the match so far has already decided this outcome (won or lost
+    for certain, whatever happens next). Conservative: only the cases that can
+    only move one way — goals can't be un-scored — and a half that is over."""
+    from .services import IN_PLAY_STATUSES
+    if event.status not in IN_PLAY_STATUSES:
+        return False
+    period = market.period or 'ft'
+    first_half_over = event.status in ('HT', '2H') or (event.elapsed or 0) > 45
+    if period == '1h':
+        return first_half_over
+    if period != 'ft' or (market.metric or 'goals') != 'goals':
+        return False
+    score = _goals(event)
+    if score is None:
+        return False
+    home, away = score
+    total, kind, key = home + away, market.kind, outcome.key
+    if kind == 'over_under':
+        return _line_decided(total, market.line, key)
+    if kind == 'home_over_under':
+        return _line_decided(home, market.line, key)
+    if kind == 'away_over_under':
+        return _line_decided(away, market.line, key)
+    if kind == 'btts':
+        return home > 0 and away > 0
+    if kind == 'team_to_score_home':
+        return home > 0
+    if kind == 'team_to_score_away':
+        return away > 0
+    if kind == 'clean_sheet_home':
+        return away > 0
+    if kind == 'clean_sheet_away':
+        return home > 0
+    if kind == 'correct_score':
+        try:
+            want_home, want_away = (int(p) for p in key.split(':'))
+        except ValueError:
+            return False
+        return home > want_home or away > want_away
+    if kind in ('exact_goals', 'home_exact_goals', 'away_exact_goals'):
+        n = {'exact_goals': total, 'home_exact_goals': home, 'away_exact_goals': away}[kind]
+        try:
+            return n >= int(key[:-1]) if key.endswith('+') else n > int(key)
+        except ValueError:
+            return False
+    return False
+
+
+def close_decided(event: Event) -> int:
+    """Shut the open outcomes play has decided, so boards show them closed (new
+    bets on them are refused regardless — see services). Returns how many."""
+    from .models import MarketOutcome
+    closed = 0
+    outcomes = MarketOutcome.objects.filter(
+        market__event=event, market__settled=False, is_open=True, result=MarketOutcome.Result.PENDING,
+    ).select_related('market')
+    for outcome in outcomes:
+        if outcome_decided(event, outcome.market, outcome):
+            outcome.is_open = False
+            outcome.save(update_fields=['is_open'])
+            closed += 1
+    return closed

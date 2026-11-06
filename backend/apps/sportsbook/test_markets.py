@@ -198,7 +198,12 @@ class ApplyFeedMarketsTests(TestCase):
             ))
         return markets
 
+    def _keep_open(self, on):
+        from apps.sportsbook.models import LiveTradingSettings
+        LiveTradingSettings.objects.update_or_create(pk=1, defaults={'keep_markets_open': on})
+
     def test_upserts_tracks_price_moves_and_suspends_missing(self):
+        self._keep_open(False)
         sb.apply_feed_markets(self.event, self._feed())
         self.assertEqual(Market.objects.filter(event=self.event).count(), 2)
 
@@ -208,6 +213,14 @@ class ApplyFeedMarketsTests(TestCase):
         self.assertEqual(over.previous_odds, D('1.90'))
         self.assertFalse(Market.objects.get(key='btts:ft').is_open)
         self.assertEqual(Market.objects.filter(event=self.event).count(), 2)  # nothing duplicated
+
+    def test_markets_missing_from_the_feed_stay_open_while_kept_open(self):
+        self._keep_open(True)
+        sb.apply_feed_markets(self.event, self._feed())
+        sb.apply_feed_markets(self.event, self._feed(over='2.05', include_btts=False))
+        btts = Market.objects.get(key='btts:ft')
+        self.assertTrue(btts.is_open and all(o.is_open for o in btts.outcomes.all()))
+        self.assertEqual(MarketOutcome.objects.get(market__key='over_under:ft:2.5', key='over').odds, D('2.05'))
 
     def test_sync_fixture_odds_applies_markets(self):
         self.event.provider, self.event.external_id = 'api-football', '77'
