@@ -9,7 +9,7 @@ import { authedPost, authedRequest, useApi } from '@/lib/use-api';
 
 interface LiveSettings {
   lock_minute: number | string; price_jump_percent: number | string; burst_amount: string; burst_minutes: number | string;
-  hold_on_bad_feed: boolean; suspend_on_feed_pause: boolean;
+  hold_on_bad_feed: boolean; suspend_on_feed_pause: boolean; keep_markets_open: boolean;
   held: { id: number; name: string; status: string; elapsed: number | null; reason: string; held_at: string }[];
 }
 
@@ -22,6 +22,18 @@ export function LiveGuardPanel() {
   const [notice, setNotice] = useState<{ tone: 'green' | 'red'; text: string } | null>(null);
   useEffect(() => { if (data) setForm(data); }, [data]);
   useEffect(() => { const t = window.setInterval(refetch, 15000); return () => window.clearInterval(t); }, [refetch]);
+
+  async function unlockAll() {
+    if (!accessToken) return;
+    setBusy(true);
+    const res = await authedPost<{ events: number; holds_cleared: number; markets: number; outcomes: number }>(
+      '/admin/sportsbook/unlock-markets/', {}, accessToken);
+    setBusy(false);
+    const r = res.data;
+    setNotice(res.error || !r ? { tone: 'red', text: res.error ?? 'Could not unlock markets.' }
+      : { tone: 'green', text: `Reopened ${r.markets} markets and ${r.outcomes} outcomes; ${r.events} matches reopened, ${r.holds_cleared} suspensions cleared.` });
+    refetch();
+  }
 
   async function save() {
     if (!accessToken || !form) return;
@@ -38,7 +50,7 @@ export function LiveGuardPanel() {
 
   return (
     <Panel title="Live market protection"
-      description="Every live match trades from kick-off until the lock minute (75 by default, by the match clock), when all its markets lock until full time. Otherwise markets stay open unless the feed or your team suspends them: the other automatic holds below are off (0) by default — switch one on only if you need it. You can always suspend a match by hand from its page.">
+      description="Every live match trades from kick-off until the lock minute (75 by default, by the match clock), when all its markets lock until full time. With “Keep every market open” on, nothing suspends a market before then — not the odds feed pausing or dropping a market, and not the automatic holds below. Markets keep their last price, and only outcomes the match has already decided (an over the score has passed, a first-half market once the half is over) close. You can always suspend a match by hand from its page.">
       {notice && <div className="mb-4"><Notice tone={notice.tone} onClose={() => setNotice(null)}>{notice.text}</Notice></div>}
       {(data?.held.length ?? 0) > 0 && (
         <div className="mb-4 space-y-2">
@@ -68,12 +80,17 @@ export function LiveGuardPanel() {
       </div>
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
         <div className="space-y-2">
+          <Switch checked={!!form?.keep_markets_open} onChange={(v) => setForm((f) => f && { ...f, keep_markets_open: v })}
+            label="Keep every market open until the lock minute (turns the automatic suspensions below off)" />
           <Switch checked={!!form?.hold_on_bad_feed} onChange={(v) => setForm((f) => f && { ...f, hold_on_bad_feed: v })}
             label="Suspend when the feed's score goes down or its clock runs backwards" />
           <Switch checked={!!form?.suspend_on_feed_pause} onChange={(v) => setForm((f) => f && { ...f, suspend_on_feed_pause: v })}
             label="Suspend markets every time the odds feed pauses (off: they stay open, and bets placed during a pause are only accepted once the feed resumes with no goal and the same price)" />
         </div>
-        <Btn variant="primary" busy={busy} onClick={save}>Save live protection</Btn>
+        <div className="flex flex-wrap gap-2">
+          <Btn variant="outline" busy={busy} onClick={unlockAll}>Unlock every market now</Btn>
+          <Btn variant="primary" busy={busy} onClick={save}>Save live protection</Btn>
+        </div>
       </div>
     </Panel>
   );

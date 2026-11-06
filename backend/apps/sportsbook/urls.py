@@ -5,7 +5,7 @@ from .admin_api import AdminEventViewSet, AdminLeagueViewSet, FeedSettingsView, 
 from .admin_tickets import AdminTicketDetailView, AdminTicketsView
 from .player_tickets import MyTicketsView, PublicTicketView
 from .views import (
-    AdminBetViewSet, AdminCashoutSettingsView, AdminLiveTradingSettingsView, BetSlipViewSet, BetViewSet, BookingCodeCreateView,
+    AdminBetViewSet, AdminCashoutSettingsView, AdminLiveTradingSettingsView, AdminUnlockMarketsView, BetSlipViewSet, BetViewSet, BookingCodeCreateView,
     BookingCodeDetailView, CashoutOffersView, EventViewSet, MultiBetBonusView,
 )
 
@@ -28,6 +28,7 @@ urlpatterns = [
     path('admin/tickets/<str:ticket>/', AdminTicketDetailView.as_view(), name='admin-ticket-detail'),
     path('admin/sportsbook/cashout/', AdminCashoutSettingsView.as_view(), name='admin-sb-cashout'),
     path('admin/sportsbook/live-trading/', AdminLiveTradingSettingsView.as_view(), name='admin-sb-live-trading'),
+    path('admin/sportsbook/unlock-markets/', AdminUnlockMarketsView.as_view(), name='admin-sb-unlock-markets'),
     path('admin/sportsbook/feed/', FeedSettingsView.as_view(), name='admin-sb-feed'),
     path('admin/sportsbook/feed/test/', FeedTestView.as_view(), name='admin-sb-feed-test'),
     path('admin/sportsbook/feed/sync/', FeedSyncView.as_view(), name='admin-sb-feed-sync'),

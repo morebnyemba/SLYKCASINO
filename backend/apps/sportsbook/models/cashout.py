@@ -45,15 +45,41 @@ class LiveTradingSettings(models.Model):
     # are then accepted only if the price held and no goal went in. On: every
     # pause suspends the match's markets (the old behaviour).
     suspend_on_feed_pause = models.BooleanField(default=False)
+    # The operator's rule: every market on every upcoming and live match stays
+    # open until the lock minute, then everything locks. While on, nothing
+    # suspends a market by itself — not a feed pause, a market the feed stops
+    # offering, a quiet feed, or the automatic holds above; markets keep their
+    # last price. Only what play has already decided (an "over" the score has
+    # passed, a first-half market once the half is over) and what staff close
+    # by hand stay shut.
+    keep_markets_open = models.BooleanField(default=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         db_table = 'sportsbook_live_trading_settings'
 
+    CACHE_KEY = 'sportsbook:live-trading-settings'
+
     @classmethod
     def load(cls) -> 'LiveTradingSettings':
         obj, _ = cls.objects.get_or_create(pk=1)
         return obj
+
+    @classmethod
+    def current(cls) -> 'LiveTradingSettings':
+        """load() for hot paths (every event on a board): cached for a few
+        seconds and dropped whenever the settings are saved."""
+        from django.core.cache import cache
+        obj = cache.get(cls.CACHE_KEY)
+        if obj is None:
+            obj = cls.load()
+            cache.set(cls.CACHE_KEY, obj, 5)
+        return obj
+
+    def save(self, *args, **kwargs):
+        from django.core.cache import cache
+        super().save(*args, **kwargs)
+        cache.delete(self.CACHE_KEY)
 
 
 class Cashout(models.Model):

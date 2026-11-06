@@ -100,7 +100,10 @@ class InPlayBase(TestCase):
         # These cover acceptance, pricing and feed handling; the guard (lock
         # minute, price-jump and stake-burst holds) has its own tests.
         from apps.sportsbook.models import LiveTradingSettings
-        LiveTradingSettings.objects.update_or_create(pk=1, defaults={'price_jump_percent': 0, 'burst_amount': 0})
+        # keep_markets_open is off here: these cover the suspending behaviour an
+        # operator can still choose; keep-open has its own tests (test_keep_open).
+        LiveTradingSettings.objects.update_or_create(
+            pk=1, defaults={'price_jump_percent': 0, 'burst_amount': 0, 'keep_markets_open': False})
         self.t0 = timezone.now()
         self.event = Event.objects.create(
             name='Arsenal vs Chelsea', provider=ApiFootballClient.provider_name, external_id='555',

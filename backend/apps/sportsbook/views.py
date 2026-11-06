@@ -427,6 +427,25 @@ class AdminCashoutSettingsView(APIView):
         return Response(self._payload())
 
 
+class AdminUnlockMarketsView(APIView):
+    """POST /api/admin/sportsbook/unlock-markets/ — reopen every market and
+    betting option on every upcoming and live match (not past the lock minute),
+    and clear holds. Returns what was reopened."""
+    permission_classes = [IsAdminUser]
+
+    def post(self, request):
+        from apps.accounts import services as accounts_services
+        from . import live_guard
+        from .models import Event, LiveTradingSettings, Market, MarketOutcome
+        from .unlock import unlock_markets
+        report = unlock_markets(
+            Event=Event, Market=Market, MarketOutcome=MarketOutcome,
+            lock_minute=LiveTradingSettings.load().lock_minute, after_live=live_guard.close_decided,
+        )
+        accounts_services.audit(None, 'markets_unlocked', request, **report)
+        return Response(report)
+
+
 class AdminLiveTradingSettingsView(APIView):
     """GET/PUT /api/admin/sportsbook/live-trading/ — the in-play guard: the
     minute live betting closes for good, and when a match is suspended for
@@ -434,7 +453,7 @@ class AdminLiveTradingSettingsView(APIView):
     lists the matches held right now."""
     permission_classes = [IsAdminUser]
     FIELDS = ('lock_minute', 'price_jump_percent', 'burst_minutes')
-    FLAGS = ('hold_on_bad_feed', 'suspend_on_feed_pause')
+    FLAGS = ('hold_on_bad_feed', 'suspend_on_feed_pause', 'keep_markets_open')
 
     def _payload(self):
         from .models import Event, LiveTradingSettings

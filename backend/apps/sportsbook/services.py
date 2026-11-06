@@ -168,7 +168,8 @@ def in_play_bettable(event: Event, *, now=None) -> bool:
     """Whether `event` is trading in play right now: live betting is on, the
     match is in a traded period, an operator hasn't closed it, and the live feed
     priced it within the last SPORTSBOOK_LIVE_ODDS_STALE seconds (a feed that
-    goes quiet suspends betting rather than leaving stale prices up)."""
+    goes quiet suspends betting rather than leaving stale prices up) — unless
+    the operator keeps markets open until the lock minute."""
     from datetime import timedelta
 
     if not live_betting_enabled() or not event.is_open or event.status not in IN_PLAY_STATUSES:
@@ -176,7 +177,15 @@ def in_play_bettable(event: Event, *, now=None) -> bool:
     # Past the lock minute, or held by the guard/staff (live_guard).
     if event.live_locked_at or event.live_hold_reason or event.live_odds_at is None:
         return False
+    from . import live_guard
     now = now or timezone.now()
+    if live_guard.wall_clock_locked(event, now=now):
+        return False  # the feed's clock went silent past the lock minute
+    if LiveTradingSettings.current().keep_markets_open:
+        # A quiet feed doesn't suspend anything: markets stay open at their
+        # last prices until the lock. New bets are still only accepted once the
+        # feed confirms the price after placement (_live_recheck).
+        return True
     return event.live_odds_at >= now - timedelta(seconds=_live_setting('SPORTSBOOK_LIVE_ODDS_STALE', 60))
 
 
@@ -203,7 +212,7 @@ def trading_state(event: Event, *, now=None) -> dict:
         'bettable': live or pre_match_bettable(event),
         'main_open': (live and event.live_main_open) or pre_match_bettable(event),
         # Why a match in play isn't taking bets (past the lock minute, or held).
-        'live_closed': closed_reason(event) if event.status in IN_PLAY_STATUSES else None,
+        'live_closed': closed_reason(event, now=now) if event.status in IN_PLAY_STATUSES else None,
     }
 
 
@@ -258,6 +267,10 @@ def _lock_bettable_outcome(outcome_id: int, odds: Decimal) -> tuple[MarketOutcom
         or not outcome.is_open or outcome.result != MarketOutcome.Result.PENDING
     ):
         raise SelectionUnavailable(f'{market.name} — {outcome.label} is suspended.')
+    if in_play:
+        from . import live_guard
+        if live_guard.outcome_decided(event, market, outcome):
+            raise SelectionUnavailable(f'{market.name} — {outcome.label} is already decided.')
     if utils.quantize(odds) != utils.quantize(outcome.odds):
         raise OddsChanged(f'{market.name} — {outcome.label}', utils.quantize(odds), outcome.odds, outcome.id)
     return outcome, in_play
@@ -675,6 +688,9 @@ def _live_recheck(
             or not outcome.is_open or outcome.result != MarketOutcome.Result.PENDING
         ):
             return 'the selection was suspended'
+        from . import live_guard
+        if live_guard.outcome_decided(event, outcome.market, outcome):
+            return 'the selection was decided'
         current = outcome.odds
     else:
         current = _main_price(event, selection) if event.live_main_open else None
@@ -938,7 +954,13 @@ def apply_feed_markets(event: Event, markets: tuple[FeedMarketData, ...] | list[
     """Upsert a feed's markets/outcomes onto an open event. Prices that move keep
     their previous price for the ▲/▼ hint; markets or outcomes the feed stopped
     offering are suspended (not deleted — bets may reference them). Settled
-    markets are never touched. Returns the number of markets in the feed."""
+    markets are never touched. Returns the number of markets in the feed.
+
+    While the operator keeps markets open until the lock minute, nothing the
+    feed leaves out or suspends is closed: those markets and outcomes stay open
+    at their last price. Only what play has already decided is shut."""
+    from . import live_guard
+    keep_open = live_guard.keep_markets_open()
     existing = {m.key: m for m in Market.objects.filter(event=event).prefetch_related('outcomes')}
     seen: set[str] = set()
     for data in markets:
@@ -988,14 +1010,16 @@ def apply_feed_markets(event: Event, markets: tuple[FeedMarketData, ...] | list[
             if changed:
                 outcome.save(update_fields=changed)
         for key, outcome in outcomes.items():
-            if key not in feed_keys and outcome.is_open:
+            if key not in feed_keys and outcome.is_open and not keep_open:
                 outcome.is_open = False
                 outcome.save(update_fields=['is_open'])
 
     for key, market in existing.items():
-        if key not in seen and market.is_open and not market.settled:
+        if key not in seen and market.is_open and not market.settled and not keep_open:
             market.is_open = False
             market.save(update_fields=['is_open'])
+    if keep_open and event.status in IN_PLAY_STATUSES:
+        live_guard.close_decided(event)
     return len(seen)
 
 
@@ -1582,10 +1606,13 @@ def apply_live_odds(snapshot: LiveOddsSnapshot, *, now=None) -> Optional[Event]:
     # A brief pause by the feed (a dangerous attack, a VAR check) keeps the
     # match open at its last live prices unless the operator chose to suspend
     # on every pause; a match that was never priced live can't ride one out.
+    cfg = LiveTradingSettings.load()
     paused = snapshot.blocked or snapshot.main_suspended
     stale = timedelta(seconds=_live_setting('SPORTSBOOK_LIVE_ODDS_STALE', 60))
-    ride_out = (paused and not LiveTradingSettings.load().suspend_on_feed_pause
-                and event.live_odds_at is not None and now - event.live_odds_at <= stale)
+    # Kept-open markets ride out a pause however long it lasts (until the lock).
+    ride_out = (paused and event.live_odds_at is not None
+                and (cfg.keep_markets_open
+                     or (not cfg.suspend_on_feed_pause and now - event.live_odds_at <= stale)))
     tradable = (not snapshot.finished and (not paused or ride_out) and event.is_open
                 and event.status in IN_PLAY_STATUSES and not event.live_locked_at and not event.live_hold_reason)
     if not tradable:
@@ -1601,6 +1628,8 @@ def apply_live_odds(snapshot: LiveOddsSnapshot, *, now=None) -> Optional[Event]:
         event.live_odds_at = now
         fields += ['live_feed_paused', 'live_odds_at']
         event.save(update_fields=sorted(set(fields)))
+        if cfg.keep_markets_open:
+            live_guard.close_decided(event)  # a goal may have gone in during the pause
         return event
     if event.live_feed_paused:
         event.live_feed_paused = False
@@ -1611,7 +1640,8 @@ def apply_live_odds(snapshot: LiveOddsSnapshot, *, now=None) -> Optional[Event]:
         event.odds, event.odds_draw, event.odds_away = snapshot.one_x_two
         event.has_odds = True
         fields += ['odds', 'odds_draw', 'odds_away', 'previous_odds', 'has_odds']
-    event.live_main_open = snapshot.one_x_two is not None
+    # With markets kept open, a feed that leaves the 1X2 out doesn't close it.
+    event.live_main_open = snapshot.one_x_two is not None or (cfg.keep_markets_open and event.live_main_open)
     event.live_odds_at = now
     fields += ['live_main_open', 'live_odds_at']
     event.save(update_fields=sorted(set(fields)))
@@ -1671,6 +1701,10 @@ def sync_live_odds(*, now=None) -> int:
     # stopped being priced: stop trading it, and the save publishes the lock to
     # every open board and slip. One missed poll doesn't lock it.
     from datetime import timedelta
+
+    from . import live_guard
+    if live_guard.keep_markets_open():
+        return len(snapshots)  # nothing is suspended by the feed going quiet
     priced = {s.external_id for s in snapshots}
     stale = timedelta(seconds=_live_setting('SPORTSBOOK_LIVE_ODDS_STALE', 60))
     for event in Event.objects.filter(
