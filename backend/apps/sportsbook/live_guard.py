@@ -226,6 +226,16 @@ def outcome_decided(event: Event, market, outcome) -> bool:
         return _line_decided(away, market.line, key)
     if kind == 'btts':
         return home > 0 and away > 0
+    if kind == 'win_to_nil_home':
+        return away > 0
+    if kind == 'win_to_nil_away':
+        return home > 0
+    if kind == 'first_team_to_score':
+        if total == 0:
+            return False
+        # Once a goal is in, "no goal" is out; with one side scoring so far the
+        # first scorer is known too.
+        return key == 'none' or home == 0 or away == 0
     if kind == 'team_to_score_home':
         return home > 0
     if kind == 'team_to_score_away':
@@ -249,16 +259,24 @@ def outcome_decided(event: Event, market, outcome) -> bool:
     return False
 
 
+def below_live_floor(odds) -> bool:
+    """A price too short to take in play (LiveTradingSettings.live_min_odds)."""
+    floor = LiveTradingSettings.load().live_min_odds
+    return floor > 0 and Decimal(str(odds)) < floor
+
+
 def close_decided(event: Event) -> int:
-    """Shut the open outcomes play has decided, so boards show them closed (new
-    bets on them are refused regardless — see services). Returns how many."""
+    """Shut the open outcomes play has decided or priced below the live floor,
+    so boards show them closed (new bets on them are refused regardless — see
+    services). Returns how many."""
     from .models import MarketOutcome
     closed = 0
+    floor = LiveTradingSettings.load().live_min_odds
     outcomes = MarketOutcome.objects.filter(
         market__event=event, market__settled=False, is_open=True, result=MarketOutcome.Result.PENDING,
     ).select_related('market')
     for outcome in outcomes:
-        if outcome_decided(event, outcome.market, outcome):
+        if outcome_decided(event, outcome.market, outcome) or (floor > 0 and outcome.odds < floor):
             outcome.is_open = False
             outcome.save(update_fields=['is_open'])
             closed += 1

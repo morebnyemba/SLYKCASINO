@@ -462,6 +462,7 @@ class AdminLiveTradingSettingsView(APIView):
             status__in=('FT', 'AET', 'PEN')).order_by('-live_hold_at')[:50]
         return {
             **{f: getattr(cfg, f) for f in (*self.FIELDS, *self.FLAGS)}, 'burst_amount': f'{cfg.burst_amount:.2f}',
+            'live_min_odds': f'{cfg.live_min_odds:.2f}',
             'held': [{'id': e.id, 'name': e.name, 'status': e.status, 'elapsed': e.elapsed,
                       'reason': e.live_hold_reason, 'held_at': e.live_hold_at} for e in held],
         }
@@ -484,13 +485,17 @@ class AdminLiveTradingSettingsView(APIView):
                     setattr(cfg, f, bool(request.data[f]))
             if 'burst_amount' in request.data:
                 cfg.burst_amount = Decimal(str(request.data['burst_amount'])).quantize(Decimal('0.01'))
+            if 'live_min_odds' in request.data:
+                cfg.live_min_odds = Decimal(str(request.data['live_min_odds'])).quantize(Decimal('0.01'))
         except (InvalidOperation, ValueError, TypeError):
             return Response({'detail': 'Enter whole numbers (and an amount).'}, status=status.HTTP_400_BAD_REQUEST)
+        if cfg.live_min_odds != 0 and not Decimal('1') <= cfg.live_min_odds <= Decimal('3'):
+            return Response({'detail': 'The shortest live price is 1.00–3.00 (0 = off).'}, status=status.HTTP_400_BAD_REQUEST)
         if not 0 <= cfg.lock_minute <= 120 or not 0 <= cfg.price_jump_percent <= 1000 or cfg.burst_minutes < 1 or cfg.burst_amount < 0:
             return Response({'detail': 'Lock minute 0–120 (0 = never), price jump 0–1000% (0 = off), '
                                        'a window of at least a minute, and a non-negative amount (0 = off).'},
                             status=status.HTTP_400_BAD_REQUEST)
         cfg.save()
         accounts_services.audit(None, 'live_trading_settings', request,
-                                **{f: str(getattr(cfg, f)) for f in (*self.FIELDS, *self.FLAGS, 'burst_amount')})
+                                **{f: str(getattr(cfg, f)) for f in (*self.FIELDS, *self.FLAGS, 'burst_amount', 'live_min_odds')})
         return Response(self._payload())

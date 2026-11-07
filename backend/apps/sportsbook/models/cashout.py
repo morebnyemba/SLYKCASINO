@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from django.db import models
 
 
@@ -53,6 +55,10 @@ class LiveTradingSettings(models.Model):
     # passed, a first-half market once the half is over) and what staff close
     # by hand stay shut.
     keep_markets_open = models.BooleanField(default=True)
+    # No in-play bets on a price this short: a selection at 1.01–1.04 is as good
+    # as won already (and pads a multiple at no risk). Applies to every in-play
+    # pick, single or in a multiple; 0 = off. Pre-match prices are unaffected.
+    live_min_odds = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal('1.05'))
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
