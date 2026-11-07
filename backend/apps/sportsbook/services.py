@@ -235,6 +235,9 @@ def _check_event_bettable(event_id: int, selection: str = Selection.HOME, odds: 
         current = _main_price(event, selection)
         if not event.live_main_open or current is None:
             raise SelectionUnavailable(f'{event.name} — match result is suspended.')
+        from . import live_guard
+        if live_guard.below_live_floor(current):
+            raise SelectionUnavailable(f'{event.name} — that price is too short to take in play.')
         if odds is not None and utils.quantize(odds) != utils.quantize(current):
             raise OddsChanged(
                 f'{event.name} — {selection}', utils.quantize(odds), current,
@@ -271,6 +274,8 @@ def _lock_bettable_outcome(outcome_id: int, odds: Decimal) -> tuple[MarketOutcom
         from . import live_guard
         if live_guard.outcome_decided(event, market, outcome):
             raise SelectionUnavailable(f'{market.name} — {outcome.label} is already decided.')
+        if live_guard.below_live_floor(outcome.odds):
+            raise SelectionUnavailable(f'{market.name} — {outcome.label} is too short a price to take in play.')
     if utils.quantize(odds) != utils.quantize(outcome.odds):
         raise OddsChanged(f'{market.name} — {outcome.label}', utils.quantize(odds), outcome.odds, outcome.id)
     return outcome, in_play
@@ -1018,7 +1023,7 @@ def apply_feed_markets(event: Event, markets: tuple[FeedMarketData, ...] | list[
         if key not in seen and market.is_open and not market.settled and not keep_open:
             market.is_open = False
             market.save(update_fields=['is_open'])
-    if keep_open and event.status in IN_PLAY_STATUSES:
+    if event.status in IN_PLAY_STATUSES:
         live_guard.close_decided(event)
     return len(seen)
 
@@ -1628,8 +1633,7 @@ def apply_live_odds(snapshot: LiveOddsSnapshot, *, now=None) -> Optional[Event]:
         event.live_odds_at = now
         fields += ['live_feed_paused', 'live_odds_at']
         event.save(update_fields=sorted(set(fields)))
-        if cfg.keep_markets_open:
-            live_guard.close_decided(event)  # a goal may have gone in during the pause
+        live_guard.close_decided(event)  # a goal may have gone in during the pause
         return event
     if event.live_feed_paused:
         event.live_feed_paused = False

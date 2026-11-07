@@ -229,3 +229,97 @@ class UnlockTests(TestCase):
         self.assertTrue(staff.get('/api/admin/sportsbook/live-trading/').json()['keep_markets_open'])
         res = staff.put('/api/admin/sportsbook/live-trading/', {'keep_markets_open': False}, format='json')
         self.assertFalse(res.json()['keep_markets_open'])
+
+
+SHORT_ODDS = [
+    FEED_ODDS[0],
+    {'id': 69, 'name': 'Both Teams to Score', 'values': [_v('Yes', '1.02'), _v('No', '12.00')]},
+    {'id': 12, 'name': 'Double Chance', 'values': [_v('Home/Draw', '1.05'), _v('Home/Away', '1.30'), _v('Draw/Away', '2.60')]},
+]
+
+
+@LIVE
+class LiveFloorTests(InPlayBase):
+    """Prices too short to take in play — a selection at 1.02 is as good as won."""
+
+    def setUp(self):
+        super().setUp()
+        LiveTradingSettings.objects.update_or_create(pk=1, defaults={'keep_markets_open': True})
+
+    def outcome(self, price):
+        """The outcome priced `price` in the fixture feed above."""
+        return MarketOutcome.objects.get(market__event=self.event, odds=D(price), market__kind__in=('btts', 'double_chance'))
+
+    def bet(self, outcome, **kw):
+        return sb.place_bet(wallet='deposit', event='Over', stake=D('5'), odds=outcome.odds, player_id=self.player.id,
+                            outcome_id=outcome.id, **kw)
+
+    def test_a_price_below_the_floor_is_refused_in_play_but_the_floor_itself_is_fine(self):
+        self.feed(odds=SHORT_ODDS)
+        with self.assertRaises(sb.SelectionUnavailable):                   # already closed on the board
+            self.bet(self.outcome('1.02'))
+        MarketOutcome.objects.filter(pk=self.outcome('1.02').pk).update(is_open=True)   # a stale board
+        with self.assertRaisesMessage(sb.SelectionUnavailable, 'too short'):
+            self.bet(self.outcome('1.02'))
+        self.assertEqual(self.bet(self.outcome('1.05')).status, 'accepting')  # exactly the floor
+        self.assertEqual(self.bet(self.outcome('1.30')).status, 'accepting')
+
+    def test_boards_show_short_prices_closed(self):
+        self.feed(odds=SHORT_ODDS)
+        self.assertFalse(self.outcome('1.02').is_open)
+        self.assertTrue(self.outcome('1.05').is_open)
+
+    def test_a_short_live_leg_cannot_pad_a_multiple(self):
+        self.feed(odds=SHORT_ODDS)
+        short = self.outcome('1.02')
+        MarketOutcome.objects.filter(pk=short.pk).update(is_open=True)
+        legs = [{'event': 'A', 'odds': D('1.02'), 'outcome_id': short.id},
+                {'event': 'B', 'odds': D('2.00'), 'event_id': None}]
+        with self.assertRaisesMessage(sb.SelectionUnavailable, 'too short'):
+            sb.place_accumulator(stake=D('5'), legs=legs, player_id=self.player.id, wallet='deposit')
+
+    def test_the_match_result_obeys_the_floor_too(self):
+        self.feed(home='1.03')
+        with self.assertRaisesMessage(sb.SelectionUnavailable, 'too short'):
+            sb.place_bet(wallet='deposit', event='Arsenal', stake=D('5'), odds=D('1.03'), player_id=self.player.id,
+                         event_id=self.event.id, selection='home')
+        self.assertEqual(sb.place_bet(wallet='deposit', event='Draw', stake=D('5'), odds=D('4.00'), player_id=self.player.id,
+                                      event_id=self.event.id, selection='draw').status, 'accepting')
+
+    def test_floor_is_adjustable_and_can_be_turned_off(self):
+        LiveTradingSettings.objects.filter(pk=1).update(live_min_odds=0)
+        self.feed(odds=SHORT_ODDS)
+        self.assertEqual(self.bet(self.outcome('1.02')).status, 'accepting')
+
+    def test_pre_match_prices_are_not_affected(self):
+        Event.objects.filter(pk=self.event.pk).update(status='NS', starts_at=timezone.now() + timedelta(hours=2))
+        short = Market.objects.create(event=self.event, key='over_under:ft:9.5', name='Over/Under', kind='over_under',
+                                      line=D('9.5'))
+        out = MarketOutcome.objects.create(market=short, key='under', label='Under 9.5', odds=D('1.01'))
+        self.assertEqual(self.bet(out).status, 'open')
+
+    def test_admin_sets_the_floor(self):
+        staff = APIClient()
+        staff.force_authenticate(User.objects.create_user('ops2', 'o2@example.com', 'x', is_staff=True))
+        self.assertEqual(staff.get('/api/admin/sportsbook/live-trading/').json()['live_min_odds'], '1.05')
+        self.assertEqual(staff.put('/api/admin/sportsbook/live-trading/', {'live_min_odds': '1.20'}, format='json').json()['live_min_odds'], '1.20')
+        self.assertEqual(staff.put('/api/admin/sportsbook/live-trading/', {'live_min_odds': '0.5'}, format='json').status_code, 400)
+        self.assertEqual(staff.put('/api/admin/sportsbook/live-trading/', {'live_min_odds': '0'}, format='json').status_code, 200)
+
+
+class MoreDecidedCases(InPlayBase):
+    def decided(self, kind, key, goals):
+        self.event.score_home, self.event.score_away, self.event.status = *goals, '2H'
+        market = Market(event=self.event, kind=kind, period='ft', metric='goals')
+        return live_guard.outcome_decided(self.event, market, MarketOutcome(key=key))
+
+    def test_win_to_nil(self):
+        self.assertTrue(self.decided('win_to_nil_home', 'yes', (1, 1)))
+        self.assertFalse(self.decided('win_to_nil_home', 'yes', (2, 0)))
+        self.assertTrue(self.decided('win_to_nil_away', 'no', (1, 0)))
+
+    def test_first_team_to_score(self):
+        self.assertFalse(self.decided('first_team_to_score', 'home', (0, 0)))
+        self.assertTrue(self.decided('first_team_to_score', 'none', (0, 1)))
+        self.assertTrue(self.decided('first_team_to_score', 'home', (2, 0)))     # only home has scored
+        self.assertFalse(self.decided('first_team_to_score', 'home', (1, 1)))    # who scored first unknown

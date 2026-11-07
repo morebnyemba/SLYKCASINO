@@ -9,7 +9,7 @@ import { authedPost, authedRequest, useApi } from '@/lib/use-api';
 
 interface LiveSettings {
   lock_minute: number | string; price_jump_percent: number | string; burst_amount: string; burst_minutes: number | string;
-  hold_on_bad_feed: boolean; suspend_on_feed_pause: boolean; keep_markets_open: boolean;
+  hold_on_bad_feed: boolean; suspend_on_feed_pause: boolean; keep_markets_open: boolean; live_min_odds: string;
   held: { id: number; name: string; status: string; elapsed: number | null; reason: string; held_at: string }[];
 }
 
@@ -64,9 +64,12 @@ export function LiveGuardPanel() {
           ))}
         </div>
       )}
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <Field label="Close in-play betting at minute" hint="75 by default. 0 = never.">
           <TextInput inputMode="numeric" value={form?.lock_minute ?? ''} onChange={set('lock_minute')} />
+        </Field>
+        <Field label="Shortest live price accepted" hint="In play, selections priced below this are closed: they're as good as won. 1.05 by default. 0 = off.">
+          <TextInput inputMode="decimal" value={form?.live_min_odds ?? ''} onChange={set('live_min_odds')} />
         </Field>
         <Field label="Suspend on a price jump of (%)" hint="Match-result price, in one update, with no goal. 0 = off.">
           <TextInput inputMode="numeric" value={form?.price_jump_percent ?? ''} onChange={set('price_jump_percent')} />
