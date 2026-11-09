@@ -18,6 +18,11 @@ class Banner(models.Model):
         CENTER = 'center', 'Centre'
         RIGHT = 'right', 'Right'
 
+    class Motion(models.TextChoices):
+        NONE = 'none', 'None'
+        ZOOM = 'zoom', 'Slow zoom'
+        SHINE = 'shine', 'Sweeping shine'
+
     title = models.CharField(max_length=200)
     subtitle = models.CharField(max_length=300, blank=True)
     image_url = models.CharField(max_length=500)
@@ -26,6 +31,12 @@ class Banner(models.Model):
     mobile_image_url = models.CharField(max_length=500, blank=True)
     # Which part of the wide design stays in view when it is cropped for a phone.
     focus = models.CharField(max_length=6, choices=Focus.choices, default=Focus.CENTER)
+    # A short silent loop (MP4 or WebM) played over the image, which stays as
+    # its poster and as the fallback where video is off (reduced motion, data
+    # saver, an error). Animated GIF/WebP images need no video.
+    video_url = models.CharField(max_length=500, blank=True)
+    # Movement for a still banner: a slow zoom on the image, or a sheen sweeping across.
+    motion = models.CharField(max_length=6, choices=Motion.choices, default=Motion.NONE)
     # Print the title, subtitle and a dark fade over the image. Turn off when the
     # design already carries its own words (only the button is added on top).
     overlay_text = models.BooleanField(default=True)

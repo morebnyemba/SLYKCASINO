@@ -51,7 +51,7 @@ export function SportsbookHero({ banners: initial }: { banners: Banner[] }) {
           className={`absolute inset-0 transition-opacity duration-700 ${i === index ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
           aria-hidden={i === index ? undefined : true}
         >
-          <PromoSlide b={s.banner} priority={i === 0} />
+          <PromoSlide b={s.banner} priority={i === 0} active={i === index} />
         </div>
       ))}
 

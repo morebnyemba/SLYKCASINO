@@ -138,6 +138,7 @@ class TournamentViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewse
 # Banner uploads: the type is read from the file's own bytes, never from the
 # client, so only real images are ever served back.
 BANNER_IMAGE_MAX_BYTES = 5 * 1024 * 1024
+BANNER_VIDEO_MAX_BYTES = 8 * 1024 * 1024
 
 
 def _sniff_image_type(head: bytes):
@@ -152,8 +153,18 @@ def _sniff_image_type(head: bytes):
     return None
 
 
+def _sniff_media_type(head: bytes):
+    """An image, or a short video loop (MP4 or WebM), read from the file's own bytes."""
+    if head[4:8] == b'ftyp':
+        return 'video/mp4'
+    if head.startswith(b'\x1a\x45\xdf\xa3'):
+        return 'video/webm'
+    return _sniff_image_type(head)
+
+
 class BannerImageUploadView(APIView):
-    """POST /api/promotions/banner-images/ (staff, multipart `file`) -> {id, url}.
+    """POST /api/promotions/banner-images/ (staff, multipart `file`) -> {id, url, kind}.
+    An image (up to 5 MB) or a short MP4/WebM loop (up to 8 MB).
     `url` is site-relative, so it works on whichever domain serves the site."""
     permission_classes = [IsAdminUser]
     parser_classes = [MultiPartParser, FormParser]
@@ -162,15 +173,19 @@ class BannerImageUploadView(APIView):
         upload = request.FILES.get('file')
         if upload is None:
             return Response({'detail': 'Choose an image to upload.'}, status=status.HTTP_400_BAD_REQUEST)
-        if upload.size > BANNER_IMAGE_MAX_BYTES:
-            return Response({'detail': 'Images must be 5 MB or smaller.'}, status=status.HTTP_400_BAD_REQUEST)
+        if upload.size > BANNER_VIDEO_MAX_BYTES:
+            return Response({'detail': 'Files must be 8 MB or smaller (5 MB for images).'}, status=status.HTTP_400_BAD_REQUEST)
         content = upload.read()
-        content_type = _sniff_image_type(content[:16])
+        content_type = _sniff_media_type(content[:16])
         if content_type is None:
-            return Response({'detail': 'Upload a JPG, PNG, WebP or GIF image.'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'detail': 'Upload a JPG, PNG, WebP or GIF image, or an MP4 or WebM video.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        is_video = content_type.startswith('video/')
+        if not is_video and len(content) > BANNER_IMAGE_MAX_BYTES:
+            return Response({'detail': 'Images must be 5 MB or smaller.'}, status=status.HTTP_400_BAD_REQUEST)
         image = BannerImage.objects.create(content=content, content_type=content_type, size=len(content))
         return Response(
-            {'id': image.id, 'url': f'/api/promotions/banner-images/{image.id}/'},
+            {'id': image.id, 'url': f'/api/promotions/banner-images/{image.id}/', 'kind': 'video' if is_video else 'image'},
             status=status.HTTP_201_CREATED,
         )
 
@@ -186,7 +201,32 @@ class BannerImageView(APIView):
         image = BannerImage.objects.filter(pk=pk).only('content', 'content_type').first()
         if image is None:
             raise Http404
-        response = HttpResponse(bytes(image.content), content_type=image.content_type)
+        data = bytes(image.content)
+        start, end, partial = 0, len(data) - 1, False
+        wanted = request.headers.get('Range', '')
+        if wanted.startswith('bytes=') and ',' not in wanted:
+            # Browsers (iOS Safari above all) only play a video if it can be fetched in ranges.
+            first, _, last = wanted[6:].partition('-')
+            try:
+                if first == '':
+                    start = max(0, len(data) - int(last))
+                else:
+                    start = int(first)
+                    end = min(int(last), len(data) - 1) if last else len(data) - 1
+            except ValueError:
+                start, end = 0, len(data) - 1
+            else:
+                if start > end or start >= len(data):
+                    response = HttpResponse(status=416)
+                    response['Content-Range'] = f'bytes */{len(data)}'
+                    return response
+                partial = True
+        body = data[start:end + 1]
+        response = HttpResponse(body, content_type=image.content_type, status=206 if partial else 200)
+        response['Accept-Ranges'] = 'bytes'
+        response['Content-Length'] = str(len(body))
+        if partial:
+            response['Content-Range'] = f'bytes {start}-{end}/{len(data)}'
         response['Cache-Control'] = 'public, max-age=31536000, immutable'
         response['X-Content-Type-Options'] = 'nosniff'
         return response

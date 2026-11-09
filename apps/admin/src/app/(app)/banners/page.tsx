@@ -17,6 +17,8 @@ interface Banner {
   subtitle: string;
   image_url: string;
   mobile_image_url?: string;
+  video_url?: string;
+  motion?: 'none' | 'zoom' | 'shine';
   focus?: 'left' | 'center' | 'right';
   overlay_text?: boolean;
   link_url: string;
@@ -44,9 +46,9 @@ const PLACEMENTS = [
 const PLACEMENT_LABEL: Record<string, string> = Object.fromEntries(PLACEMENTS.map((p) => [p.id, p.label]));
 
 const BLANK = {
-  title: '', subtitle: '', image_url: '', mobile_image_url: '', link_url: '', cta_label: '', sort_order: '0',
+  title: '', subtitle: '', image_url: '', mobile_image_url: '', video_url: '', link_url: '', cta_label: '', sort_order: '0',
   starts_at: '', ends_at: '', placement: 'home_hero',
-  focus: 'center' as 'left' | 'center' | 'right', overlay_text: true,
+  focus: 'center' as 'left' | 'center' | 'right', overlay_text: true, motion: 'none' as 'none' | 'zoom' | 'shine',
 };
 
 type FormState = typeof BLANK;
@@ -55,7 +57,7 @@ type TextKey = Exclude<keyof FormState, 'overlay_text' | 'focus'>;
 function toForm(b: Banner): FormState {
   return {
     title: b.title, subtitle: b.subtitle ?? '', image_url: b.image_url,
-    mobile_image_url: b.mobile_image_url ?? '', focus: b.focus ?? 'center', overlay_text: b.overlay_text !== false,
+    mobile_image_url: b.mobile_image_url ?? '', video_url: b.video_url ?? '', motion: b.motion ?? 'none', focus: b.focus ?? 'center', overlay_text: b.overlay_text !== false,
     link_url: b.link_url ?? '', cta_label: b.cta_label ?? '',
     sort_order: String(b.sort_order ?? 0),
     placement: b.placement || 'home_hero',
@@ -70,6 +72,8 @@ function toPayload(form: FormState) {
     subtitle: form.subtitle,
     image_url: form.image_url,
     mobile_image_url: form.mobile_image_url,
+    video_url: form.video_url,
+    motion: form.motion,
     focus: form.focus,
     overlay_text: form.overlay_text,
     link_url: form.link_url,
@@ -81,13 +85,15 @@ function toPayload(form: FormState) {
   };
 }
 
-function UploadBox({ busy, has, label, onFile }: { busy: boolean; has: boolean; label: string; onFile: (f: File) => void }) {
+function UploadBox({ busy, has, label, onFile, accept = 'image/jpeg,image/png,image/webp,image/gif' }: {
+  busy: boolean; has: boolean; label: string; onFile: (f: File) => void; accept?: string;
+}) {
   return (
     <label className={`flex cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed border-border bg-background px-3 py-4 text-sm font-medium transition-colors hover:border-primary ${busy ? 'pointer-events-none opacity-60' : ''}`}>
       {busy ? <><Spinner size={14} />Uploading…</> : has ? 'Replace image…' : label}
       <input
         type="file"
-        accept="image/jpeg,image/png,image/webp,image/gif"
+        accept={accept}
         className="sr-only"
         onChange={(e) => { const f = e.target.files?.[0]; if (f) onFile(f); e.target.value = ''; }}
       />
@@ -118,6 +124,7 @@ function BannerPreviews({ form }: { form: FormState }) {
         <div className="relative h-40 overflow-hidden rounded-xl">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={imageSrc(form.image_url)} alt="Computer preview" className="h-full w-full object-cover" />
+          {form.video_url && <video src={imageSrc(form.video_url)} muted loop autoPlay playsInline className="absolute inset-0 h-full w-full object-cover" />}
           {text(false)}
         </div>
       </div>
@@ -146,9 +153,9 @@ export default function BannersPage() {
   const [formError, setFormError] = useState('');
 
   const set = <K extends keyof FormState>(k: K, v: FormState[K]) => setForm((f) => ({ ...f, [k]: v }));
-  const [uploading, setUploading] = useState<'image_url' | 'mobile_image_url' | null>(null);
+  const [uploading, setUploading] = useState<'image_url' | 'mobile_image_url' | 'video_url' | null>(null);
 
-  async function uploadDesign(file: File, field: 'image_url' | 'mobile_image_url') {
+  async function uploadDesign(file: File, field: 'image_url' | 'mobile_image_url' | 'video_url') {
     if (!accessToken) return;
     setUploading(field);
     setFormError('');
@@ -280,7 +287,7 @@ export default function BannersPage() {
                 <label className="text-sm font-medium">Banner design (wide)</label>
                 <UploadBox busy={uploading === 'image_url'} has={!!form.image_url} label="Upload image…" onFile={(f) => void uploadDesign(f, 'image_url')} />
                 <p className="text-xs text-muted-foreground">
-                  JPG, PNG, WebP or GIF up to 5 MB. Wide images work best (about 1600 × 500). Used on tablets and computers; phones use it too unless you add a phone design below.
+                  JPG, PNG, WebP or animated GIF/WebP up to 5 MB. Wide images work best (about 1600 × 500). Used on tablets and computers; phones use it too unless you add a phone design below. With a video added, this image is its poster and the fallback.
                 </p>
               </div>
               <div className="space-y-1 sm:col-span-2">
@@ -292,6 +299,26 @@ export default function BannersPage() {
                 <p className="text-xs text-muted-foreground">
                   Shown on screens under 640px wide. Make it 1080 × 675 (16:10) and keep words and faces at least 8% in from every edge, because small phones crop a little.
                 </p>
+              </div>
+              <div className="space-y-1 sm:col-span-2">
+                <label className="text-sm font-medium">Video loop (optional)</label>
+                <UploadBox busy={uploading === 'video_url'} has={!!form.video_url} label="Upload video…" accept="video/mp4,video/webm"
+                  onFile={(f) => void uploadDesign(f, 'video_url')} />
+                {form.video_url && (
+                  <button type="button" onClick={() => set('video_url', '')} className="text-xs font-semibold text-destructive hover:underline">Remove video</button>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  MP4 (H.264) or WebM up to 8 MB: a silent loop of 5 to 8 seconds, about 1280 × 400. It plays over the design on the slide that is showing, and only while it is on screen.
+                  Players with reduced motion or a data saver see the image instead.
+                </p>
+              </div>
+              <div className="space-y-1">
+                <label className="text-sm font-medium">Movement for a still banner</label>
+                <select value={form.motion} onChange={(e) => set('motion', e.target.value as FormState['motion'])}
+                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary">
+                  <option value="none">None</option><option value="zoom">Slow zoom</option><option value="shine">Sweeping shine</option>
+                </select>
+                <p className="text-xs text-muted-foreground">Words always rise into place when the banner comes round.</p>
               </div>
               <div className="space-y-1">
                 <label className="text-sm font-medium">Keep in view on phones</label>
