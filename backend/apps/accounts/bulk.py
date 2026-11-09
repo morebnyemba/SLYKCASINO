@@ -5,10 +5,19 @@ list filters). Each player is handled on its own: one that can't be changed is
 reported, never allowed to stop the rest. Staff accounts are never suspended,
 frozen or blocked in bulk. Lifting a restriction is superuser-only, as it is
 one player at a time (risk.PlayerRiskView).
+
+Permanent deletion is here too, with more guards than any other action:
+superuser only, at most MAX_DELETE players a call, a dry run that shows what
+would go (and what is blocked and why) before anything is touched, and a typed
+"DELETE <n>" naming the exact number. It reuses services.delete_player, so
+every per-player rule still holds — staff accounts and players with an open
+fraud case are never deleted, and unless "force" is set neither are players
+who still hold money or open bets.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from decimal import Decimal
 from typing import Optional
 
 from django.db import transaction
@@ -17,14 +26,16 @@ from . import services
 from .models import Player
 
 MAX_PLAYERS = 500
+MAX_DELETE = 100
 
 SUSPEND, UNSUSPEND = 'suspend', 'unsuspend'
 FREEZE, UNFREEZE = 'freeze_withdrawals', 'unfreeze_withdrawals'
 BLOCK_BONUS, UNBLOCK_BONUS = 'block_bonus', 'unblock_bonus'
 NOTIFY = 'notify'
+DELETE = 'delete'
 
-ACTIONS = (SUSPEND, UNSUSPEND, FREEZE, UNFREEZE, BLOCK_BONUS, UNBLOCK_BONUS, NOTIFY)
-SUPERUSER_ONLY = (UNFREEZE, UNBLOCK_BONUS)
+ACTIONS = (SUSPEND, UNSUSPEND, FREEZE, UNFREEZE, BLOCK_BONUS, UNBLOCK_BONUS, NOTIFY, DELETE)
+SUPERUSER_ONLY = (UNFREEZE, UNBLOCK_BONUS, DELETE)
 SPARES_STAFF = (SUSPEND, FREEZE, BLOCK_BONUS)
 
 
@@ -39,11 +50,12 @@ class Result:
     done: list[int] = field(default_factory=list)
     skipped: list[dict] = field(default_factory=list)
     failed: list[dict] = field(default_factory=list)
+    extra: dict = field(default_factory=dict)
 
     def as_dict(self) -> dict:
         return {'action': self.action, 'requested': self.requested, 'done': len(self.done),
                 'skipped': self.skipped[:50], 'skipped_count': len(self.skipped),
-                'failed': self.failed[:50], 'failed_count': len(self.failed)}
+                'failed': self.failed[:50], 'failed_count': len(self.failed), **self.extra}
 
 
 def _is_staff(player: Player) -> bool:
@@ -78,12 +90,56 @@ def _apply(action: str, player: Player, options: dict) -> Optional[str]:
     return None
 
 
+def _delete(players, options: dict, request) -> Result:
+    """Permanently delete the players that can be deleted. With `dry_run`, only
+    report who could be and who is blocked. Otherwise `confirm` must be exactly
+    "DELETE <n>", n being how many are deletable right now."""
+    force = bool(options.get('force'))
+    players = list(players.select_related('user')[:MAX_DELETE + 1])
+    if len(players) > MAX_DELETE:
+        raise BulkError(f'Permanent deletion is limited to {MAX_DELETE} players at a time. Select fewer.')
+    result = Result(action=DELETE, requested=len(players))
+    deletable, discarded, open_bets = [], Decimal('0'), 0
+    for player in players:
+        check = services.deletion_check(player.id)
+        reason = 'Staff account' if check['is_staff'] else services.deletion_blocker(player.id, check, force=force)
+        if reason:
+            result.skipped.append({'id': player.id, 'username': player.username, 'reason': reason[:200]})
+            continue
+        deletable.append(player)
+        discarded += Decimal(check['balance'])
+        open_bets += check['open_bets']
+    result.extra = {'deletable': len(deletable), 'balance_discarded': str(discarded), 'open_bets_discarded': open_bets,
+                    'confirm_phrase': f'DELETE {len(deletable)}'}
+    if options.get('dry_run'):
+        result.extra['dry_run'] = True
+        return result
+    if not deletable:
+        raise BulkError('None of these players can be deleted.')
+    if str(options.get('confirm') or '').strip() != f'DELETE {len(deletable)}':
+        raise BulkError(f'Type DELETE {len(deletable)} to confirm. The list may have changed — review it again.')
+    for player in deletable:
+        try:
+            services.delete_player(player.id, confirm_username=player.username, force=force,
+                                   deleted_by=request.user.get_username(), request=request)
+        except Exception as exc:  # noqa: BLE001 — one player must never stop the rest
+            result.failed.append({'id': player.id, 'username': player.username, 'error': str(exc)[:200]})
+            continue
+        result.done.append(player.id)
+    services.audit(None, 'players_bulk_action', request, action=DELETE, by=request.user.get_username(),
+                   requested=result.requested, done=len(result.done), skipped=len(result.skipped),
+                   failed=len(result.failed), forced=force)
+    return result
+
+
 def run(action: str, players, *, options: dict, request) -> Result:
     """Apply `action` to `players` (a queryset of Player), auditing each change."""
     if action not in ACTIONS:
         raise BulkError('Unknown action.')
     if action in SUPERUSER_ONLY and not request.user.is_superuser:
-        raise BulkError('Only a superuser can lift a restriction.')
+        raise BulkError('Only a superuser can delete players or lift a restriction.')
+    if action == DELETE:
+        return _delete(players, options, request)
     options = dict(options)
     if action == SUSPEND:
         options['reason'] = str(options.get('reason') or '').strip()[:255]

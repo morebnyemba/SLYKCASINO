@@ -372,6 +372,27 @@ def deletion_check(player_id: int) -> dict:
     }
 
 
+def deletion_blocker(player_id: int, check: dict, *, force: bool = False) -> str:
+    """Why this player can't be deleted right now ('' if they can): an open fraud
+    case (never overridden — the records are the evidence), or, unless `force`,
+    money or open bets that would vanish. `check` is deletion_check()."""
+    from apps.risk.models import RiskCase
+    if RiskCase.objects.filter(player_id=player_id, status=RiskCase.Status.OPEN).exists():
+        return 'this player has an open fraud case — decide it in Fraud & risk (Confirm fraud & delete)'
+    if not force:
+        problems = []
+        if check['balance'] != 0:
+            problems.append(f"a balance of {check['balance']}")
+        if check['open_bets']:
+            problems.append(f"{check['open_bets']} open bet(s)")
+        if check['affiliate_owed'] > 0:
+            problems.append(f"{check['affiliate_owed']} of affiliate earnings")
+        if problems:
+            return ('this player still has ' + ', '.join(problems)
+                    + ' — settle or pay it out first, or delete anyway to discard it')
+    return ''
+
+
 @transaction.atomic
 def delete_player(player_id: int, *, confirm_username: str, force: bool = False, deleted_by: str = '', request=None) -> dict:
     """Permanently delete a player and everything tied to them across every app:
@@ -399,21 +420,9 @@ def delete_player(player_id: int, *, confirm_username: str, force: bool = False,
         raise DeletionBlocked('staff accounts can’t be deleted here')
     if (confirm_username or '').strip() != check['username']:
         raise DeletionBlocked('type the player’s username exactly to confirm')
-    from apps.risk.models import RiskCase
-    if RiskCase.objects.filter(player_id=player_id, status=RiskCase.Status.OPEN).exists():
-        # Not even `force`: the records are the evidence.
-        raise DeletionBlocked('this player has an open fraud case — close it first (Fraud & risk)')
-    if not force:
-        problems = []
-        if check['balance'] != 0:
-            problems.append(f"a balance of {check['balance']}")
-        if check['open_bets']:
-            problems.append(f"{check['open_bets']} open bet(s)")
-        if check['affiliate_owed'] > 0:
-            problems.append(f"{check['affiliate_owed']} of affiliate earnings")
-        if problems:
-            raise DeletionBlocked('this player still has ' + ', '.join(problems)
-                                  + ' — settle or pay it out first, or delete anyway to discard it')
+    blocker = deletion_blocker(player_id, check, force=force)
+    if blocker:
+        raise DeletionBlocked(blocker)
 
     rows = {
         'sportsbook': sportsbook_services.erase_player_data(player_id),

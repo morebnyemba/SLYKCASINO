@@ -6,6 +6,7 @@ import { BsShieldExclamation } from 'react-icons/bs';
 import {
   Badge, Btn, EmptyState, Field, Notice, PageHeader, Panel, Tabs, TextInput, cx, tableClass, tdClass, thClass, trClass,
 } from '@/components/console/ui';
+import { CasesBulkBar, CasesSummary, type CasesResult } from '@/components/risk/cases-bulk-bar';
 import { useAuth } from '@/lib/auth-context';
 import { authedRequest, useApi } from '@/lib/use-api';
 import type { RiskCase } from '@/lib/risk';
@@ -16,8 +17,17 @@ interface CasesResponse { results: RiskCase[]; open: number; held_withdrawals: n
 /** Players the fraud engine stopped: held for review or suspended automatically. */
 export default function RiskPage() {
   const [state, setState] = useState<State>('open');
-  const { data, loading } = useApi<CasesResponse>(`/admin/risk/cases/?status=${state}`);
+  const { data, loading, refetch } = useApi<CasesResponse>(`/admin/risk/cases/?status=${state}`);
+  const { user } = useAuth();
   const rows = data?.results ?? [];
+  // Superusers decide open cases in bulk: pick them, then dismiss, confirm, or confirm and delete.
+  const canDecide = !!user?.isSuperuser && state === 'open';
+  const [chosen, setChosen] = useState<Set<number>>(new Set());
+  const [summary, setSummary] = useState<{ decision: 'dismiss' | 'confirm' | 'confirm_delete'; result: CasesResult } | null>(null);
+  useEffect(() => { setChosen(new Set()); }, [state]);
+  const allChosen = rows.length > 0 && rows.every((c) => chosen.has(c.id));
+  const toggle = (id: number) => setChosen((s) => { const next = new Set(s); if (next.has(id)) next.delete(id); else next.add(id); return next; });
+  const checkbox = 'h-4 w-4 cursor-pointer rounded border-border accent-[var(--color-secondary)]';
   return (
     <div className="space-y-5">
       <PageHeader icon={BsShieldExclamation} eyebrow="Players" title="Fraud & risk"
@@ -25,6 +35,7 @@ export default function RiskPage() {
       {data && data.held_withdrawals > 0 && (
         <Notice tone="red">{data.held_withdrawals} withdrawal(s) are held by a fraud check — they can’t be paid until the player’s case is closed.</Notice>
       )}
+      {summary && <CasesSummary decision={summary.decision} result={summary.result} onClose={() => setSummary(null)} />}
       <Tabs value={state} onChange={setState} items={[
         { id: 'open', label: 'Open', count: data?.open, tone: 'red' },
         { id: 'confirmed', label: 'Confirmed fraud' }, { id: 'dismissed', label: 'Dismissed' }, { id: 'all', label: 'All' },
@@ -38,12 +49,24 @@ export default function RiskPage() {
           <div className="overflow-x-auto">
             <table className={tableClass}>
               <thead><tr>
+                {canDecide && (
+                  <th className={cx(thClass, 'w-10 pr-0')}>
+                    <input type="checkbox" className={checkbox} checked={allChosen} aria-label="Select all cases"
+                      onChange={() => setChosen(allChosen ? new Set() : new Set(rows.map((c) => c.id)))} />
+                  </th>
+                )}
                 <th className={thClass}>Case</th><th className={thClass}>Player</th><th className={thClass}>Action</th>
                 <th className={thClass}>Score</th><th className={thClass}>Reason</th><th className={thClass}>Opened</th>
               </tr></thead>
               <tbody>
                 {rows.map((c) => (
-                  <tr key={c.id} className={trClass}>
+                  <tr key={c.id} className={cx(trClass, chosen.has(c.id) && 'bg-secondary/10')}>
+                    {canDecide && (
+                      <td className={cx(tdClass, 'w-10 pr-0')}>
+                        <input type="checkbox" className={checkbox} checked={chosen.has(c.id)} onChange={() => toggle(c.id)}
+                          aria-label={`Select case ${c.id}`} />
+                      </td>
+                    )}
                     <td className={tdClass}><Link href={`/risk/${c.id}`} className="font-mono font-semibold text-secondary hover:underline">#{c.id}</Link></td>
                     <td className={tdClass}><Link href={`/players/${c.player_id}`} className="font-semibold hover:underline">{c.username ?? `#${c.player_id}`}</Link></td>
                     <td className={tdClass}>
@@ -60,6 +83,10 @@ export default function RiskPage() {
           </div>
         )}
       </div>
+      {canDecide && chosen.size > 0 && (
+        <CasesBulkBar ids={[...chosen]} onClear={() => setChosen(new Set())}
+          onDone={(decision, result) => { setSummary({ decision, result }); setChosen(new Set()); refetch(); window.scrollTo({ top: 0, behavior: 'smooth' }); }} />
+      )}
       <RiskSettingsPanel />
     </div>
   );

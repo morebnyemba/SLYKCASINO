@@ -188,6 +188,86 @@ def decide(case_id: int, *, decision: str, note: str, by: str) -> RiskCase:
     return case
 
 
+MAX_PURGE = 100
+
+
+def purge_review(case_ids) -> dict:
+    """Dry run for confirm-and-delete: which open cases' players would be
+    permanently deleted, who can't be (and why), and what they hold. Nothing
+    changes."""
+    from decimal import Decimal
+
+    from apps.accounts import services as accounts_services
+    from apps.accounts.models import Player
+
+    cases = list(RiskCase.objects.filter(pk__in=list(case_ids)[:MAX_PURGE + 1]).order_by('id'))
+    if len(cases) > MAX_PURGE:
+        raise ValueError(f'Permanent deletion is limited to {MAX_PURGE} cases at a time. Select fewer.')
+    people = {p.id: p for p in Player.objects.filter(pk__in={c.player_id for c in cases}).select_related('user')}
+    deletable, skipped, forfeited, open_bets = [], [], Decimal('0'), 0
+    for case in cases:
+        player = people.get(case.player_id)
+        reason = ''
+        if case.status != RiskCase.Status.OPEN:
+            reason = 'Case already closed'
+        elif player is None:
+            reason = 'Player already deleted'
+        else:
+            check = accounts_services.deletion_check(player.id)
+            if check['is_staff']:
+                reason = 'Staff account'
+        if reason:
+            skipped.append({'case_id': case.id, 'player_id': case.player_id,
+                            'username': player.username if player else None, 'reason': reason})
+            continue
+        deletable.append((case, player))
+        forfeited += Decimal(check['balance'])
+        open_bets += check['open_bets']
+    return {'requested': len(cases), 'deletable': len(deletable), 'skipped': skipped, 'skipped_count': len(skipped),
+            'balance_forfeited': str(forfeited), 'open_bets_discarded': open_bets,
+            'confirm_phrase': f'DELETE {len(deletable)}', '_deletable': deletable}
+
+
+def confirm_and_delete(case_ids, *, note: str, by: str, request=None, confirm: str, single: bool = False) -> dict:
+    """Confirm these open cases as fraud and permanently delete each player —
+    the way fraud accounts leave the platform. Their money is forfeited. The
+    case stays on record as confirmed (with the username and what was
+    forfeited, since the account is gone), and so do the fraud signals and
+    identity links, so repeat signups from the same ring are still caught.
+    `confirm` must be "DELETE <n>" for the number deletable right now, unless
+    `single` (the caller has checked the username)."""
+    from apps.accounts import services as accounts_services
+
+    review = purge_review(case_ids)
+    deletable = review.pop('_deletable')
+    if not deletable:
+        raise ValueError('None of these cases can be deleted.')
+    if not single and (confirm or '').strip() != f'DELETE {len(deletable)}':
+        raise ValueError(f'Type DELETE {len(deletable)} to confirm. The list may have changed — review it again.')
+    if len((note or '').strip()) < 3:
+        raise ValueError('Say why — it goes on the record.')
+    done, failed = [], []
+    for case, player in deletable:
+        username, check = player.username, accounts_services.deletion_check(player.id)
+        try:
+            with transaction.atomic():
+                decide(case.id, decision='confirm', note=note, by=by)
+                accounts_services.delete_player(player.id, confirm_username=username, force=True, deleted_by=by,
+                                                request=request)
+                closed = RiskCase.objects.get(pk=case.id)
+                closed.decision_note = (f'{note.strip()[:300]} — account {username} deleted'
+                                        f' (${check["balance"]} forfeited)')[:500]
+                closed.save(update_fields=['decision_note'])
+        except Exception as exc:  # noqa: BLE001 — one case must never stop the rest
+            failed.append({'case_id': case.id, 'username': username, 'error': str(exc)[:200]})
+            continue
+        done.append(case.id)
+    accounts_services.audit(None, 'risk_cases_confirmed_deleted', request, by=by, requested=review['requested'],
+                            done=len(done), skipped=review['skipped_count'], failed=len(failed))
+    return {'requested': review['requested'], 'done': len(done), 'skipped': review['skipped'],
+            'skipped_count': review['skipped_count'], 'failed': failed, 'failed_count': len(failed)}
+
+
 @transaction.atomic
 def set_restrictions(player_id: int, *, withdrawals_frozen: Optional[bool] = None,
                      bonus_blocked: Optional[bool] = None) -> RiskProfile:
