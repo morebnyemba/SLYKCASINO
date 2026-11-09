@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { FaChevronLeft, FaChevronRight } from 'react-icons/fa';
-import { PromoSlide, type Banner } from '@/components/banner-slider';
+import { BANNER_FRAME, PromoSlide, SlideDots, useLiveBanners, usePrefersReducedMotion, useSwipe, type Banner } from '@/components/banner-slider';
 
 const AUTO_ADVANCE_MS = 7000;
 
@@ -10,29 +10,36 @@ const AUTO_ADVANCE_MS = 7000;
  * Sportsbook hero: the operator's sportsbook promos. Auto-advances, pausing
  * while the pointer is over it.
  */
-export function SportsbookHero({ banners }: { banners: Banner[] }) {
+export function SportsbookHero({ banners: initial }: { banners: Banner[] }) {
+  const banners = useLiveBanners('sportsbook', initial);
   const slides = banners.map((b) => ({ key: `b${b.id}`, banner: b }));
   const count = slides.length;
   const [index, setIndex] = useState(0);
   const [paused, setPaused] = useState(false);
+  const reduced = usePrefersReducedMotion();
 
   const go = useCallback((next: number) => {
     setIndex(() => (count === 0 ? 0 : (next + count) % count));
   }, [count]);
 
   useEffect(() => {
-    if (count <= 1 || paused) return;
+    if (count <= 1 || paused || reduced) return;
     const t = setInterval(() => setIndex((p) => (p + 1) % count), AUTO_ADVANCE_MS);
     return () => clearInterval(t);
-  }, [count, paused]);
+  }, [count, paused, reduced]);
+
+  const swipe = useSwipe(() => go(index - 1), () => go(index + 1), setPaused);
 
   useEffect(() => { if (index >= count) setIndex(0); }, [index, count]);
 
   if (count === 0) return null;
 
   return (
+    // The margin lives here so the hero's gap appears and goes with the banners.
+    <div className="mb-5">
     <div
-      className="group relative h-56 overflow-hidden rounded-2xl sm:h-60 md:h-64"
+      className={`${BANNER_FRAME} sm:h-60 md:h-64`}
+      {...swipe}
       onMouseEnter={() => setPaused(true)}
       onMouseLeave={() => setPaused(false)}
       onFocusCapture={() => setPaused(true)}
@@ -44,7 +51,7 @@ export function SportsbookHero({ banners }: { banners: Banner[] }) {
           className={`absolute inset-0 transition-opacity duration-700 ${i === index ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
           aria-hidden={i === index ? undefined : true}
         >
-          <PromoSlide b={s.banner} />
+          <PromoSlide b={s.banner} priority={i === 0} active={i === index} />
         </div>
       ))}
 
@@ -66,19 +73,10 @@ export function SportsbookHero({ banners }: { banners: Banner[] }) {
           >
             <FaChevronRight size={13} />
           </button>
-          <div className="absolute bottom-2.5 left-1/2 z-10 flex -translate-x-1/2 gap-1.5">
-            {slides.map((s, i) => (
-              <button
-                key={s.key}
-                type="button"
-                aria-label={`Show banner ${i + 1}`}
-                onClick={() => go(i)}
-                className={`h-1.5 rounded-full transition-all ${i === index ? 'w-5 bg-white' : 'w-1.5 bg-white/40 hover:bg-white/70'}`}
-              />
-            ))}
-          </div>
+          <SlideDots count={count} index={index} onGo={go} label="Show banner" className="bottom-0.5 sm:bottom-1" />
         </>
       )}
+    </div>
     </div>
   );
 }

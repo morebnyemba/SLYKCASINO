@@ -193,6 +193,97 @@ class BannerAdminEditTests(TestCase):
         self.assertEqual(APIClient().patch(f'/api/promotions/banners/{hidden.id}/', {'active': True}).status_code, 401)
 
 
+class BannerMobileArtTests(TestCase):
+    """A banner can carry a phone design, a focal side and a no-overlay switch."""
+
+    def setUp(self):
+        from django.contrib.auth.models import User
+        self.api = APIClient()
+        self.api.force_authenticate(User.objects.create_superuser('mobileops', 'm@example.com', 'pw'))
+
+    def test_defaults_keep_existing_banners_as_they_were(self):
+        from apps.promotions.models import Banner
+        banner = Banner.objects.create(title='Old', image_url='https://x/o.jpg')
+        self.assertEqual((banner.mobile_image_url, banner.focus, banner.overlay_text), ('', 'center', True))
+        data = APIClient().get('/api/promotions/banners/').json()
+        row = data.get('results', data)[0]
+        self.assertEqual((row['mobile_image_url'], row['focus'], row['overlay_text']), ('', 'center', True))
+
+    def test_admin_sets_the_phone_design_focus_and_overlay(self):
+        body = {'title': 'Aviator', 'image_url': '/api/promotions/banner-images/1/',
+                'mobile_image_url': '/api/promotions/banner-images/2/', 'focus': 'right', 'overlay_text': False}
+        res = self.api.post('/api/promotions/banners/', body, format='json')
+        self.assertEqual(res.status_code, 201, res.content)
+        shown = APIClient().get('/api/promotions/banners/').json()
+        row = shown.get('results', shown)[0]
+        self.assertEqual((row['mobile_image_url'], row['focus'], row['overlay_text']),
+                         ('/api/promotions/banner-images/2/', 'right', False))
+
+    def test_focus_must_be_one_of_the_sides(self):
+        res = self.api.post('/api/promotions/banners/', {'title': 'x', 'image_url': 'https://x/a.jpg', 'focus': 'top'}, format='json')
+        self.assertEqual(res.status_code, 400)
+
+
+class BannerVideoTests(TestCase):
+    """Animated banners: a silent video loop, byte-range serving, and a motion style."""
+
+    MP4 = b'\x00\x00\x00\x18ftypmp42' + b'\x00' * 52
+    WEBM = b'\x1a\x45\xdf\xa3' + b'\x00' * 60
+
+    def setUp(self):
+        from django.contrib.auth.models import User
+        self.api = APIClient()
+        self.api.force_authenticate(User.objects.create_superuser('videoops', 'v@example.com', 'pw'))
+
+    def upload(self, data, name='loop.bin'):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        return self.api.post('/api/promotions/banner-images/', {'file': SimpleUploadedFile(name, data)}, format='multipart')
+
+    def test_mp4_and_webm_uploads_are_accepted_by_their_bytes(self):
+        for data, kind in ((self.MP4, 'video/mp4'), (self.WEBM, 'video/webm')):
+            res = self.upload(data, 'whatever.jpg')                    # the name is never trusted
+            self.assertEqual(res.status_code, 201, res.content)
+            self.assertEqual(res.json()['kind'], 'video')
+            served = APIClient().get(res.json()['url'])
+            self.assertEqual((served.status_code, served['Content-Type']), (200, kind))
+
+    def test_images_still_work_and_keep_their_smaller_limit(self):
+        res = self.upload(b'\x89PNG\r\n\x1a\n' + b'\x00' * 100, 'a.png')
+        self.assertEqual((res.status_code, res.json()['kind']), (201, 'image'))
+        big_png = b'\x89PNG\r\n\x1a\n' + b'\x00' * (5 * 1024 * 1024)
+        self.assertEqual(self.upload(big_png, 'big.png').status_code, 400)
+
+    def test_other_files_and_oversized_video_are_refused(self):
+        self.assertEqual(self.upload(b'<html><script>alert(1)</script></html>', 'x.mp4').status_code, 400)
+        big = b'\x00\x00\x00\x18ftypmp42' + b'\x00' * (8 * 1024 * 1024)
+        self.assertEqual(self.upload(big, 'big.mp4').status_code, 400)
+
+    def test_serves_byte_ranges_so_phones_can_play_it(self):
+        url = self.upload(self.MP4).json()['url']
+        full = APIClient().get(url)
+        self.assertEqual((full.status_code, full['Accept-Ranges'], full['Content-Length']), (200, 'bytes', str(len(self.MP4))))
+        part = APIClient().get(url, HTTP_RANGE='bytes=4-7')
+        self.assertEqual((part.status_code, part.content, part['Content-Range']), (206, b'ftyp', f'bytes 4-7/{len(self.MP4)}'))
+        tail = APIClient().get(url, HTTP_RANGE='bytes=-4')
+        self.assertEqual((tail.status_code, tail.content), (206, self.MP4[-4:]))
+        open_end = APIClient().get(url, HTTP_RANGE='bytes=60-')
+        self.assertEqual((open_end.status_code, open_end.content), (206, self.MP4[60:]))
+        self.assertEqual(APIClient().get(url, HTTP_RANGE=f'bytes={len(self.MP4) + 5}-').status_code, 416)
+        self.assertEqual(APIClient().get(url, HTTP_RANGE='bytes=junk').status_code, 200)
+
+    def test_banner_carries_video_and_motion(self):
+        from apps.promotions.models import Banner
+        old = Banner.objects.create(title='Old', image_url='https://x/o.jpg')
+        self.assertEqual((old.video_url, old.motion), ('', 'none'))
+        body = {'title': 'Live', 'image_url': 'https://x/poster.jpg', 'video_url': '/api/promotions/banner-images/9/', 'motion': 'zoom'}
+        self.assertEqual(self.api.post('/api/promotions/banners/', body, format='json').status_code, 201)
+        rows = APIClient().get('/api/promotions/banners/').json()
+        row = next(r for r in rows.get('results', rows) if r['title'] == 'Live')
+        self.assertEqual((row['video_url'], row['motion']), ('/api/promotions/banner-images/9/', 'zoom'))
+        bad = {'title': 'x', 'image_url': 'https://x/a.jpg', 'motion': 'spin'}
+        self.assertEqual(self.api.post('/api/promotions/banners/', bad, format='json').status_code, 400)
+
+
 class DemoBannerMigrationTests(TestCase):
     def test_removes_only_seeded_demo_banners(self):
         from importlib import import_module

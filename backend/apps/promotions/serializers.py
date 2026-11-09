@@ -14,7 +14,7 @@ class BannerSerializer(serializers.ModelSerializer):
     class Meta:
         model = Banner
         fields = [
-            'id', 'title', 'subtitle', 'image_url', 'link_url', 'cta_label',
+            'id', 'title', 'subtitle', 'image_url', 'mobile_image_url', 'video_url', 'motion', 'focus', 'overlay_text', 'link_url', 'cta_label',
             'placement', 'sort_order', 'active', 'is_live', 'starts_at', 'ends_at',
         ]
 
