@@ -420,7 +420,7 @@ class PlayerViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.G
         """Highest wallet balance first (?sort=newest for newest first), with the
         balance joined in one query. List filters: ?q= (username, email, name
         or #id), ?kyc=, ?status=active|suspended, ?page_size= (up to 100)."""
-        from django.db.models import F, OuterRef, Q, Subquery
+        from django.db.models import OuterRef, Subquery
 
         from apps.wallet.models import Wallet
 
@@ -432,15 +432,22 @@ class PlayerViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.G
             wallet_bonus=Subquery(wallets.values('bonus_balance')[:1]),
             wallet_winnings=Subquery(wallets.values('winnings_balance')[:1]),
         )
-        if self.action != 'list':
+        if self.action not in ('list', 'bulk'):
             return qs.order_by('-created_at', '-id')
-        params = self.request.query_params
+        return self.filtered(qs, self.request.query_params if self.action == 'list' else (self.request.data.get('filters') or {}))
+
+    @staticmethod
+    def filtered(qs, params):
+        """The list's sort and filters (?sort=, q, kyc, status), from query params or a dict."""
+        from django.db.models import F, Q
+        if not hasattr(params, 'get'):
+            params = {}
         if params.get('sort') == 'newest':
             qs = qs.order_by('-created_at', '-id')
         else:
             # Players without a wallet yet sort last, not first (NULLs are "largest" in Postgres).
             qs = qs.order_by(F('wallet_balance').desc(nulls_last=True), '-created_at', '-id')
-        q = (params.get('q') or '').strip().lstrip('#')
+        q = str(params.get('q') or '').strip().lstrip('#')
         if q:
             match = Q(username__icontains=q) | Q(email__icontains=q) | Q(full_name__icontains=q)
             if q.isdigit():
@@ -461,6 +468,28 @@ class PlayerViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.G
             except ValueError:
                 self.paginator.page_size = 25
         return super().paginate_queryset(queryset)
+
+    @action(detail=False, methods=['post'])
+    def bulk(self, request):
+        """POST {action, ids: [..] | all_matching: true + filters: {q, kyc, status}, reason?, title?, body?}
+        — one action on many players: suspend (reason), unsuspend, freeze_withdrawals,
+        unfreeze_withdrawals, block_bonus, unblock_bonus, notify (title, body). Up to
+        500 players; staff accounts are spared; lifting a restriction is superuser-only.
+        Returns how many were done and which were skipped or failed, and why."""
+        from . import bulk
+        data = request.data
+        if data.get('all_matching'):
+            players = self.get_queryset()
+        else:
+            ids = data.get('ids')
+            if not isinstance(ids, list) or not ids or not all(isinstance(i, int) and not isinstance(i, bool) for i in ids):
+                return Response({'detail': 'Choose at least one player.'}, status=status.HTTP_400_BAD_REQUEST)
+            players = Player.objects.filter(pk__in=ids[:bulk.MAX_PLAYERS + 1])
+        try:
+            result = bulk.run(str(data.get('action') or ''), players, options=data, request=request)
+        except bulk.BulkError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(result.as_dict())
 
     @action(detail=True, methods=['post'])
     def suspend(self, request, pk=None):
