@@ -8,7 +8,7 @@ import { useAuth } from '@/lib/auth-context';
 import { useApi, authedPost } from '@/lib/use-api';
 import { config } from '@/lib/config';
 import { LoadingState, Spinner } from '@slyk/ui/components/spinner';
-import { PageHeader } from '@/components/console/ui';
+import { PageHeader, Switch } from '@/components/console/ui';
 import { AnnouncementEditor } from '@/components/announcement-editor';
 
 interface Banner {
@@ -16,6 +16,9 @@ interface Banner {
   title: string;
   subtitle: string;
   image_url: string;
+  mobile_image_url?: string;
+  focus?: 'left' | 'center' | 'right';
+  overlay_text?: boolean;
   link_url: string;
   cta_label: string;
   placement: string;
@@ -41,15 +44,18 @@ const PLACEMENTS = [
 const PLACEMENT_LABEL: Record<string, string> = Object.fromEntries(PLACEMENTS.map((p) => [p.id, p.label]));
 
 const BLANK = {
-  title: '', subtitle: '', image_url: '', link_url: '', cta_label: '', sort_order: '0',
+  title: '', subtitle: '', image_url: '', mobile_image_url: '', link_url: '', cta_label: '', sort_order: '0',
   starts_at: '', ends_at: '', placement: 'home_hero',
+  focus: 'center' as 'left' | 'center' | 'right', overlay_text: true,
 };
 
 type FormState = typeof BLANK;
+type TextKey = Exclude<keyof FormState, 'overlay_text' | 'focus'>;
 
 function toForm(b: Banner): FormState {
   return {
     title: b.title, subtitle: b.subtitle ?? '', image_url: b.image_url,
+    mobile_image_url: b.mobile_image_url ?? '', focus: b.focus ?? 'center', overlay_text: b.overlay_text !== false,
     link_url: b.link_url ?? '', cta_label: b.cta_label ?? '',
     sort_order: String(b.sort_order ?? 0),
     placement: b.placement || 'home_hero',
@@ -63,6 +69,9 @@ function toPayload(form: FormState) {
     title: form.title,
     subtitle: form.subtitle,
     image_url: form.image_url,
+    mobile_image_url: form.mobile_image_url,
+    focus: form.focus,
+    overlay_text: form.overlay_text,
     link_url: form.link_url,
     cta_label: form.cta_label,
     sort_order: Number(form.sort_order) || 0,
@@ -70,6 +79,59 @@ function toPayload(form: FormState) {
     starts_at: form.starts_at || null,
     ends_at: form.ends_at || null,
   };
+}
+
+function UploadBox({ busy, has, label, onFile }: { busy: boolean; has: boolean; label: string; onFile: (f: File) => void }) {
+  return (
+    <label className={`flex cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed border-border bg-background px-3 py-4 text-sm font-medium transition-colors hover:border-primary ${busy ? 'pointer-events-none opacity-60' : ''}`}>
+      {busy ? <><Spinner size={14} />Uploading…</> : has ? 'Replace image…' : label}
+      <input
+        type="file"
+        accept="image/jpeg,image/png,image/webp,image/gif"
+        className="sr-only"
+        onChange={(e) => { const f = e.target.files?.[0]; if (f) onFile(f); e.target.value = ''; }}
+      />
+    </label>
+  );
+}
+
+const FOCUS_POSITION = { left: '15% 50%', center: '50% 50%', right: '85% 50%' } as const;
+
+/** How the banner will look on a computer and on a phone, with the real cropping and text rules. */
+function BannerPreviews({ form }: { form: FormState }) {
+  const text = (small: boolean) => form.overlay_text ? (
+    <>
+      <div className={`absolute inset-0 ${small ? 'bg-gradient-to-t from-black/85 via-black/40 to-transparent' : 'bg-gradient-to-r from-black/85 via-black/45 to-transparent'}`} />
+      <div className={`absolute inset-0 flex flex-col gap-1 ${small ? 'justify-end p-3 pb-6' : 'justify-center p-6'}`}>
+        <p className={`font-extrabold leading-snug text-white drop-shadow ${small ? 'line-clamp-2 text-sm' : 'max-w-md text-2xl'}`}>{form.title || 'Banner title'}</p>
+        {!small && form.subtitle && <p className="max-w-sm text-sm text-white/85">{form.subtitle}</p>}
+        {form.cta_label && <span className="mt-1 w-fit rounded-lg bg-secondary px-3 py-1 text-[10px] font-bold uppercase tracking-wide text-secondary-foreground">{form.cta_label}</span>}
+      </div>
+    </>
+  ) : form.cta_label && (
+    <span className={`absolute left-3 w-fit rounded-lg bg-secondary px-3 py-1 text-[10px] font-bold uppercase tracking-wide text-secondary-foreground ${small ? 'bottom-5' : 'bottom-5 left-6'}`}>{form.cta_label}</span>
+  );
+  return (
+    <div className="flex flex-wrap items-start gap-4">
+      <div className="min-w-[260px] flex-1">
+        <p className="mb-1 text-xs font-semibold text-muted-foreground">Computer</p>
+        <div className="relative h-40 overflow-hidden rounded-xl">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={imageSrc(form.image_url)} alt="Computer preview" className="h-full w-full object-cover" />
+          {text(false)}
+        </div>
+      </div>
+      <div className="w-[240px] shrink-0">
+        <p className="mb-1 text-xs font-semibold text-muted-foreground">Phone{form.mobile_image_url ? '' : ' (cropped from the wide design)'}</p>
+        <div className="relative aspect-[16/10] overflow-hidden rounded-xl ring-1 ring-border">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={imageSrc(form.mobile_image_url || form.image_url)} alt="Phone preview" className="h-full w-full object-cover"
+            style={{ objectPosition: form.mobile_image_url ? '50% 50%' : FOCUS_POSITION[form.focus] }} />
+          {text(true)}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export default function BannersPage() {
@@ -83,12 +145,12 @@ export default function BannersPage() {
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
 
-  const set = (k: keyof FormState, v: string) => setForm((f) => ({ ...f, [k]: v }));
-  const [uploading, setUploading] = useState(false);
+  const set = <K extends keyof FormState>(k: K, v: FormState[K]) => setForm((f) => ({ ...f, [k]: v }));
+  const [uploading, setUploading] = useState<'image_url' | 'mobile_image_url' | null>(null);
 
-  async function uploadDesign(file: File) {
+  async function uploadDesign(file: File, field: 'image_url' | 'mobile_image_url') {
     if (!accessToken) return;
-    setUploading(true);
+    setUploading(field);
     setFormError('');
     try {
       const body = new FormData();
@@ -98,11 +160,11 @@ export default function BannersPage() {
       });
       const json = (await res.json().catch(() => ({}))) as { url?: string; detail?: string };
       if (!res.ok || !json.url) setFormError(json.detail ?? `Upload failed (${res.status}).`);
-      else set('image_url', json.url);
+      else set(field, json.url);
     } catch {
       setFormError('Upload failed — check your connection and try again.');
     } finally {
-      setUploading(false);
+      setUploading(null);
     }
   }
 
@@ -166,7 +228,7 @@ export default function BannersPage() {
     refetch();
   }
 
-  const FIELDS: { label: string; key: keyof FormState; type: string; placeholder: string; full?: boolean }[] = [
+  const FIELDS: { label: string; key: TextKey; type: string; placeholder: string; full?: boolean }[] = [
     { label: 'Title', key: 'title', type: 'text', placeholder: 'BetBlits Aviator' },
     { label: 'Sort order', key: 'sort_order', type: 'number', placeholder: '0' },
     { label: 'Subtitle', key: 'subtitle', type: 'text', placeholder: 'Cash out before the crash', full: true },
@@ -197,22 +259,7 @@ export default function BannersPage() {
         <Card className="rounded-2xl border-border/70">
           <CardHeader><CardTitle className="text-base">{editingId == null ? 'Create banner' : 'Edit banner'}</CardTitle></CardHeader>
           <CardContent className="space-y-4">
-            {form.image_url && (
-              <div className="relative h-40 overflow-hidden rounded-xl">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={imageSrc(form.image_url)} alt="preview" className="h-full w-full object-cover" />
-                <div className="absolute inset-0 bg-gradient-to-r from-black/85 via-black/45 to-transparent" />
-                <div className="absolute inset-0 flex flex-col justify-center gap-1.5 p-6">
-                  <p className="max-w-md text-2xl font-extrabold text-white drop-shadow">{form.title || 'Banner title'}</p>
-                  {form.subtitle && <p className="max-w-sm text-sm text-white/85">{form.subtitle}</p>}
-                  {form.cta_label && (
-                    <span className="mt-1 w-fit rounded-lg bg-secondary px-4 py-1.5 text-xs font-bold uppercase tracking-wide text-secondary-foreground">
-                      {form.cta_label}
-                    </span>
-                  )}
-                </div>
-              </div>
-            )}
+            {form.image_url && <BannerPreviews form={form} />}
             <form onSubmit={handleSubmit} className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1 sm:col-span-2">
                 <label className="text-sm font-medium">Show on</label>
@@ -230,19 +277,36 @@ export default function BannersPage() {
                 </p>
               </div>
               <div className="space-y-1 sm:col-span-2">
-                <label className="text-sm font-medium">Banner design</label>
-                <label className={`flex cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed border-border bg-background px-3 py-4 text-sm font-medium transition-colors hover:border-primary ${uploading ? 'pointer-events-none opacity-60' : ''}`}>
-                  {uploading ? <><Spinner size={14} />Uploading…</> : form.image_url ? 'Replace image…' : 'Upload image…'}
-                  <input
-                    type="file"
-                    accept="image/jpeg,image/png,image/webp,image/gif"
-                    className="sr-only"
-                    onChange={(e) => { const f = e.target.files?.[0]; if (f) void uploadDesign(f); e.target.value = ''; }}
-                  />
-                </label>
+                <label className="text-sm font-medium">Banner design (wide)</label>
+                <UploadBox busy={uploading === 'image_url'} has={!!form.image_url} label="Upload image…" onFile={(f) => void uploadDesign(f, 'image_url')} />
                 <p className="text-xs text-muted-foreground">
-                  JPG, PNG, WebP or GIF up to 5 MB. Wide images work best (about 1600 × 500); the left side sits under the title text.
+                  JPG, PNG, WebP or GIF up to 5 MB. Wide images work best (about 1600 × 500). Used on tablets and computers; phones use it too unless you add a phone design below.
                 </p>
+              </div>
+              <div className="space-y-1 sm:col-span-2">
+                <label className="text-sm font-medium">Phone design (optional)</label>
+                <UploadBox busy={uploading === 'mobile_image_url'} has={!!form.mobile_image_url} label="Upload phone image…" onFile={(f) => void uploadDesign(f, 'mobile_image_url')} />
+                {form.mobile_image_url && (
+                  <button type="button" onClick={() => set('mobile_image_url', '')} className="text-xs font-semibold text-destructive hover:underline">Remove phone design</button>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  Shown on screens under 640px wide. Make it 1080 × 675 (16:10) and keep words and faces at least 8% in from every edge, because small phones crop a little.
+                </p>
+              </div>
+              <div className="space-y-1">
+                <label className="text-sm font-medium">Keep in view on phones</label>
+                <select value={form.focus} onChange={(e) => set('focus', e.target.value as FormState['focus'])} disabled={!!form.mobile_image_url}
+                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50">
+                  <option value="left">Left side</option><option value="center">Centre</option><option value="right">Right side</option>
+                </select>
+                <p className="text-xs text-muted-foreground">Which part of the wide design stays visible when it is cropped for a phone.</p>
+              </div>
+              <div className="flex items-start gap-3 self-center">
+                <Switch checked={form.overlay_text} onChange={(v) => set('overlay_text', v)} label="Print title and subtitle over the image" />
+                <div>
+                  <p className="text-sm font-medium">Print title and subtitle over the image</p>
+                  <p className="text-xs text-muted-foreground">Turn off when the design already has its own words: only the button goes on top.</p>
+                </div>
               </div>
               {FIELDS.map(({ label, key, type, placeholder, full }) => (
                 <div key={key} className={`space-y-1 ${full ? 'sm:col-span-2' : ''}`}>

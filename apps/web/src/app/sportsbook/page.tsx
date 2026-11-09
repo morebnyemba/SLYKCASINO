@@ -77,11 +77,8 @@ export default async function SportsbookPage({ searchParams }: PageProps) {
       <h1 className="sr-only">{seo.h1}</h1>
       {/* Fallback for live data when the realtime socket is down; a hiccup fetching the list quietly retries. */}
       {(events.some(isLive) || failed) && <AutoRefresh seconds={failed ? 10 : 30} />}
-      {banners.length > 0 && (
-        <div className="mb-5">
-          <SportsbookHero banners={banners} />
-        </div>
-      )}
+      {/* Always mounted: it keeps itself live, so a banner added while this page is open appears without a reload. */}
+      <SportsbookHero banners={banners} />
       {events.length === 0 ? (
         <div className="rounded-2xl border border-border bg-card p-12 text-center">
           <p className="mb-1 font-bold">{failed ? 'Getting today’s matches ready' : 'No markets available yet'}</p>

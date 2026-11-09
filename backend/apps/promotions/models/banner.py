@@ -13,9 +13,22 @@ class Banner(models.Model):
         HOME_HERO = 'home_hero', 'Homepage hero'
         SPORTSBOOK = 'sportsbook', 'Sportsbook'
 
+    class Focus(models.TextChoices):
+        LEFT = 'left', 'Left'
+        CENTER = 'center', 'Centre'
+        RIGHT = 'right', 'Right'
+
     title = models.CharField(max_length=200)
     subtitle = models.CharField(max_length=300, blank=True)
     image_url = models.CharField(max_length=500)
+    # A design made for phones (about 16:10). Shown instead of `image_url` on
+    # small screens; without one the wide design is cropped to fit.
+    mobile_image_url = models.CharField(max_length=500, blank=True)
+    # Which part of the wide design stays in view when it is cropped for a phone.
+    focus = models.CharField(max_length=6, choices=Focus.choices, default=Focus.CENTER)
+    # Print the title, subtitle and a dark fade over the image. Turn off when the
+    # design already carries its own words (only the button is added on top).
+    overlay_text = models.BooleanField(default=True)
     link_url = models.CharField(max_length=500, blank=True)
     cta_label = models.CharField(max_length=60, blank=True)
     placement = models.CharField(max_length=20, choices=Placement.choices, default=Placement.HOME_HERO)

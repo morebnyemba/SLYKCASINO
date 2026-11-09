@@ -193,6 +193,37 @@ class BannerAdminEditTests(TestCase):
         self.assertEqual(APIClient().patch(f'/api/promotions/banners/{hidden.id}/', {'active': True}).status_code, 401)
 
 
+class BannerMobileArtTests(TestCase):
+    """A banner can carry a phone design, a focal side and a no-overlay switch."""
+
+    def setUp(self):
+        from django.contrib.auth.models import User
+        self.api = APIClient()
+        self.api.force_authenticate(User.objects.create_superuser('mobileops', 'm@example.com', 'pw'))
+
+    def test_defaults_keep_existing_banners_as_they_were(self):
+        from apps.promotions.models import Banner
+        banner = Banner.objects.create(title='Old', image_url='https://x/o.jpg')
+        self.assertEqual((banner.mobile_image_url, banner.focus, banner.overlay_text), ('', 'center', True))
+        data = APIClient().get('/api/promotions/banners/').json()
+        row = data.get('results', data)[0]
+        self.assertEqual((row['mobile_image_url'], row['focus'], row['overlay_text']), ('', 'center', True))
+
+    def test_admin_sets_the_phone_design_focus_and_overlay(self):
+        body = {'title': 'Aviator', 'image_url': '/api/promotions/banner-images/1/',
+                'mobile_image_url': '/api/promotions/banner-images/2/', 'focus': 'right', 'overlay_text': False}
+        res = self.api.post('/api/promotions/banners/', body, format='json')
+        self.assertEqual(res.status_code, 201, res.content)
+        shown = APIClient().get('/api/promotions/banners/').json()
+        row = shown.get('results', shown)[0]
+        self.assertEqual((row['mobile_image_url'], row['focus'], row['overlay_text']),
+                         ('/api/promotions/banner-images/2/', 'right', False))
+
+    def test_focus_must_be_one_of_the_sides(self):
+        res = self.api.post('/api/promotions/banners/', {'title': 'x', 'image_url': 'https://x/a.jpg', 'focus': 'top'}, format='json')
+        self.assertEqual(res.status_code, 400)
+
+
 class DemoBannerMigrationTests(TestCase):
     def test_removes_only_seeded_demo_banners(self):
         from importlib import import_module
