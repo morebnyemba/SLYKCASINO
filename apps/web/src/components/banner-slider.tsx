@@ -40,7 +40,7 @@ const REFRESH_MS = 20000;
  * cropped by a fixed height; from `sm` up it has a fixed height. Add the
  * height classes for the surface, e.g. `sm:h-60 md:h-72`.
  */
-export const BANNER_FRAME = 'group relative aspect-[16/10] w-full min-w-0 min-h-52 touch-pan-y overflow-hidden rounded-2xl bg-muted sm:aspect-auto sm:min-h-0';
+export const BANNER_FRAME = 'group relative aspect-[16/10] w-full min-w-0 min-h-52 touch-pan-y overflow-hidden rounded-3xl bg-muted sm:aspect-auto sm:min-h-0 banner-frame';
 
 function isExternal(href: string): boolean {
   return /^https?:\/\//i.test(href);
@@ -162,7 +162,7 @@ function BannerVideo({ src, poster, position }: { src: string; poster?: string; 
     <video
       ref={ref} src={src} poster={poster} muted loop playsInline preload="metadata" aria-hidden
       onCanPlay={() => setReady(true)} onError={() => setFailed(true)}
-      className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-500 ${ready ? 'opacity-100' : 'opacity-0'}`}
+      className={`absolute inset-0 h-full w-full rounded-[inherit] object-cover transition-opacity duration-500 ${ready ? 'opacity-100' : 'opacity-0'}`}
       style={{ objectPosition: position }}
     />
   );
@@ -218,7 +218,7 @@ export function BannerSlider({ banners: initial, placement = 'home_hero' }: { ba
       {banners.map((b, i) => (
         <div
           key={b.id}
-          className={`absolute inset-0 transition-opacity duration-700 ${i === index ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
+          className={`absolute inset-0 overflow-hidden rounded-[inherit] transition-opacity duration-700 ${i === index ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
           aria-hidden={i === index ? undefined : true}
         >
           <PromoSlide b={b} priority={i === 0} active={i === index} secondary={{ href: '/sportsbook?tab=live', label: 'Live betting' }} />
@@ -289,12 +289,12 @@ export function PromoSlide({ b, secondary, priority = false, active = true }: {
             src={imageSrc(b.image_url)} alt={overlay ? '' : b.title}
             loading={priority ? 'eager' : 'lazy'} decoding="async" {...(priority ? { fetchPriority: 'high' as const } : {})}
             key={active ? 'on' : 'off'}
-            className={`h-full w-full object-cover ${active && b.motion === 'zoom' ? 'banner-zoom' : ''}`} style={{ objectPosition: position }}
+            className={`h-full w-full rounded-[inherit] object-cover ${active && b.motion === 'zoom' ? 'banner-zoom' : ''}`} style={{ objectPosition: position }}
           />
         </picture>
       ) : (
         <>
-          <div className="absolute inset-0" style={{ background: b.bg }} />
+          <div className="absolute inset-0 rounded-[inherit]" style={{ background: b.bg }} />
           {b.big && (
             <div
               aria-hidden
@@ -315,7 +315,7 @@ export function PromoSlide({ b, secondary, priority = false, active = true }: {
       {overlay ? (
         <>
           {/* Phones: the words sit at the bottom over a fade from below, so the top of the artwork stays clear. */}
-          <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/40 to-transparent sm:bg-gradient-to-r sm:from-black/[0.86] sm:via-black/50 sm:to-transparent" />
+          <div className="absolute inset-0 rounded-[inherit] bg-gradient-to-t from-black/85 via-black/40 to-transparent sm:bg-gradient-to-r sm:from-black/[0.86] sm:via-black/50 sm:to-transparent" />
           {/* Keyed on `active` so the words rise into place each time the slide comes round. */}
           <div key={active ? 'on' : 'off'} className="absolute inset-0 flex flex-col justify-end gap-1 p-4 pb-9 sm:justify-center sm:gap-2 sm:p-10 sm:pb-10">
             {b.eyebrow && (

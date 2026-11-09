@@ -121,7 +121,7 @@ function BannerPreviews({ form }: { form: FormState }) {
     <div className="flex flex-wrap items-start gap-4">
       <div className="min-w-[260px] flex-1">
         <p className="mb-1 text-xs font-semibold text-muted-foreground">Computer</p>
-        <div className="relative h-40 overflow-hidden rounded-xl">
+        <div className="relative h-40 overflow-hidden rounded-3xl">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={imageSrc(form.image_url)} alt="Computer preview" className="h-full w-full object-cover" />
           {form.video_url && <video src={imageSrc(form.video_url)} muted loop autoPlay playsInline className="absolute inset-0 h-full w-full object-cover" />}
@@ -130,7 +130,7 @@ function BannerPreviews({ form }: { form: FormState }) {
       </div>
       <div className="w-[240px] shrink-0">
         <p className="mb-1 text-xs font-semibold text-muted-foreground">Phone{form.mobile_image_url ? '' : ' (cropped from the wide design)'}</p>
-        <div className="relative aspect-[16/10] overflow-hidden rounded-xl ring-1 ring-border">
+        <div className="relative aspect-[16/10] overflow-hidden rounded-3xl ring-1 ring-border">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={imageSrc(form.mobile_image_url || form.image_url)} alt="Phone preview" className="h-full w-full object-cover"
             style={{ objectPosition: form.mobile_image_url ? '50% 50%' : FOCUS_POSITION[form.focus] }} />
