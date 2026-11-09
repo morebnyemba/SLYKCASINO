@@ -378,7 +378,7 @@ def deletion_blocker(player_id: int, check: dict, *, force: bool = False) -> str
     money or open bets that would vanish. `check` is deletion_check()."""
     from apps.risk.models import RiskCase
     if RiskCase.objects.filter(player_id=player_id, status=RiskCase.Status.OPEN).exists():
-        return 'this player has an open fraud case — close it first (Fraud & risk)'
+        return 'this player has an open fraud case — decide it in Fraud & risk (Confirm fraud & delete)'
     if not force:
         problems = []
         if check['balance'] != 0:

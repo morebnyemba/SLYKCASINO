@@ -125,6 +125,8 @@ class CaseView(APIView):
         denied = _superuser_only(request)
         if denied:
             return denied
+        if request.data.get('decision') == 'confirm_delete':
+            return self._confirm_delete(request, pk)
         try:
             case = services.decide(pk, decision=str(request.data.get('decision') or ''),
                                    note=str(request.data.get('note') or ''), by=request.user.get_username())
@@ -134,6 +136,79 @@ class CaseView(APIView):
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         accounts_services.audit(case.player_id, f'risk_case_{case.status}', request, case_id=case.id, note=case.decision_note)
         return Response(_case(case, _players([case.player_id]).get(case.player_id)))
+
+
+    def _confirm_delete(self, request, pk: int):
+        """Confirm fraud and permanently delete the player; the username is typed to confirm."""
+        case = RiskCase.objects.filter(pk=pk).first()
+        if case is None:
+            return Response({'detail': 'Case not found.'}, status=status.HTTP_404_NOT_FOUND)
+        player = _players([case.player_id]).get(case.player_id)
+        if player is None:
+            return Response({'detail': 'This player is already deleted.'}, status=status.HTTP_400_BAD_REQUEST)
+        if str(request.data.get('confirm') or '').strip() != player.username:
+            return Response({'detail': 'Type the player’s username exactly to confirm.'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            result = services.confirm_and_delete([pk], note=str(request.data.get('note') or ''),
+                                                 by=request.user.get_username(), request=request, confirm='', single=True)
+        except ValueError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        if result['failed']:
+            return Response({'detail': result['failed'][0]['error']}, status=status.HTTP_409_CONFLICT)
+        return Response(_case(RiskCase.objects.get(pk=pk), None))
+
+
+class CasesBulkView(APIView):
+    """POST /api/admin/risk/cases/bulk/ (superuser) — decide many open cases at once.
+    {case_ids: [..], decision: dismiss | confirm | confirm_delete, note, dry_run?, confirm?}.
+    `confirm_delete` confirms the fraud and permanently deletes each player (their
+    money is forfeited): a dry run first shows who goes and who is blocked, and
+    then `confirm` must be "DELETE <n>". At most 100 cases for deletion, 200 otherwise."""
+    permission_classes = [IsAdminUser]
+    MAX_DECIDE = 200
+
+    def post(self, request):
+        denied = _superuser_only(request)
+        if denied:
+            return denied
+        ids = request.data.get('case_ids')
+        if not isinstance(ids, list) or not ids or not all(isinstance(i, int) and not isinstance(i, bool) for i in ids):
+            return Response({'detail': 'Choose at least one case.'}, status=status.HTTP_400_BAD_REQUEST)
+        decision = str(request.data.get('decision') or '')
+        note = str(request.data.get('note') or '')
+        by = request.user.get_username()
+        try:
+            if decision == 'confirm_delete':
+                if request.data.get('dry_run'):
+                    review = services.purge_review(ids)
+                    review.pop('_deletable')
+                    return Response({**review, 'dry_run': True})
+                return Response(services.confirm_and_delete(
+                    ids, note=note, by=by, request=request, confirm=str(request.data.get('confirm') or '')))
+            if decision not in ('dismiss', 'confirm'):
+                return Response({'detail': 'Choose dismiss, confirm or confirm_delete.'}, status=status.HTTP_400_BAD_REQUEST)
+            if len(note.strip()) < 3:
+                return Response({'detail': 'Say why — it goes on the record.'}, status=status.HTTP_400_BAD_REQUEST)
+            if len(ids) > self.MAX_DECIDE:
+                return Response({'detail': f'At most {self.MAX_DECIDE} cases at a time.'}, status=status.HTTP_400_BAD_REQUEST)
+        except ValueError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        done, skipped = 0, []
+        for case_id in ids:
+            try:
+                case = services.decide(case_id, decision=decision, note=note, by=by)
+            except RiskCase.DoesNotExist:
+                skipped.append({'case_id': case_id, 'reason': 'Case not found'})
+            except ValueError as exc:
+                if 'Say why' in str(exc):
+                    return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+                skipped.append({'case_id': case_id, 'reason': str(exc)})
+            else:
+                accounts_services.audit(case.player_id, f'risk_case_{case.status}', request, case_id=case.id,
+                                        note=case.decision_note)
+                done += 1
+        return Response({'requested': len(ids), 'done': done, 'skipped': skipped, 'skipped_count': len(skipped),
+                         'failed': [], 'failed_count': 0})
 
 
 class PlayerRiskView(APIView):
