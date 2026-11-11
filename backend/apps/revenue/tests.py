@@ -206,3 +206,25 @@ class AccessTests(Base):
         res = boss.put(URL + 'settings/', {'started_on': (self.today - timedelta(days=30)).isoformat()}, format='json')
         self.assertEqual(res.status_code, 400)                              # locked once days are shared
         self.assertTrue(AuditLog.objects.filter(event_type='revenue_settings').exists())
+
+
+class DeployDayTests(TestCase):
+    def test_the_deploy_day_counts_from_its_midnight(self):
+        """Migrations pin the start to the deploy day; play earlier that day is shared when it ends."""
+        cfg = RevenueSettings.load()
+        self.assertEqual(cfg.started_on, timezone.localdate())          # set by migration 0002
+        today = timezone.localdate()
+        with patch.object(services, 'day_ggr', return_value=D('500')) as ggr:
+            self.assertEqual(services.close_days(today=today), 0)       # not over yet
+            self.assertEqual(services.close_days(today=today + timedelta(days=1)), 1)
+        ggr.assert_called_once_with(today)                              # the whole deploy day, 00:00-24:00
+        self.assertEqual(RevenueDay.objects.get().share_each, D('50.00'))
+
+    def test_migration_keeps_an_existing_start_date(self):
+        from importlib import import_module
+
+        from django.apps import apps
+        earlier = timezone.localdate() - timedelta(days=7)
+        RevenueSettings.objects.update_or_create(pk=1, defaults={'started_on': earlier})
+        import_module('apps.revenue.migrations.0002_start_on_deploy_day').start_today(apps, None)
+        self.assertEqual(RevenueSettings.load().started_on, earlier)
