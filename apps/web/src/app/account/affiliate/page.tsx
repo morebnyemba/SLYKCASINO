@@ -9,6 +9,7 @@ import { Badge } from '@slyk/ui/components/badge';
 import { useAuth } from '@/lib/auth-context';
 import { authedPost, useApi } from '@/lib/use-api';
 import { LoadingState, Spinner } from '@slyk/ui/components/spinner';
+import Link from 'next/link';
 import { PayoutDialog, type PayoutOptions } from '@/components/affiliate/payout-dialog';
 import { PeriodReport } from '@/components/affiliate/period-report';
 import { ShareLink } from '@/components/affiliate/share-link';
@@ -155,7 +156,7 @@ function HowYouEarn({ a }: { a: TermsProps }) {
           {Number(p.welcome_bonus_cap) > 0 && <> (up to {money(p.welcome_bonus_cap)})</>} when they join with your link. Tell them!
         </p>
       )}
-      <p>Your commission goes into your wallet automatically 3 minutes after each losing ticket settles. <b className="text-foreground">Withdraw from {money(MIN_WITHDRAWAL)}, any day.</b></p>
+      <p>Your commission is paid into your Winnings wallet automatically, 3 minutes after each losing ticket settles. <b className="text-foreground">Withdraw it from your wallet any day.</b></p>
     </div>
   );
 }
@@ -265,6 +266,9 @@ function Dashboard({ a, refetch }: { a: Affiliate & { stats: Stats }; refetch: (
   const rate = Number(s.commission_rate ?? a.revshare_percent);
   const min = Number(a.payout_options?.min_payout ?? MIN_WITHDRAWAL);
   const canWithdraw = Number(b.available) >= min && !!a.payout_options;
+  // With automatic payout, final earnings are already in the Winnings wallet:
+  // what is left here is only money still being checked or held.
+  const auto = !!a.payout_options?.auto_payout && Number(b.available) < 0.01;
 
   // Money in (commissions) and out (withdrawals), newest first.
   const transactions = useMemo(() => [
@@ -273,7 +277,7 @@ function Dashboard({ a, refetch }: { a: Affiliate & { stats: Stats }; refetch: (
       badge: <Badge variant={STATUS_BADGE[c.status]}>{STATUS_LABEL[c.status]}</Badge>,
     })),
     ...payouts.filter((po) => po.status !== 'rejected').map((po) => ({
-      key: `p${po.id}`, at: po.created_at, title: `Withdrawal to ${po.method_label}`, sub: new Date(po.created_at).toLocaleDateString(),
+      key: `p${po.id}`, at: po.created_at, title: po.method === 'wallet' ? 'Paid into your Winnings wallet' : `Withdrawal to ${po.method_label}`, sub: new Date(po.created_at).toLocaleDateString(),
       amount: -Number(po.amount), badge: <Badge variant={PAYOUT_BADGE[po.status]}>{PAYOUT_LABEL[po.status]}</Badge>,
     })),
   ].sort((x, y) => Date.parse(y.at) - Date.parse(x.at)), [commissions, payouts]);
@@ -284,22 +288,41 @@ function Dashboard({ a, refetch }: { a: Affiliate & { stats: Stats }; refetch: (
       <section className="overflow-hidden rounded-2xl bg-gradient-to-br from-primary via-primary to-[#0B3BB8] p-5 text-white shadow-lg sm:p-6">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/60">My wallet · code {a.code}</p>
-            <p className="mt-1 text-4xl font-extrabold tabular-nums sm:text-5xl">{money(b.available)}</p>
-            <p className="mt-1 text-sm text-white/75">Minimum withdrawal {money(min)}. Withdraw any day.</p>
+            {auto ? (
+              <>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/60">Paid to your wallet · code {a.code}</p>
+                <p className="mt-1 text-4xl font-extrabold tabular-nums sm:text-5xl">{money(b.paid_out)}</p>
+                <p className="mt-1 text-sm text-white/75">Every commission goes into your Winnings wallet as soon as it’s final. Withdraw it from your wallet any day.</p>
+              </>
+            ) : (
+              <>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/60">My wallet · code {a.code}</p>
+                <p className="mt-1 text-4xl font-extrabold tabular-nums sm:text-5xl">{money(b.available)}</p>
+                <p className="mt-1 text-sm text-white/75">Minimum withdrawal {money(min)}. Withdraw any day.</p>
+              </>
+            )}
           </div>
-          <button
-            onClick={() => setPayOpen(true)}
-            disabled={!canWithdraw}
-            className="flex items-center gap-2 rounded-xl bg-win px-5 py-3 text-sm font-extrabold text-win-foreground shadow transition-transform hover:scale-[1.02] disabled:opacity-50 disabled:hover:scale-100"
-          >
-            Withdraw <FaArrowRight size={12} />
-          </button>
+          {auto ? (
+            <Link
+              href="/account/wallet"
+              className="flex items-center gap-2 rounded-xl bg-win px-5 py-3 text-sm font-extrabold text-win-foreground shadow transition-transform hover:scale-[1.02]"
+            >
+              Withdraw from wallet <FaArrowRight size={12} />
+            </Link>
+          ) : (
+            <button
+              onClick={() => setPayOpen(true)}
+              disabled={!canWithdraw}
+              className="flex items-center gap-2 rounded-xl bg-win px-5 py-3 text-sm font-extrabold text-win-foreground shadow transition-transform hover:scale-[1.02] disabled:opacity-50 disabled:hover:scale-100"
+            >
+              Withdraw <FaArrowRight size={12} />
+            </button>
+          )}
         </div>
         <div className="mt-5 grid grid-cols-3 gap-2.5">
           <MoneyChip label="Being checked" value={money(b.pending)} />
           <MoneyChip label="On its way" value={money(b.in_payout)} />
-          <MoneyChip label="Withdrawn" value={money(b.paid_out)} />
+          <MoneyChip label={auto ? 'Paid to wallet' : 'Withdrawn'} value={money(b.paid_out)} />
         </div>
       </section>
 

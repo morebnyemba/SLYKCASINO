@@ -361,8 +361,14 @@ CELERY_BEAT_SCHEDULE = {
     },
     'affiliates-run-commissions': {
         'task': 'apps.affiliates.tasks.run_commissions',
-        # Every 6h (idempotent): picks up new CPAs.
-        'schedule': 3600.0 * 6,
+        # Every 15 min (idempotent): a deposit commission is paid soon after it qualifies.
+        'schedule': 900.0,
+    },
+    'affiliates-pay-out-earnings': {
+        'task': 'apps.affiliates.tasks.pay_out_earnings',
+        # Sweep for earnings not yet in a Winnings wallet (each new commission is
+        # also paid the moment it is final). No-op when automatic payout is off.
+        'schedule': 300.0,
     },
     'affiliates-credit-losing-tickets': {
         'task': 'apps.affiliates.tasks.credit_losing_tickets',

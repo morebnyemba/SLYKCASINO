@@ -5,10 +5,13 @@ fixed to that affiliate), and plays. The affiliate (agent) earns their
 percentage (30% by default) of the stake on every losing ticket a referred
 player places, credited automatically a few minutes after it settles; plus a one-off deposit
 commission once a referral has deposited and played enough, if the programme
-offers one. Approved commissions (by an operator,
-or automatically when AFFILIATE_AUTO_PAY is on) build up the affiliate's
-balance, which they withdraw with a payout request: into their betting wallet
-at once, or to mobile money / a bank once an operator has sent the money.
+offers one. A commission is final once it is approved: losing-ticket shares
+straight away, deposit commissions when they qualify (or when an operator
+approves them, if the programme asks for approval). With the programme's
+`auto_payout` on (the default) final earnings go straight into the affiliate's
+Winnings wallet, withdrawable like any winnings; otherwise they build up the
+affiliate balance, withdrawn with a payout request (to the betting wallet at
+once, or to mobile money / a bank once an operator has sent the money).
 """
 from __future__ import annotations
 
@@ -167,7 +170,7 @@ def update_programme(**values) -> AffiliateProgramme:
             raise AffiliateError(f'{name} is out of range')
         setattr(programme, name, value)
         fields.append(name)
-    for flag in ('negative_carryover', 'external_payouts'):
+    for flag in ('negative_carryover', 'external_payouts', 'auto_payout', 'auto_approve_commissions'):
         if values.get(flag) is not None:
             setattr(programme, flag, bool(values[flag]))
             fields.append(flag)
@@ -389,7 +392,9 @@ def customer_tickets(affiliate: Affiliate, params, request, *, mask: bool = True
 # -- commissions ----------------------------------------------------------------
 
 def _auto_pay(commission: Commission) -> Commission:
-    if _setting('AFFILIATE_AUTO_PAY', False):
+    """A deposit/monthly commission that just qualified: final at once unless
+    the programme asks staff to approve each one."""
+    if AffiliateProgramme.load().auto_approve_commissions or _setting('AFFILIATE_AUTO_PAY', False):
         return approve(commission.id)
     return commission
 
@@ -539,6 +544,8 @@ def credit_losing_tickets(*, now: Optional[datetime] = None) -> int:
             except IntegrityError:
                 continue  # paid by a run that overlapped this one
             paid += 1
+    if paid:
+        pay_out_earnings()
     return paid
 
 
@@ -589,8 +596,13 @@ def approve(commission_id: int) -> Commission:
     commission.decided_at = timezone.now()
     commission.save(update_fields=['status', 'decided_at'])
     label = commission.period.strftime('%B %Y') if commission.period else 'a new depositing referral'
-    _notify(commission.affiliate, 'Affiliate commission approved',
-            f'{commission.amount} for {label} is in your affiliate balance — request a payout any time.')
+    if AffiliateProgramme.load().auto_payout:
+        pay_out_earnings(affiliate_id=commission.affiliate_id)
+        _notify(commission.affiliate, 'Affiliate commission paid',
+                f'{commission.amount} for {label} is in your Winnings wallet — you can withdraw it.')
+    else:
+        _notify(commission.affiliate, 'Affiliate commission approved',
+                f'{commission.amount} for {label} is in your affiliate balance — request a payout any time.')
     return commission
 
 
@@ -636,6 +648,8 @@ def payout_options(affiliate: Affiliate) -> dict:
     return {
         'methods': [{'id': m.value, 'label': m.label} for m in methods],
         'min_payout': str(programme.min_payout),
+        # Earnings go straight into the Winnings wallet: withdraw them from there.
+        'auto_payout': programme.auto_payout,
         'kyc_verified': bool(player and player.kyc_status == player.Kyc.VERIFIED),
     }
 
@@ -690,8 +704,56 @@ def request_payout(
     return payout
 
 
+AUTO_PAYOUT_NOTE = 'Paid automatically'
+
+
+def _unpaid_affiliate_ids() -> list[int]:
+    """Active affiliates whose approved earnings exceed what has been paid or
+    requested — one grouped query each way, however many affiliates there are."""
+    from django.db.models import Sum
+    earned = dict(Commission.objects.filter(status=Commission.Status.APPROVED, affiliate__status=Affiliate.Status.ACTIVE)
+                  .values_list('affiliate_id').annotate(t=Sum('amount')))
+    if not earned:
+        return []
+    spent = dict(Payout.objects.filter(affiliate_id__in=list(earned), status__in=(Payout.Status.REQUESTED, Payout.Status.PAID))
+                 .values_list('affiliate_id').annotate(t=Sum('amount')))
+    return [a for a, t in earned.items() if t - (spent.get(a) or Decimal('0')) >= Decimal('0.01')]
+
+
+def pay_out_earnings(*, affiliate_id: Optional[int] = None) -> dict:
+    """Pay final earnings straight into each active affiliate's Winnings wallet
+    (programme `auto_payout`). Runs whenever a commission becomes final and every
+    minute as a sweep (earnings from before it was switched on, a declined
+    mobile-money payout returning to the balance). Each affiliate is locked
+    while paid, and each payout is keyed, so overlapping runs never pay twice.
+    Money already requested to mobile money / a bank is left alone. Returns
+    {affiliates, amount}."""
+    paid, total = 0, Decimal('0')
+    if not AffiliateProgramme.load().auto_payout:
+        return {'affiliates': 0, 'amount': '0.00'}
+    for aid in ([affiliate_id] if affiliate_id else _unpaid_affiliate_ids()):
+        try:
+            with transaction.atomic():
+                affiliate = Affiliate.objects.select_for_update().filter(pk=aid, status=Affiliate.Status.ACTIVE).first()
+                if affiliate is None:
+                    continue
+                amount = balance(affiliate)['available']
+                if amount < Decimal('0.01'):
+                    continue
+                payout = Payout.objects.create(affiliate=affiliate, amount=amount, method=Payout.Method.WALLET,
+                                               note=AUTO_PAYOUT_NOTE)
+                complete_wallet_payout(payout.id, notify=False)
+        except Exception:  # noqa: BLE001 — one affiliate must never stop the rest
+            import logging
+            logging.getLogger(__name__).exception('automatic affiliate payout failed for %s', aid)
+            continue
+        paid += 1
+        total += amount
+    return {'affiliates': paid, 'amount': f'{total:.2f}'}
+
+
 @transaction.atomic
-def complete_wallet_payout(payout_id: int) -> Payout:
+def complete_wallet_payout(payout_id: int, *, notify: bool = True) -> Payout:
     """Move a wallet payout into the affiliate's betting wallet (keyed, so a
     retry or recovery can never pay twice), then mark it paid."""
     payout = Payout.objects.select_for_update().select_related('affiliate').get(pk=payout_id)
@@ -704,8 +766,9 @@ def complete_wallet_payout(payout_id: int) -> Payout:
     payout.status = Payout.Status.PAID
     payout.decided_at = timezone.now()
     payout.save(update_fields=['status', 'decided_at'])
-    _notify(payout.affiliate, 'Affiliate earnings moved to your wallet',
-            f'{payout.amount} from your affiliate balance is now in your betting wallet.')
+    if notify:
+        _notify(payout.affiliate, 'Affiliate earnings moved to your wallet',
+                f'{payout.amount} from your affiliate balance is now in your Winnings wallet.')
     return payout
 
 

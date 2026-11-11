@@ -6,7 +6,11 @@ import { Spinner } from '@slyk/ui/components/spinner';
 import { useAuth } from '@/lib/auth-context';
 import { authedPost } from '@/lib/use-api';
 
-export interface PayoutOptions { methods: { id: string; label: string }[]; min_payout: string; kyc_verified: boolean }
+export interface PayoutOptions {
+  methods: { id: string; label: string }[]; min_payout: string; kyc_verified: boolean;
+  /** Earnings are paid into the Winnings wallet as soon as they are final; withdraw them from the wallet. */
+  auto_payout?: boolean;
+}
 
 const money = (v: string | number) => `$${Number(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const ICON: Record<string, React.ReactNode> = {

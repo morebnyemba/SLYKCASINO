@@ -154,6 +154,12 @@ class AffiliateProgramme(models.Model):
     # day), and whether payouts to mobile money / bank are offered at all.
     min_payout = models.DecimalField(max_digits=10, decimal_places=2, default=10)
     external_payouts = models.BooleanField(default=True)
+    # Earnings are paid into the affiliate's Winnings wallet (withdrawable like
+    # any winnings) the moment they are final, with no payout request.
+    auto_payout = models.BooleanField(default=True)
+    # A deposit (CPA) or monthly commission is final as soon as it qualifies,
+    # with no operator approval. Off: staff approve each one first.
+    auto_approve_commissions = models.BooleanField(default=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

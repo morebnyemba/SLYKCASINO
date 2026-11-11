@@ -248,7 +248,8 @@ class AdminProgrammeView(APIView):
         return Response(ProgrammeSerializer(services.get_programme()).data)
 
     def put(self, request):
-        fields = [*services.PROGRAMME_FIELDS, 'negative_carryover']
+        fields = [*services.PROGRAMME_FIELDS, 'negative_carryover', 'external_payouts', 'auto_payout',
+                  'auto_approve_commissions']
         try:
             programme = services.update_programme(**{f: request.data.get(f) for f in fields})
         except (services.AffiliateError, ArithmeticError, ValueError) as exc:
