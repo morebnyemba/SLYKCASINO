@@ -47,6 +47,7 @@ export const NAV: NavSection[] = [
     { href: '/transactions', label: 'Transactions', icon: BsCashStack },
     { href: '/payment-methods', label: 'Payment methods', icon: BsCreditCard2Front },
     { href: '/affiliates', label: 'Affiliates', icon: BsDiagram3, badge: 'commissions' },
+    { href: '/revenue-share', label: 'Revenue share', icon: BsPieChart },
   ] },
   { title: 'Marketing', items: [
     { href: '/promotions', label: 'Promotions', icon: BsGift },

@@ -46,6 +46,7 @@ DOMAIN_APPS = [
     'apps.affiliates',
     'apps.jet',
     'apps.risk',
+    'apps.revenue',
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + DOMAIN_APPS
@@ -374,6 +375,12 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'apps.affiliates.tasks.credit_losing_tickets',
         # Each losing ticket's agent commission, 3 minutes after it settles.
         'schedule': 60.0,
+    },
+    'revenue-close-days': {
+        'task': 'apps.revenue.tasks.close_days',
+        # Hourly, idempotent: each completed day's GGR shared into the three
+        # partner wallets and the operating pool.
+        'schedule': 3600.0,
     },
     'affiliates-reconcile-payouts': {
         'task': 'apps.affiliates.tasks.reconcile_commission_payouts',
