@@ -15,3 +15,11 @@ def reconcile_ledger(dry_run: bool = False) -> dict:
 def sweep_pending_payments() -> int:
     from .payments import gateway_enabled, sweep_pending
     return sweep_pending() if gateway_enabled() else 0
+
+
+@shared_task(name='apps.wallet.tasks.expire_idle_bonuses')
+def expire_idle_bonuses() -> dict:
+    """Hourly: forfeit Bonus wallets unused for the admin's expiry period; warn 3 days before."""
+    from . import bonus
+    report = bonus.expire_idle()
+    return {**report, 'amount': str(report['amount'])}

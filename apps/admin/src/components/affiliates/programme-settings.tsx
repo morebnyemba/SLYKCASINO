@@ -10,9 +10,9 @@ interface Programme {
   welcome_bonus_percent: string; welcome_bonus_cap: string; welcome_bonus_wagering: string; welcome_bonus_min_deposit: string;
   default_revshare_percent: string; default_cpa_amount: string; default_cpa_min_deposit: string; default_cpa_percent: string;
   default_cpa_cap: string; cpa_min_turnover_multiple: string; negative_carryover: boolean; min_payout: string;
-  external_payouts: boolean; updated_at: string;
+  external_payouts: boolean; auto_payout: boolean; auto_approve_commissions: boolean; updated_at: string;
 }
-type NumKey = Exclude<keyof Programme, 'negative_carryover' | 'external_payouts' | 'updated_at'>;
+type NumKey = Exclude<keyof Programme, 'negative_carryover' | 'external_payouts' | 'auto_payout' | 'auto_approve_commissions' | 'updated_at'>;
 
 const n = (v: string) => Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 });
 
@@ -72,7 +72,7 @@ export function ProgrammeSettings() {
           {num('cpa_min_turnover_multiple', 'Play required (× first deposit)', 'They must also bet this many times their first deposit — stops deposit-and-withdraw farming.')}
         </div>
         <p className="mt-3 text-xs text-muted-foreground">
-          Example: a referral’s $50 first deposit earns the affiliate ${n(String(cpaExample))} once they’ve bet ${n(String(50 * Number(form.cpa_min_turnover_multiple)))}. Commissions wait for your approval unless auto-pay is on.
+          Example: a referral’s $50 first deposit earns the affiliate ${n(String(cpaExample))} once they’ve bet ${n(String(50 * Number(form.cpa_min_turnover_multiple)))}. {form.auto_approve_commissions ? 'It is paid as soon as they qualify.' : 'It waits for your approval (see Payouts below).'}
         </p>
       </Panel>
 
@@ -90,7 +90,28 @@ export function ProgrammeSettings() {
         </div>
       </Panel>
 
-      <Panel title="Payouts" description="Affiliates withdraw their approved commissions. To their betting wallet it’s instant; to mobile money or a bank you send it and mark it paid under Payouts.">
+      <Panel title="Payouts" description="When affiliates get their money. With automatic payout on, every commission goes into the affiliate’s Winnings wallet the moment it is final, and they withdraw it like any winnings (KYC, fraud checks and the withdrawal fee apply as usual).">
+        <div className="mb-6 grid gap-6 sm:grid-cols-2">
+          <div className="flex items-start justify-between gap-4">
+            <div className="text-sm">
+              <p className="font-semibold">Pay earnings into the Winnings wallet automatically</p>
+              <p className="mt-1 text-muted-foreground">
+                Losing-ticket commission 3 minutes after the ticket settles; a deposit commission as soon as it qualifies.
+                Suspended affiliates aren’t paid until reactivated. Off: earnings build up in the affiliate balance until they request a payout.
+              </p>
+            </div>
+            <Switch checked={form.auto_payout} onChange={(v) => setForm({ ...form, auto_payout: v })} label="Pay earnings into the Winnings wallet automatically" />
+          </div>
+          <div className="flex items-start justify-between gap-4">
+            <div className="text-sm">
+              <p className="font-semibold">Deposit commissions need no approval</p>
+              <p className="mt-1 text-muted-foreground">
+                On: a deposit (CPA) commission is final when the referral qualifies. Off: you approve each one under Commissions first, then it is paid.
+              </p>
+            </div>
+            <Switch checked={form.auto_approve_commissions} onChange={(v) => setForm({ ...form, auto_approve_commissions: v })} label="Deposit commissions need no approval" />
+          </div>
+        </div>
         <div className="grid gap-6 sm:grid-cols-2">
           {num('min_payout', 'Minimum payout to mobile money / bank ($)', 'Moving earnings into the betting wallet has no minimum.')}
           <div className="flex items-start justify-between gap-4">

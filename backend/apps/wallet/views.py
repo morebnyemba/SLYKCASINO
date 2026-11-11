@@ -46,7 +46,8 @@ def wallets_payload(player_id: int) -> dict:
         'balance': str(dto.balance), 'currency': dto.currency,
         'wallets': {
             'deposit': {'balance': str(dto.deposit), 'min_odds': str(rules.deposit_min_odds), 'withdrawable': True},
-            'bonus': {'balance': str(dto.bonus), 'min_odds': str(rules.bonus_min_odds), 'withdrawable': False},
+            'bonus': {'balance': str(dto.bonus), 'min_odds': str(rules.bonus_min_odds), 'withdrawable': False,
+                      'expires_at': bonus.expires_at(player_id)},
             'winnings': {'balance': str(dto.winnings), 'min_odds': str(rules.winnings_min_odds), 'withdrawable': True},
         },
         'withdrawable': str(dto.winnings),
@@ -509,7 +510,7 @@ class AdminWalletRulesView(APIView):
     permission_classes = [IsAdminUser]
     FIELDS = ('deposit_min_odds', 'bonus_min_odds', 'winnings_min_odds', 'bonus_min_leg_odds', 'bonus_max_conversion',
               'min_stake', 'max_stake')
-    INTS = ('bonus_min_legs', 'bonus_wins_to_convert', 'max_selections')
+    INTS = ('bonus_min_legs', 'bonus_wins_to_convert', 'max_selections', 'bonus_expiry_hours')
 
     def _out(self, rules):
         return {**{f: str(getattr(rules, f)) for f in self.FIELDS}, **{f: getattr(rules, f) for f in self.INTS}}
@@ -538,6 +539,9 @@ class AdminWalletRulesView(APIView):
                             status=status.HTTP_400_BAD_REQUEST)
         if rules.min_stake <= 0 or rules.max_stake < rules.min_stake:
             return Response({'detail': 'The minimum stake must be above $0 and at most the maximum stake.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        if not bonus.MIN_EXPIRY_HOURS <= rules.bonus_expiry_hours <= bonus.MAX_EXPIRY_HOURS:
+            return Response({'detail': 'Bonuses expire after 24 hours at the soonest and 15 days (360 hours) at the latest.'},
                             status=status.HTTP_400_BAD_REQUEST)
         if not 2 <= rules.max_selections <= 50:
             return Response({'detail': 'Selections per ticket: 2–50.'}, status=status.HTTP_400_BAD_REQUEST)

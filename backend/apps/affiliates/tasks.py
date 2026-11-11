@@ -19,6 +19,12 @@ def credit_losing_tickets() -> int:
     return services.credit_losing_tickets()
 
 
+@shared_task(name='apps.affiliates.tasks.pay_out_earnings')
+def pay_out_earnings() -> dict:
+    """Every minute: final earnings into affiliates' Winnings wallets (when on)."""
+    return services.pay_out_earnings()
+
+
 @shared_task(name='apps.affiliates.tasks.reconcile_commission_payouts')
 def reconcile_commission_payouts(dry_run: bool = False) -> dict:
     return RecoveryManager(dry_run=dry_run).run().model_dump(mode='json')

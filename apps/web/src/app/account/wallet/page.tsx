@@ -120,6 +120,11 @@ export default function WalletPage() {
                       Win {wallet.bonus_rules.wins_needed} in a row to move up to ${Number(wallet.bonus_rules.max_conversion).toFixed(0)} to
                       Winnings — <b>{wallet.bonus_rules.wins} of {wallet.bonus_rules.wins_needed}</b> so far.
                     </>}
+                    {id === 'bonus' && wallet.wallets.bonus.expires_at && (
+                      <span className="mt-1 block font-semibold text-gold">
+                        Expires {new Date(wallet.wallets.bonus.expires_at).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })} if unused — bet it to keep it.
+                      </span>
+                    )}
                   </p>
                 </div>
               ))}

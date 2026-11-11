@@ -156,3 +156,12 @@
   .banner-zoom, .banner-rise { animation: none; }
   .banner-shine::after { display: none; }
 }
+
+/* Banner corners. Safari paints children that fade or transform (the slides,
+   the zoom, the video) on their own layer and lets them spill past a rounded
+   overflow:hidden box; isolating the frame and masking it keeps the corners round. */
+.banner-frame {
+  isolation: isolate;
+  transform: translateZ(0);
+  -webkit-mask-image: -webkit-radial-gradient(white, black);
+}

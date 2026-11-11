@@ -46,6 +46,7 @@ DOMAIN_APPS = [
     'apps.affiliates',
     'apps.jet',
     'apps.risk',
+    'apps.revenue',
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + DOMAIN_APPS
@@ -361,13 +362,30 @@ CELERY_BEAT_SCHEDULE = {
     },
     'affiliates-run-commissions': {
         'task': 'apps.affiliates.tasks.run_commissions',
-        # Every 6h (idempotent): picks up new CPAs.
-        'schedule': 3600.0 * 6,
+        # Every 15 min (idempotent): a deposit commission is paid soon after it qualifies.
+        'schedule': 900.0,
+    },
+    'affiliates-pay-out-earnings': {
+        'task': 'apps.affiliates.tasks.pay_out_earnings',
+        # Sweep for earnings not yet in a Winnings wallet (each new commission is
+        # also paid the moment it is final). No-op when automatic payout is off.
+        'schedule': 300.0,
     },
     'affiliates-credit-losing-tickets': {
         'task': 'apps.affiliates.tasks.credit_losing_tickets',
         # Each losing ticket's agent commission, 3 minutes after it settles.
         'schedule': 60.0,
+    },
+    'wallet-expire-idle-bonuses': {
+        'task': 'apps.wallet.tasks.expire_idle_bonuses',
+        # Hourly: Bonus wallets unused for WalletRules.bonus_expiry_days are forfeited.
+        'schedule': 3600.0,
+    },
+    'revenue-close-days': {
+        'task': 'apps.revenue.tasks.close_days',
+        # Hourly, idempotent: each completed day's GGR shared into the three
+        # partner wallets and the operating pool.
+        'schedule': 3600.0,
     },
     'affiliates-reconcile-payouts': {
         'task': 'apps.affiliates.tasks.reconcile_commission_payouts',
