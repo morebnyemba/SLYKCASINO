@@ -1,7 +1,6 @@
 """House revenue share — the only place its books change (see models.py).
 
-Every completed day is closed once: its GGR (stakes minus wins paid, across
-sports and Aviator, from the player ledger) has any loss still carried from
+Every completed day is closed once: its real-money GGR (see day_ggr) has any loss still carried from
 earlier losing days netted off first; each of the three wallets is credited
 its share of what's left and the operating pool keeps the rest. Days close in
 order, by an hourly job and whenever the page is opened, so nothing is missed.
@@ -36,10 +35,32 @@ def _sum(qs, field='amount') -> Decimal:
     return (qs.aggregate(v=Sum(field))['v'] or ZERO).quantize(CENT)
 
 
+CASH_STAKES = ('bet_stake', 'casino_debit')
+CASH_WINS = ('bet_payout', 'casino_credit')
+
+
+def real_money(start: datetime, end: datetime) -> dict:
+    """Revenue in real money only, from the player ledger. Bonus money is not
+    money until a player turns it into Winnings, so stakes and wins on the Bonus
+    wallet are left out; the moment bonus money is converted into withdrawable
+    Winnings it counts as a cost. Bonus credits and forfeits never count."""
+    from apps.wallet.models import Bucket, LedgerEntry
+    cash = (Bucket.DEPOSIT, Bucket.WINNINGS)
+    qs = LedgerEntry.objects.filter(created_at__gte=start, created_at__lt=end)
+    stakes = -_sum(qs.filter(kind__in=CASH_STAKES, bucket__in=cash))
+    wins = _sum(qs.filter(kind__in=CASH_WINS, bucket__in=cash))
+    conversions = _sum(qs.filter(kind='bonus_conversion', bucket=Bucket.WINNINGS))
+    return {'stakes': stakes, 'wins': wins, 'bonus_conversions': conversions, 'ggr': stakes - wins - conversions}
+
+
 def day_ggr(day: date) -> Decimal:
-    """Stakes minus wins paid that day, every product (the analytics GGR)."""
-    from apps.wallet.services import ledger_kpis
-    return Decimal(ledger_kpis(None, _aware(day), _aware(day + timedelta(days=1)))['ggr'])
+    """The day's real-money GGR: cash stakes minus cash wins, less bonus money
+    converted into Winnings that day."""
+    return real_money(_aware(day), _aware(day + timedelta(days=1)))['ggr']
+
+
+def day_bonus_conversions(day: date) -> Decimal:
+    return real_money(_aware(day), _aware(day + timedelta(days=1)))['bonus_conversions']
 
 
 def day_affiliate_costs(day: date) -> Decimal:
@@ -78,7 +99,7 @@ def close_days(*, today: Optional[date] = None) -> int:
             maths = split(ggr, carried, cfg.share_percent, len(wallets))
             record = RevenueDay.objects.create(
                 day=day, ggr=ggr, carried_in=carried, share_percent=cfg.share_percent,
-                affiliate_costs=day_affiliate_costs(day), **maths,
+                bonus_conversions=day_bonus_conversions(day), affiliate_costs=day_affiliate_costs(day), **maths,
             )
             if maths['share_each'] > 0:
                 ShareEntry.objects.bulk_create([
@@ -273,9 +294,10 @@ def today_so_far() -> dict:
     """Today's GGR so far and what each wallet would get if the day ended now."""
     cfg = RevenueSettings.load()
     today = timezone.localdate()
-    from apps.wallet.services import ledger_kpis
-    ggr = Decimal(ledger_kpis(None, _aware(today), timezone.now())['ggr'])
+    figures = real_money(_aware(today), timezone.now())
+    ggr = figures['ggr']
     last = RevenueDay.objects.order_by('-day').first()
     maths = split(ggr, last.carry_out if last else ZERO, cfg.share_percent)
-    return {'day': today.isoformat(), 'ggr': str(ggr), 'carried_in': str(last.carry_out if last else ZERO),
+    return {'day': today.isoformat(), 'ggr': str(ggr), 'bonus_conversions': str(figures['bonus_conversions']),
+            'carried_in': str(last.carry_out if last else ZERO),
             **{k: str(v) for k, v in maths.items()}}

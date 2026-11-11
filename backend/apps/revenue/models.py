@@ -59,7 +59,10 @@ class RevenueDay(models.Model):
     `carry_out` <= 0); `base` is what was shared out: each wallet `share_each`,
     the pool the rest. Closed once, never edited."""
     day = models.DateField(unique=True)
+    # Real-money GGR: cash stakes minus cash wins, less bonus money that turned
+    # into withdrawable Winnings that day (see services.day_ggr).
     ggr = models.DecimalField(max_digits=14, decimal_places=2)
+    bonus_conversions = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     carried_in = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     base = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     carry_out = models.DecimalField(max_digits=14, decimal_places=2, default=0)

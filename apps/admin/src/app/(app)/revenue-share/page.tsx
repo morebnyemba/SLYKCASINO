@@ -20,7 +20,7 @@ interface Wallet {
   entries: { kind: string; label: string; amount: string; day: string | null; at: string }[];
 }
 interface Day {
-  day: string; ggr: string; carried_in: string; base: string; carry_out: string; share_percent: string; share_each: string;
+  day: string; ggr: string; bonus_conversions: string; carried_in: string; base: string; carry_out: string; share_percent: string; share_each: string;
   pool: string; affiliate_costs: string;
 }
 interface Option { id: string; label: string }
@@ -30,7 +30,7 @@ interface BossView {
   settings: { share_percent: string; started_on: string | null; locked_start: boolean };
   wallets: Wallet[];
   pool: { earned: string; affiliate_costs: string; expenses: string; remaining: string; expenses_by_category: Record<string, string> };
-  today: { day: string; ggr: string; carried_in: string; base: string; share_each: string; pool: string };
+  today: { day: string; ggr: string; bonus_conversions: string; carried_in: string; base: string; share_each: string; pool: string };
   days: Day[]; withdrawals: Withdrawal[];
   expenses: { id: number; day: string; category: string; category_label: string; amount: string; note: string; recorded_by: string }[];
   categories: Option[]; methods: Option[]; staff: { id: number; username: string }[];
@@ -50,7 +50,7 @@ export default function RevenueSharePage() {
   return (
     <div className="space-y-6">
       <PageHeader icon={BsPieChart} eyebrow="Money" title="Revenue share"
-        description="Each day’s GGR (stakes minus wins, sports and Aviator) is shared when the day ends: three partner wallets take their share each, and the operating pool keeps the rest to pay affiliates and running costs. A losing day is carried forward and earned back before anything is shared." />
+        description="Each day’s real-money GGR is shared when the day ends: cash stakes minus cash wins (sports and Aviator). Bonus money doesn’t count until a player unlocks it into Winnings — then it’s deducted that day. Three partner wallets take their share each, and the operating pool keeps the rest to pay affiliates and running costs. A losing day is carried forward and earned back before anything is shared." />
       {notice && <Notice tone={notice.tone} onClose={() => setNotice(null)}>{notice.text}</Notice>}
       {error && (
         <Notice tone="red">
@@ -201,8 +201,8 @@ function BossPanel({ view, onDone, onFail }: { view: BossView; onDone: (t: strin
   return (
     <>
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatTile label="Today so far (GGR)" value={money(view.today.ggr)} icon={BsSunrise}
-          hint={`If the day ended now: ${money(view.today.share_each)} per wallet, ${money(view.today.pool)} to the pool${Number(view.today.carried_in) < 0 ? ` (after ${money(view.today.carried_in)} carried from losing days)` : ''}.`} />
+        <StatTile label="Today so far (real-money GGR)" value={money(view.today.ggr)} icon={BsSunrise}
+          hint={`${Number(view.today.bonus_conversions) > 0 ? `After ${money(view.today.bonus_conversions)} of bonus unlocked into Winnings. ` : ''}If the day ended now: ${money(view.today.share_each)} per wallet, ${money(view.today.pool)} to the pool${Number(view.today.carried_in) < 0 ? ` (after ${money(view.today.carried_in)} carried from losing days)` : ''}.`} />
         <StatTile label="Operating pool left" value={money(view.pool.remaining)} icon={BsPiggyBank} tone={Number(view.pool.remaining) < 0 ? 'red' : 'indigo'}
           hint={`${money(view.pool.earned)} in, less ${money(view.pool.affiliate_costs)} affiliates and ${money(view.pool.expenses)} costs.`} />
         <StatTile label="Share per wallet" value={`${pct}%`} icon={BsPieChart} hint={`Pool keeps ${(100 - 3 * pct).toFixed(2).replace(/\.00$/, '')}% of each day.`} />
@@ -232,7 +232,7 @@ function BossPanel({ view, onDone, onFail }: { view: BossView; onDone: (t: strin
           <div className="overflow-x-auto">
             <table className={tableClass}>
               <thead><tr>
-                <th className={thClass}>Day</th><th className={thClass}>GGR</th><th className={thClass}>Carried in</th>
+                <th className={thClass}>Day</th><th className={thClass}>Real-money GGR</th><th className={thClass}>Bonus unlocked</th><th className={thClass}>Carried in</th>
                 <th className={thClass}>Shared</th><th className={thClass}>Each wallet</th><th className={thClass}>Pool</th>
                 <th className={thClass}>Affiliates</th><th className={thClass}>Carried out</th>
               </tr></thead>
@@ -241,6 +241,7 @@ function BossPanel({ view, onDone, onFail }: { view: BossView; onDone: (t: strin
                   <tr key={d.day} className={trClass}>
                     <td className={cx(tdClass, 'whitespace-nowrap font-medium')}>{d.day}</td>
                     <td className={cx(tdClass, 'tabular-nums', Number(d.ggr) < 0 && 'text-live')}>{money(d.ggr)}</td>
+                    <td className={cx(tdClass, 'tabular-nums text-muted-foreground')}>{Number(d.bonus_conversions) > 0 ? money(-Number(d.bonus_conversions)) : '—'}</td>
                     <td className={cx(tdClass, 'tabular-nums text-muted-foreground')}>{Number(d.carried_in) < 0 ? money(d.carried_in) : '—'}</td>
                     <td className={cx(tdClass, 'tabular-nums')}>{money(d.base)}</td>
                     <td className={cx(tdClass, 'tabular-nums font-semibold')}>{money(d.share_each)} <span className="text-xs font-normal text-muted-foreground">({Number(d.share_percent)}%)</span></td>

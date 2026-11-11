@@ -106,6 +106,21 @@ class CloseDayTests(Base):
         self.assertEqual(services.day_ggr(self.today), D('30.00'))
         self.assertEqual(services.today_so_far()['share_each'], '3.00')
 
+    def test_bonus_money_is_left_out_until_it_becomes_cash(self):
+        from apps.accounts import services as accounts
+        from apps.wallet import services as wallet
+        player = accounts.create_player(username='bonusplayer')
+        wallet.credit(player_id=player.id, amount=D('100'), kind='bonus', idempotency_key='b:c')        # a gift: not revenue
+        wallet.debit(player_id=player.id, amount=D('100'), kind='bet_stake', bucket='bonus', idempotency_key='b:s')
+        wallet.credit(player_id=player.id, amount=D('400'), kind='bet_payout', bucket='bonus', idempotency_key='b:w')
+        self.assertEqual(services.day_ggr(self.today), D('0.00'))              # bonus play: not money yet
+        wallet.post_entry(player_id=player.id, amount=D('-300'), kind='bonus_conversion', bucket='bonus', idempotency_key='b:o')
+        wallet.post_entry(player_id=player.id, amount=D('300'), kind='bonus_conversion', bucket='winnings', idempotency_key='b:i')
+        wallet.post_entry(player_id=player.id, amount=D('-100'), kind='bonus_forfeit', bucket='bonus', idempotency_key='b:f')
+        figures = services.real_money(services._aware(self.today), timezone.now())
+        self.assertEqual((figures['bonus_conversions'], figures['ggr']), (D('300.00'), D('-300.00')))   # now it is a real cost
+        self.assertEqual(services.today_so_far()['bonus_conversions'], '300.00')
+
 
 class WithdrawalTests(Base):
     def setUp(self):

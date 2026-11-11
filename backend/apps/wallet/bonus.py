@@ -12,10 +12,12 @@
 """
 from __future__ import annotations
 
+from datetime import timedelta
 from decimal import Decimal
 from typing import Iterable
 
 from django.db import transaction
+from django.utils import timezone
 
 from . import services, utils
 from .models import BonusRollover, Bucket, WalletRules
@@ -53,6 +55,82 @@ def progress(player_id: int) -> dict:
     return {'wins': wins, 'wins_needed': rules.bonus_wins_to_convert,
             'max_conversion': str(rules.bonus_max_conversion),
             'min_legs': rules.bonus_min_legs, 'min_leg_odds': str(rules.bonus_min_leg_odds)}
+
+
+# -- expiry -------------------------------------------------------------------------
+
+BONUS_USE_KINDS = ('bonus', 'bet_stake', 'bet_payout', 'bonus_conversion')
+EXPIRY_WARNING = timedelta(days=3)
+
+
+def last_use(player_id: int):
+    """When the Bonus wallet was last used: a bonus credited, or a bet from or win into it."""
+    from .models import LedgerEntry
+    return (LedgerEntry.objects.filter(wallet__player_id=player_id, bucket=Bucket.BONUS, kind__in=BONUS_USE_KINDS)
+            .order_by('-created_at').values_list('created_at', flat=True).first())
+
+
+def _open_bonus_ticket(player_id: int) -> bool:
+    from apps.sportsbook.models import Bet, BetSlip
+    live = ('pending', 'open', 'accepting')
+    return (Bet.objects.filter(player_id=player_id, wallet='bonus', status__in=live).exists()
+            or BetSlip.objects.filter(player_id=player_id, wallet='bonus', status__in=live).exists())
+
+
+def expires_at(player_id: int):
+    """When an unused Bonus balance will expire (ISO), or None (empty, never expires, or a ticket is open)."""
+    days = WalletRules.load().bonus_expiry_days
+    if not days or services.get_balances(player_id)[Bucket.BONUS] <= 0 or _open_bonus_ticket(player_id):
+        return None
+    used = last_use(player_id)
+    return (used + timedelta(days=days)).isoformat() if used else None
+
+
+def expire_idle(*, now=None) -> dict:
+    """Hourly: forfeit every Bonus wallet unused for `bonus_expiry_days`, and warn
+    players 3 days before. A bonus ticket still open keeps the wallet alive.
+    Keyed per idle stretch, so a run that overlaps another never forfeits twice
+    and a player who uses the bonus again starts a fresh countdown."""
+    from apps.notifications import services as notif_services
+    from apps.notifications.models import Notification
+
+    from .models import LedgerEntry, Wallet
+    now = now or timezone.now()
+    days = WalletRules.load().bonus_expiry_days
+    report = {'expired': 0, 'amount': Decimal('0.00'), 'warned': 0}
+    if not days:
+        return report
+    window = timedelta(days=days)
+    for player_id, balance in Wallet.objects.filter(bonus_balance__gt=0).values_list('player_id', 'bonus_balance'):
+        used = last_use(player_id)
+        if used is None or _open_bonus_ticket(player_id):
+            continue
+        expiry = used + window
+        if now >= expiry:
+            stretch = int(used.timestamp())
+            try:
+                with transaction.atomic():
+                    amount = services.get_balances(player_id)[Bucket.BONUS]
+                    if amount <= 0:
+                        continue
+                    services.post_entry(player_id=player_id, amount=-amount, kind='bonus_forfeit', bucket=Bucket.BONUS,
+                                        idempotency_key=f'bonus-expiry:{player_id}:{stretch}',
+                                        reference='bonus-expired', require_non_negative=True)
+                    reset(player_id)
+            except services.InsufficientFunds:
+                continue
+            notif_services.notify(player_id=player_id, kind='account_alert', title='Bonus expired',
+                                  body=f'Your ${amount:.2f} bonus expired after {days} days without use.')
+            report['expired'] += 1
+            report['amount'] += amount
+        elif days > 3 and now >= expiry - EXPIRY_WARNING:
+            if Notification.objects.filter(player_id=player_id, title='Bonus expiring soon', created_at__gte=used).exists():
+                continue
+            notif_services.notify(player_id=player_id, kind='promo_expiring', title='Bonus expiring soon',
+                                  body=f'Your ${balance:.2f} bonus expires on {timezone.localtime(expiry):%d %b} if you don’t use it. '
+                                       'Bet it on the sportsbook to keep it.')
+            report['warned'] += 1
+    return report
 
 
 def reset(player_id: int) -> None:

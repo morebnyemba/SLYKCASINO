@@ -21,7 +21,11 @@ export const WALLET_HINT: Record<WalletId, string> = {
   winnings: 'What you’ve won. Withdraw it at a small fee.',
 };
 
-export interface WalletInfo { balance: string; min_odds: string; withdrawable: boolean }
+export interface WalletInfo {
+  balance: string; min_odds: string; withdrawable: boolean;
+  /** Bonus wallet only: when an unused balance expires (ISO), or null. */
+  expires_at?: string | null;
+}
 
 /** The Bonus wallet's rules and the player's progress towards unlocking it. */
 export interface BonusRules {

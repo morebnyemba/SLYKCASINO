@@ -48,6 +48,7 @@ interface BettingRules {
   min_stake: string; max_stake: string; max_selections: number | string;
   deposit_min_odds: string; bonus_min_odds: string; winnings_min_odds: string;
   bonus_min_legs: number | string; bonus_min_leg_odds: string; bonus_wins_to_convert: number | string; bonus_max_conversion: string;
+  bonus_expiry_days: number | string;
 }
 
 /** Stake and selection limits, each wallet's minimum odds, and the Bonus wallet's rules. */
@@ -68,6 +69,7 @@ export function BettingRulesPanel() {
     { key: 'bonus_min_leg_odds', label: 'Bonus ticket — minimum odds per selection', hint: 'Every selection on a bonus ticket.' },
     { key: 'bonus_wins_to_convert', label: 'Bonus — wins in a row to unlock', hint: 'Winning bonus tickets pay back into Bonus; after this many in a row it moves to Winnings.' },
     { key: 'bonus_max_conversion', label: 'Bonus — most that unlocks ($)', hint: 'Anything above this is forfeited when the Bonus wallet unlocks.' },
+    { key: 'bonus_expiry_days', label: 'Bonus — expires after (days unused)', hint: 'A Bonus wallet nobody bets from for this long is forfeited; players are warned 3 days before. An open bonus ticket keeps it. 0 = never.' },
   ];
   const heading = 'mb-3 mt-6 text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground first:mt-0';
   return (

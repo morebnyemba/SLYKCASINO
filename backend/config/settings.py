@@ -376,6 +376,11 @@ CELERY_BEAT_SCHEDULE = {
         # Each losing ticket's agent commission, 3 minutes after it settles.
         'schedule': 60.0,
     },
+    'wallet-expire-idle-bonuses': {
+        'task': 'apps.wallet.tasks.expire_idle_bonuses',
+        # Hourly: Bonus wallets unused for WalletRules.bonus_expiry_days are forfeited.
+        'schedule': 3600.0,
+    },
     'revenue-close-days': {
         'task': 'apps.revenue.tasks.close_days',
         # Hourly, idempotent: each completed day's GGR shared into the three
