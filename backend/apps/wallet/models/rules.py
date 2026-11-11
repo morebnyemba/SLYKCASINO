@@ -20,10 +20,14 @@ class WalletRules(models.Model):
     # (the rest is forfeited).
     bonus_wins_to_convert = models.PositiveSmallIntegerField(default=2)
     bonus_max_conversion = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('500.00'))
-    # A Bonus wallet nobody uses for this many days is forfeited (a warning goes
-    # out 3 days before). Use = a bonus credited, or a bet from or win into the
-    # Bonus wallet; a bonus ticket still open keeps it alive. 0 = never expires.
-    bonus_expiry_days = models.PositiveSmallIntegerField(default=30)
+    # A Bonus wallet nobody uses for this many hours is forfeited (a warning goes
+    # out 24 hours before). Use = a bonus credited, or a bet from or win into the
+    # Bonus wallet; a bonus ticket still open keeps it alive. 72 hours by
+    # default; between 24 hours and 15 days (360 hours).
+    bonus_expiry_hours = models.PositiveSmallIntegerField(default=72)
+    # No countdown starts before this (set when expiry was introduced), so
+    # bonuses already sitting unused aren't all forfeited in the first hour.
+    bonus_expiry_from = models.DateTimeField(null=True, blank=True)
     # Every sportsbook ticket (a single, or a multiple's one stake): the stake
     # must be within min..max, and a multiple can't have more selections than
     # max_selections. Bonus tickets stake the whole Bonus wallet, so the stake

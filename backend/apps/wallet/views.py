@@ -510,7 +510,7 @@ class AdminWalletRulesView(APIView):
     permission_classes = [IsAdminUser]
     FIELDS = ('deposit_min_odds', 'bonus_min_odds', 'winnings_min_odds', 'bonus_min_leg_odds', 'bonus_max_conversion',
               'min_stake', 'max_stake')
-    INTS = ('bonus_min_legs', 'bonus_wins_to_convert', 'max_selections', 'bonus_expiry_days')
+    INTS = ('bonus_min_legs', 'bonus_wins_to_convert', 'max_selections', 'bonus_expiry_hours')
 
     def _out(self, rules):
         return {**{f: str(getattr(rules, f)) for f in self.FIELDS}, **{f: getattr(rules, f) for f in self.INTS}}
@@ -540,8 +540,9 @@ class AdminWalletRulesView(APIView):
         if rules.min_stake <= 0 or rules.max_stake < rules.min_stake:
             return Response({'detail': 'The minimum stake must be above $0 and at most the maximum stake.'},
                             status=status.HTTP_400_BAD_REQUEST)
-        if not 0 <= rules.bonus_expiry_days <= 365:
-            return Response({'detail': 'Bonus expiry: 0–365 days (0 = never).'}, status=status.HTTP_400_BAD_REQUEST)
+        if not bonus.MIN_EXPIRY_HOURS <= rules.bonus_expiry_hours <= bonus.MAX_EXPIRY_HOURS:
+            return Response({'detail': 'Bonuses expire after 24 hours at the soonest and 15 days (360 hours) at the latest.'},
+                            status=status.HTTP_400_BAD_REQUEST)
         if not 2 <= rules.max_selections <= 50:
             return Response({'detail': 'Selections per ticket: 2–50.'}, status=status.HTTP_400_BAD_REQUEST)
         if rules.bonus_min_legs > rules.max_selections:
