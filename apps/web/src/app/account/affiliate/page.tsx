@@ -82,7 +82,7 @@ interface Affiliate {
   cpa_cap: string;
   programme?: Programme;
   stats?: Stats;
-  balance?: { available: string; pending: string; in_payout: string; paid_out: string; carryover: string };
+  balance?: { available: string; locked?: string; unlocks_on?: string | null; pending: string; in_payout: string; paid_out: string; carryover: string };
   payouts?: Payout[];
   payout_options?: PayoutOptions;
   commissions?: Commission[];
@@ -157,7 +157,7 @@ function HowYouEarn({ a }: { a: TermsProps }) {
           {Number(p.welcome_bonus_cap) > 0 && <> (up to {money(p.welcome_bonus_cap)})</>} when they join with your link. Tell them!
         </p>
       )}
-      <p>Every night your commission for the day before — your share of what your customers lost on sports, Aviator and casino — is paid into your Winnings wallet automatically. <b className="text-foreground">Withdraw it from your wallet any day.</b></p>
+      <p>Every night your commission for the day before — your share of what your customers lost on sports, Aviator and casino — is added to your agent wallet. <b className="text-foreground">It stays there until the month ends; from the 1st you can move it to your Winnings wallet or withdraw it.</b></p>
     </div>
   );
 }
@@ -188,7 +188,7 @@ function Apply({ onDone }: { onDone: () => void }) {
         <FaHandshake size={28} className="mb-3 text-gold" />
         <h2 className="text-xl font-extrabold">Become an agent: earn {pct(share)} of what your customers lose</h2>
         <p className="mt-1 max-w-lg text-sm text-white/75">
-          Bring customers with your link or code. You get {pct(share)} of what they lose — sports, Aviator and casino, stakes minus winnings — paid into your wallet every night. It’s free and you can never lose money.
+          Bring customers with your link or code. You get {pct(share)} of what they lose — sports, Aviator and casino, stakes minus winnings — added to your agent wallet every night and unlocked at the end of each month. It’s free and you can never lose money.
         </p>
         <ol className="mt-4 grid gap-2 text-sm sm:grid-cols-3">
           {['Share your link or code', 'Customers sign up and bet', `You get ${pct(share)} of their net losses`].map((step, i) => (
@@ -300,9 +300,14 @@ function Dashboard({ a, refetch }: { a: Affiliate & { stats: Stats }; refetch: (
               </>
             ) : (
               <>
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/60">My wallet · code {a.code}</p>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/60">Agent wallet · code {a.code}</p>
                 <p className="mt-1 text-4xl font-extrabold tabular-nums sm:text-5xl">{money(b.available)}</p>
-                <p className="mt-1 text-sm text-white/75">Minimum withdrawal {money(min)}. Withdraw any day.</p>
+                <p className="mt-1 text-sm text-white/75">
+                  {Number(b.locked ?? 0) > 0 && b.unlocks_on
+                    ? <>Plus <b className="text-white">{money(b.locked!)}</b> earned this month — unlocks on {new Date(b.unlocks_on).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}. </>
+                    : null}
+                  Move it to your Winnings wallet or withdraw it (minimum {money(min)}).
+                </p>
               </>
             )}
           </div>
@@ -319,12 +324,14 @@ function Dashboard({ a, refetch }: { a: Affiliate & { stats: Stats }; refetch: (
               disabled={!canWithdraw}
               className="flex items-center gap-2 rounded-xl bg-win px-5 py-3 text-sm font-extrabold text-win-foreground shadow transition-transform hover:scale-[1.02] disabled:opacity-50 disabled:hover:scale-100"
             >
-              Withdraw <FaArrowRight size={12} />
+              Move or withdraw <FaArrowRight size={12} />
             </button>
           )}
         </div>
         <div className="mt-5 grid grid-cols-3 gap-2.5">
-          <MoneyChip label="Being checked" value={money(b.pending)} />
+          {Number(b.locked ?? 0) > 0
+            ? <MoneyChip label="Locked this month" value={money(b.locked!)} />
+            : <MoneyChip label="Being checked" value={money(b.pending)} />}
           <MoneyChip label="On its way" value={money(b.in_payout)} />
           <MoneyChip label={auto ? 'Paid to wallet' : 'Withdrawn'} value={money(b.paid_out)} />
         </div>
@@ -346,7 +353,7 @@ function Dashboard({ a, refetch }: { a: Affiliate & { stats: Stats }; refetch: (
           <p className="text-sm text-muted-foreground">
             You get <b className="text-foreground">{pct(rate)} of what your customers lose</b> — their stakes minus their winnings, on every game, added up each day.
             {' '}Today so far they’re {Number(s.net_loss_today ?? 0) >= 0 ? <>down <b className="text-foreground">{money(s.net_loss_today ?? 0)}</b></> : <>up <b className="text-foreground">{money(Math.abs(Number(s.net_loss_today)))}</b></>}.
-            {' '}Today’s commission is paid into your wallet after midnight; a day your customers win overall is earned back from the next days first.
+            {' '}Today’s commission is added to your agent wallet after midnight; a day your customers win overall is earned back from the next days first.
           </p>
         </CardContent>
       </Card>

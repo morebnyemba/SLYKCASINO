@@ -10,10 +10,10 @@ interface Programme {
   welcome_bonus_percent: string; welcome_bonus_cap: string; welcome_bonus_wagering: string; welcome_bonus_min_deposit: string;
   default_revshare_percent: string; default_cpa_amount: string; default_cpa_min_deposit: string; default_cpa_percent: string;
   default_cpa_cap: string; cpa_min_turnover_multiple: string; negative_carryover: boolean; min_payout: string;
-  external_payouts: boolean; auto_payout: boolean; auto_approve_commissions: boolean; updated_at: string;
+  external_payouts: boolean; auto_payout: boolean; auto_approve_commissions: boolean; lock_until_month_end: boolean; updated_at: string;
   net_loss_since: string | null; net_loss_review_above: string;
 }
-type NumKey = Exclude<keyof Programme, 'negative_carryover' | 'external_payouts' | 'auto_payout' | 'auto_approve_commissions' | 'updated_at'
+type NumKey = Exclude<keyof Programme, 'negative_carryover' | 'external_payouts' | 'auto_payout' | 'auto_approve_commissions' | 'lock_until_month_end' | 'updated_at'
   | 'net_loss_since'>;
 
 const n = (v: string) => Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 });
@@ -111,11 +111,21 @@ export function ProgrammeSettings() {
             <div className="text-sm">
               <p className="font-semibold">Pay earnings into the Winnings wallet automatically</p>
               <p className="mt-1 text-muted-foreground">
-                Losing-ticket commission 3 minutes after the ticket settles; a deposit commission as soon as it qualifies.
-                Suspended affiliates aren’t paid until reactivated. Off: earnings build up in the affiliate balance until they request a payout.
+                On: each commission goes straight into the agent’s Winnings wallet once it is final (and unlocked, if the month lock is on).
+                Off (the default now): earnings stay in the agent wallet until the agent moves them to Winnings or withdraws them.
               </p>
             </div>
             <Switch checked={form.auto_payout} onChange={(v) => setForm({ ...form, auto_payout: v })} label="Pay earnings into the Winnings wallet automatically" />
+          </div>
+          <div className="flex items-start justify-between gap-4">
+            <div className="text-sm">
+              <p className="font-semibold">Lock earnings until the month ends</p>
+              <p className="mt-1 text-muted-foreground">
+                Earnings stay in the agent’s wallet, locked for the month they were earned in. From the 1st of the next month the agent
+                moves them to their Winnings wallet or withdraws them to mobile money / bank. Off: they can move or withdraw any day.
+              </p>
+            </div>
+            <Switch checked={form.lock_until_month_end} onChange={(v) => setForm({ ...form, lock_until_month_end: v })} label="Lock earnings until the month ends" />
           </div>
           <div className="flex items-start justify-between gap-4">
             <div className="text-sm">

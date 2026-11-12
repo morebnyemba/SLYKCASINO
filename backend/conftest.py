@@ -26,12 +26,18 @@ def _manual_affiliate_payouts(request, django_db_blocker):
     from django.test import TransactionTestCase
 
     cls = request.node.cls
-    if request.node.get_closest_marker('affiliate_auto') or not (cls and issubclass(cls, TransactionTestCase)):
+    if not (cls and issubclass(cls, TransactionTestCase)):
         return
     from apps.affiliates.models import AffiliateProgramme
+    # The month-end lock is tested on its own (marker `affiliate_lock`).
+    values = {} if request.node.get_closest_marker('affiliate_lock') else {'lock_until_month_end': False}
+    if not request.node.get_closest_marker('affiliate_auto'):
+        values.update(auto_payout=False, auto_approve_commissions=False)
+    if not values:
+        return
     with django_db_blocker.unblock():
         AffiliateProgramme.load()
-        AffiliateProgramme.objects.filter(pk=1).update(auto_payout=False, auto_approve_commissions=False)
+        AffiliateProgramme.objects.filter(pk=1).update(**values)
 
 
 @pytest.fixture(autouse=True)

@@ -174,7 +174,7 @@ def update_programme(**values) -> AffiliateProgramme:
             raise AffiliateError(f'{name} is out of range')
         setattr(programme, name, value)
         fields.append(name)
-    for flag in ('negative_carryover', 'external_payouts', 'auto_payout', 'auto_approve_commissions'):
+    for flag in ('negative_carryover', 'external_payouts', 'auto_payout', 'auto_approve_commissions', 'lock_until_month_end'):
         if values.get(flag) is not None:
             setattr(programme, flag, bool(values[flag]))
             fields.append(flag)
@@ -815,17 +815,40 @@ def _sum(qs) -> Decimal:
     return (qs.aggregate(v=Sum('amount'))['v'] or Decimal('0')).quantize(Decimal('0.01'))
 
 
-def balance(affiliate: Affiliate) -> dict:
-    """The affiliate's money: approved commissions not yet paid out are
-    `available`; `pending` awaits approval; `in_payout` is requested but not
+def _earned_on(c: Commission) -> date:
+    """The day a commission was earned: a losing ticket's or net-loss day's
+    period, otherwise when it became final."""
+    if c.kind in (Commission.Kind.STAKE, Commission.Kind.NET_LOSS) and c.period:
+        return c.period
+    return timezone.localdate(c.decided_at or c.created_at)
+
+
+def balance(affiliate: Affiliate, *, today: Optional[date] = None) -> dict:
+    """The affiliate's money: approved commissions not yet paid out, split into
+    `available` (free to move or withdraw) and `locked` (earned this month,
+    while the programme locks earnings until month end; it unlocks on
+    `unlocks_on`); `pending` awaits approval; `in_payout` is requested but not
     yet sent; `paid_out` is everything paid (including commissions paid
     straight to the wallet before payouts existed)."""
-    approved = _sum(affiliate.commissions.filter(status=Commission.Status.APPROVED))
+    today = today or timezone.localdate()
+    approved_qs = affiliate.commissions.filter(status=Commission.Status.APPROVED)
+    approved = _sum(approved_qs)
     requested = _sum(affiliate.payouts.filter(status=Payout.Status.REQUESTED))
     paid = _sum(affiliate.payouts.filter(status=Payout.Status.PAID))
     legacy = _sum(affiliate.commissions.filter(status=Commission.Status.PAID))
+    left = max(approved - requested - paid, Decimal('0.00'))
+    available, locked, unlocks_on = left, Decimal('0.00'), None
+    if AffiliateProgramme.load().lock_until_month_end:
+        month = utils.month_start(today)
+        unlocked = sum((c.amount for c in approved_qs.only('kind', 'period', 'amount', 'decided_at', 'created_at')
+                        if _earned_on(c) < month), Decimal('0.00'))
+        available = min(max(unlocked - requested - paid, Decimal('0.00')), left)
+        locked = left - available
+        unlocks_on = utils.next_month(today) if locked > 0 else None
     return {
-        'available': max(approved - requested - paid, Decimal('0.00')),
+        'available': available.quantize(Decimal('0.01')),
+        'locked': locked.quantize(Decimal('0.01')),
+        'unlocks_on': unlocks_on,
         'pending': _sum(affiliate.commissions.filter(status=Commission.Status.PENDING)),
         'in_payout': requested,
         'paid_out': paid + legacy,
@@ -843,8 +866,10 @@ def payout_options(affiliate: Affiliate) -> dict:
     if programme.external_payouts:
         methods += [*MOBILE_MONEY, Payout.Method.BANK]
     return {
-        'methods': [{'id': m.value, 'label': m.label} for m in methods],
+        'methods': [{'id': m.value, 'label': 'Move to my Winnings wallet' if m == Payout.Method.WALLET else m.label}
+                    for m in methods],
         'min_payout': str(programme.min_payout),
+        'lock_until_month_end': programme.lock_until_month_end,
         # Earnings go straight into the Winnings wallet: withdraw them from there.
         'auto_payout': programme.auto_payout,
         'kyc_verified': bool(player and player.kyc_status == player.Kyc.VERIFIED),
@@ -885,8 +910,12 @@ def request_payout(
         if method == Payout.Method.BANK and (len(account_number.strip()) < 5 or not bank_name.strip() or not account_name.strip()):
             raise AffiliateError('enter the bank, account name and account number')
         account_number = number if method in MOBILE_MONEY else account_number.strip()
-    available = balance(affiliate)['available']
+    money = balance(affiliate)
+    available = money['available']
     if amount > available:
+        if money['locked'] > 0 and amount <= available + money['locked']:
+            raise AffiliateError(f'{money["locked"]} is this month’s earnings and unlocks on {money["unlocks_on"]:%d %b} — '
+                                 f'you can move or withdraw up to {available} now')
         raise AffiliateError(f'you can withdraw up to {available}')
     payout = Payout.objects.create(
         affiliate=affiliate, amount=amount, method=method,
