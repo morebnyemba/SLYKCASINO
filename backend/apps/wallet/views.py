@@ -525,11 +525,12 @@ class AdminWalletRulesView(APIView):
     every ticket. Changes apply to the next bet and the bet slip at once."""
     permission_classes = [IsAdminUser]
     FIELDS = ('deposit_min_odds', 'bonus_min_odds', 'winnings_min_odds', 'bonus_min_leg_odds', 'bonus_max_conversion',
-              'min_stake', 'max_stake')
+              'min_stake', 'max_stake', 'same_match_price_percent')
     INTS = ('bonus_min_legs', 'bonus_wins_to_convert', 'max_selections', 'bonus_expiry_hours')
 
     def _out(self, rules):
-        return {**{f: str(getattr(rules, f)) for f in self.FIELDS}, **{f: getattr(rules, f) for f in self.INTS}}
+        return {**{f: str(getattr(rules, f)) for f in self.FIELDS}, **{f: getattr(rules, f) for f in self.INTS},
+                'same_match_bets': rules.same_match_bets}
 
     def get(self, request):
         from .models import WalletRules
@@ -545,6 +546,8 @@ class AdminWalletRulesView(APIView):
             for f in self.INTS:
                 if f in request.data:
                     setattr(rules, f, int(request.data[f]))
+            if 'same_match_bets' in request.data:
+                rules.same_match_bets = str(request.data['same_match_bets']).lower() in ('true', '1', 'yes', 'on')
         except (InvalidOperation, ValueError, TypeError):
             return Response({'detail': 'Enter numbers.'}, status=status.HTTP_400_BAD_REQUEST)
         odds = ('deposit_min_odds', 'bonus_min_odds', 'winnings_min_odds', 'bonus_min_leg_odds')
@@ -558,6 +561,9 @@ class AdminWalletRulesView(APIView):
                             status=status.HTTP_400_BAD_REQUEST)
         if not bonus.MIN_EXPIRY_HOURS <= rules.bonus_expiry_hours <= bonus.MAX_EXPIRY_HOURS:
             return Response({'detail': 'Bonuses expire after 24 hours at the soonest and 15 days (360 hours) at the latest.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        if not Decimal('50') <= rules.same_match_price_percent <= Decimal('100'):
+            return Response({'detail': 'Same-match price: 50–100% (100 = the straight product of the odds).'},
                             status=status.HTTP_400_BAD_REQUEST)
         if not 2 <= rules.max_selections <= 50:
             return Response({'detail': 'Selections per ticket: 2–50.'}, status=status.HTTP_400_BAD_REQUEST)

@@ -68,7 +68,8 @@ def betting_limits() -> dict:
     """The limits every ticket must meet, for the bet slip (public)."""
     rules = WalletRules.load()
     return {'min_stake': f'{rules.min_stake:.2f}', 'max_stake': f'{rules.max_stake:.2f}',
-            'max_selections': rules.max_selections}
+            'max_selections': rules.max_selections, 'same_match_bets': rules.same_match_bets,
+            'same_match_price_percent': f'{rules.same_match_price_percent:.2f}'}
 
 
 # -- provisioning / reads ----------------------------------------------------

@@ -113,7 +113,10 @@ interface BonusLadder {
 /** Bonus for a multiple: the highest tier its qualifying legs reach, and the next one up. */
 export function bonusFor(ladder: BonusLadder | null, legs: BetLeg[]) {
   if (!ladder || ladder.tiers.length === 0) return { percent: 0, qualifying: 0, next: null as null | { minLegs: number; percent: number } };
-  const qualifying = legs.filter((l) => l.odds >= ladder.minOdds).length;
+  // A match counts once (its picks' odds multiplied), as on the server.
+  const perMatch = new Map<string, number>();
+  for (const l of legs) perMatch.set(String(l.eventId), (perMatch.get(String(l.eventId)) ?? 1) * l.odds);
+  const qualifying = [...perMatch.values()].filter((o) => o >= ladder.minOdds).length;
   let percent = 0;
   let next: { minLegs: number; percent: number } | null = null;
   for (const t of ladder.tiers) {
@@ -124,7 +127,7 @@ export function bonusFor(ladder: BonusLadder | null, legs: BetLeg[]) {
 }
 
 /** Stake and selection limits every ticket must meet (set by staff). */
-export interface TicketLimits { minStake: number; maxStake: number; maxSelections: number }
+export interface TicketLimits { minStake: number; maxStake: number; maxSelections: number; sameMatchBets: boolean; sameMatchPercent: number }
 
 /** Why a stake can't be placed, or null. Bonus tickets stake the whole wallet, so only the selection limit applies. */
 export function stakeProblem(limits: TicketLimits | null, stake: number, wallet: WalletId | null): string | null {
@@ -156,8 +159,12 @@ interface BetslipContextValue {
   /** The wallet the player chose to pay from — nothing is placed until they pick one. */
   wallet: WalletId | null;
   setWallet: (w: WalletId) => void;
-  /** Event ids with more than one pick — those can't be combined in a multiple. */
+  /** Event ids whose picks can't share a multiple (they contradict or overlap). */
   conflictingEvents: Set<string>;
+  /** Why (from the server's same-match check), shown on those picks. */
+  conflictMessage: string | null;
+  /** The same-match price %, when a match has more than one pick on the multiple. */
+  sameMatchPercent: number | null;
   isOnSlip: (eventId: string | number, selection: Selection) => boolean;
   isOutcomeOnSlip: (outcomeId: number) => boolean;
   toggleLeg: (leg: BetLeg) => void;
@@ -215,7 +222,7 @@ export function BetslipProvider({ children }: { children: React.ReactNode }) {
       .then((r) => (r.ok ? r.json() : null))
       .then((d: {
         min_odds: string; cap: string; tiers: { min_legs: number; percent: string }[];
-        limits?: { min_stake: string; max_stake: string; max_selections: number };
+        limits?: { min_stake: string; max_stake: string; max_selections: number; same_match_bets?: boolean; same_match_price_percent?: string };
       } | null) => {
         if (cancelled || !d) return;
         setLadder({
@@ -227,6 +234,8 @@ export function BetslipProvider({ children }: { children: React.ReactNode }) {
           setLimits({
             minStake: Number(d.limits.min_stake), maxStake: Number(d.limits.max_stake),
             maxSelections: d.limits.max_selections,
+            sameMatchBets: d.limits.same_match_bets ?? false,
+            sameMatchPercent: Number(d.limits.same_match_price_percent ?? 100),
           });
         }
       })
@@ -366,7 +375,10 @@ export function BetslipProvider({ children }: { children: React.ReactNode }) {
     setLegStakes((prev) => ({ ...prev, [key]: value.replace(/[^0-9.]/g, '') }));
   }, []);
 
-  const conflictingEvents = useMemo(() => {
+  // Several picks from one match may share a multiple unless they contradict or
+  // overlap (Home + Double chance 1X, Over 2.5 + Over 1.5…): the server decides,
+  // the same way it will when the ticket is placed.
+  const sharedEvents = useMemo(() => {
     const seen = new Set<string>();
     const dupes = new Set<string>();
     for (const l of legs) {
@@ -376,8 +388,36 @@ export function BetslipProvider({ children }: { children: React.ReactNode }) {
     }
     return dupes;
   }, [legs]);
+  const [sameMatch, setSameMatch] = useState<{ events: Set<string>; message: string | null }>({ events: new Set(), message: null });
+  useEffect(() => {
+    if (sharedEvents.size === 0) { setSameMatch({ events: new Set(), message: null }); return; }
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      fetch(`${config.apiUrl}/betslips/check/`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ legs: legs.map(legPayload) }),
+      })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d: { problem: { legs: number[]; message: string } | null } | null) => {
+          if (cancelled || !d) return;
+          const events = new Set((d.problem?.legs ?? []).map((i) => String(legs[i]?.eventId)));
+          setSameMatch({ events, message: d.problem?.message ?? null });
+        })
+        .catch(() => {});
+    }, 250);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [legs, sharedEvents]);
+  const conflictingEvents = sameMatch.events;
+  const conflictMessage = sameMatch.message;
+  const sameMatchPercent = sharedEvents.size > 0 && limits?.sameMatchBets ? limits.sameMatchPercent : null;
 
-  const combinedOdds = useMemo(() => legs.reduce((acc, l) => acc * l.odds, 1), [legs]);
+  // Each extra pick from one match multiplies the price by the same-match % (as the server does).
+  const combinedOdds = useMemo(() => {
+    const perEvent = new Map<string, number>();
+    for (const l of legs) perEvent.set(String(l.eventId), (perEvent.get(String(l.eventId)) ?? 0) + 1);
+    const factor = sameMatchPercent == null ? 1
+      : [...perEvent.values()].reduce((f, n) => f * Math.pow(sameMatchPercent / 100, Math.max(0, n - 1)), 1);
+    return legs.reduce((acc, l) => acc * l.odds, 1) * factor;
+  }, [legs, sameMatchPercent]);
 
   const bonus = useMemo(() => {
     // Only a multiple earns the bonus; the hint for the next tier shows either way.
@@ -484,7 +524,7 @@ export function BetslipProvider({ children }: { children: React.ReactNode }) {
         ?? (limits && legs.length > limits.maxSelections ? `A ticket can have at most ${limits.maxSelections} selections.` : null);
       if (problem) { setStatus(problem); setBusy(false); return; }
       if (conflictingEvents.size > 0) {
-        setStatus('Multiples can’t combine two picks from the same match — remove one or switch to Singles.');
+        setStatus(conflictMessage ?? 'Some picks from the same match can’t go on one multiple — remove one or switch to Singles.');
         setBusy(false);
         return;
       }
@@ -520,11 +560,11 @@ export function BetslipProvider({ children }: { children: React.ReactNode }) {
       }
     }
     setBusy(false);
-  }, [accessToken, legs, mode, legStakes, accaStake, conflictingEvents, applyPriceChange, confirmInPlay, wallet, limits]);
+  }, [accessToken, legs, mode, legStakes, accaStake, conflictingEvents, conflictMessage, applyPriceChange, confirmInPlay, wallet, limits]);
 
   const value: BetslipContextValue = {
     legs, limits, mode, setMode, accaStake, setAccaStake, legStakes, setLegStake,
-    combinedOdds, potentialPayout, bonus, loadCode, status, busy, wallet, setWallet, conflictingEvents,
+    combinedOdds, potentialPayout, bonus, loadCode, status, busy, wallet, setWallet, conflictingEvents, conflictMessage, sameMatchPercent,
     isOnSlip, isOutcomeOnSlip, toggleLeg, removeLeg, clear, place,
     hasPriceChanges, hasSuspended, acceptPriceChanges,
     slipOpen, setSlipOpen,

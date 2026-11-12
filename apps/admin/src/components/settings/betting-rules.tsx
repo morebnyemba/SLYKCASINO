@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Btn, Field, Notice, Panel, TextInput } from '@/components/console/ui';
+import { Btn, Field, Notice, Panel, Switch, TextInput } from '@/components/console/ui';
 import { useAuth } from '@/lib/auth-context';
 import { authedRequest, useApi } from '@/lib/use-api';
 
@@ -27,7 +27,7 @@ function useSettings<T extends object>(path: string, saved: string) {
   }
   const set = (key: keyof T) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm((v) => v && { ...v, [key]: e.target.value.replace(/[^0-9.]/g, '') });
-  return { form, busy, notice, setNotice, save, set };
+  return { form, setForm, busy, notice, setNotice, save, set };
 }
 
 function Grid<T extends object>({ fields, form, set, cols = 'xl:grid-cols-3' }: {
@@ -49,6 +49,7 @@ interface BettingRules {
   deposit_min_odds: string; bonus_min_odds: string; winnings_min_odds: string;
   bonus_min_legs: number | string; bonus_min_leg_odds: string; bonus_wins_to_convert: number | string; bonus_max_conversion: string;
   bonus_expiry_hours: number | string;
+  same_match_bets: boolean; same_match_price_percent: string;
 }
 
 /** Stake and selection limits, each wallet's minimum odds, and the Bonus wallet's rules. */
@@ -71,6 +72,9 @@ export function BettingRulesPanel() {
     { key: 'bonus_max_conversion', label: 'Bonus — most that unlocks ($)', hint: 'Anything above this is forfeited when the Bonus wallet unlocks.' },
     { key: 'bonus_expiry_hours', label: 'Bonus — expires after (hours unused)', hint: '72 = 3 days (default), 120 = 5 days, 360 = 15 days (the most). Players are warned 24 hours before; an open bonus ticket keeps it.' },
   ];
+  const sameMatch: FieldDef<BettingRules>[] = [
+    { key: 'same_match_price_percent', label: 'Same-match price (%)', hint: 'Each extra pick from one match multiplies the odds by this — such picks tend to win together. 100 = straight product; 50–100.' },
+  ];
   const heading = 'mb-3 mt-6 text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground first:mt-0';
   return (
     <Panel title="Betting limits & wallet rules"
@@ -80,6 +84,16 @@ export function BettingRulesPanel() {
       <Grid fields={ticket} form={s.form} set={s.set} />
       <p className={heading}>Minimum odds by wallet</p>
       <Grid fields={odds} form={s.form} set={s.set} />
+      <p className={heading}>Several picks from one match</p>
+      <div className="mb-4 flex items-start justify-between gap-4 text-sm">
+        <p className="text-muted-foreground">
+          A multiple can take more than one pick from a match when they are genuinely different bets (Home win + Both teams to score).
+          Picks that contradict (Over 2.5 + Under 1.5) or overlap (Home win + Double chance 1X, Over 2.5 + Over 1.5) are always refused.
+          Such multiples can’t be cashed out.
+        </p>
+        <Switch checked={!!s.form?.same_match_bets} onChange={(v) => s.setForm((f) => f && { ...f, same_match_bets: v })} label="Allow several picks from one match" />
+      </div>
+      <Grid fields={sameMatch} form={s.form} set={s.set} />
       <p className={heading}>Bonus wallet</p>
       <Grid fields={bonus} form={s.form} set={s.set} cols="xl:grid-cols-4" />
       <div className="mt-4 flex justify-end"><Btn variant="primary" busy={s.busy} onClick={s.save}>Save betting rules</Btn></div>

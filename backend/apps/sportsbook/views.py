@@ -347,6 +347,18 @@ class MultiBetBonusView(APIView):
         return Response(services.multibet_bonus_info())
 
 
+class BetSlipCheckView(APIView):
+    """POST /api/betslips/check/ {legs: [...]} — for the bet slip: can these
+    picks share a multiple (same-match rules), and at what combined price?"""
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        legs = request.data.get('legs')
+        if not isinstance(legs, list) or not legs or len(legs) > 50:
+            return Response({'detail': 'legs must be a list of 1-50 picks'}, status=400)
+        return Response(services.check_accumulator([leg for leg in legs if isinstance(leg, dict)]))
+
+
 class CashoutOffersView(APIView):
     """GET /api/cashout/offers/?bets=1,2&slips=3 — current cash-out offers on
     the player's open tickets, polled while a ticket is on screen."""

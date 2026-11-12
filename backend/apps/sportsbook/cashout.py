@@ -132,6 +132,8 @@ def slip_offer(slip: BetSlip, cfg: Optional[CashoutSettings] = None, *, now=None
         return Offer(False, reason='This ticket can’t be cashed out.')
     if slip.wallet == 'bonus':
         return Offer(False, reason='Bonus bets can’t be cashed out.')
+    if slip.same_match_percent:
+        return Offer(False, reason='Multiples with several picks from one match can’t be cashed out.')
     numerator, denominator, pending = Decimal('1'), Decimal('1'), 0
     for leg in slip.legs.all():
         if leg.result == BetLeg.Result.LOST:
