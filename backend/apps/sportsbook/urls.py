@@ -2,7 +2,7 @@ from django.urls import path
 from rest_framework.routers import SimpleRouter
 
 from .admin_api import AdminEventViewSet, AdminLeagueViewSet, FeedSettingsView, FeedSyncView, FeedTestView
-from .admin_tickets import AdminTicketDetailView, AdminTicketsView
+from .admin_tickets import AdminTicketDetailView, AdminTicketReverseView, AdminTicketsView
 from .player_tickets import MyTicketsView, PublicTicketView
 from .views import (
     AdminBetViewSet, AdminCashoutSettingsView, AdminLiveTradingSettingsView, AdminUnlockMarketsView, BetSlipViewSet, BetViewSet, BookingCodeCreateView,
@@ -26,6 +26,7 @@ urlpatterns = [
     path('tickets/<str:code>/', PublicTicketView.as_view(), name='ticket-lookup'),
     path('admin/tickets/', AdminTicketsView.as_view(), name='admin-tickets'),
     path('admin/tickets/<str:ticket>/', AdminTicketDetailView.as_view(), name='admin-ticket-detail'),
+    path('admin/tickets/<str:ticket>/reverse/', AdminTicketReverseView.as_view(), name='admin-ticket-reverse'),
     path('admin/sportsbook/cashout/', AdminCashoutSettingsView.as_view(), name='admin-sb-cashout'),
     path('admin/sportsbook/live-trading/', AdminLiveTradingSettingsView.as_view(), name='admin-sb-live-trading'),
     path('admin/sportsbook/unlock-markets/', AdminUnlockMarketsView.as_view(), name='admin-sb-unlock-markets'),

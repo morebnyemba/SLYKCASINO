@@ -7,8 +7,9 @@ from .event import Event
 from .integration import ProviderCredential
 from .league import LeagueSetting
 from .market import Market, MarketOutcome
+from .reversal import TicketReversal
 from .team import Team
 
 __all__ = ['Event', 'Bet', 'Selection', 'BetSlip', 'BetLeg', 'Team', 'ProviderCredential', 'LeagueSetting',
            'Market', 'MarketOutcome', 'BookingCode', 'MultiBetBonusTier', 'Cashout', 'CashoutSettings',
-           'LiveTradingSettings']
+           'LiveTradingSettings', 'TicketReversal']

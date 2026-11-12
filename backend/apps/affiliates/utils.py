@@ -5,7 +5,7 @@ from datetime import date
 from decimal import ROUND_DOWN, Decimal
 
 # Ledger kinds that make up gaming activity: stakes are negative, wins positive.
-GAMING_KINDS = ('bet_stake', 'bet_payout', 'casino_debit', 'casino_credit')
+GAMING_KINDS = ('bet_stake', 'bet_payout', 'casino_debit', 'casino_credit', 'bet_reversal')
 CENT = Decimal('0.01')
 
 

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { BsArrowDown, BsArrowUp, BsCheck2, BsClipboard, BsLink45Deg, BsPersonCircle } from 'react-icons/bs';
 import { Badge, Btn, Drawer, EmptyState, Notice, cx, money, tableClass, tdClass, thClass, trClass } from '@/components/console/ui';
 import { ImpersonateButton } from '@/components/players/impersonate';
+import { ReversalNote, ReverseTicket, type Reversal } from '@/components/tickets/reverse-ticket';
 import { useAuth } from '@/lib/auth-context';
 import { authedRequest, useApi } from '@/lib/use-api';
 
@@ -27,6 +28,7 @@ export interface TicketsResponse { results: Ticket[]; next_cursor: string | null
 interface TicketDetail extends Ticket {
   cashout?: { available: boolean; value: string | null; reason: string } | null;
   player: { id: number; username: string; email: string; full_name: string; is_suspended: boolean; kyc_status: string; balance: string } | null;
+  reversal?: Reversal | null; can_reverse?: boolean;
 }
 
 export const STATUS_TONE: Record<string, 'gold' | 'green' | 'red' | 'slate' | 'indigo'> = {
@@ -177,7 +179,7 @@ export function useTicketList(query: string | null) {
 export function TicketDrawer({ ticket, onClose, onStep, hidePlayer }: {
   ticket: string | null; onClose: () => void; onStep?: (dir: 1 | -1) => void; hidePlayer?: boolean;
 }) {
-  const { data: t, loading, error } = useApi<TicketDetail>(ticket ? `/admin/tickets/${ticket}/` : null);
+  const { data: t, loading, error, refetch } = useApi<TicketDetail>(ticket ? `/admin/tickets/${ticket}/` : null);
   const { copied, copy } = useCopy();
   const ready = t && t.ticket === ticket;
   const isOpen = ready && ['open', 'pending', 'accepting'].includes(t.status);
@@ -244,6 +246,9 @@ export function TicketDrawer({ ticket, onClose, onStep, hidePlayer }: {
               <p className="mt-3 rounded-lg bg-secondary/10 px-3 py-2 text-xs font-semibold text-secondary">Cash-out offer right now: {money(t.cashout.value)}</p>
             )}
           </div>
+
+          {t.reversal && <ReversalNote r={t.reversal} />}
+          {t.can_reverse && ticket && <ReverseTicket key={ticket} ticket={ticket} onDone={refetch} />}
 
           {/* Selections */}
           <section>
