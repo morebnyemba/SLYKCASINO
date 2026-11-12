@@ -11,6 +11,7 @@ import { ProfitPanel } from '@/components/profit-panel';
 import { RealtimeFeed } from '@/components/realtime-feed';
 import { Badge, Panel, PageHeader, StatTile, cx, money } from '@/components/console/ui';
 import { useApi } from '@/lib/use-api';
+import { GovernanceBanner } from '@/components/revenue/governance-banner';
 import { LiveIndicator, usePolling } from '@slyk/ui/components/analytics';
 
 interface Stats {
@@ -108,6 +109,7 @@ export default function DashboardPage() {
           {attention > 0 ? <Badge tone="gold" dot>{attention} item{attention === 1 ? ' needs' : 's need'} attention</Badge> : <Badge tone="green" dot>All queues clear</Badge>}
         </div>}
       />
+      <GovernanceBanner />
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-6">
         <StatTile loading={loading} icon={BsWallet2} tone="indigo" label="Deposits today" value={money(t?.deposits)} href="/transactions" />
