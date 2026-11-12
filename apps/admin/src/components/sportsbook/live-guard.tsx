@@ -9,6 +9,7 @@ import { authedPost, authedRequest, useApi } from '@/lib/use-api';
 
 interface LiveSettings {
   lock_minute: number | string; price_jump_percent: number | string; burst_amount: string; burst_minutes: number | string;
+  live_price_grace_seconds: number | string;
   hold_on_bad_feed: boolean; suspend_on_feed_pause: boolean; keep_markets_open: boolean; live_min_odds: string;
   held: { id: number; name: string; status: string; elapsed: number | null; reason: string; held_at: string }[];
 }
@@ -50,7 +51,7 @@ export function LiveGuardPanel() {
 
   return (
     <Panel title="Live market protection"
-      description="Every live match trades from kick-off until the lock minute (75 by default, by the match clock), when all its markets lock until full time. With “Keep every market open” on, nothing suspends a market before then — not the odds feed pausing or dropping a market, and not the automatic holds below. Markets keep their last price, and only outcomes the match has already decided (an over the score has passed, a first-half market once the half is over) close. You can always suspend a match by hand from its page.">
+      description="Every live match trades from kick-off until the lock minute (75 by default, by the match clock), when all its markets lock until full time. With “Keep every market open” on, nothing suspends a whole match before then — not the odds feed pausing, and not the automatic holds below. Individual selections still close when the match has decided them, when their price is too short, or when the live feed stops pricing them (after the seconds below): a selection is only ever on offer in play at a price the feed is quoting now. You can always suspend a match by hand from its page.">
       {notice && <div className="mb-4"><Notice tone={notice.tone} onClose={() => setNotice(null)}>{notice.text}</Notice></div>}
       {(data?.held.length ?? 0) > 0 && (
         <div className="mb-4 space-y-2">
@@ -64,12 +65,15 @@ export function LiveGuardPanel() {
           ))}
         </div>
       )}
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         <Field label="Close in-play betting at minute" hint="75 by default. 0 = never.">
           <TextInput inputMode="numeric" value={form?.lock_minute ?? ''} onChange={set('lock_minute')} />
         </Field>
         <Field label="Shortest live price accepted" hint="In play, selections priced below this are closed: they're as good as won. 1.05 by default. 0 = off.">
           <TextInput inputMode="decimal" value={form?.live_min_odds ?? ''} onChange={set('live_min_odds')} />
+        </Field>
+        <Field label="Close a selection the feed stops pricing after (seconds)" hint="In play, only prices the live feed is quoting can be taken. Pre-match prices close at kick-off. 60 by default.">
+          <TextInput inputMode="numeric" value={form?.live_price_grace_seconds ?? ''} onChange={set('live_price_grace_seconds')} />
         </Field>
         <Field label="Suspend on a price jump of (%)" hint="Match-result price, in one update, with no goal. 0 = off.">
           <TextInput inputMode="numeric" value={form?.price_jump_percent ?? ''} onChange={set('price_jump_percent')} />

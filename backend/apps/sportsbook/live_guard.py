@@ -259,6 +259,23 @@ def outcome_decided(event: Event, market, outcome) -> bool:
     return False
 
 
+def _grace() -> timedelta:
+    return timedelta(seconds=LiveTradingSettings.load().live_price_grace_seconds)
+
+
+def live_price_fresh(event: Event, priced_at) -> bool:
+    """Whether an in-play price is still being quoted by the live feed: quoted at
+    all, and within the grace period of the feed's latest delivery for the match
+    (measured against the feed, so a whole-match pause doesn't age it). A
+    pre-match price the live feed never quoted is never fresh. Matches whose
+    prices an operator sets by hand are exempt."""
+    if event.prices_locked:
+        return True
+    if priced_at is None or event.live_priced_at is None:
+        return False
+    return event.live_priced_at - priced_at <= _grace()
+
+
 def below_live_floor(odds) -> bool:
     """A price too short to take in play (LiveTradingSettings.live_min_odds)."""
     floor = LiveTradingSettings.load().live_min_odds
@@ -266,9 +283,10 @@ def below_live_floor(odds) -> bool:
 
 
 def close_decided(event: Event) -> int:
-    """Shut the open outcomes play has decided or priced below the live floor,
-    so boards show them closed (new bets on them are refused regardless — see
-    services). Returns how many."""
+    """Shut the open outcomes play has decided, priced below the live floor, or
+    no longer quoted by the live feed (pre-match prices included), so boards
+    show them closed (new bets on them are refused regardless — see services).
+    The feed quoting one again reopens it. Returns how many."""
     from .models import MarketOutcome
     closed = 0
     floor = LiveTradingSettings.load().live_min_odds
@@ -276,7 +294,8 @@ def close_decided(event: Event) -> int:
         market__event=event, market__settled=False, is_open=True, result=MarketOutcome.Result.PENDING,
     ).select_related('market')
     for outcome in outcomes:
-        if outcome_decided(event, outcome.market, outcome) or (floor > 0 and outcome.odds < floor):
+        if (outcome_decided(event, outcome.market, outcome) or (floor > 0 and outcome.odds < floor)
+                or not live_price_fresh(event, outcome.live_priced_at)):
             outcome.is_open = False
             outcome.save(update_fields=['is_open'])
             closed += 1

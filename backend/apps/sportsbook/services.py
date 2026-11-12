@@ -205,12 +205,13 @@ def pre_match_bettable(event: Event) -> bool:
 def trading_state(event: Event, *, now=None) -> dict:
     """What a player can back right now: `in_play` (trading live), `bettable`
     (the event takes bets at all) and `main_open` (the 1X2 buttons are live)."""
-    from .live_guard import closed_reason
+    from .live_guard import closed_reason, live_price_fresh
     live = in_play_bettable(event, now=now)
     return {
         'in_play': live,
         'bettable': live or pre_match_bettable(event),
-        'main_open': (live and event.live_main_open) or pre_match_bettable(event),
+        'main_open': ((live and event.live_main_open and live_price_fresh(event, event.live_main_at))
+                      or pre_match_bettable(event)),
         # Why a match in play isn't taking bets (past the lock minute, or held).
         'live_closed': closed_reason(event, now=now) if event.status in IN_PLAY_STATUSES else None,
     }
@@ -222,13 +223,27 @@ def _main_price(event: Event, selection: str) -> Optional[Decimal]:
     }.get(selection)
 
 
+# A player's pick must be on a real match or market, at that market's current
+# price: the price and the pick never come from the request alone. (Tests of
+# other features switch this off to place label-only bets; see conftest.)
+REQUIRE_MARKET = True
+
+
+def _require_market(player_id: Optional[int], event_id, outcome_id) -> None:
+    if REQUIRE_MARKET and player_id is not None and event_id is None and outcome_id is None:
+        raise SelectionUnavailable('That selection isn’t on offer.')
+
+
 def _check_event_bettable(event_id: int, selection: str = Selection.HOME, odds: Optional[Decimal] = None) -> bool:
-    """A 1X2 pick needs a real price and open betting. Pre-match closes at
-    kick-off; after that only an in-play event takes bets, at the live price
-    (OddsChanged if it moved). Returns True for an in-play pick."""
+    """A 1X2 pick needs a real price and open betting, and is always struck at
+    the current price (OddsChanged if the request's differs) — pre-match and in
+    play alike. Pre-match closes at kick-off; after that only an in-play event
+    takes bets. Returns True for an in-play pick."""
     event = Event.objects.filter(pk=event_id).first()
     if event is None:
-        return False  # soft link to a missing event: legacy behaviour, label-only bet
+        if REQUIRE_MARKET:
+            raise SelectionUnavailable('That match is no longer available.')
+        return False  # label-only bet (tests of other features)
     if _started(event):
         if not in_play_bettable(event):
             raise SelectionUnavailable(f'Betting on {event.name} is closed.')
@@ -236,6 +251,8 @@ def _check_event_bettable(event_id: int, selection: str = Selection.HOME, odds: 
         if not event.live_main_open or current is None:
             raise SelectionUnavailable(f'{event.name} — match result is suspended.')
         from . import live_guard
+        if not live_guard.live_price_fresh(event, event.live_main_at):
+            raise SelectionUnavailable(f'{event.name} — match result is suspended.')
         if live_guard.below_live_floor(current):
             raise SelectionUnavailable(f'{event.name} — that price is too short to take in play.')
         if odds is not None and utils.quantize(odds) != utils.quantize(current):
@@ -248,6 +265,14 @@ def _check_event_bettable(event_id: int, selection: str = Selection.HOME, odds: 
         raise SelectionUnavailable(f'{event.name} has no odds yet.')
     if not event.is_open:
         raise SelectionUnavailable(f'Betting on {event.name} is closed.')
+    current = _main_price(event, selection)
+    if current is None or current <= 1:
+        raise SelectionUnavailable(f'{event.name} — that selection isn’t on offer.')
+    if odds is None or utils.quantize(odds) != utils.quantize(current):
+        raise OddsChanged(
+            f'{event.name} — {selection}', utils.quantize(odds) if odds is not None else current, current,
+            event_id=event.id, selection=selection,
+        )
     return False
 
 
@@ -276,6 +301,9 @@ def _lock_bettable_outcome(outcome_id: int, odds: Decimal) -> tuple[MarketOutcom
             raise SelectionUnavailable(f'{market.name} — {outcome.label} is already decided.')
         if live_guard.below_live_floor(outcome.odds):
             raise SelectionUnavailable(f'{market.name} — {outcome.label} is too short a price to take in play.')
+        if not live_guard.live_price_fresh(event, outcome.live_priced_at):
+            # A pre-match price, or one the live feed has stopped quoting.
+            raise SelectionUnavailable(f'{market.name} — {outcome.label} is suspended.')
     if utils.quantize(odds) != utils.quantize(outcome.odds):
         raise OddsChanged(f'{market.name} — {outcome.label}', utils.quantize(odds), outcome.odds, outcome.id)
     return outcome, in_play
@@ -321,6 +349,7 @@ def place_bet(
         raise ValueError('; '.join(errors))
     if player_id is not None:
         wallet = wallet_services.betting_bucket(wallet)
+    _require_market(player_id, event_id, outcome_id)
     wallet_services.check_ticket_limits(stake=stake, selections=1, bucket=wallet)
     if player_id is not None:
         wallet_services.check_min_odds(wallet, odds)
@@ -552,6 +581,7 @@ def place_accumulator(
         if errors:
             raise ValueError('; '.join(errors))
         odds = Decimal(str(leg['odds']))
+        _require_market(player_id, leg.get('event_id'), leg.get('outcome_id'))
         selection = leg.get('selection') or Selection.HOME
         if selection not in Selection.values:
             selection = Selection.HOME
@@ -696,14 +726,20 @@ def _live_recheck(
         from . import live_guard
         if live_guard.outcome_decided(event, outcome.market, outcome):
             return 'the selection was decided'
-        current = outcome.odds
+        current, quoted_at = outcome.odds, outcome.live_priced_at
     else:
         current = _main_price(event, selection) if event.live_main_open else None
         if current is None:
             return 'the selection was suspended'
+        quoted_at = event.live_main_at
     if utils.quantize(current) != utils.quantize(odds):
         return 'the price changed'
-    if event.live_odds_at <= placed_at:
+    if event.prices_locked:
+        # Hand-set prices: the feed confirms the match state, not the price.
+        return _WAIT if event.live_odds_at <= placed_at else None
+    # The live feed must quote this very pick again, at the same price, after the
+    # bet was struck. A price the feed has stopped quoting is never confirmed.
+    if quoted_at is None or quoted_at <= placed_at:
         return _WAIT
     return None
 
@@ -955,7 +991,8 @@ def settle_event_from_score(
 
 
 @transaction.atomic
-def apply_feed_markets(event: Event, markets: tuple[FeedMarketData, ...] | list[FeedMarketData]) -> int:
+def apply_feed_markets(event: Event, markets: tuple[FeedMarketData, ...] | list[FeedMarketData], *,
+                       live_at=None) -> int:
     """Upsert a feed's markets/outcomes onto an open event. Prices that move keep
     their previous price for the ▲/▼ hint; markets or outcomes the feed stopped
     offering are suspended (not deleted — bets may reference them). Settled
@@ -963,8 +1000,13 @@ def apply_feed_markets(event: Event, markets: tuple[FeedMarketData, ...] | list[
 
     While the operator keeps markets open until the lock minute, nothing the
     feed leaves out or suspends is closed: those markets and outcomes stay open
-    at their last price. Only what play has already decided is shut."""
+    at their last price for the grace period (LiveTradingSettings), then close
+    until quoted again; what play has already decided is shut at once.
+
+    `live_at` (the live feed's time for this delivery) stamps every outcome the
+    feed quoted, which is what makes its price takeable in play."""
     from . import live_guard
+    quoted: list[int] = []
     keep_open = live_guard.keep_markets_open()
     existing = {m.key: m for m in Market.objects.filter(event=event).prefetch_related('outcomes')}
     seen: set[str] = set()
@@ -999,8 +1041,10 @@ def apply_feed_markets(event: Event, markets: tuple[FeedMarketData, ...] | list[
             if outcome is None:
                 MarketOutcome.objects.create(
                     market=market, key=fo.key, label=fo.label, odds=fo.odds, sort_order=fo.sort_order,
+                    live_priced_at=live_at,
                 )
                 continue
+            quoted.append(outcome.id)
             changed = []
             if outcome.odds != fo.odds:
                 outcome.previous_odds = outcome.odds
@@ -1023,6 +1067,11 @@ def apply_feed_markets(event: Event, markets: tuple[FeedMarketData, ...] | list[
         if key not in seen and market.is_open and not market.settled and not keep_open:
             market.is_open = False
             market.save(update_fields=['is_open'])
+    if live_at is not None:
+        if quoted:
+            MarketOutcome.objects.filter(pk__in=quoted).update(live_priced_at=live_at)
+        event.live_priced_at = live_at
+        Event.objects.filter(pk=event.pk).update(live_priced_at=live_at)
     if event.status in IN_PLAY_STATUSES:
         live_guard.close_decided(event)
     return len(seen)
@@ -1648,11 +1697,14 @@ def apply_live_odds(snapshot: LiveOddsSnapshot, *, now=None) -> Optional[Event]:
     event.live_main_open = snapshot.one_x_two is not None or (cfg.keep_markets_open and event.live_main_open)
     event.live_odds_at = now
     fields += ['live_main_open', 'live_odds_at']
+    if snapshot.one_x_two is not None:
+        event.live_main_at = now
+        fields.append('live_main_at')
     event.save(update_fields=sorted(set(fields)))
     if event.prices_locked:
         return event
     # Everything the live feed doesn't offer right now is suspended.
-    apply_feed_markets(event, snapshot.markets)
+    apply_feed_markets(event, snapshot.markets, live_at=now)
     # Event post_save publishes prices/state; markets go out here.
     transaction.on_commit(lambda: publish_event_markets(event))
     return event

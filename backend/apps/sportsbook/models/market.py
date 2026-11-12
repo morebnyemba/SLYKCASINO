@@ -122,6 +122,9 @@ class MarketOutcome(models.Model):
     previous_odds = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True)
     sort_order = models.PositiveIntegerField(default=0)
     is_open = models.BooleanField(default=True)
+    # When the live (in-play) feed last quoted this outcome. None = it only has
+    # a pre-match price, which can never be taken once the match is in play.
+    live_priced_at = models.DateTimeField(null=True, blank=True)
     result = models.CharField(max_length=8, choices=Result.choices, default=Result.PENDING)
 
     class Meta:

@@ -28,7 +28,8 @@ def _make_player(username='sbplayer', email='sb@example.com'):
 
 
 def _make_event(name='Test Match', odds=Decimal('2.00')):
-    return Event.objects.create(name=name, odds=odds, is_open=True)
+    # Every selection priced, so bets are struck at the market's own price.
+    return Event.objects.create(name=name, odds=odds, odds_draw=odds, odds_away=odds, is_open=True)
 
 
 class EventListTests(TestCase):

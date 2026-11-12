@@ -68,6 +68,11 @@ class Event(models.Model):
     last_goal_at = models.DateTimeField(null=True, blank=True)
     # Whether the live feed is currently offering the headline 1X2.
     live_main_open = models.BooleanField(default=False)
+    # When the live feed last delivered this match's markets, and when it last
+    # quoted the match result (1X2). An in-play price is only taken while the
+    # feed is still quoting it (live_guard.live_price_fresh).
+    live_priced_at = models.DateTimeField(null=True, blank=True)
+    live_main_at = models.DateTimeField(null=True, blank=True)
     # The feed has paused this match for a moment (LiveTradingSettings.
     # suspend_on_feed_pause off): its markets stay open at the last prices, and
     # in-play bets wait for the feed to resume before they're accepted.

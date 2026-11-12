@@ -35,6 +35,17 @@ def _manual_affiliate_payouts(request, django_db_blocker):
 
 
 @pytest.fixture(autouse=True)
+def _label_only_bets(request, monkeypatch):
+    """Tests of wallets, bonuses, affiliates and so on place bets by label, with
+    no match behind them. Real placement refuses that (and any price that isn't
+    the market's): tests of placement itself are marked `strict_bets`."""
+    if request.node.get_closest_marker('strict_bets'):
+        return
+    from apps.sportsbook import services
+    monkeypatch.setattr(services, 'REQUIRE_MARKET', False)
+
+
+@pytest.fixture(autouse=True)
 def _fresh_rate_limits():
     """Rate-limit counters live in the cache and test user ids repeat, so
     start every test with none."""
