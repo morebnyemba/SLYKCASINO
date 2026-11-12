@@ -17,6 +17,7 @@ interface Health {
 interface StatementDay {
   day: string; customers: number; stakes: string; wins: string; bonus_conversions: string; open_adjustment: string;
   hedge: string; net_loss: string; carried_in: string; carry_out: string; rate: string; commission: string; status: string;
+  sports_commission: string; casino_net_loss: string; casino_carried_in: string; casino_rate: string; casino_commission: string;
 }
 interface Statements { today: { net_loss: string; commission: string; carried_in: string; customers: number }; carry: string; days: StatementDay[] }
 
@@ -122,8 +123,9 @@ function StatementsTable({ id }: { id: number }) {
                 <th className="px-3 py-2 text-right font-medium" title="Stakes on bets still open at midnight count the day they settle">Open bets</th>
                 <th className="px-3 py-2 text-right font-medium" title="Bonus money turned into Winnings">Bonus cost</th>
                 <th className="px-3 py-2 text-right font-medium" title="Winnings of the agent's own account and of accounts sharing a payment number">Hedge</th>
-                <th className="px-3 py-2 text-right font-medium">Net loss</th>
+                <th className="px-3 py-2 text-right font-medium">Sports net loss</th>
                 <th className="px-3 py-2 text-right font-medium">Carried in</th>
+                <th className="px-3 py-2 text-right font-medium" title="Aviator and casino games, at the programme's Aviator rate, with their own carry-forward">Aviator net loss</th>
                 <th className="px-3 py-2 text-right font-medium">Commission</th>
               </tr>
             </thead>
@@ -138,9 +140,14 @@ function StatementsTable({ id }: { id: number }) {
                   <td className={`px-3 py-2 text-right ${neg(d.hedge)}`}>{Number(d.hedge) ? money(d.hedge) : '—'}</td>
                   <td className={`px-3 py-2 text-right font-semibold ${neg(d.net_loss)}`}>{money(d.net_loss)}</td>
                   <td className={`px-3 py-2 text-right ${neg(d.carried_in)}`}>{Number(d.carried_in) ? money(d.carried_in) : '—'}</td>
+                  <td className={`px-3 py-2 text-right ${neg(d.casino_net_loss)}`} title={Number(d.casino_carried_in) ? `Carried in ${money(d.casino_carried_in)}` : undefined}>
+                    {Number(d.casino_net_loss) ? money(d.casino_net_loss) : '—'}
+                  </td>
                   <td className="px-3 py-2 text-right">
                     {Number(d.commission) > 0 ? (
-                      <span className="inline-flex items-center gap-1.5">{money(d.commission)}{d.status === 'pending' && <Badge tone="gold">needs approval</Badge>}</span>
+                      <span className="inline-flex items-center gap-1.5" title={`Sports ${money(d.sports_commission)} + Aviator & casino ${money(d.casino_commission)} (${Number(d.casino_rate)}%)`}>
+                        {money(d.commission)}{d.status === 'pending' && <Badge tone="gold">needs approval</Badge>}
+                      </span>
                     ) : '—'}
                   </td>
                 </tr>

@@ -138,7 +138,38 @@ class NetLossTests(Base):
             wallet.credit(player_id=self.c1.id, amount=D('500'), kind='bonus', bucket='bonus', idempotency_key='b')
         self.play(self.c1, D1, '200', bucket='bonus')                                     # lost bonus: not money
         self.close()
-        self.assertEqual((self.day(D1).net_loss, self.day(D1).commission.amount), (D('30.00'), D('9.00')))
+        d = self.day(D1)
+        # Aviator is its own tally at the programme's Aviator rate (1%): 1% of 30.
+        self.assertEqual((d.net_loss, d.casino_net_loss, d.casino_commission, d.commission.amount),
+                         (D('0'), D('30.00'), D('0.30'), D('0.30')))
+
+    def test_sports_at_the_agents_rate_aviator_at_the_aviator_rate(self):
+        self.fund(self.c1)
+        self.play(self.c1, D1, '100')                                                     # sports: lost 100
+        self.play(self.c1, D1, '200', won='50', kind=('casino_debit', 'casino_credit'))   # Aviator: net 150
+        self.close()
+        d = self.day(D1)
+        self.assertEqual((d.sports_commission, d.casino_commission, d.commission.amount),
+                         (D('30.00'), D('1.50'), D('31.50')))
+        self.assertIn('Aviator & casino 1% of 150.00', d.commission.note)
+
+    def test_each_game_carries_its_own_winning_days(self):
+        """An Aviator win doesn't eat into sports commission, and the other way round."""
+        self.fund(self.c1)
+        self.play(self.c1, D1, '100')                                                     # sports: lost 100
+        self.play(self.c1, D1, '50', won='550', kind=('casino_debit', 'casino_credit'))   # Aviator: won 500
+        self.play(self.c1, D2, '100', kind=('casino_debit', 'casino_credit'))             # Aviator: lost 100
+        self.close()
+        d1, d2 = self.day(D1), self.day(D2)
+        self.assertEqual((d1.sports_commission, d1.casino_carry_out), (D('30.00'), D('-500.00')))
+        self.assertEqual((d2.casino_carried_in, d2.casino_commission, d2.casino_carry_out), (D('-500.00'), D('0'), D('-400.00')))
+
+    def test_aviator_rate_is_a_programme_setting(self):
+        services.update_programme(aviator_commission_percent='5')
+        self.fund(self.c1)
+        self.play(self.c1, D1, '100', kind=('casino_debit', 'casino_credit'))
+        self.close()
+        self.assertEqual(self.day(D1).casino_commission, D('5.00'))
 
     def test_bonus_turned_into_winnings_is_a_cost(self):
         self.fund(self.c1)

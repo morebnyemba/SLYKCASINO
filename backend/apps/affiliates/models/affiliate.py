@@ -187,6 +187,9 @@ class AffiliateProgramme(models.Model):
     net_loss_since = models.DateTimeField(null=True, blank=True)
     # A day's commission above this waits for staff approval (0 = never).
     net_loss_review_above = models.DecimalField(max_digits=10, decimal_places=2, default=100)
+    # Aviator and other casino games earn agents this % of their customers'
+    # net loss on them (sports use each agent's own rate), with its own carry-forward.
+    aviator_commission_percent = models.DecimalField(max_digits=5, decimal_places=2, default=1)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -248,6 +251,14 @@ class NetLossDay(models.Model):
     carried_in = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     carry_out = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     rate = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+    sports_commission = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    # `net_loss`, `carried_in` and `carry_out` are the sports tally; Aviator and
+    # casino games are counted separately, at the programme's Aviator rate.
+    casino_net_loss = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    casino_carried_in = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    casino_carry_out = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    casino_rate = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+    casino_commission = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     commission = models.OneToOneField(Commission, null=True, blank=True, on_delete=models.SET_NULL, related_name='net_loss_day')
     created_at = models.DateTimeField(auto_now_add=True)
 

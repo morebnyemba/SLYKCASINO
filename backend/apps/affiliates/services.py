@@ -154,6 +154,7 @@ PROGRAMME_FIELDS = {
     'welcome_bonus_min_deposit': None, 'default_revshare_percent': Decimal('100'), 'default_cpa_amount': None,
     'default_cpa_min_deposit': None, 'default_cpa_percent': Decimal('100'), 'default_cpa_cap': None,
     'cpa_min_turnover_multiple': Decimal('100'), 'net_loss_review_above': None,
+    'aviator_commission_percent': Decimal('100'),
 }
 WELCOME_BONUS_CODE = 'SYS-REFERRAL-WELCOME'
 
@@ -792,6 +793,7 @@ def commission_summary(affiliate: Affiliate, today: date) -> dict:
     return {
         'commission_rate': affiliate.revshare_percent,
         'commission_basis': 'net_loss',
+        'aviator_commission_rate': AffiliateProgramme.load().aviator_commission_percent,
         'net_loss_today': estimate['net_loss'],
         'lost_stakes_today': stake,
         'losing_tickets_today': tickets,
