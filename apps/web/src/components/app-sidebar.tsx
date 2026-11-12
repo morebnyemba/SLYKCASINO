@@ -5,7 +5,7 @@ import { Suspense } from 'react';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { BsLayoutSidebarInset, BsUpcScan, BsXLg } from 'react-icons/bs';
 import { GiAirplane, GiTrophy } from 'react-icons/gi';
-import { FaGift, FaHandshake, FaRegCommentDots, FaShieldAlt } from 'react-icons/fa';
+import { FaGift, FaHandshake, FaRegCommentDots, FaShieldAlt, FaUsers } from 'react-icons/fa';
 import type { IconType } from 'react-icons';
 import { SPORT_CATEGORIES } from '@/components/sports-sidebar';
 import { ThemeToggle, SettingsMenu } from '@/components/settings-menu';
@@ -33,6 +33,7 @@ const MORE_ITEMS: NavItem[] = [
   { href: '/promotions', label: 'Promotions', icon: FaGift },
   { href: '/check-ticket', label: 'Check a ticket', icon: BsUpcScan },
   { href: '/account/affiliate', label: 'Agent dashboard', icon: FaHandshake },
+  { href: '/chat', label: 'Community chat', icon: FaUsers },
   { href: '/livechat', label: 'Live support', icon: FaRegCommentDots },
   { href: '/account/settings', label: 'Responsible gaming', icon: FaShieldAlt },
 ];
