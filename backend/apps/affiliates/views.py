@@ -1,9 +1,10 @@
 """affiliates transport — views move data; logic lives in services."""
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, time
 
 from django.db.models import Count
+from django.utils import timezone
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny, IsAdminUser, IsAuthenticated
@@ -15,11 +16,23 @@ from apps.accounts import services as accounts_services
 from common.timeframes import TimeframeError
 
 from . import services
-from .models import Affiliate, Commission, Payout
+from .models import Affiliate, Commission, Payout, Referral
 from .serializers import (
     AdminAffiliateSerializer, AdminPayoutSerializer, AffiliateSerializer, CommissionSerializer, PayoutSerializer,
     ProgrammeSerializer,
 )
+
+
+def _money_json(value):
+    """Decimals as '12.30' strings (like the serializers), nested."""
+    from decimal import Decimal
+    if isinstance(value, Decimal):
+        return f'{value:.2f}'
+    if isinstance(value, dict):
+        return {k: _money_json(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_money_json(v) for v in value]
+    return value
 
 
 def _player_or_403(request):
@@ -309,6 +322,62 @@ class AdminAffiliateViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, vi
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         accounts_services.audit(affiliate.player_id, 'affiliate_status', request, status=affiliate.status)
         return Response(self.get_serializer(self.get_queryset().get(pk=affiliate.pk)).data)
+
+    @action(detail=False, methods=['get'], url_path='crediting-health')
+    def crediting_health(self, request):
+        """Is the losing-ticket job running, and is any agent owed money?"""
+        return Response(_money_json(services.crediting_health()))
+
+    @action(detail=False, methods=['post'], url_path='credit-missed')
+    def credit_missed_all(self, request):
+        """Credit every missed losing ticket of the last 35 days, for every agent."""
+        credited = services.catch_up_losing_tickets()
+        accounts_services.audit(None, 'affiliate_credit_missed', request, credited=credited)
+        return Response({'credited': credited})
+
+    @action(detail=True, methods=['get'], url_path='tickets-audit')
+    def tickets_audit(self, request, pk=None):
+        """Each losing ticket of this agent's customers: credited, or why not."""
+        try:
+            days = max(1, min(int(request.query_params.get('days') or services.CATCH_UP_DAYS), 365))
+        except ValueError:
+            days = services.CATCH_UP_DAYS
+        return Response(_money_json(services.ticket_audit(self.get_object(), days=days)))
+
+    @action(detail=True, methods=['post'], url_path='credit-missed')
+    def credit_missed(self, request, pk=None):
+        affiliate = self.get_object()
+        if affiliate.status != Affiliate.Status.ACTIVE:
+            return Response({'detail': 'activate the agent first'}, status=status.HTTP_400_BAD_REQUEST)
+        credited = services.credit_missed_tickets(affiliate.pk)
+        accounts_services.audit(affiliate.player_id, 'affiliate_credit_missed', request, credited=credited)
+        return Response({'credited': credited})
+
+    @action(detail=True, methods=['post'], url_path='link-customer')
+    def link_customer(self, request, pk=None):
+        """Link a customer whose sign-up link was lost (or move them here).
+        Body: {player: username / email / id, credit_from?: YYYY-MM-DD}."""
+        player = accounts_services.find_player(str(request.data.get('player') or ''))
+        if player is None:
+            return Response({'detail': 'no player with that username, email or id'}, status=status.HTTP_400_BAD_REQUEST)
+        raw = str(request.data.get('credit_from') or '').strip()
+        credit_from = None
+        if raw:
+            try:
+                credit_from = timezone.make_aware(datetime.combine(date.fromisoformat(raw), time.min))
+            except ValueError:
+                return Response({'detail': 'credit_from must be YYYY-MM-DD'}, status=status.HTTP_400_BAD_REQUEST)
+        previous = Referral.objects.filter(player_id=player.id).values_list('affiliate__code', flat=True).first()
+        try:
+            referral, credited = services.link_customer(int(pk), player.id, credit_from=credit_from,
+                                                        linked_by=request.user.get_username())
+        except services.AffiliateError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        accounts_services.audit(player.id, 'affiliate_customer_linked', request, agent=referral.affiliate.code,
+                                previous_agent=previous or '', credit_from=referral.counts_from.isoformat(),
+                                credited=credited)
+        return Response({'player': player.username, 'previous_agent': previous, 'credited': credited,
+                         'counts_from': referral.counts_from})
 
     @action(detail=True, methods=['post'], url_path='terms')
     def terms(self, request, pk=None):

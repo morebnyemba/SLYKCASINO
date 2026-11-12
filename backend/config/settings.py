@@ -376,6 +376,12 @@ CELERY_BEAT_SCHEDULE = {
         # Each losing ticket's agent commission, 3 minutes after it settles.
         'schedule': 60.0,
     },
+    'affiliates-catch-up-losing-tickets': {
+        'task': 'apps.affiliates.tasks.catch_up_losing_tickets',
+        # Safety net: losing tickets of the last 35 days the minute job missed
+        # (workers down for days, say). Idempotent — each ticket pays once.
+        'schedule': 3600.0,
+    },
     'wallet-expire-idle-bonuses': {
         'task': 'apps.wallet.tasks.expire_idle_bonuses',
         # Hourly: Bonus wallets unused for WalletRules.bonus_expiry_days are forfeited.

@@ -11,6 +11,7 @@ import { PageHeader } from '@/components/console/ui';
 import { AffiliateAnalyticsPanel } from '@/components/affiliates/affiliate-analytics';
 import { ProgrammeSettings } from '@/components/affiliates/programme-settings';
 import { PayoutsTab } from '@/components/affiliates/payouts-tab';
+import { AgentTicketsPanel, CreditingHealth } from '@/components/affiliates/agent-tickets';
 import { ImpersonateButton } from '@/components/players/impersonate';
 
 interface Affiliate {
@@ -130,6 +131,8 @@ function AffiliatesTab() {
   const { data, loading, refetch } = useApi<Page<Affiliate>>(`/admin/affiliates/?status=${status}&page_size=100`);
   const [open, setOpen] = useState<number | null>(null);
   const [stats, setStats] = useState<number | null>(null);
+  const [tickets, setTickets] = useState<number | null>(null);
+  const [credited, setCredited] = useState(0);
   const [error, setError] = useState('');
   const rows = rowsOf(data);
 
@@ -147,6 +150,7 @@ function AffiliatesTab() {
 
   return (
     <div className="space-y-4">
+      <CreditingHealth version={credited} />
       <Filter value={status} onChange={setStatus} options={[['pending', 'Pending'], ['active', 'Active'], ['suspended', 'Suspended'], ['rejected', 'Rejected'], ['', 'All']]} />
       {error && <p className="text-sm text-red-500">{error}</p>}
       <Card className="overflow-hidden rounded-2xl border-border/70">
@@ -191,11 +195,17 @@ function AffiliatesTab() {
                             <ImpersonateButton size="sm" playerId={a.player_id} username={a.username || `#${a.player_id}`}
                               next="/account/affiliate" label="Open agent dashboard" />
                           )}
+                          {action(tickets === a.id ? 'Hide lost tickets' : 'Lost tickets', () => setTickets(tickets === a.id ? null : a.id))}
                           {action(stats === a.id ? 'Hide analytics' : 'Analytics', () => setStats(stats === a.id ? null : a.id))}
                           {action(open === a.id ? 'Close' : 'Terms', () => setOpen(open === a.id ? null : a.id))}
                         </div>
                       </td>
                     </tr>
+                    {tickets === a.id && (
+                      <tr className="border-b border-border">
+                        <td colSpan={6} className="p-0"><AgentTicketsPanel id={a.id} active={a.status === 'active'} onChanged={() => { setCredited((n) => n + 1); refetch(); }} /></td>
+                      </tr>
+                    )}
                     {stats === a.id && (
                       <tr className="border-b border-border">
                         <td colSpan={6} className="p-0"><AffiliateAnalyticsPanel id={a.id} /></td>
