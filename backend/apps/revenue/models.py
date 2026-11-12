@@ -7,6 +7,7 @@ Kept entirely apart from player wallets: these are the house's own books. The
 actual money stays in the operator's accounts; this ledger says who is owed
 what. Every balance is the sum of append-only entries.
 """
+from datetime import timedelta
 from decimal import Decimal
 
 from django.conf import settings
@@ -26,6 +27,8 @@ class RevenueSettings(models.Model):
     # Unset: whoever holds Partner 1's wallet.
     founder = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
                                 related_name='+')
+    # Weekly audits are due (and missed ones count towards the lock) from this week on.
+    audits_from = models.DateField(null=True, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -33,7 +36,9 @@ class RevenueSettings(models.Model):
 
     @classmethod
     def load(cls) -> 'RevenueSettings':
-        obj, _ = cls.objects.get_or_create(pk=1, defaults={'started_on': timezone.localdate()})
+        today = timezone.localdate()
+        obj, _ = cls.objects.get_or_create(pk=1, defaults={'started_on': today,
+                                                            'audits_from': today - timedelta(days=today.weekday())})
         return obj
 
 
@@ -126,6 +131,7 @@ class ShareEntry(models.Model):
         ACCRUAL = 'accrual', 'Daily share'
         WITHDRAWAL = 'withdrawal', 'Withdrawal'
         RETURN = 'return', 'Withdrawal rejected'
+        POOL = 'pool', 'Paid out of the pool (agreed by all partners)'
 
     wallet = models.ForeignKey(ShareWallet, on_delete=models.PROTECT, related_name='entries')
     kind = models.CharField(max_length=10, choices=Kind.choices)
@@ -157,6 +163,8 @@ class PoolExpense(models.Model):
         MARKETING = 'marketing', 'Marketing'
         STAFF = 'staff', 'Staff'
         OTHER = 'other', 'Other'
+        PROMOTION = 'promotion', 'Promotion (agreed by all partners)'
+        DISBURSE = 'disburse', 'Paid to partners equally (agreed by all)'
 
     day = models.DateField()
     category = models.CharField(max_length=10, choices=Category.choices)
@@ -171,32 +179,107 @@ class PoolExpense(models.Model):
 
 
 class PoolAudit(models.Model):
-    """One week (Monday to Sunday) of the pool checked against the outside
-    world: the founder uploads Paynow's report of money received and their own
-    report of money paid out to players; each is matched line by line against
-    what the platform recorded. Signing a week off freezes its figures and
-    locks that week's pool costs."""
+    """One week (Monday to Sunday) of the pool, due by the end of the next
+    Tuesday. The founder submits Paynow's report of money received, the
+    EcoCash/bank statement of money paid to players, and the pool balance they
+    actually hold after the costs they claim; each report is matched line by
+    line against the platform. Every partner then co-signs or disputes. Once
+    all have approved, the week's figures are frozen and its costs locked. Two
+    missed weeks in a row lock the money controls until the audits catch up."""
 
     class Status(models.TextChoices):
-        OPEN = 'open', 'Waiting for reports'
-        REVIEW = 'review', 'Reports in — to sign off'
-        SIGNED = 'signed', 'Signed off'
+        OPEN = 'open', 'Waiting for the founder'
+        SUBMITTED = 'submitted', 'Waiting for partners to co-sign'
+        DISPUTED = 'disputed', 'Disputed by a partner'
+        APPROVED = 'approved', 'Approved by every partner'
+
+    class Source(models.TextChoices):
+        ECOCASH = 'ecocash', 'EcoCash statement'
+        BANK = 'bank', 'Bank statement'
+        ONEMONEY = 'onemoney', 'OneMoney statement'
+        INNBUCKS = 'innbucks', 'InnBucks statement'
 
     week_start = models.DateField(unique=True)
-    status = models.CharField(max_length=8, choices=Status.choices, default=Status.OPEN)
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.OPEN)
     paynow_file = models.FileField(upload_to='pool-audits/%Y/', blank=True)
     paynow_result = models.JSONField(default=dict, blank=True)
     payouts_file = models.FileField(upload_to='pool-audits/%Y/', blank=True)
     payouts_result = models.JSONField(default=dict, blank=True)
-    # The platform's own figures, frozen at sign-off (live until then).
+    payouts_source = models.CharField(max_length=10, choices=Source.choices, blank=True)
+    # What the founder says the pool actually holds at the week's end, after the
+    # costs they claim — against what the platform's ledger says it should be.
+    declared_balance = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    expected_balance = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    # The platform's own figures, frozen at approval (live until then).
     snapshot = models.JSONField(default=dict, blank=True)
     note = models.CharField(max_length=1000, blank=True)
     uploaded_by = models.CharField(max_length=150, blank=True)
-    signed_by = models.CharField(max_length=150, blank=True)
-    signed_at = models.DateTimeField(null=True, blank=True)
+    submitted_by = models.CharField(max_length=150, blank=True)
+    submitted_at = models.DateTimeField(null=True, blank=True)
+    approved_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         db_table = 'revenue_pool_audit'
         ordering = ['-week_start']
+
+
+class Decision(models.TextChoices):
+    APPROVE = 'approve', 'Approved'
+    REJECT = 'reject', 'Disputed / rejected'
+
+
+class AuditSignature(models.Model):
+    """A partner's co-signature on a submitted week (the founder's submission
+    counts as theirs). Cleared when the founder resubmits."""
+
+    audit = models.ForeignKey(PoolAudit, on_delete=models.CASCADE, related_name='signatures')
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='+')
+    decision = models.CharField(max_length=8, choices=Decision.choices)
+    note = models.CharField(max_length=1000, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'revenue_audit_signature'
+        constraints = [models.UniqueConstraint(fields=['audit', 'user'], name='revenue_one_signature_per_partner')]
+
+
+class PoolProposal(models.Model):
+    """Using the pool: a promotion, or paying it out to the three partner wallets
+    equally. Happens only when every partner has approved."""
+
+    class Kind(models.TextChoices):
+        PROMOTION = 'promotion', 'Fund a promotion'
+        DISBURSE = 'disburse', 'Pay out to every partner equally'
+
+    class Status(models.TextChoices):
+        OPEN = 'open', 'Waiting for every partner'
+        DONE = 'done', 'Approved and carried out'
+        REJECTED = 'rejected', 'Rejected'
+        CANCELLED = 'cancelled', 'Withdrawn'
+
+    kind = models.CharField(max_length=10, choices=Kind.choices)
+    amount = models.DecimalField(max_digits=14, decimal_places=2)
+    note = models.CharField(max_length=500)
+    proposed_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='+')
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.OPEN)
+    expense = models.OneToOneField(PoolExpense, null=True, blank=True, on_delete=models.PROTECT, related_name='proposal')
+    created_at = models.DateTimeField(auto_now_add=True)
+    decided_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'revenue_pool_proposal'
+        ordering = ['-created_at']
+
+
+class ProposalVote(models.Model):
+    proposal = models.ForeignKey(PoolProposal, on_delete=models.CASCADE, related_name='votes')
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='+')
+    decision = models.CharField(max_length=8, choices=Decision.choices)
+    note = models.CharField(max_length=500, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'revenue_proposal_vote'
+        constraints = [models.UniqueConstraint(fields=['proposal', 'user'], name='revenue_one_vote_per_partner')]

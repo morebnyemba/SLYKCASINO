@@ -1,8 +1,9 @@
 from django.urls import path
 
 from .views import (
-    AuditFileView, AuditSignView, AuditsView, AuditUploadView, DecideWithdrawalView, ExpensesView, ExpenseView, OverviewView,
-    PoolDayView, PoolLedgerView, SettingsView, WithdrawView,
+    AuditCosignView, AuditFileView, AuditsView, AuditSubmitView, AuditUploadView, DecideWithdrawalView, ExpensesView,
+    ExpenseView, GovernanceView, OverviewView, PoolDayView, PoolLedgerView, ProposalsView, ProposalVoteView, SettingsView,
+    WithdrawView,
 )
 
 urlpatterns = [
@@ -16,6 +17,10 @@ urlpatterns = [
     path('admin/revenue-share/pool/days/<str:day>/', PoolDayView.as_view(), name='revenue-pool-day'),
     path('admin/revenue-share/audits/', AuditsView.as_view(), name='revenue-audits'),
     path('admin/revenue-share/audits/<str:week>/upload/', AuditUploadView.as_view(), name='revenue-audit-upload'),
-    path('admin/revenue-share/audits/<str:week>/sign/', AuditSignView.as_view(), name='revenue-audit-sign'),
+    path('admin/revenue-share/audits/<str:week>/submit/', AuditSubmitView.as_view(), name='revenue-audit-submit'),
+    path('admin/revenue-share/audits/<str:week>/cosign/', AuditCosignView.as_view(), name='revenue-audit-cosign'),
+    path('admin/revenue-share/governance/', GovernanceView.as_view(), name='revenue-governance'),
+    path('admin/revenue-share/proposals/', ProposalsView.as_view(), name='revenue-proposals'),
+    path('admin/revenue-share/proposals/<int:pk>/', ProposalVoteView.as_view(), name='revenue-proposal'),
     path('admin/revenue-share/audits/<str:week>/file/<str:kind>/', AuditFileView.as_view(), name='revenue-audit-file'),
 ]

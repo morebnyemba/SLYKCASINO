@@ -26,7 +26,10 @@ from django.utils import timezone
 from apps.accounts import services as accounts_services
 
 from . import reports
-from .models import PoolAudit, PoolExpense, RevenueDay, RevenueSettings, ShareWallet, ShareWithdrawal
+from .models import (
+    AuditSignature, Decision, PoolAudit, PoolExpense, PoolProposal, ProposalVote, RevenueDay, RevenueSettings, ShareEntry,
+    ShareWallet, ShareWithdrawal,
+)
 
 CENT = Decimal('0.01')
 ZERO = Decimal('0.00')
@@ -252,7 +255,35 @@ def match_payouts(week_start: date, rows: list[reports.ReportRow]) -> dict:
     return _result(rows, problems, matched, system_total, report_total, {})
 
 
+# -- who signs --------------------------------------------------------------------
+
+def signers() -> list:
+    """Everyone whose approval a week or a use of the pool needs: the founder
+    and every partner holding a wallet."""
+    people = {}
+    f = founder()
+    if f is not None:
+        people[f.pk] = f
+    for w in ShareWallet.objects.filter(holder__isnull=False, holder__is_active=True).select_related('holder'):
+        people.setdefault(w.holder_id, w.holder)
+    return list(people.values())
+
+
+def is_signer(user) -> bool:
+    return bool(user and any(u.pk == user.pk for u in signers()))
+
+
 # -- the weekly audit ------------------------------------------------------------------
+
+def deadline(week_start: date) -> datetime:
+    """Due by the end of the Tuesday after the week."""
+    return _aware(week_start + timedelta(days=9))
+
+
+def counted(week_start: date) -> bool:
+    cfg = RevenueSettings.load()
+    return bool(cfg.audits_from and week_start >= cfg.audits_from)
+
 
 def ensure_weeks(*, today: Optional[date] = None) -> int:
     """One audit per completed week since revenue sharing started. Idempotent."""
@@ -261,6 +292,8 @@ def ensure_weeks(*, today: Optional[date] = None) -> int:
     if not cfg.started_on:
         return 0
     created, week = 0, week_of(cfg.started_on)
+    if cfg.audits_from:
+        week = max(week, cfg.audits_from)
     while week + timedelta(days=7) <= today:
         _, made = PoolAudit.objects.get_or_create(week_start=week)
         created += made
@@ -268,29 +301,57 @@ def ensure_weeks(*, today: Optional[date] = None) -> int:
     return created
 
 
-def audit_row(a: PoolAudit) -> dict:
+def outstanding(a: PoolAudit) -> list[str]:
+    """Who still has to act on this week."""
+    if a.status == PoolAudit.Status.APPROVED:
+        return []
+    f = founder()
+    if a.status in (PoolAudit.Status.OPEN, PoolAudit.Status.DISPUTED):
+        return [f'{f.get_username() if f else "The founder"} (submit)']
+    signed = set(a.signatures.filter(decision=Decision.APPROVE).values_list('user_id', flat=True))
+    return [u.get_username() for u in signers() if u.pk not in signed]
+
+
+def audit_row(a: PoolAudit, *, user=None) -> dict:
+    sigs = [{'user': s.user.get_username(), 'decision': s.decision, 'note': s.note, 'at': s.created_at.isoformat()}
+            for s in a.signatures.select_related('user').order_by('created_at')]
+    live = a.status != PoolAudit.Status.APPROVED
+    system = snapshot(a.week_start) if live else a.snapshot
+    expected = a.expected_balance if a.expected_balance is not None else Decimal(system['pool_balance_end'])
+    mine = a.signatures.filter(user=user).first() if user else None
     return {
         'week_start': a.week_start.isoformat(), 'week_end': (a.week_start + timedelta(days=6)).isoformat(),
-        'status': a.status, 'status_label': a.get_status_display(),
-        'system': a.snapshot if a.status == PoolAudit.Status.SIGNED else snapshot(a.week_start),
+        'due': deadline(a.week_start).isoformat(), 'counted': counted(a.week_start),
+        'overdue': live and counted(a.week_start) and timezone.now() >= deadline(a.week_start),
+        'status': a.status, 'status_label': a.get_status_display(), 'system': system,
         'paynow': a.paynow_result or None, 'payouts': a.payouts_result or None,
         'paynow_file': bool(a.paynow_file), 'payouts_file': bool(a.payouts_file),
-        'note': a.note, 'uploaded_by': a.uploaded_by, 'signed_by': a.signed_by,
-        'signed_at': a.signed_at.isoformat() if a.signed_at else None,
+        'payouts_source': a.payouts_source, 'payouts_source_label': a.get_payouts_source_display() if a.payouts_source else '',
+        'declared_balance': _money(a.declared_balance) if a.declared_balance is not None else None,
+        'expected_balance': _money(expected),
+        'balance_difference': _money(a.declared_balance - expected) if a.declared_balance is not None else None,
+        'note': a.note, 'uploaded_by': a.uploaded_by, 'submitted_by': a.submitted_by,
+        'submitted_at': a.submitted_at.isoformat() if a.submitted_at else None,
+        'approved_at': a.approved_at.isoformat() if a.approved_at else None,
+        'signatures': sigs, 'outstanding': outstanding(a),
+        'can_sign': bool(user and a.status == PoolAudit.Status.SUBMITTED and is_signer(user)
+                         and not (mine and mine.decision == Decision.APPROVE)),
     }
 
 
-def _open_audit(week_start: date, user) -> PoolAudit:
+def _founder_audit(week_start: date, user) -> PoolAudit:
     if not is_founder(user):
-        raise AuditError('Only the founder uploads the weekly reports and signs weeks off.')
+        raise AuditError('Only the founder uploads the weekly reports and submits the week.')
     audit = PoolAudit.objects.select_for_update().filter(week_start=week_start).first()
     if audit is None and week_start == week_of(week_start):
         ensure_weeks()                      # the hourly job may not have opened it yet
         audit = PoolAudit.objects.select_for_update().filter(week_start=week_start).first()
     if audit is None:
         raise AuditError('No audit for that week yet — weeks open once they have ended.')
-    if audit.status == PoolAudit.Status.SIGNED:
-        raise AuditError('That week is signed off and can’t change.')
+    if audit.status == PoolAudit.Status.APPROVED:
+        raise AuditError('That week is approved by every partner and can’t change.')
+    if audit.status == PoolAudit.Status.SUBMITTED:
+        raise AuditError('That week is submitted and waiting for co-signatures. A partner must dispute it before it can change.')
     return audit
 
 
@@ -300,7 +361,7 @@ def upload(week_start: date, kind: str, *, user, file=None, total=None, request=
     line by line) or, for a PDF statement, its total typed in."""
     if kind not in KINDS:
         raise AuditError('Unknown report.')
-    audit = _open_audit(week_start, user)
+    audit = _founder_audit(week_start, user)
     if file is not None:
         data = file.read()
         try:
@@ -321,8 +382,6 @@ def upload(week_start: date, kind: str, *, user, file=None, total=None, request=
                   'difference': _money(amount - system), 'balanced': amount == system, 'counts': {}, 'problems': [], 'rows': 0}
     setattr(audit, f'{kind}_result', result)
     audit.uploaded_by = user.get_username()[:150]
-    if audit.paynow_result and audit.payouts_result:
-        audit.status = PoolAudit.Status.REVIEW
     audit.save()
     accounts_services.audit(None, 'pool_audit_report', request, week=week_start.isoformat(), report=kind,
                             report_total=result['report_total'], system_total=result['system_total'],
@@ -331,25 +390,222 @@ def upload(week_start: date, kind: str, *, user, file=None, total=None, request=
 
 
 @transaction.atomic
-def sign_off(week_start: date, *, user, note: str = '', request=None) -> PoolAudit:
-    audit = _open_audit(week_start, user)
+def submit(week_start: date, *, user, declared_balance, payouts_source: str, note: str = '', request=None) -> PoolAudit:
+    """The founder submits the week: both reports, where the payouts report came
+    from (a statement, not a hand-made sheet), and what the pool actually holds
+    at the week's end after the costs they claim. Partners then co-sign."""
+    audit = _founder_audit(week_start, user)
     if not (audit.paynow_result and audit.payouts_result):
-        raise AuditError('Upload both reports (Paynow and payouts) before signing the week off.')
-    unbalanced = [k for k in KINDS if not getattr(audit, f'{k}_result').get('balanced')]
+        raise AuditError('Upload both reports (Paynow and the payouts statement) first.')
+    if payouts_source not in PoolAudit.Source.values:
+        raise AuditError('The payouts report must be an EcoCash, OneMoney, InnBucks or bank statement — say which.')
+    declared = reports.parse_amount(declared_balance)
+    if declared is None:
+        raise AuditError('Enter the balance the pool actually holds at the end of the week.')
+    expected = Decimal(snapshot(week_start)['pool_balance_end'])
+    issues = [k for k in KINDS if not getattr(audit, f'{k}_result').get('balanced')]
+    if declared != expected:
+        issues.append('balance')
     note = (note or '').strip()
-    if unbalanced and len(note) < 10:
-        raise AuditError('The reports don’t balance — explain the differences in the note before signing off.')
-    audit.snapshot = snapshot(week_start)
-    audit.status = PoolAudit.Status.SIGNED
-    audit.note = note[:1000]
-    audit.signed_by = user.get_username()[:150]
-    audit.signed_at = timezone.now()
+    if issues and len(note) < 10:
+        raise AuditError('The figures don’t all agree — explain every difference in the note before submitting.')
+    audit.signatures.all().delete()                    # a resubmission needs fresh co-signatures
+    audit.payouts_source, audit.declared_balance, audit.expected_balance = payouts_source, declared, expected
+    audit.note, audit.status = note[:1000], PoolAudit.Status.SUBMITTED
+    audit.submitted_by, audit.submitted_at = user.get_username()[:150], timezone.now()
     audit.save()
-    accounts_services.audit(None, 'pool_audit_signed', request, week=week_start.isoformat(), by=audit.signed_by,
-                            unbalanced=unbalanced, note=audit.note)
+    AuditSignature.objects.create(audit=audit, user=user, decision=Decision.APPROVE, note='Submitted')
+    accounts_services.audit(None, 'pool_audit_submitted', request, week=week_start.isoformat(), by=user.get_username(),
+                            declared=_money(declared), expected=_money(expected), issues=issues, note=audit.note)
+    _maybe_approve(audit)
     return audit
 
 
+@transaction.atomic
+def cosign(week_start: date, *, user, decision: str, note: str = '', request=None) -> PoolAudit:
+    """A partner approves the submitted week, or disputes it (with a reason),
+    which sends it back to the founder."""
+    if not is_signer(user):
+        raise AuditError('Only the founder and the partners holding a wallet co-sign weeks.')
+    audit = PoolAudit.objects.select_for_update().filter(week_start=week_start).first()
+    if audit is None or audit.status != PoolAudit.Status.SUBMITTED:
+        raise AuditError('That week isn’t waiting for co-signatures.')
+    if decision not in Decision.values:
+        raise AuditError('Approve or dispute.')
+    note = (note or '').strip()
+    if decision == Decision.REJECT and len(note) < 10:
+        raise AuditError('Say what you dispute, so the founder can answer it.')
+    AuditSignature.objects.update_or_create(audit=audit, user=user, defaults={'decision': decision, 'note': note[:1000]})
+    if decision == Decision.REJECT:
+        audit.status = PoolAudit.Status.DISPUTED
+        audit.save(update_fields=['status', 'updated_at'])
+    accounts_services.audit(None, 'pool_audit_cosigned', request, week=week_start.isoformat(), by=user.get_username(),
+                            decision=decision, note=note)
+    _maybe_approve(audit)
+    return audit
+
+
+def _maybe_approve(audit: PoolAudit) -> None:
+    if audit.status != PoolAudit.Status.SUBMITTED:
+        return
+    approved = set(audit.signatures.filter(decision=Decision.APPROVE).values_list('user_id', flat=True))
+    if all(u.pk in approved for u in signers()):
+        audit.snapshot = snapshot(audit.week_start)
+        audit.status, audit.approved_at = PoolAudit.Status.APPROVED, timezone.now()
+        audit.save()
+
+
 def locked(day: date) -> bool:
-    """A pool cost on a day in a signed-off week can't be added or removed."""
-    return PoolAudit.objects.filter(week_start=week_of(day), status=PoolAudit.Status.SIGNED).exists()
+    """A pool cost on a day in an approved week can't be added or removed."""
+    return PoolAudit.objects.filter(week_start=week_of(day), status=PoolAudit.Status.APPROVED).exists()
+
+
+# -- governance: deadlines, warnings, the lock ----------------------------------------------
+
+def governance(*, now: Optional[datetime] = None) -> dict:
+    """Which weeks are due or missed, who is holding them up, and whether the
+    money controls are locked (two missed weeks in a row, until they're done)."""
+    now = now or timezone.now()
+    ensure_weeks(today=timezone.localdate(now))
+    cfg = RevenueSettings.load()
+    audits = list(PoolAudit.objects.filter(week_start__gte=cfg.audits_from).order_by('week_start')) if cfg.audits_from else []
+    missed, due, run, lock_weeks = [], [], [], []
+    for a in audits:
+        pending = a.status != PoolAudit.Status.APPROVED
+        late = pending and now >= deadline(a.week_start)
+        if late:
+            missed.append(a)
+            run.append(a)
+            if len(run) >= 2 and not lock_weeks:
+                lock_weeks = [x.week_start.isoformat() for x in run[-2:]]
+        else:
+            run = []
+            if pending:
+                due.append(a)
+    def entry(a):
+        return {'week_start': a.week_start.isoformat(), 'due': deadline(a.week_start).isoformat(),
+                'status': a.status, 'waiting_for': outstanding(a)}
+    # Who has missed two in a row (by name), for the warning.
+    streak: dict[str, int] = defaultdict(int)
+    worst: dict[str, int] = defaultdict(int)
+    for a in audits:
+        if now < deadline(a.week_start):
+            continue
+        late_names = set(outstanding(a)) if a.status != PoolAudit.Status.APPROVED else set()
+        for name in set(streak) | late_names:
+            streak[name] = streak[name] + 1 if name in late_names else 0
+            worst[name] = max(worst[name], streak[name])
+    return {
+        'locked': bool(lock_weeks), 'lock_weeks': lock_weeks,
+        'missed': [entry(a) for a in missed], 'due': [entry(a) for a in due],
+        'repeat_offenders': sorted(n for n, v in worst.items() if v >= 2),
+        'warning': bool(missed or due),
+    }
+
+
+def assert_unlocked() -> None:
+    from .services import RevenueError
+    g = governance()
+    if g['locked']:
+        raise RevenueError('Locked: two weekly pool audits in a row were missed '
+                           f'({", ".join(g["lock_weeks"])}). Money controls reopen once every missed week is approved.')
+
+
+# -- using the pool ------------------------------------------------------------------
+
+def pool_available() -> Decimal:
+    return Decimal(pool_ledger()['closing'])
+
+
+def proposal_row(p: PoolProposal, *, user=None) -> dict:
+    votes = {v.user_id: v for v in p.votes.select_related('user')}
+    return {
+        'id': p.id, 'kind': p.kind, 'kind_label': p.get_kind_display(), 'amount': _money(p.amount), 'note': p.note,
+        'proposed_by': p.proposed_by.get_username(), 'status': p.status, 'status_label': p.get_status_display(),
+        'created_at': p.created_at.isoformat(), 'decided_at': p.decided_at.isoformat() if p.decided_at else None,
+        'votes': [{'user': v.user.get_username(), 'decision': v.decision, 'note': v.note} for v in votes.values()],
+        'waiting_for': [u.get_username() for u in signers() if u.pk not in votes] if p.status == PoolProposal.Status.OPEN else [],
+        'can_vote': bool(user and p.status == PoolProposal.Status.OPEN and is_signer(user) and user.pk not in votes),
+        'can_cancel': bool(user and p.status == PoolProposal.Status.OPEN and p.proposed_by_id == user.pk),
+    }
+
+
+@transaction.atomic
+def propose(*, user, kind: str, amount, note: str, request=None) -> PoolProposal:
+    from .services import RevenueError
+    if not is_signer(user):
+        raise RevenueError('Only the founder and the partners holding a wallet can propose using the pool.')
+    assert_unlocked()
+    if kind not in PoolProposal.Kind.values:
+        raise RevenueError('Choose a promotion or an equal payout to partners.')
+    value = reports.parse_amount(amount)
+    if value is None or value <= 0:
+        raise RevenueError('Enter an amount above zero.')
+    if value > pool_available():
+        raise RevenueError(f'The pool only holds {_money(pool_available())}.')
+    note = (note or '').strip()
+    if len(note) < 5:
+        raise RevenueError('Say what it is for.')
+    p = PoolProposal.objects.create(kind=kind, amount=value, note=note[:500], proposed_by=user)
+    ProposalVote.objects.create(proposal=p, user=user, decision=Decision.APPROVE)
+    accounts_services.audit(None, 'pool_proposal', request, id=p.id, kind=kind, amount=_money(value), note=p.note,
+                            by=user.get_username())
+    _maybe_execute(p)
+    return p
+
+
+@transaction.atomic
+def vote(proposal_id: int, *, user, decision: str, note: str = '', request=None) -> PoolProposal:
+    from .services import RevenueError
+    p = PoolProposal.objects.select_for_update().filter(pk=proposal_id).first()
+    if p is None or p.status != PoolProposal.Status.OPEN:
+        raise RevenueError('That proposal isn’t open.')
+    if not is_signer(user):
+        raise RevenueError('Only the founder and the partners holding a wallet vote on the pool.')
+    if decision not in Decision.values:
+        raise RevenueError('Approve or reject.')
+    ProposalVote.objects.update_or_create(proposal=p, user=user, defaults={'decision': decision, 'note': (note or '')[:500]})
+    accounts_services.audit(None, 'pool_proposal_vote', request, id=p.id, decision=decision, by=user.get_username())
+    if decision == Decision.REJECT:
+        p.status, p.decided_at = PoolProposal.Status.REJECTED, timezone.now()
+        p.save(update_fields=['status', 'decided_at'])
+        return p
+    _maybe_execute(p)
+    return p
+
+
+@transaction.atomic
+def cancel(proposal_id: int, *, user, request=None) -> PoolProposal:
+    from .services import RevenueError
+    p = PoolProposal.objects.select_for_update().filter(pk=proposal_id, proposed_by=user, status=PoolProposal.Status.OPEN).first()
+    if p is None:
+        raise RevenueError('Only an open proposal of your own can be withdrawn.')
+    p.status, p.decided_at = PoolProposal.Status.CANCELLED, timezone.now()
+    p.save(update_fields=['status', 'decided_at'])
+    return p
+
+
+def _maybe_execute(p: PoolProposal) -> None:
+    """Carry it out once every partner has approved (and nothing is locked)."""
+    from .services import RevenueError
+    approved = set(p.votes.filter(decision=Decision.APPROVE).values_list('user_id', flat=True))
+    if not all(u.pk in approved for u in signers()):
+        return
+    assert_unlocked()
+    if p.amount > pool_available():
+        raise RevenueError(f'The pool now holds only {_money(pool_available())} — propose a smaller amount.')
+    today = timezone.localdate()
+    names = ', '.join(sorted(u.get_username() for u in signers()))
+    if p.kind == PoolProposal.Kind.DISBURSE:
+        wallets = ShareWallet.ensure()
+        each = (p.amount / len(wallets)).quantize(CENT, rounding='ROUND_DOWN')
+        total = each * len(wallets)
+        for w in wallets:
+            ShareEntry.objects.create(wallet=w, kind=ShareEntry.Kind.POOL, amount=each)
+        category, amount = PoolExpense.Category.DISBURSE, total
+    else:
+        category, amount = PoolExpense.Category.PROMOTION, p.amount
+    p.expense = PoolExpense.objects.create(day=today, category=category, amount=amount, note=p.note[:300],
+                                           recorded_by=f'agreed: {names}'[:150])
+    p.status, p.decided_at = PoolProposal.Status.DONE, timezone.now()
+    p.save(update_fields=['expense', 'status', 'decided_at'])

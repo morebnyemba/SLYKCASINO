@@ -8,7 +8,8 @@ import {
 } from '@/components/console/ui';
 import { useAuth } from '@/lib/auth-context';
 import { authedPost, authedRequest, useApi } from '@/lib/use-api';
-import { PoolLedger, WeeklyAudits } from '@/components/revenue/pool-audit';
+import { PoolLedger, PoolProposals, WeeklyAudits } from '@/components/revenue/pool-audit';
+import { GovernanceBanner } from '@/components/revenue/governance-banner';
 
 interface Withdrawal {
   id: number; slot: number; label: string; amount: string; status: 'requested' | 'paid' | 'rejected'; status_label: string;
@@ -54,6 +55,7 @@ export default function RevenueSharePage() {
     <div className="space-y-6">
       <PageHeader icon={BsPieChart} eyebrow="Money" title="Revenue share"
         description="Each day’s real-money GGR is shared when the day ends: cash stakes minus cash wins (sports and Aviator). Bonus money doesn’t count until a player unlocks it into Winnings — then it’s deducted that day. Three partner wallets take their share each, and the operating pool keeps the rest to pay affiliates and running costs. A losing day is carried forward and earned back before anything is shared." />
+      {data && <GovernanceBanner />}
       {notice && <Notice tone={notice.tone} onClose={() => setNotice(null)}>{notice.text}</Notice>}
       {error && (
         <Notice tone="red">
@@ -181,6 +183,7 @@ function HolderPanel({ view, onDone, onFail }: { view: HolderView; onDone: (t: s
       </div>
       <PoolLedger />
       <WeeklyAudits />
+      <PoolProposals />
     </>
   );
 }
@@ -239,6 +242,7 @@ function BossPanel({ view, onDone, onFail }: { view: BossView; onDone: (t: strin
       <PoolPanel view={view} onDone={onDone} onFail={onFail} />
       <PoolLedger />
       <WeeklyAudits />
+      <PoolProposals />
 
       <Panel title="Closed days" description="Each day is shared once, when it ends. A losing day carries its loss forward; later days earn it back before anything is shared." padded={false}>
         {view.days.length === 0 ? <EmptyState icon={BsSunrise} title="No days closed yet">The first day is shared when it ends.</EmptyState> : (

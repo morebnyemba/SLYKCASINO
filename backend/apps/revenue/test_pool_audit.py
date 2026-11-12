@@ -11,11 +11,11 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from apps.revenue import audit, services
-from apps.revenue.models import PoolAudit, RevenueDay, RevenueSettings, ShareWallet
+from apps.revenue.models import PoolAudit, PoolProposal, RevenueDay, RevenueSettings, ShareWallet
 from apps.wallet.models import PaymentTransaction, WithdrawalRequest
 
 PW = 'Str0ng-pass-123'
-WEEK = audit.week_of(timezone.localdate()) - timedelta(days=14)
+WEEK = audit.week_of(timezone.localdate()) - timedelta(days=7)      # last week: open for audit
 
 
 def at(day, hour=12):
@@ -34,9 +34,12 @@ class Base(TestCase):
         self.clerk = User.objects.create_user('clerk', 'c@example.com', PW, is_staff=True)
         cfg = RevenueSettings.load()
         cfg.started_on = WEEK - timedelta(days=7)
+        cfg.audits_from = WEEK
         cfg.save()
         services.update_settings(wallets=[{'slot': 1, 'holder_id': self.boss.id, 'label': 'Founder'},
                                           {'slot': 2, 'holder_id': self.partner.id}], by='boss')
+        self.partner3 = User.objects.create_user('partner3', 'p3@example.com', PW, is_staff=True)
+        services.update_settings(wallets=[{'slot': 3, 'holder_id': self.partner3.id}], by='boss')
 
     def api(self, user):
         c = APIClient()
@@ -144,61 +147,178 @@ class PayoutMatchTests(Base):
         del by_ref, by_number
 
 
-class SignOffTests(Base):
+class CosignTests(Base):
     def balanced_week(self):
         self.deposit('BB-1', '10')
         self.payout('8')
+        RevenueDay.objects.create(day=WEEK, ggr=D('100'), base=D('100'), share_percent=D('10'), share_each=D('10'), pool=D('70'))
         audit.upload(WEEK, 'paynow', user=self.boss, file=csv_file('Reference,Amount\nBB-1,10\n'))
         return audit.upload(WEEK, 'payouts', user=self.boss, file=csv_file('Phone,Amount\n0772222222,8\n'))
 
-    def test_only_the_founder_uploads_and_signs(self):
+    def test_founder_submits_and_every_partner_must_cosign(self):
+        self.balanced_week()
+        with self.assertRaisesMessage(audit.AuditError, 'statement'):
+            audit.submit(WEEK, user=self.boss, declared_balance='70', payouts_source='own sheet')
         with self.assertRaisesMessage(audit.AuditError, 'founder'):
-            audit.upload(WEEK, 'paynow', user=self.other_boss, total='0')
-        res = self.api(self.partner).post(f'/api/admin/revenue-share/audits/{WEEK}/upload/', {'kind': 'paynow', 'total': '0'})
-        self.assertEqual(res.status_code, 400)
-        services.update_settings(founder_id=self.other_boss.id, by='boss')
-        self.assertTrue(audit.is_founder(self.other_boss))
-        self.assertFalse(audit.is_founder(self.boss))
-        with self.assertRaisesMessage(services.RevenueError, 'superuser'):
-            services.update_settings(founder_id=self.partner.id, by='boss')
-
-    def test_sign_off_freezes_the_week_and_locks_its_costs(self):
-        a = self.balanced_week()
-        self.assertEqual(a.status, PoolAudit.Status.REVIEW)
-        expense = services.record_expense(day=WEEK + timedelta(days=2), category='hosting', amount='12', by='boss')
-        a = audit.sign_off(WEEK, user=self.boss)
-        self.assertEqual((a.status, a.signed_by, a.snapshot['deposits']['total']), (PoolAudit.Status.SIGNED, 'boss', '10.00'))
-        self.deposit('BB-LATE', '99')                           # a later change can't move a signed week
+            audit.submit(WEEK, user=self.partner, declared_balance='70', payouts_source='ecocash')
+        a = audit.submit(WEEK, user=self.boss, declared_balance='70.00', payouts_source='ecocash')
+        self.assertEqual(a.status, PoolAudit.Status.SUBMITTED)
+        self.assertEqual(audit.outstanding(a), ['partner', 'partner3'])
+        a = audit.cosign(WEEK, user=self.partner, decision='approve')
+        self.assertEqual(a.status, PoolAudit.Status.SUBMITTED)
+        with self.assertRaisesMessage(audit.AuditError, 'co-sign'):
+            audit.cosign(WEEK, user=self.clerk, decision='approve')
+        a = audit.cosign(WEEK, user=self.partner3, decision='approve')
+        self.assertEqual((a.status, a.snapshot['deposits']['total']), (PoolAudit.Status.APPROVED, '10.00'))
+        self.deposit('BB-LATE', '99')                           # a later change can't move an approved week
         self.assertEqual(audit.audit_row(PoolAudit.objects.get(week_start=WEEK))['system']['deposits']['total'], '10.00')
         with self.assertRaisesMessage(services.RevenueError, 'locked'):
             services.record_expense(day=WEEK, category='ai', amount='1', by='boss')
-        with self.assertRaisesMessage(services.RevenueError, 'locked'):
-            services.delete_expense(expense.id, by='boss')
-        with self.assertRaisesMessage(audit.AuditError, 'signed off'):
+        with self.assertRaisesMessage(audit.AuditError, 'approved'):
             audit.upload(WEEK, 'paynow', user=self.boss, total='1')
 
-    def test_unbalanced_weeks_need_an_explanation(self):
-        with self.assertRaisesMessage(audit.AuditError, 'both reports'):
-            audit.sign_off(WEEK, user=self.boss)
+    def test_declared_balance_must_match_the_ledger_or_be_explained(self):
+        self.balanced_week()
+        services.record_expense(day=WEEK + timedelta(days=1), category='ai', amount='20', by='boss')
+        with self.assertRaisesMessage(audit.AuditError, 'explain'):
+            audit.submit(WEEK, user=self.boss, declared_balance='30', payouts_source='bank')
+        a = audit.submit(WEEK, user=self.boss, declared_balance='30', payouts_source='bank',
+                         note='Paid $20 cash for an advert, receipt missing')
+        row = audit.audit_row(a)
+        self.assertEqual((row['expected_balance'], row['declared_balance'], row['balance_difference']), ('50.00', '30.00', '-20.00'))
+
+    def test_a_dispute_sends_it_back_and_resubmitting_needs_fresh_signatures(self):
+        self.balanced_week()
+        audit.submit(WEEK, user=self.boss, declared_balance='70', payouts_source='ecocash')
+        audit.cosign(WEEK, user=self.partner, decision='approve')
+        with self.assertRaisesMessage(audit.AuditError, 'dispute'):
+            audit.cosign(WEEK, user=self.partner3, decision='reject', note='no')
+        a = audit.cosign(WEEK, user=self.partner3, decision='reject', note='Where is the hosting invoice?')
+        self.assertEqual(a.status, PoolAudit.Status.DISPUTED)
+        with self.assertRaisesMessage(audit.AuditError, 'co-signatures'):
+            audit.cosign(WEEK, user=self.partner, decision='approve')
+        a = audit.submit(WEEK, user=self.boss, declared_balance='70', payouts_source='ecocash', note='Invoice attached in chat')
+        self.assertEqual(audit.outstanding(a), ['partner', 'partner3'])     # earlier approvals cleared
+
+    def test_unbalanced_reports_need_an_explanation(self):
         self.deposit('BB-1', '10')
         audit.upload(WEEK, 'paynow', user=self.boss, total='9')
         audit.upload(WEEK, 'payouts', user=self.boss, total='0')
         with self.assertRaisesMessage(audit.AuditError, 'explain'):
-            audit.sign_off(WEEK, user=self.boss, note='ok')
-        a = audit.sign_off(WEEK, user=self.boss, note='Paynow fee of $1 taken at source.')
-        self.assertEqual(a.status, PoolAudit.Status.SIGNED)
+            audit.submit(WEEK, user=self.boss, declared_balance='0', payouts_source='ecocash', note='ok')
+        a = audit.submit(WEEK, user=self.boss, declared_balance='0', payouts_source='ecocash',
+                         note='Paynow fee of $1 taken at source.')
+        self.assertEqual(a.status, PoolAudit.Status.SUBMITTED)
 
     def test_api_flow_and_private_file_download(self):
         self.deposit('BB-1', '10')
         boss = self.api(self.boss)
         weeks = boss.get('/api/admin/revenue-share/audits/').json()
         self.assertTrue(weeks['is_founder'])
-        self.assertEqual({a['week_start'] for a in weeks['audits']}, {str(WEEK - timedelta(days=7)), str(WEEK), str(WEEK + timedelta(days=7))})
+        self.assertEqual([a['week_start'] for a in weeks['audits']], [str(WEEK)])
         res = boss.post(f'/api/admin/revenue-share/audits/{WEEK}/upload/',
                         {'kind': 'paynow', 'file': csv_file('Reference,Amount\nBB-1,10\n')}, format='multipart')
         self.assertEqual(res.status_code, 200, res.content)
         self.assertTrue(res.json()['paynow']['balanced'])
+        boss.post(f'/api/admin/revenue-share/audits/{WEEK}/upload/', {'kind': 'payouts', 'total': '0'}, format='json')
+        res = boss.post(f'/api/admin/revenue-share/audits/{WEEK}/submit/',
+                        {'declared_balance': '0', 'payouts_source': 'ecocash'}, format='json')
+        self.assertEqual(res.json()['status'], 'submitted', res.content)
+        res = self.api(self.partner).post(f'/api/admin/revenue-share/audits/{WEEK}/cosign/', {'decision': 'approve'}, format='json')
+        self.assertEqual(res.json()['outstanding'], ['partner3'])
         url = f'/api/admin/revenue-share/audits/{WEEK}/file/paynow/'
         self.assertEqual(self.api(self.partner).get(url).status_code, 200)
         self.assertEqual(self.api(self.clerk).get(url).status_code, 403)
         self.assertEqual(APIClient().get(url).status_code, 401)
+
+
+class GovernanceTests(Base):
+    def setUp(self):
+        super().setUp()
+        cfg = RevenueSettings.load()
+        cfg.started_on = cfg.audits_from = WEEK - timedelta(days=14)
+        cfg.save()
+        audit.ensure_weeks()
+
+    def test_one_missed_week_warns_two_in_a_row_lock_the_money_controls(self):
+        first = WEEK - timedelta(days=14)
+        g = audit.governance(now=audit.deadline(first) + timedelta(hours=1))
+        self.assertEqual((g['locked'], len(g['missed']), g['warning']), (False, 1, True))
+        self.assertIn('boss (submit)', g['missed'][0]['waiting_for'])
+        g = audit.governance()
+        self.assertTrue(g['locked'])
+        self.assertIn('boss (submit)', g['repeat_offenders'])
+        with self.assertRaisesMessage(services.RevenueError, 'Locked'):
+            services.record_expense(day=timezone.localdate(), category='ai', amount='5', by='boss')
+        with self.assertRaisesMessage(services.RevenueError, 'Locked'):
+            services.request_withdrawal(user=self.partner, method='ecocash', account='0771234567')
+        with self.assertRaisesMessage(services.RevenueError, 'Locked'):
+            services.update_settings(share_percent='20', by='boss')
+        with self.assertRaisesMessage(services.RevenueError, 'Locked'):
+            audit.propose(user=self.boss, kind='promotion', amount='1', note='Weekend promo')
+        # Audits can always be caught up; once the missed weeks are approved, it unlocks.
+        for week in (first, first + timedelta(days=7)):
+            audit.upload(week, 'paynow', user=self.boss, total='0')
+            audit.upload(week, 'payouts', user=self.boss, total='0')
+            audit.submit(week, user=self.boss, declared_balance='0', payouts_source='ecocash')
+            audit.cosign(week, user=self.partner, decision='approve')
+            audit.cosign(week, user=self.partner3, decision='approve')
+        self.assertFalse(audit.governance()['locked'])
+
+    def test_a_partner_not_cosigning_counts_against_them(self):
+        first = WEEK - timedelta(days=14)
+        for week in (first, first + timedelta(days=7)):
+            audit.upload(week, 'paynow', user=self.boss, total='0')
+            audit.upload(week, 'payouts', user=self.boss, total='0')
+            audit.submit(week, user=self.boss, declared_balance='0', payouts_source='ecocash')
+            audit.cosign(week, user=self.partner, decision='approve')
+        g = audit.governance()
+        self.assertTrue(g['locked'])
+        self.assertEqual(g['repeat_offenders'], ['partner3'])
+
+    def test_weeks_before_audits_started_never_count(self):
+        cfg = RevenueSettings.load()
+        cfg.audits_from = audit.week_of(timezone.localdate())
+        cfg.save()
+        self.assertEqual((audit.governance()['locked'], audit.governance()['missed']), (False, []))
+
+
+class ProposalTests(Base):
+    def setUp(self):
+        super().setUp()
+        RevenueDay.objects.create(day=WEEK, ggr=D('1000'), base=D('1000'), share_percent=D('10'), share_each=D('100'), pool=D('700'))
+
+    def test_equal_payout_needs_every_partner_then_splits_three_ways(self):
+        p = audit.propose(user=self.partner, kind='disburse', amount='300', note='Quarterly split')
+        self.assertEqual(p.status, 'open')
+        audit.vote(p.id, user=self.boss, decision='approve')
+        self.assertEqual(PoolProposal.objects.get(pk=p.id).status, 'open')
+        p = audit.vote(p.id, user=self.partner3, decision='approve')
+        self.assertEqual(p.status, 'done')
+        self.assertEqual([str(services.wallet_balance(w)) for w in ShareWallet.ensure()], ['100.00', '100.00', '100.00'])
+        self.assertEqual(audit.pool_available(), D('400.00'))
+        with self.assertRaisesMessage(services.RevenueError, 'agreed'):
+            services.delete_expense(p.expense_id, by='boss')
+
+    def test_a_single_rejection_stops_a_promotion(self):
+        p = audit.propose(user=self.boss, kind='promotion', amount='200', note='Derby day free bets')
+        p = audit.vote(p.id, user=self.partner, decision='reject', note='Too much')
+        self.assertEqual(p.status, 'rejected')
+        self.assertEqual(audit.pool_available(), D('700.00'))
+
+    def test_limits(self):
+        with self.assertRaisesMessage(services.RevenueError, 'only holds'):
+            audit.propose(user=self.boss, kind='promotion', amount='701', note='Too big')
+        with self.assertRaisesMessage(services.RevenueError, 'partners'):
+            audit.propose(user=self.clerk, kind='promotion', amount='1', note='Not a partner')
+
+    def test_api(self):
+        res = self.api(self.partner).post('/api/admin/revenue-share/proposals/',
+                                          {'kind': 'promotion', 'amount': '50', 'note': 'Cup final promo'}, format='json')
+        self.assertEqual(res.status_code, 201, res.content)
+        pid = res.json()['id']
+        listing = self.api(self.boss).get('/api/admin/revenue-share/proposals/').json()
+        self.assertTrue(listing['proposals'][0]['can_vote'])
+        self.assertEqual(listing['proposals'][0]['waiting_for'], ['boss', 'partner3'])
+        res = self.api(self.partner).post(f'/api/admin/revenue-share/proposals/{pid}/', {'cancel': True}, format='json')
+        self.assertEqual(res.json()['status'], 'cancelled')

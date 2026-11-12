@@ -10,7 +10,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from . import audit, services
-from .models import PoolAudit, PoolExpense, RevenueDay, RevenueSettings, ShareWallet, ShareWithdrawal
+from .models import PoolAudit, PoolExpense, PoolProposal, RevenueDay, RevenueSettings, ShareWallet, ShareWithdrawal
 
 
 def _forbidden(text='Only a superuser can do this.'):
@@ -35,6 +35,7 @@ class OverviewView(APIView):
             if own is None:
                 return _forbidden('Revenue share is visible to superusers and wallet holders only.')
             return Response({'role': 'holder', 'wallet': services.wallet_summary(own), 'pool': services.pool_summary(),
+                             'governance': audit.governance(),
                              'is_founder': audit.is_founder(request.user),
                              'withdrawals': [services.withdrawal_row(w) for w in own.withdrawals.all()[:20]],
                              'methods': [{'id': m.value, 'label': m.label} for m in ShareWithdrawal.Method]})
@@ -44,6 +45,7 @@ class OverviewView(APIView):
             'role': 'superuser',
             'own_slot': own.slot if own else None,
             'is_founder': audit.is_founder(request.user),
+            'governance': audit.governance(),
             'founder': (lambda f: {'id': f.id, 'username': f.get_username()} if f else None)(audit.founder()),
             'founder_set': cfg.founder_id is not None,
             'superusers': [{'id': u.id, 'username': u.get_username()} for u in staff if u.is_superuser],
@@ -177,7 +179,7 @@ class PoolDayView(APIView):
 
 
 class AuditsView(APIView):
-    """GET — every weekly pool audit (newest first) and who the founder is."""
+    """GET — every weekly pool audit (newest first), the deadlines and the lock."""
     permission_classes = [IsAdminUser]
 
     def get(self, request):
@@ -185,9 +187,34 @@ class AuditsView(APIView):
             return _forbidden('Pool audits are visible to superusers and wallet holders only.')
         audit.ensure_weeks()
         f = audit.founder()
-        rows = [audit.audit_row(a) for a in PoolAudit.objects.all()[:26]]
-        return Response({'is_founder': audit.is_founder(request.user), 'founder': f.get_username() if f else None,
-                         'audits': rows})
+        return Response({
+            'is_founder': audit.is_founder(request.user), 'is_signer': audit.is_signer(request.user),
+            'founder': f.get_username() if f else None, 'signers': [u.get_username() for u in audit.signers()],
+            'sources': [{'id': c.value, 'label': c.label} for c in PoolAudit.Source],
+            'governance': audit.governance(),
+            'audits': [audit.audit_row(a, user=request.user) for a in PoolAudit.objects.all()[:26]],
+        })
+
+
+class GovernanceView(APIView):
+    """GET — the dashboard warning: weeks due or missed, who is late, and the lock."""
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        if not audit.can_view(request.user):
+            return _forbidden('Pool audits are visible to superusers and wallet holders only.')
+        return Response(audit.governance())
+
+
+def _audit_action(request, week, fn, **kwargs):
+    w = _week(week)
+    if w is None:
+        return Response({'detail': 'Use YYYY-MM-DD.'}, status=status.HTTP_400_BAD_REQUEST)
+    try:
+        a = fn(w, user=request.user, request=request, **kwargs)
+    except audit.AuditError as exc:
+        return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+    return Response(audit.audit_row(a, user=request.user))
 
 
 class AuditUploadView(APIView):
@@ -195,30 +222,64 @@ class AuditUploadView(APIView):
     permission_classes = [IsAdminUser]
 
     def post(self, request, week: str):
-        w = _week(week)
-        if w is None:
-            return Response({'detail': 'Use YYYY-MM-DD.'}, status=status.HTTP_400_BAD_REQUEST)
-        try:
-            a = audit.upload(w, str(request.data.get('kind') or ''), user=request.user, file=request.FILES.get('file'),
-                             total=request.data.get('total'), request=request)
-        except audit.AuditError as exc:
-            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
-        return Response(audit.audit_row(a))
+        return _audit_action(request, week, lambda w, **kw: audit.upload(w, str(request.data.get('kind') or ''),
+                                                                        file=request.FILES.get('file'),
+                                                                        total=request.data.get('total'), **kw))
 
 
-class AuditSignView(APIView):
-    """POST {note?} — the founder signs the week off (freezes it, locks its costs)."""
+class AuditSubmitView(APIView):
+    """POST {declared_balance, payouts_source, note?} — the founder submits the week."""
     permission_classes = [IsAdminUser]
 
     def post(self, request, week: str):
-        w = _week(week)
-        if w is None:
-            return Response({'detail': 'Use YYYY-MM-DD.'}, status=status.HTTP_400_BAD_REQUEST)
+        return _audit_action(request, week, audit.submit, declared_balance=request.data.get('declared_balance'),
+                             payouts_source=str(request.data.get('payouts_source') or ''),
+                             note=str(request.data.get('note') or ''))
+
+
+class AuditCosignView(APIView):
+    """POST {decision: approve|reject, note?} — each partner co-signs or disputes."""
+    permission_classes = [IsAdminUser]
+
+    def post(self, request, week: str):
+        return _audit_action(request, week, audit.cosign, decision=str(request.data.get('decision') or ''),
+                             note=str(request.data.get('note') or ''))
+
+
+class ProposalsView(APIView):
+    """GET — uses of the pool; POST {kind: promotion|disburse, amount, note} — propose one."""
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        if not audit.can_view(request.user):
+            return _forbidden('The pool is visible to superusers and wallet holders only.')
+        return Response({'available': str(audit.pool_available()), 'is_signer': audit.is_signer(request.user),
+                         'kinds': [{'id': k.value, 'label': k.label} for k in PoolProposal.Kind],
+                         'proposals': [audit.proposal_row(p, user=request.user) for p in PoolProposal.objects.all()[:50]]})
+
+    def post(self, request):
         try:
-            a = audit.sign_off(w, user=request.user, note=str(request.data.get('note') or ''), request=request)
-        except audit.AuditError as exc:
+            p = audit.propose(user=request.user, kind=str(request.data.get('kind') or ''), amount=request.data.get('amount'),
+                              note=str(request.data.get('note') or ''), request=request)
+        except services.RevenueError as exc:
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
-        return Response(audit.audit_row(a))
+        return Response(audit.proposal_row(p, user=request.user), status=status.HTTP_201_CREATED)
+
+
+class ProposalVoteView(APIView):
+    """POST {decision: approve|reject, note?} — or {cancel: true} by the proposer."""
+    permission_classes = [IsAdminUser]
+
+    def post(self, request, pk: int):
+        try:
+            if request.data.get('cancel'):
+                p = audit.cancel(pk, user=request.user, request=request)
+            else:
+                p = audit.vote(pk, user=request.user, decision=str(request.data.get('decision') or ''),
+                               note=str(request.data.get('note') or ''), request=request)
+        except services.RevenueError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(audit.proposal_row(p, user=request.user))
 
 
 class AuditFileView(APIView):
