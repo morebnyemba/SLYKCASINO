@@ -383,6 +383,7 @@ def upload(week_start: date, kind: str, *, user, file=None, total=None, request=
     setattr(audit, f'{kind}_result', result)
     audit.uploaded_by = user.get_username()[:150]
     audit.save()
+    _clear_lock_cache()
     accounts_services.audit(None, 'pool_audit_report', request, week=week_start.isoformat(), report=kind,
                             report_total=result['report_total'], system_total=result['system_total'],
                             balanced=result['balanced'], by=user.get_username())
@@ -415,6 +416,7 @@ def submit(week_start: date, *, user, declared_balance, payouts_source: str, not
     audit.submitted_by, audit.submitted_at = user.get_username()[:150], timezone.now()
     audit.save()
     AuditSignature.objects.create(audit=audit, user=user, decision=Decision.APPROVE, note='Submitted')
+    transaction.on_commit(_clear_lock_cache)
     accounts_services.audit(None, 'pool_audit_submitted', request, week=week_start.isoformat(), by=user.get_username(),
                             declared=_money(declared), expected=_money(expected), issues=issues, note=audit.note)
     _maybe_approve(audit)
@@ -453,6 +455,7 @@ def _maybe_approve(audit: PoolAudit) -> None:
         audit.snapshot = snapshot(audit.week_start)
         audit.status, audit.approved_at = PoolAudit.Status.APPROVED, timezone.now()
         audit.save()
+        transaction.on_commit(_clear_lock_cache)
 
 
 def locked(day: date) -> bool:
@@ -501,6 +504,39 @@ def governance(*, now: Optional[datetime] = None) -> dict:
         'repeat_offenders': sorted(n for n, v in worst.items() if v >= 2),
         'warning': bool(missed or due),
     }
+
+
+LOCK_CACHE_KEY = 'revenue:audit-lock'
+
+
+def lock_state() -> dict:
+    """Is the admin locked? Cached for 30 seconds (it's asked on every staff
+    change); any audit action clears the cache so an approval unlocks at once."""
+    from django.core.cache import cache
+    try:
+        state = cache.get(LOCK_CACHE_KEY)
+    except Exception:  # noqa: BLE001
+        state = None
+    if state is None:
+        g = governance()
+        state = {'locked': g['locked'], 'lock_weeks': g['lock_weeks'],
+                 'message': ('The admin is read-only: the weekly pool audits for the weeks of '
+                             f'{" and ".join(g["lock_weeks"])} were both missed. Every change is blocked until the '
+                             'founder submits and every partner co-signs the missed weeks (Revenue share).')
+                 if g['locked'] else ''}
+        try:
+            cache.set(LOCK_CACHE_KEY, state, 30)
+        except Exception:  # noqa: BLE001
+            pass
+    return state
+
+
+def _clear_lock_cache() -> None:
+    from django.core.cache import cache
+    try:
+        cache.delete(LOCK_CACHE_KEY)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def assert_unlocked() -> None:

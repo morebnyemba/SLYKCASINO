@@ -28,3 +28,51 @@ class GeoBlockMiddleware:
             response.render()
             return response
         return self.get_response(request)
+
+
+class AuditLockMiddleware:
+    """While two weekly pool audits in a row are missed, the whole admin is
+    read-only: every change made by a staff login is refused (the admin console
+    and the Django admin alike), except the pool-audit actions that lift the
+    lock and signing in/out. Players and the automatic jobs are not affected."""
+
+    SAFE = ('GET', 'HEAD', 'OPTIONS')
+    ALLOWED = (
+        '/api/auth/',
+        '/api/admin/revenue-share/audits/',
+        '/api/admin/revenue-share/governance/',
+        '/api/admin/lock-status/',
+        '/django-admin/login/',
+        '/django-admin/logout/',
+    )
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        if request.method in self.SAFE or request.path.startswith(self.ALLOWED):
+            return self.get_response(request)
+        if not (request.path.startswith('/api/') or request.path.startswith('/django-admin/')):
+            return self.get_response(request)
+        if not self._is_staff(request):
+            return self.get_response(request)
+        from apps.revenue.audit import lock_state
+        state = lock_state()
+        if not state['locked']:
+            return self.get_response(request)
+        from django.http import JsonResponse
+        return JsonResponse({'detail': state['message'], 'locked': True}, status=423)
+
+    @staticmethod
+    def _is_staff(request) -> bool:
+        user = getattr(request, 'user', None)          # Django admin (session)
+        if user is not None and user.is_authenticated:
+            return bool(user.is_staff)
+        if not request.META.get('HTTP_AUTHORIZATION', '').startswith('Bearer '):
+            return False
+        try:                                            # the admin console (JWT)
+            from rest_framework_simplejwt.authentication import JWTAuthentication
+            found = JWTAuthentication().authenticate(request)
+        except Exception:  # noqa: BLE001 — a bad token is the view's business, not the lock's
+            return False
+        return bool(found and found[0].is_staff)

@@ -28,11 +28,11 @@ export function GovernanceBanner() {
           {data.locked ? (
             <p className="font-bold text-live">
               Money controls are locked: the pool audits for the weeks of {data.lock_weeks.join(' and ')} were both missed.
-              Partner withdrawals, pool costs, pool spending and revenue-share settings stay locked until every missed week is approved.
+              The whole admin is read-only — every change is refused — until every missed week is submitted and co-signed.
             </p>
           ) : late.length ? (
             <p className="font-bold text-live">
-              {late.length} weekly pool audit{late.length === 1 ? ' is' : 's are'} overdue. Another missed week in a row locks every money control.
+              {late.length} weekly pool audit{late.length === 1 ? ' is' : 's are'} overdue. Another missed week in a row makes the whole admin read-only.
             </p>
           ) : (
             <p className="font-bold">Weekly pool audit due by the end of Tuesday.</p>
