@@ -10,6 +10,7 @@ from rest_framework.test import APIClient
 from apps.accounts import services as accounts
 from apps.affiliates import services
 from apps.affiliates.models import Affiliate, Commission
+from apps.affiliates.testing import backdate_links
 from apps.sportsbook.models import Bet, BetLeg, BetSlip, Event
 
 PASSWORD = secrets.token_urlsafe(16)
@@ -89,6 +90,7 @@ class LosingTicketCommissionTests(TestCase):
         self.customer = accounts.register_player(username='customer', email='c@example.com', password=PASSWORD)
         stranger = accounts.register_player(username='stranger', email='s@example.com', password=PASSWORD)
         services.attach_referral(player_id=self.customer.id, code='AGENT')
+        backdate_links()
         now = timezone.now()
         self.event = Event.objects.create(name='A v B', odds=D('2'), starts_at=now)
         ago = lambda minutes: now - timedelta(minutes=minutes)  # noqa: E731

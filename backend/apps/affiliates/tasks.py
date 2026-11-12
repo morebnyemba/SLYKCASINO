@@ -19,6 +19,12 @@ def credit_losing_tickets() -> int:
     return services.credit_losing_tickets()
 
 
+@shared_task(name='apps.affiliates.tasks.catch_up_losing_tickets')
+def catch_up_losing_tickets() -> int:
+    """Hourly: losing tickets of the last 35 days the minute job missed."""
+    return services.catch_up_losing_tickets()
+
+
 @shared_task(name='apps.affiliates.tasks.pay_out_earnings')
 def pay_out_earnings() -> dict:
     """Every minute: final earnings into affiliates' Winnings wallets (when on)."""

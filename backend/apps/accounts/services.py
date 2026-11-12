@@ -40,6 +40,19 @@ def usernames_for(player_ids: list[int]) -> dict[int, str]:
     return dict(Player.objects.filter(pk__in=player_ids).values_list('id', 'username'))
 
 
+def find_player(query: str) -> Optional[Player]:
+    """Staff lookup by username or email (case-insensitive), or player id."""
+    from django.db.models import Q
+    q = (query or '').strip()
+    if not q:
+        return None
+    if q.lstrip('#').isdigit():
+        found = Player.objects.filter(pk=int(q.lstrip('#'))).first()
+        if found:
+            return found
+    return Player.objects.filter(Q(username__iexact=q) | Q(email__iexact=q)).first()
+
+
 def signup_times(*, start=None, end=None) -> list:
     """Read-only: when players registered in [start, end), for analytics."""
     qs = Player.objects.all()

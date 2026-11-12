@@ -28,6 +28,9 @@ class Affiliate(models.Model):
     note = models.CharField(max_length=500, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     approved_at = models.DateTimeField(null=True, blank=True)
+    # When the agent last became ACTIVE. Tickets their customers lost before this
+    # (while pending or suspended) are never credited, even by the catch-up.
+    active_since = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = 'affiliates_affiliate'
@@ -58,10 +61,18 @@ class Referral(models.Model):
     player_id = models.BigIntegerField(unique=True)
     campaign = models.CharField(max_length=50, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    # Set when staff link (or move) a customer to an agent: losing tickets count
+    # from this moment, which staff may back-date. Unset = from `created_at`.
+    credit_from = models.DateTimeField(null=True, blank=True)
+    linked_by = models.CharField(max_length=150, blank=True)
 
     class Meta:
         db_table = 'affiliates_referral'
         ordering = ['-created_at']
+
+    @property
+    def counts_from(self):
+        return self.credit_from or self.created_at
 
 
 class Commission(models.Model):

@@ -2,7 +2,7 @@
 set -e
 
 echo "[entrypoint] applying migrations…"
-python manage.py migrate --noinput
+python manage.py migrate_locked --noinput
 
 echo "[entrypoint] collecting static files…"
 python manage.py collectstatic --noinput

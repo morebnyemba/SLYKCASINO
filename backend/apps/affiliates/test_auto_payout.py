@@ -14,6 +14,7 @@ from rest_framework.test import APIClient
 from apps.accounts import services as account_services
 from apps.affiliates import services
 from apps.affiliates.models import Affiliate, AffiliateProgramme, Commission, Payout
+from apps.affiliates.testing import backdate_links
 from apps.notifications.models import Notification
 from apps.sportsbook.models import Bet
 from apps.wallet import services as wallet_services
@@ -31,6 +32,7 @@ class AutoPayoutBase(TestCase):
         self.affiliate.refresh_from_db()
         self.customer = account_services.create_player(username='customer')
         services.attach_referral(player_id=self.customer.id, code='PARTNER')
+        backdate_links()
 
     def winnings(self):
         return wallet_services.get_balances(self.partner.id)['winnings']
