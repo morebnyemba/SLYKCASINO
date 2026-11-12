@@ -330,10 +330,24 @@ class AdminAffiliateViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, vi
 
     @action(detail=False, methods=['post'], url_path='credit-missed')
     def credit_missed_all(self, request):
-        """Credit every missed losing ticket of the last 35 days, for every agent."""
+        """Close every agent's completed days now, and credit any losing ticket from
+        before the switch to net loss that was missed."""
+        from . import netloss
+        days = netloss.close_days()
         credited = services.catch_up_losing_tickets()
-        accounts_services.audit(None, 'affiliate_credit_missed', request, credited=credited)
-        return Response({'credited': credited})
+        accounts_services.audit(None, 'affiliate_credit_missed', request, credited=credited, days=days)
+        return Response({'credited': credited, 'days': days})
+
+    @action(detail=True, methods=['get'], url_path='statements')
+    def statements(self, request, pk=None):
+        """Each closed day: the customers' net loss, how it was worked out, and the commission."""
+        from . import netloss
+        affiliate = self.get_object()
+        return Response(_money_json({
+            'today': netloss.today_estimate(affiliate),
+            'carry': services.carryover_balance(affiliate),
+            'days': netloss.statements(affiliate),
+        }))
 
     @action(detail=True, methods=['get'], url_path='tickets-audit')
     def tickets_audit(self, request, pk=None):
@@ -349,9 +363,13 @@ class AdminAffiliateViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, vi
         affiliate = self.get_object()
         if affiliate.status != Affiliate.Status.ACTIVE:
             return Response({'detail': 'activate the agent first'}, status=status.HTTP_400_BAD_REQUEST)
+        from . import netloss
+        days = netloss.close_agent_days(affiliate.pk)
         credited = services.credit_missed_tickets(affiliate.pk)
-        accounts_services.audit(affiliate.player_id, 'affiliate_credit_missed', request, credited=credited)
-        return Response({'credited': credited})
+        if days:
+            services.pay_out_earnings(affiliate_id=affiliate.pk)
+        accounts_services.audit(affiliate.player_id, 'affiliate_credit_missed', request, credited=credited, days=days)
+        return Response({'credited': credited, 'days': days})
 
     @action(detail=True, methods=['post'], url_path='link-customer')
     def link_customer(self, request, pk=None):

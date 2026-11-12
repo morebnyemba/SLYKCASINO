@@ -25,6 +25,13 @@ def catch_up_losing_tickets() -> int:
     return services.catch_up_losing_tickets()
 
 
+@shared_task(name='apps.affiliates.tasks.close_net_loss_days')
+def close_net_loss_days() -> int:
+    """Hourly: close each agent's completed days (commission on customers' net loss)."""
+    from . import netloss
+    return netloss.close_days()
+
+
 @shared_task(name='apps.affiliates.tasks.pay_out_earnings')
 def pay_out_earnings() -> dict:
     """Every minute: final earnings into affiliates' Winnings wallets (when on)."""

@@ -153,7 +153,7 @@ PROGRAMME_FIELDS = {
     'welcome_bonus_percent': Decimal('100'), 'welcome_bonus_cap': None, 'welcome_bonus_wagering': Decimal('100'),
     'welcome_bonus_min_deposit': None, 'default_revshare_percent': Decimal('100'), 'default_cpa_amount': None,
     'default_cpa_min_deposit': None, 'default_cpa_percent': Decimal('100'), 'default_cpa_cap': None,
-    'cpa_min_turnover_multiple': Decimal('100'),
+    'cpa_min_turnover_multiple': Decimal('100'), 'net_loss_review_above': None,
 }
 WELCOME_BONUS_CODE = 'SYS-REFERRAL-WELCOME'
 
@@ -404,7 +404,11 @@ def _auto_pay(commission: Commission) -> Commission:
 
 
 def carryover_balance(affiliate: Affiliate) -> Decimal:
-    """The losing balance (<= 0) the affiliate carries into the next month."""
+    """The losing balance (<= 0) the affiliate carries forward: their customers'
+    net winnings not yet earned back (daily net loss; monthly under older terms)."""
+    day = affiliate.net_loss_days.order_by('-day').first()
+    if day is not None:
+        return day.carry_out
     last = affiliate.revshare_months.order_by('-period').first()
     return last.carry_out if last else Decimal('0')
 
@@ -577,8 +581,18 @@ def _credited_refs(refs: list[str]) -> set[str]:
     return done
 
 
-def _why_not_counted(settled_at, referral: Referral, affiliate: Affiliate) -> str:
-    """'' when a losing ticket earns its agent a share, else why it doesn't."""
+def _legacy_until(until: datetime) -> datetime:
+    """Losing tickets are paid one by one only if settled before the programme
+    moved to daily net loss; everything after is in the agent's daily close."""
+    since = AffiliateProgramme.load().net_loss_since
+    return min(until, since) if since else until
+
+
+def _why_not_counted(settled_at, referral: Referral, affiliate: Affiliate, since=None) -> str:
+    """'' when a losing ticket earns its agent a share on its own, else why not
+    (`since`: the programme's switch to daily net loss)."""
+    if since and settled_at >= since:
+        return 'net_loss'
     if settled_at < referral.counts_from:
         return 'before_link'
     if affiliate.active_since and settled_at < affiliate.active_since:
@@ -600,15 +614,16 @@ def _credit_tickets(*, since, now, affiliate_id=None, player_id=None) -> int:
     by_player = {r.player_id: r for r in links}
     if not by_player:
         return 0
-    tickets = list(_losing_tickets(since, now - CREDIT_DELAY, list(by_player)))
+    tickets = list(_losing_tickets(since, _legacy_until(now - CREDIT_DELAY), list(by_player)))
     done = _credited_refs([t[0] for t in tickets])
+    since = AffiliateProgramme.load().net_loss_since
     paid = 0
     for ref, pid, stake, settled_at in tickets:
         if ref in done:
             continue
         referral = by_player[pid]
         affiliate = referral.affiliate
-        if _why_not_counted(settled_at, referral, affiliate):
+        if _why_not_counted(settled_at, referral, affiliate, since):
             continue
         rate = affiliate.revshare_percent
         amount = utils.commission_for(stake, rate)
@@ -641,6 +656,7 @@ def ticket_audit(affiliate: Affiliate, *, days: int = CATCH_UP_DAYS, now: Option
     credited = dict(Commission.objects.filter(kind=Commission.Kind.STAKE, ticket__in=[t[0] for t in tickets])
                     .values_list('ticket', 'amount')) if tickets else {}
     names = accounts_services.usernames_for(list(by_player))
+    since = AffiliateProgramme.load().net_loss_since
     counts = {'credited': 0, 'waiting': 0, 'missing': 0, 'not_counted': 0}
     missing_amount, rows = Decimal('0'), []
     for ref, pid, stake, settled_at in tickets:
@@ -649,7 +665,7 @@ def ticket_audit(affiliate: Affiliate, *, days: int = CATCH_UP_DAYS, now: Option
         elif affiliate.status != Affiliate.Status.ACTIVE:
             state, reason, amount = 'not_counted', 'agent_inactive', Decimal('0')
         else:
-            reason = _why_not_counted(settled_at, by_player[pid], affiliate)
+            reason = _why_not_counted(settled_at, by_player[pid], affiliate, since)
             amount = Decimal('0') if reason else utils.commission_for(stake, affiliate.revshare_percent)
             state = 'not_counted' if reason else ('waiting' if settled_at > now - CREDIT_DELAY else 'missing')
             if state == 'missing':
@@ -670,18 +686,23 @@ def crediting_health(*, now: Optional[datetime] = None) -> dict:
     links = {r.player_id: r for r in Referral.objects.filter(affiliate__status=Affiliate.Status.ACTIVE)
              .select_related('affiliate')}
     if links:
-        tickets = list(_losing_tickets(now - timedelta(days=CATCH_UP_DAYS), now - CREDIT_DELAY - HEALTH_SLACK,
-                                       list(links)))
+        tickets = list(_losing_tickets(now - timedelta(days=CATCH_UP_DAYS),
+                                       _legacy_until(now - CREDIT_DELAY - HEALTH_SLACK), list(links)))
         done = _credited_refs([t[0] for t in tickets])
+        since = AffiliateProgramme.load().net_loss_since
         for ref, pid, stake, settled_at in tickets:
             r = links[pid]
-            if ref in done or _why_not_counted(settled_at, r, r.affiliate):
+            if ref in done or _why_not_counted(settled_at, r, r.affiliate, since):
                 continue
             missing += 1
             amount += utils.commission_for(stake, r.affiliate.revshare_percent)
             agents.add(r.affiliate_id)
+    from . import netloss
+    closed_at = netloss.last_close()
     return {
         'last_run': last, 'running': bool(last and now - last < HEALTH_STALE),
+        'last_close': closed_at, 'closing': bool(closed_at and now - closed_at < timedelta(hours=2)),
+        'days_behind': netloss.days_behind(), 'net_loss_since': AffiliateProgramme.load().net_loss_since,
         'missing_tickets': missing, 'missing_amount': amount.quantize(Decimal('0.01')), 'agents_affected': len(agents),
     }
 
@@ -730,15 +751,24 @@ def commission_summary(affiliate: Affiliate, today: date) -> dict:
     inside the few minutes before they're credited), this month, all time."""
     from django.db.models import Q
 
+    from . import netloss
+
     stake, tickets, _ = lost_stakes(affiliate, today)
     earned = affiliate.commissions.exclude(status=Commission.Status.REJECTED)
-    credited_today = earned.filter(kind=Commission.Kind.STAKE, period=today)
-    on_its_way = utils.commission_for(stake - _sum_field(credited_today, 'base_amount'), affiliate.revshare_percent)
+    by_day = (Commission.Kind.STAKE, Commission.Kind.NET_LOSS)
+    credited_today = earned.filter(kind__in=by_day, period=today)
+    estimate = netloss.today_estimate(affiliate)
+    on_its_way = estimate['commission']          # today's net loss so far, paid after midnight
+    if not AffiliateProgramme.load().net_loss_since:   # per-ticket terms: tickets inside the 3-minute delay
+        credited_stake = _sum_field(credited_today.filter(kind=Commission.Kind.STAKE), 'base_amount')
+        on_its_way = utils.commission_for(stake - credited_stake, affiliate.revshare_percent)
     first = utils.month_start(today)
-    month = _sum(earned.filter(Q(kind=Commission.Kind.STAKE, period__gte=first)
-                               | (~Q(kind=Commission.Kind.STAKE) & Q(created_at__gte=_aware(first)))))
+    month = _sum(earned.filter(Q(kind__in=by_day, period__gte=first)
+                               | (~Q(kind__in=by_day) & Q(created_at__gte=_aware(first)))))
     return {
         'commission_rate': affiliate.revshare_percent,
+        'commission_basis': 'net_loss',
+        'net_loss_today': estimate['net_loss'],
         'lost_stakes_today': stake,
         'losing_tickets_today': tickets,
         'commission_today': _sum(credited_today) + on_its_way,

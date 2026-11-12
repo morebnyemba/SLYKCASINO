@@ -11,8 +11,10 @@ interface Programme {
   default_revshare_percent: string; default_cpa_amount: string; default_cpa_min_deposit: string; default_cpa_percent: string;
   default_cpa_cap: string; cpa_min_turnover_multiple: string; negative_carryover: boolean; min_payout: string;
   external_payouts: boolean; auto_payout: boolean; auto_approve_commissions: boolean; updated_at: string;
+  net_loss_since: string | null; net_loss_review_above: string;
 }
-type NumKey = Exclude<keyof Programme, 'negative_carryover' | 'external_payouts' | 'auto_payout' | 'auto_approve_commissions' | 'updated_at'>;
+type NumKey = Exclude<keyof Programme, 'negative_carryover' | 'external_payouts' | 'auto_payout' | 'auto_approve_commissions' | 'updated_at'
+  | 'net_loss_since'>;
 
 const n = (v: string) => Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 });
 
@@ -32,7 +34,7 @@ export function ProgrammeSettings() {
   async function save() {
     if (!accessToken || !form) return;
     setBusy(true); setNotice(null);
-    const { updated_at: _skip, ...body } = form;
+    const { updated_at: _skip, net_loss_since: _since, ...body } = form;
     const res = await authedRequest('PUT', '/admin/affiliate-programme/', accessToken, body);
     setBusy(false);
     setNotice(res.error ? { tone: 'red', text: res.error } : { tone: 'green', text: 'Saved — applies to new deposits and the next month closed.' });
@@ -64,7 +66,7 @@ export function ProgrammeSettings() {
       <Panel title="New affiliates’ terms" description="What an affiliate starts on when they join. Change any affiliate’s own terms from the Affiliates tab."
         actions={<BsPercent className="text-secondary" />}>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {num('default_revshare_percent', 'Commission on losing tickets (%)', 'Of the stake on every ticket a referred player loses.')}
+          {num('default_revshare_percent', 'Commission on customers’ net loss (%)', 'Of what referred players lose (stakes − winnings), every game, closed daily.')}
           {num('default_cpa_percent', 'Deposit commission (% of first deposit)', 'Paid once per referred player.')}
           {num('default_cpa_cap', 'Deposit commission cap ($)', 'Per referred player. 0 = no cap.')}
           {num('default_cpa_amount', 'Flat CPA ($)', 'Added on top, once per referred player. 0 = off.')}
@@ -74,6 +76,19 @@ export function ProgrammeSettings() {
         <p className="mt-3 text-xs text-muted-foreground">
           Example: a referral’s $50 first deposit earns the affiliate ${n(String(cpaExample))} once they’ve bet ${n(String(50 * Number(form.cpa_min_turnover_multiple)))}. {form.auto_approve_commissions ? 'It is paid as soon as they qualify.' : 'It waits for your approval (see Payouts below).'}
         </p>
+      </Panel>
+
+      <Panel title="How agents earn" description="Agents earn their % of what their customers actually lose — real-money stakes minus winnings on sports, Aviator and casino, added up per agent and closed each night. Bonus-wallet play and free bets never count; bonus money turned into Winnings is deducted."
+        actions={<BsPercent className="text-secondary" />}>
+        <ul className="mb-4 list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+          <li>A day the customers win overall pays nothing and is earned back from the next days first (carried forward).</li>
+          <li>Betting both sides with two customers nets out inside the agent’s total; an agent’s own account, and any account sharing a deposit or payout number with the agent or a customer, can only reduce it (their winnings count, their losses don’t).</li>
+          <li>A stake counts on the day its bet settles, so bets left open at midnight can’t be cashed in.</li>
+          {form.net_loss_since && <li>In force since {new Date(form.net_loss_since).toLocaleString()}; losing tickets settled before were paid one by one.</li>}
+        </ul>
+        <div className="grid gap-4 sm:grid-cols-2">
+          {num('net_loss_review_above', 'Review a day’s commission above ($)', 'Bigger days wait for your approval under Commissions before they are paid. 0 = never.')}
+        </div>
       </Panel>
 
       <Panel title="Losing months" description="When an affiliate’s players win overall in a month, no commission is paid — and nothing is ever taken from the affiliate."
