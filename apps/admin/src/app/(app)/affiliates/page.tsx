@@ -12,6 +12,7 @@ import { AffiliateAnalyticsPanel } from '@/components/affiliates/affiliate-analy
 import { ProgrammeSettings } from '@/components/affiliates/programme-settings';
 import { PayoutsTab } from '@/components/affiliates/payouts-tab';
 import { AgentTicketsPanel, CreditingHealth } from '@/components/affiliates/agent-tickets';
+import { DepositCommissionsPanel } from '@/components/affiliates/deposit-commissions';
 import { ImpersonateButton } from '@/components/players/impersonate';
 
 interface Affiliate {
@@ -139,6 +140,7 @@ function AffiliatesTab() {
   const [stats, setStats] = useState<number | null>(null);
   const [tickets, setTickets] = useState<number | null>(null);
   const [credited, setCredited] = useState(0);
+  const [cpaOpen, setCpaOpen] = useState<number | null>(null);
   const [error, setError] = useState('');
   const rows = rowsOf(data);
 
@@ -206,6 +208,7 @@ function AffiliatesTab() {
                               next="/account/affiliate" label="Open agent dashboard" />
                           )}
                           {action(tickets === a.id ? 'Hide earnings' : 'Earnings', () => setTickets(tickets === a.id ? null : a.id))}
+                          {action(cpaOpen === a.id ? 'Hide deposit commissions' : 'Deposit commissions', () => setCpaOpen(cpaOpen === a.id ? null : a.id))}
                           {action(stats === a.id ? 'Hide analytics' : 'Analytics', () => setStats(stats === a.id ? null : a.id))}
                           {action(open === a.id ? 'Close' : 'Terms', () => setOpen(open === a.id ? null : a.id))}
                         </div>
@@ -214,6 +217,11 @@ function AffiliatesTab() {
                     {tickets === a.id && (
                       <tr className="border-b border-border">
                         <td colSpan={6} className="p-0"><AgentTicketsPanel id={a.id} active={a.status === 'active'} onChanged={() => { setCredited((n) => n + 1); refetch(); }} /></td>
+                      </tr>
+                    )}
+                    {cpaOpen === a.id && (
+                      <tr className="border-b border-border">
+                        <td colSpan={6} className="p-0"><DepositCommissionsPanel id={a.id} active={a.status === 'active'} onChanged={refetch} /></td>
                       </tr>
                     )}
                     {stats === a.id && (

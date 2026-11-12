@@ -50,6 +50,7 @@ interface Stats {
   lost_stakes_today: string;
   losing_tickets_today: number;
   net_loss_today?: string;
+  aviator_commission_rate?: string;
   commission_today: string;
   commission_month: string;
   commission_total: string;
@@ -157,7 +158,7 @@ function HowYouEarn({ a }: { a: TermsProps }) {
           {Number(p.welcome_bonus_cap) > 0 && <> (up to {money(p.welcome_bonus_cap)})</>} when they join with your link. Tell them!
         </p>
       )}
-      <p>Every night your commission for the day before — your share of what your customers lost on sports, Aviator and casino — is added to your agent wallet. <b className="text-foreground">It stays there until the month ends; from the 1st you can move it to your Winnings wallet or withdraw it.</b></p>
+      <p>Every night your commission for the day before — your share of what your customers lost on sports (and a smaller share on Aviator and casino games) — is added to your agent wallet. <b className="text-foreground">It stays there until the month ends; from the 1st you can move it to your Winnings wallet or withdraw it.</b></p>
     </div>
   );
 }
@@ -188,10 +189,10 @@ function Apply({ onDone }: { onDone: () => void }) {
         <FaHandshake size={28} className="mb-3 text-gold" />
         <h2 className="text-xl font-extrabold">Become an agent: earn {pct(share)} of what your customers lose</h2>
         <p className="mt-1 max-w-lg text-sm text-white/75">
-          Bring customers with your link or code. You get {pct(share)} of what they lose — sports, Aviator and casino, stakes minus winnings — added to your agent wallet every night and unlocked at the end of each month. It’s free and you can never lose money.
+          Bring customers with your link or code. You get {pct(share)} of what they lose on sports (stakes minus winnings), and a smaller share on Aviator and casino games, added to your agent wallet every night and unlocked at the end of each month. It’s free and you can never lose money.
         </p>
         <ol className="mt-4 grid gap-2 text-sm sm:grid-cols-3">
-          {['Share your link or code', 'Customers sign up and bet', `You get ${pct(share)} of their net losses`].map((step, i) => (
+          {['Share your link or code', 'Customers sign up and bet', `You get ${pct(share)} of their sports net losses`].map((step, i) => (
             <li key={step} className="flex items-center gap-2 rounded-xl bg-white/10 px-3 py-2">
               <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-white/20 text-xs font-extrabold">{i + 1}</span>{step}
             </li>
@@ -452,7 +453,9 @@ function Dashboard({ a, refetch }: { a: Affiliate & { stats: Stats }; refetch: (
             </div>
           </div>
           <p className="text-sm text-muted-foreground">
-            You get <b className="text-foreground">{pct(rate)} of what your customers lose</b> — their stakes minus their winnings, on every game, added up each day.
+            You get <b className="text-foreground">{pct(rate)} of what your customers lose on sports</b>
+            {s.aviator_commission_rate != null && <> and <b className="text-foreground">{pct(Number(s.aviator_commission_rate))} on Aviator and casino games</b></>}
+            {' '}— their stakes minus their winnings, added up each day.
             {' '}Today so far they’re {Number(s.net_loss_today ?? 0) >= 0 ? <>down <b className="text-foreground">{money(s.net_loss_today ?? 0)}</b></> : <>up <b className="text-foreground">{money(Math.abs(Number(s.net_loss_today)))}</b></>}.
             {' '}Today’s commission is added to your agent wallet after midnight; a day your customers win overall is earned back from the next days first.
           </p>

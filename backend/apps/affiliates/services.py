@@ -154,6 +154,7 @@ PROGRAMME_FIELDS = {
     'welcome_bonus_min_deposit': None, 'default_revshare_percent': Decimal('100'), 'default_cpa_amount': None,
     'default_cpa_min_deposit': None, 'default_cpa_percent': Decimal('100'), 'default_cpa_cap': None,
     'cpa_min_turnover_multiple': Decimal('100'), 'net_loss_review_above': None,
+    'aviator_commission_percent': Decimal('100'),
 }
 WELCOME_BONUS_CODE = 'SYS-REFERRAL-WELCOME'
 
@@ -478,12 +479,38 @@ def compute_revshare(affiliate: Affiliate, period: date) -> Optional[Commission]
     return _auto_pay(commission) if commission else None
 
 
+def _cpa_check(affiliate: Affiliate, totals: dict, first, multiple: Decimal, *, override: bool = False):
+    """(amount, reason) for one referral: what the deposit commission would be
+    and, when it isn't earned, why. With `override`, the minimum-deposit and
+    play-through rules are skipped (staff paying by hand)."""
+    deposits = totals.get('deposit', Decimal('0'))
+    turnover = -(totals.get('bet_stake', Decimal('0')) + totals.get('casino_debit', Decimal('0')))
+    if first is None or deposits <= 0:
+        return Decimal('0'), 'no deposit yet'
+    if affiliate.cpa_amount <= 0 and affiliate.cpa_percent <= 0:
+        return Decimal('0'), 'the agent’s terms pay no deposit commission (0%)'
+    if not override:
+        if deposits < affiliate.cpa_min_deposit:
+            return Decimal('0'), f'deposited {deposits:.2f} of the {affiliate.cpa_min_deposit:.2f} needed'
+        if turnover < first * multiple:
+            return Decimal('0'), f'bet {turnover:.2f} of the {first * multiple:.2f} needed'
+    amount = utils.deposit_commission(first, affiliate.cpa_amount, affiliate.cpa_percent, affiliate.cpa_cap)
+    return (amount, '') if amount > 0 else (Decimal('0'), 'works out to 0.00')
+
+
+def _cpa_note(affiliate: Affiliate, first) -> str:
+    return (f'First deposit {first}: {affiliate.cpa_percent.normalize():f}%'
+            + (f' (cap {affiliate.cpa_cap})' if affiliate.cpa_cap > 0 else '')
+            + (f' + {affiliate.cpa_amount} flat' if affiliate.cpa_amount > 0 else ''))
+
+
 def compute_cpa(affiliate: Affiliate) -> int:
     """One-off commission per referral (flat CPA + a % of their first deposit,
     capped) once they qualify: total deposits at least cpa_min_deposit AND
     staked at least cpa_min_turnover_multiple × their first deposit — so a
     deposit that's withdrawn without playing never earns anything. Once per
-    referral. Returns how many were created."""
+    referral, looking back to the agent's first referral. Returns how many
+    were created."""
     if affiliate.cpa_amount <= 0 and affiliate.cpa_percent <= 0:
         return 0
     unpaid = affiliate.referrals.exclude(commissions__kind=Commission.Kind.CPA)
@@ -495,15 +522,8 @@ def compute_cpa(affiliate: Affiliate) -> int:
     multiple = AffiliateProgramme.load().cpa_min_turnover_multiple
     created = 0
     for referral in unpaid:
-        t = totals.get(referral.player_id, {})
-        deposits = t.get('deposit', Decimal('0'))
         first = firsts.get(referral.player_id)
-        if first is None or deposits <= 0 or deposits < affiliate.cpa_min_deposit:
-            continue
-        turnover = -(t.get('bet_stake', Decimal('0')) + t.get('casino_debit', Decimal('0')))
-        if turnover < first * multiple:
-            continue
-        amount = utils.deposit_commission(first, affiliate.cpa_amount, affiliate.cpa_percent, affiliate.cpa_cap)
+        amount, _ = _cpa_check(affiliate, totals.get(referral.player_id, {}), first, multiple)
         if amount <= 0:
             continue
         try:
@@ -511,15 +531,100 @@ def compute_cpa(affiliate: Affiliate) -> int:
                 commission = Commission.objects.create(
                     affiliate=affiliate, kind=Commission.Kind.CPA, referral=referral,
                     base_amount=first, rate=affiliate.cpa_percent, amount=amount, active_players=1,
-                    note=f'First deposit {first}: {affiliate.cpa_percent.normalize():f}%'
-                         + (f' (cap {affiliate.cpa_cap})' if affiliate.cpa_cap > 0 else '')
-                         + (f' + {affiliate.cpa_amount} flat' if affiliate.cpa_amount > 0 else ''),
+                    note=_cpa_note(affiliate, first),
                 )
         except IntegrityError:
             continue
         created += 1
         _auto_pay(commission)
     return created
+
+
+def cpa_audit(affiliate: Affiliate, *, mask: bool = False) -> dict:
+    """Staff: every customer the agent has ever referred, and their deposit
+    commission — paid, waiting for approval, due now, or why not."""
+    referrals = list(affiliate.referrals.order_by('created_at'))
+    ids = [r.player_id for r in referrals]
+    totals = wallet_services.totals_by_kind(ids) if ids else {}
+    firsts = wallet_services.first_deposit_amounts(ids) if ids else {}
+    multiple = AffiliateProgramme.load().cpa_min_turnover_multiple
+    paid = {c.referral_id: c for c in Commission.objects.filter(affiliate=affiliate, kind=Commission.Kind.CPA)}
+    names = accounts_services.usernames_for(ids)
+    rows, counts, due_total = [], {'paid': 0, 'pending': 0, 'due': 0, 'not_yet': 0}, Decimal('0')
+    for r in referrals:
+        t = totals.get(r.player_id, {})
+        first = firsts.get(r.player_id)
+        c = paid.get(r.pk)
+        row = {
+            'player_id': r.player_id, 'customer': _shown(names.get(r.player_id, f'#{r.player_id}'), mask),
+            'joined': r.created_at, 'first_deposit': first, 'deposits': t.get('deposit', Decimal('0')),
+            'turnover': -(t.get('bet_stake', Decimal('0')) + t.get('casino_debit', Decimal('0'))),
+        }
+        if c is not None:
+            state = 'pending' if c.status == Commission.Status.PENDING else 'paid'
+            row.update(state=state, amount=c.amount, reason='' if state == 'paid' else 'waiting for approval',
+                       commission_id=c.id)
+        else:
+            amount, reason = _cpa_check(affiliate, t, first, multiple)
+            forced, _ = _cpa_check(affiliate, t, first, multiple, override=True)
+            state = 'due' if amount > 0 else 'not_yet'
+            row.update(state=state, amount=amount if amount > 0 else forced, reason=reason, commission_id=None)
+            if state == 'due':
+                due_total += amount
+        counts[row['state']] += 1
+        rows.append(row)
+    return {
+        'terms': {'cpa_percent': affiliate.cpa_percent, 'cpa_cap': affiliate.cpa_cap, 'cpa_amount': affiliate.cpa_amount,
+                  'cpa_min_deposit': affiliate.cpa_min_deposit, 'turnover_multiple': multiple},
+        'counts': counts, 'due_total': due_total.quantize(Decimal('0.01')), 'customers': rows,
+    }
+
+
+@transaction.atomic
+def pay_cpa(affiliate_id: int, *, player_ids: Optional[list[int]] = None, override: bool = False,
+            by: str = '') -> dict:
+    """Staff: pay deposit commissions the agent hasn't had — every qualified
+    customer, or only `player_ids`. With `override` the minimum-deposit and
+    play-through rules are skipped for those customers (needs player_ids).
+    Paid at once (staff are the approval) and also approves any of the
+    agent's deposit commissions waiting for approval among them."""
+    affiliate = Affiliate.objects.select_for_update().filter(pk=affiliate_id).first()
+    if affiliate is None:
+        raise AffiliateError('agent not found')
+    if affiliate.status != Affiliate.Status.ACTIVE:
+        raise AffiliateError('activate the agent first')
+    if override and not player_ids:
+        raise AffiliateError('choose the customers to pay without the usual rules')
+    referrals = affiliate.referrals.all()
+    if player_ids:
+        referrals = referrals.filter(player_id__in=player_ids)
+    referrals = list(referrals)
+    ids = [r.player_id for r in referrals]
+    totals = wallet_services.totals_by_kind(ids) if ids else {}
+    firsts = wallet_services.first_deposit_amounts(ids) if ids else {}
+    multiple = AffiliateProgramme.load().cpa_min_turnover_multiple
+    existing = {c.referral_id: c for c in Commission.objects.filter(affiliate=affiliate, kind=Commission.Kind.CPA,
+                                                                    referral__in=referrals)}
+    created, approved, total = 0, 0, Decimal('0')
+    for r in referrals:
+        c = existing.get(r.pk)
+        if c is not None:
+            if c.status == Commission.Status.PENDING:
+                approve(c.id)
+                approved += 1
+                total += c.amount
+            continue
+        first = firsts.get(r.player_id)
+        amount, _ = _cpa_check(affiliate, totals.get(r.player_id, {}), first, multiple, override=override)
+        if amount <= 0:
+            continue
+        note = _cpa_note(affiliate, first) + (f' — paid by {by}' if by else '') + (' (rules waived)' if override else '')
+        c = Commission.objects.create(affiliate=affiliate, kind=Commission.Kind.CPA, referral=r, base_amount=first,
+                                      rate=affiliate.cpa_percent, amount=amount, active_players=1, note=note[:500])
+        approve(c.id)
+        created += 1
+        total += amount
+    return {'created': created, 'approved': approved, 'amount': f'{total:.2f}'}
 
 
 def run_commissions(*, today: Optional[date] = None) -> dict:
@@ -792,6 +897,7 @@ def commission_summary(affiliate: Affiliate, today: date) -> dict:
     return {
         'commission_rate': affiliate.revshare_percent,
         'commission_basis': 'net_loss',
+        'aviator_commission_rate': AffiliateProgramme.load().aviator_commission_percent,
         'net_loss_today': estimate['net_loss'],
         'lost_stakes_today': stake,
         'losing_tickets_today': tickets,

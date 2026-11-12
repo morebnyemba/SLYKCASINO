@@ -11,7 +11,7 @@ interface Programme {
   default_revshare_percent: string; default_cpa_amount: string; default_cpa_min_deposit: string; default_cpa_percent: string;
   default_cpa_cap: string; cpa_min_turnover_multiple: string; negative_carryover: boolean; min_payout: string;
   external_payouts: boolean; auto_payout: boolean; auto_approve_commissions: boolean; lock_until_month_end: boolean; updated_at: string;
-  net_loss_since: string | null; net_loss_review_above: string;
+  net_loss_since: string | null; net_loss_review_above: string; aviator_commission_percent: string;
 }
 type NumKey = Exclude<keyof Programme, 'negative_carryover' | 'external_payouts' | 'auto_payout' | 'auto_approve_commissions' | 'lock_until_month_end' | 'updated_at'
   | 'net_loss_since'>;
@@ -78,7 +78,7 @@ export function ProgrammeSettings() {
         </p>
       </Panel>
 
-      <Panel title="How agents earn" description="Agents earn their % of what their customers actually lose — real-money stakes minus winnings on sports, Aviator and casino, added up per agent and closed each night. Bonus-wallet play and free bets never count; bonus money turned into Winnings is deducted."
+      <Panel title="How agents earn" description="Agents earn a share of what their customers actually lose — real-money stakes minus winnings, added up per agent and closed each night: their own rate on sports, and the Aviator rate below on Aviator and casino games. Bonus-wallet play and free bets never count; bonus money turned into Winnings is deducted."
         actions={<BsPercent className="text-secondary" />}>
         <ul className="mb-4 list-disc space-y-1 pl-5 text-sm text-muted-foreground">
           <li>A day the customers win overall pays nothing and is earned back from the next days first (carried forward).</li>
@@ -87,6 +87,7 @@ export function ProgrammeSettings() {
           {form.net_loss_since && <li>In force since {new Date(form.net_loss_since).toLocaleString()}; losing tickets settled before were paid one by one.</li>}
         </ul>
         <div className="grid gap-4 sm:grid-cols-2">
+          {num('aviator_commission_percent', 'Aviator & casino commission (%)', 'Of what customers lose on Aviator and casino games. Sports use each agent’s own rate. Each has its own carry-forward.')}
           {num('net_loss_review_above', 'Review a day’s commission above ($)', 'Bigger days wait for your approval under Commissions before they are paid. 0 = never.')}
         </div>
       </Panel>
