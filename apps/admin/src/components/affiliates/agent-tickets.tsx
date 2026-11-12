@@ -15,8 +15,8 @@ interface Health {
 
 type State = 'credited' | 'waiting' | 'missing' | 'not_counted';
 interface AuditRow {
-  ticket: string; customer: string; stake: string; settled_at: string;
-  state: State; reason: '' | 'before_link' | 'agent_inactive' | 'zero_rate'; amount: string;
+  ticket: string; game: 'sports' | 'aviator'; wallet: string; customer: string; stake: string; settled_at: string;
+  state: State; reason: string; amount: string;
 }
 interface Audit {
   days: number; customers: number; losing_tickets: number;
@@ -33,6 +33,9 @@ const REASON: Record<string, string> = {
   before_link: 'Lost before the customer was linked to this agent',
   agent_inactive: 'Lost while the agent was pending or suspended',
   zero_rate: 'Agent’s commission rate is 0%',
+  bonus: 'Staked from the Bonus wallet — bonus money never earns commission',
+  aviator_off: 'Aviator commission is switched off (Programme settings)',
+  aviator_before_start: 'Aviator bet lost before Aviator commission started',
 };
 
 function ago(iso: string | null) {
@@ -154,7 +157,7 @@ export function AgentTicketsPanel({ id, active, onChanged }: { id: number; activ
                 <tbody>
                   {data.tickets.map((t) => (
                     <tr key={t.ticket} className="border-t border-border/60">
-                      <td className="px-3 py-2 font-mono">{t.ticket}</td>
+                      <td className="px-3 py-2"><span className="font-mono">{t.ticket}</span> <span className="text-muted-foreground">{t.game === 'aviator' ? 'Aviator' : 'Sports'}</span></td>
                       <td className="px-3 py-2">{t.customer}</td>
                       <td className="px-3 py-2 text-right tabular-nums">{money(t.stake)}</td>
                       <td className="px-3 py-2 text-muted-foreground">{new Date(t.settled_at).toLocaleString()}</td>

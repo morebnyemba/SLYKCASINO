@@ -11,8 +11,10 @@ interface Programme {
   default_revshare_percent: string; default_cpa_amount: string; default_cpa_min_deposit: string; default_cpa_percent: string;
   default_cpa_cap: string; cpa_min_turnover_multiple: string; negative_carryover: boolean; min_payout: string;
   external_payouts: boolean; auto_payout: boolean; auto_approve_commissions: boolean; updated_at: string;
+  aviator_commission: boolean; aviator_commission_percent: string | null; aviator_commission_since: string | null;
 }
-type NumKey = Exclude<keyof Programme, 'negative_carryover' | 'external_payouts' | 'auto_payout' | 'auto_approve_commissions' | 'updated_at'>;
+type NumKey = Exclude<keyof Programme, 'negative_carryover' | 'external_payouts' | 'auto_payout' | 'auto_approve_commissions' | 'updated_at'
+  | 'aviator_commission' | 'aviator_commission_percent' | 'aviator_commission_since'>;
 
 const n = (v: string) => Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 });
 
@@ -32,7 +34,7 @@ export function ProgrammeSettings() {
   async function save() {
     if (!accessToken || !form) return;
     setBusy(true); setNotice(null);
-    const { updated_at: _skip, ...body } = form;
+    const { updated_at: _skip, aviator_commission_since: _since, ...body } = form;
     const res = await authedRequest('PUT', '/admin/affiliate-programme/', accessToken, body);
     setBusy(false);
     setNotice(res.error ? { tone: 'red', text: res.error } : { tone: 'green', text: 'Saved — applies to new deposits and the next month closed.' });
@@ -73,6 +75,31 @@ export function ProgrammeSettings() {
         </div>
         <p className="mt-3 text-xs text-muted-foreground">
           Example: a referral’s $50 first deposit earns the affiliate ${n(String(cpaExample))} once they’ve bet ${n(String(50 * Number(form.cpa_min_turnover_multiple)))}. {form.auto_approve_commissions ? 'It is paid as soon as they qualify.' : 'It waits for your approval (see Payouts below).'}
+        </p>
+      </Panel>
+
+      <Panel title="Aviator" description="Agents also earn on every Aviator bet their customers lose with real money. Free bets and bonus money never earn commission — on Aviator or sports."
+        actions={<BsPercent className="text-secondary" />}>
+        <div className="grid gap-6 sm:grid-cols-2">
+          <div className="flex items-start justify-between gap-4">
+            <div className="text-sm">
+              <p className="font-semibold">Pay agents on lost Aviator bets</p>
+              <p className="mt-1 text-muted-foreground">
+                {form.aviator_commission_since ? `Counting bets lost since ${new Date(form.aviator_commission_since).toLocaleString()}. ` : ''}
+                Off stops it at once; switching it back on counts only bets lost from then.
+              </p>
+            </div>
+            <Switch checked={form.aviator_commission} onChange={(v) => setForm({ ...form, aviator_commission: v })} label="Pay agents on lost Aviator bets" />
+          </div>
+          <Field label="Aviator commission (% of lost stake)" hint="Blank = each agent’s own losing-ticket rate.">
+            <TextInput inputMode="decimal" placeholder="Agent’s own rate" value={form.aviator_commission_percent ?? ''}
+              onChange={(e) => setForm({ ...form, aviator_commission_percent: e.target.value.replace(/[^0-9.]/g, '') })} />
+          </Field>
+        </div>
+        <p className="mt-3 rounded-lg border border-live/30 bg-live/5 px-3 py-2 text-xs text-live">
+          Risk: Aviator pays back about 97% of stakes on average, so a commission above ~3% of every losing stake lets an agent
+          profit from their own “customer” losing on purpose (e.g. auto-cash-out at 100× loses ~99% of rounds). Watch the agents’
+          Lost tickets panels for heavy Aviator losers, and keep this rate low.
         </p>
       </Panel>
 

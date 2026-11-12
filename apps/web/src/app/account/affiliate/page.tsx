@@ -156,7 +156,7 @@ function HowYouEarn({ a }: { a: TermsProps }) {
           {Number(p.welcome_bonus_cap) > 0 && <> (up to {money(p.welcome_bonus_cap)})</>} when they join with your link. Tell them!
         </p>
       )}
-      <p>Your commission is paid into your Winnings wallet automatically, 3 minutes after each losing ticket settles. <b className="text-foreground">Withdraw it from your wallet any day.</b></p>
+      <p>Your commission is paid into your Winnings wallet automatically, 3 minutes after each losing ticket or lost Aviator bet settles (bonus-money tickets don’t earn commission). <b className="text-foreground">Withdraw it from your wallet any day.</b></p>
     </div>
   );
 }
@@ -185,7 +185,7 @@ function Apply({ onDone }: { onDone: () => void }) {
     <Card className="overflow-hidden rounded-2xl">
       <div className="bg-gradient-to-br from-primary via-primary to-[#0B3BB8] px-6 py-7 text-white">
         <FaHandshake size={28} className="mb-3 text-gold" />
-        <h2 className="text-xl font-extrabold">Become an agent: earn {pct(share)} on every losing ticket</h2>
+        <h2 className="text-xl font-extrabold">Become an agent: earn {pct(share)} on every losing ticket and lost Aviator bet</h2>
         <p className="mt-1 max-w-lg text-sm text-white/75">
           Bring customers with your link or code. Every time one of their tickets loses, you get {pct(share)} of what they staked. It’s free and you can never lose money.
         </p>
@@ -243,7 +243,8 @@ function MoneyChip({ label, value }: { label: string; value: string }) {
 
 function commissionText(c: Commission) {
   if (c.kind === 'stake') {
-    return { title: `Losing ticket ${c.ticket ?? ''} · ${dayLabel(c.period)}`, sub: `${pct(c.rate)} of the ${money(c.base_amount)} stake` };
+    const aviator = (c.ticket ?? '').startsWith('A');
+    return { title: `${aviator ? 'Lost Aviator bet' : 'Losing ticket'} ${c.ticket ?? ''} · ${dayLabel(c.period)}`, sub: `${pct(c.rate)} of the ${money(c.base_amount)} stake` };
   }
   if (c.kind === 'cpa') {
     return { title: 'New customer bonus', sub: Number(c.rate) > 0 ? `${pct(c.rate)} of their ${money(c.base_amount)} first deposit` : 'A customer made their first deposit' };

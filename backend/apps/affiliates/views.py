@@ -262,9 +262,12 @@ class AdminProgrammeView(APIView):
 
     def put(self, request):
         fields = [*services.PROGRAMME_FIELDS, 'negative_carryover', 'external_payouts', 'auto_payout',
-                  'auto_approve_commissions']
+                  'auto_approve_commissions', 'aviator_commission']
+        values = {f: request.data.get(f) for f in fields}
+        if 'aviator_commission_percent' in request.data:   # blank = each agent's own rate
+            values['aviator_commission_percent'] = request.data.get('aviator_commission_percent')
         try:
-            programme = services.update_programme(**{f: request.data.get(f) for f in fields})
+            programme = services.update_programme(**values)
         except (services.AffiliateError, ArithmeticError, ValueError) as exc:
             return Response({'detail': str(exc) or 'invalid value'}, status=status.HTTP_400_BAD_REQUEST)
         data = ProgrammeSerializer(programme).data

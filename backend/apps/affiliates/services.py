@@ -18,7 +18,7 @@ from __future__ import annotations
 import re
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
-from typing import Optional
+from typing import NamedTuple, Optional
 
 from django.conf import settings
 from django.db import IntegrityError, transaction
@@ -178,6 +178,24 @@ def update_programme(**values) -> AffiliateProgramme:
         if values.get(flag) is not None:
             setattr(programme, flag, bool(values[flag]))
             fields.append(flag)
+    if values.get('aviator_commission') is not None:
+        on = bool(values['aviator_commission'])
+        if on and not programme.aviator_commission:
+            # Switched back on: earn from now, never for the rounds played while off.
+            programme.aviator_commission_since = timezone.now()
+            fields.append('aviator_commission_since')
+        programme.aviator_commission = on
+        fields.append('aviator_commission')
+    if 'aviator_commission_percent' in values:
+        raw = values['aviator_commission_percent']
+        if raw is None or str(raw).strip() == '':
+            programme.aviator_commission_percent = None   # each agent's own rate
+        else:
+            pct = Decimal(str(raw))
+            if pct < 0 or pct > 100:
+                raise AffiliateError('aviator_commission_percent is out of range')
+            programme.aviator_commission_percent = pct
+        fields.append('aviator_commission_percent')
     if fields:
         programme.save(update_fields=[*fields, 'updated_at'])
     return programme
@@ -557,41 +575,77 @@ def crediting_last_ran() -> Optional[datetime]:
     return parse_datetime(raw) if raw else None
 
 
-def _losing_tickets(since, until, player_ids):
-    """(ref, pk, player_id, stake, settled_at) of lost singles and multiples."""
+class LostTicket(NamedTuple):
+    ref: str            # S12 single, M5 multiple, A88 Aviator bet
+    player_id: int
+    stake: Decimal
+    settled_at: datetime
+    wallet: str
+    game: str           # 'sports' | 'aviator'
+
+
+def _losing_tickets(since, until, player_ids, *, programme: AffiliateProgramme, eligible_only: bool = False):
+    """Lost sports tickets (singles, multiples) and lost Aviator bets of these
+    players settled in [since, until]. With `eligible_only`, only those that
+    can earn a commission and haven't been credited (filtered in the database,
+    so the hourly catch-up stays cheap however much Aviator is played)."""
+    from django.db.models import CharField, Exists, OuterRef, Value
+    from django.db.models.functions import Cast, Concat
+
+    from apps.jet.models import JetBet
     from apps.sportsbook.models import Bet, BetSlip
 
-    for prefix, model in (('S', Bet), ('M', BetSlip)):
+    sources = [('S', Bet, 'sports'), ('M', BetSlip, 'sports')]
+    aviator_from = programme.aviator_commission_since
+    aviator_on = programme.aviator_commission and aviator_from is not None
+    if aviator_on or not eligible_only:
+        sources.append(('A', JetBet, 'aviator'))
+    for prefix, model, game in sources:
         qs = model.objects.filter(status='lost', settled_at__lte=until, player_id__in=player_ids)
         if since is not None:
             qs = qs.filter(settled_at__gte=since)
-        for pk, player_id, stake, settled_at in qs.values_list('pk', 'player_id', 'stake', 'settled_at').iterator():
-            yield f'{prefix}{pk}', player_id, stake, settled_at
+        if game == 'aviator':
+            qs = qs.filter(is_free=False)          # a free bet stakes nothing
+        if eligible_only:
+            qs = qs.exclude(wallet='bonus')
+            if game == 'aviator':
+                qs = qs.filter(settled_at__gte=aviator_from)
+            qs = qs.annotate(ref=Concat(Value(prefix), Cast('pk', CharField()), output_field=CharField())).filter(
+                ~Exists(Commission.objects.filter(kind=Commission.Kind.STAKE, ticket=OuterRef('ref'))))
+        rows = qs.values_list('pk', 'player_id', 'stake', 'settled_at', 'wallet').iterator(chunk_size=2000)
+        for pk, player_id, stake, settled_at, wallet in rows:
+            yield LostTicket(f'{prefix}{pk}', player_id, stake, settled_at, wallet, game)
 
 
-def _credited_refs(refs: list[str]) -> set[str]:
-    done: set[str] = set()
-    for i in range(0, len(refs), 1000):
-        done.update(Commission.objects.filter(kind=Commission.Kind.STAKE, ticket__in=refs[i:i + 1000])
-                    .values_list('ticket', flat=True))
-    return done
+def _rate_for(ticket: LostTicket, affiliate: Affiliate, programme: AffiliateProgramme) -> Decimal:
+    if ticket.game == 'aviator' and programme.aviator_commission_percent is not None:
+        return programme.aviator_commission_percent
+    return affiliate.revshare_percent
 
 
-def _why_not_counted(settled_at, referral: Referral, affiliate: Affiliate) -> str:
+def _why_not_counted(ticket: LostTicket, referral: Referral, affiliate: Affiliate,
+                     programme: AffiliateProgramme) -> str:
     """'' when a losing ticket earns its agent a share, else why it doesn't."""
-    if settled_at < referral.counts_from:
+    if ticket.wallet == 'bonus':
+        return 'bonus'
+    if ticket.game == 'aviator':
+        if not programme.aviator_commission:
+            return 'aviator_off'
+        if programme.aviator_commission_since is None or ticket.settled_at < programme.aviator_commission_since:
+            return 'aviator_before_start'
+    if ticket.settled_at < referral.counts_from:
         return 'before_link'
-    if affiliate.active_since and settled_at < affiliate.active_since:
+    if affiliate.active_since and ticket.settled_at < affiliate.active_since:
         return 'agent_inactive'
-    if affiliate.revshare_percent <= 0:
+    if _rate_for(ticket, affiliate, programme) <= 0:
         return 'zero_rate'
     return ''
 
 
 def _credit_tickets(*, since, now, affiliate_id=None, player_id=None) -> int:
     """Credit each losing ticket settled in [since, now - CREDIT_DELAY] that a
-    referred player lost while linked to an ACTIVE agent (and while that agent
-    was active). Each ticket is paid once (unique per ticket)."""
+    referred player lost with real money while linked to an ACTIVE agent (and
+    while that agent was active). Each ticket is paid once (unique per ticket)."""
     links = Referral.objects.filter(affiliate__status=Affiliate.Status.ACTIVE).select_related('affiliate')
     if affiliate_id is not None:
         links = links.filter(affiliate_id=affiliate_id)
@@ -600,25 +654,22 @@ def _credit_tickets(*, since, now, affiliate_id=None, player_id=None) -> int:
     by_player = {r.player_id: r for r in links}
     if not by_player:
         return 0
-    tickets = list(_losing_tickets(since, now - CREDIT_DELAY, list(by_player)))
-    done = _credited_refs([t[0] for t in tickets])
+    programme = AffiliateProgramme.load()
     paid = 0
-    for ref, pid, stake, settled_at in tickets:
-        if ref in done:
-            continue
-        referral = by_player[pid]
+    for t in _losing_tickets(since, now - CREDIT_DELAY, list(by_player), programme=programme, eligible_only=True):
+        referral = by_player[t.player_id]
         affiliate = referral.affiliate
-        if _why_not_counted(settled_at, referral, affiliate):
+        if _why_not_counted(t, referral, affiliate, programme):
             continue
-        rate = affiliate.revshare_percent
-        amount = utils.commission_for(stake, rate)
+        rate = _rate_for(t, affiliate, programme)
+        amount = utils.commission_for(t.stake, rate)
         if amount <= 0:
             continue
         try:
             with transaction.atomic():
                 Commission.objects.create(
-                    affiliate_id=affiliate.pk, kind=Commission.Kind.STAKE, ticket=ref,
-                    period=timezone.localdate(settled_at), base_amount=stake, rate=rate, amount=amount,
+                    affiliate_id=affiliate.pk, kind=Commission.Kind.STAKE, ticket=t.ref,
+                    period=timezone.localdate(t.settled_at), base_amount=t.stake, rate=rate, amount=amount,
                     active_players=1, status=Commission.Status.APPROVED, decided_at=now,
                 )
         except IntegrityError:
@@ -631,33 +682,39 @@ def _credit_tickets(*, since, now, affiliate_id=None, player_id=None) -> int:
 
 def ticket_audit(affiliate: Affiliate, *, days: int = CATCH_UP_DAYS, now: Optional[datetime] = None,
                  limit: int = 100) -> dict:
-    """Staff: every losing ticket of an agent's customers in the last `days`,
-    and whether it was credited — or why not. `missing` are tickets that should
-    have been paid and weren't (the catch-up or 'Credit missed' pays them)."""
+    """Staff: every losing ticket (sports and Aviator) of an agent's customers
+    in the last `days`, and whether it was credited — or why not. `missing` are
+    tickets that should have been paid and weren't (the catch-up or 'Credit
+    missed' pays them)."""
     now = now or timezone.now()
+    programme = AffiliateProgramme.load()
     by_player = {r.player_id: r for r in affiliate.referrals.all()}
-    tickets = sorted(_losing_tickets(now - timedelta(days=days), now, list(by_player)),
-                     key=lambda t: t[3], reverse=True) if by_player else []
-    credited = dict(Commission.objects.filter(kind=Commission.Kind.STAKE, ticket__in=[t[0] for t in tickets])
-                    .values_list('ticket', 'amount')) if tickets else {}
+    tickets = sorted(_losing_tickets(now - timedelta(days=days), now, list(by_player), programme=programme),
+                     key=lambda t: t.settled_at, reverse=True) if by_player else []
+    credited = {}
+    refs = [t.ref for t in tickets]
+    for i in range(0, len(refs), 1000):
+        credited.update(Commission.objects.filter(kind=Commission.Kind.STAKE, ticket__in=refs[i:i + 1000])
+                        .values_list('ticket', 'amount'))
     names = accounts_services.usernames_for(list(by_player))
     counts = {'credited': 0, 'waiting': 0, 'missing': 0, 'not_counted': 0}
     missing_amount, rows = Decimal('0'), []
-    for ref, pid, stake, settled_at in tickets:
-        if ref in credited:
-            state, reason, amount = 'credited', '', credited[ref]
-        elif affiliate.status != Affiliate.Status.ACTIVE:
-            state, reason, amount = 'not_counted', 'agent_inactive', Decimal('0')
+    for t in tickets:
+        if t.ref in credited:
+            state, reason, amount = 'credited', '', credited[t.ref]
         else:
-            reason = _why_not_counted(settled_at, by_player[pid], affiliate)
-            amount = Decimal('0') if reason else utils.commission_for(stake, affiliate.revshare_percent)
-            state = 'not_counted' if reason else ('waiting' if settled_at > now - CREDIT_DELAY else 'missing')
+            reason = _why_not_counted(t, by_player[t.player_id], affiliate, programme)
+            if not reason and affiliate.status != Affiliate.Status.ACTIVE:
+                reason = 'agent_inactive'
+            amount = Decimal('0') if reason else utils.commission_for(t.stake, _rate_for(t, affiliate, programme))
+            state = 'not_counted' if reason else ('waiting' if t.settled_at > now - CREDIT_DELAY else 'missing')
             if state == 'missing':
                 missing_amount += amount
         counts[state] += 1
         if len(rows) < limit:
-            rows.append({'ticket': ref, 'customer': names.get(pid, f'#{pid}'), 'stake': stake, 'settled_at': settled_at,
-                         'state': state, 'reason': reason, 'amount': amount})
+            rows.append({'ticket': t.ref, 'game': t.game, 'wallet': t.wallet,
+                         'customer': names.get(t.player_id, f'#{t.player_id}'), 'stake': t.stake,
+                         'settled_at': t.settled_at, 'state': state, 'reason': reason, 'amount': amount})
     return {'days': days, 'customers': len(by_player), 'losing_tickets': len(tickets), 'counts': counts,
             'missing_amount': missing_amount.quantize(Decimal('0.01')), 'tickets': rows}
 
@@ -670,15 +727,14 @@ def crediting_health(*, now: Optional[datetime] = None) -> dict:
     links = {r.player_id: r for r in Referral.objects.filter(affiliate__status=Affiliate.Status.ACTIVE)
              .select_related('affiliate')}
     if links:
-        tickets = list(_losing_tickets(now - timedelta(days=CATCH_UP_DAYS), now - CREDIT_DELAY - HEALTH_SLACK,
-                                       list(links)))
-        done = _credited_refs([t[0] for t in tickets])
-        for ref, pid, stake, settled_at in tickets:
-            r = links[pid]
-            if ref in done or _why_not_counted(settled_at, r, r.affiliate):
+        programme = AffiliateProgramme.load()
+        for t in _losing_tickets(now - timedelta(days=CATCH_UP_DAYS), now - CREDIT_DELAY - HEALTH_SLACK,
+                                 list(links), programme=programme, eligible_only=True):
+            r = links[t.player_id]
+            if _why_not_counted(t, r, r.affiliate, programme):
                 continue
             missing += 1
-            amount += utils.commission_for(stake, r.affiliate.revshare_percent)
+            amount += utils.commission_for(t.stake, _rate_for(t, r.affiliate, programme))
             agents.add(r.affiliate_id)
     return {
         'last_run': last, 'running': bool(last and now - last < HEALTH_STALE),

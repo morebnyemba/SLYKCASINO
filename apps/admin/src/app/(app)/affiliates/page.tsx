@@ -288,12 +288,12 @@ function CommissionsTab() {
                 {rows.map((c) => (
                   <tr key={c.id} className="border-b border-border last:border-0">
                     <td className="px-4 py-3 font-mono text-xs">{c.affiliate_code}</td>
-                    <td className="px-4 py-3">{c.kind === 'cpa' ? 'CPA' : c.kind === 'stake' ? `${c.ticket} · ${c.period}` : c.period?.slice(0, 7)}</td>
+                    <td className="px-4 py-3">{c.kind === 'cpa' ? 'CPA' : c.kind === 'stake' ? `${c.ticket?.startsWith('A') ? 'Aviator ' : ''}${c.ticket} · ${c.period}` : c.period?.slice(0, 7)}</td>
                     <td className="px-4 py-3 text-xs text-muted-foreground">
                       {c.kind === 'cpa'
                         ? `Referral deposited ${money(c.base_amount)}`
                         : c.kind === 'stake'
-                          ? `${money(c.base_amount)} lost stake × ${Number(c.rate)}% (paid automatically)`
+                          ? `${money(c.base_amount)} lost ${c.ticket?.startsWith('A') ? 'Aviator stake' : 'stake'} × ${Number(c.rate)}% (paid automatically)`
                           : `${money(c.base_amount)} NGR × ${Number(c.rate)}% (${c.active_players} active)`}
                     </td>
                     <td className="px-4 py-3 text-right font-semibold tabular-nums">{money(c.amount)}</td>

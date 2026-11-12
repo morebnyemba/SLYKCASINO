@@ -1,4 +1,5 @@
 from django.db import models
+from django.utils import timezone
 
 
 class Affiliate(models.Model):
@@ -171,6 +172,13 @@ class AffiliateProgramme(models.Model):
     # A deposit (CPA) or monthly commission is final as soon as it qualifies,
     # with no operator approval. Off: staff approve each one first.
     auto_approve_commissions = models.BooleanField(default=True)
+    # Aviator: agents also earn on their customers' lost Aviator bets, at this %
+    # of the stake (blank = each agent's own rate). Only bets lost since
+    # `aviator_commission_since` count: set when this is switched on, so turning
+    # it on never pays for Aviator rounds played before.
+    aviator_commission = models.BooleanField(default=True)
+    aviator_commission_percent = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+    aviator_commission_since = models.DateTimeField(null=True, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -183,6 +191,7 @@ class AffiliateProgramme(models.Model):
             'default_revshare_percent': getattr(settings, 'AFFILIATE_DEFAULT_REVSHARE', 30),
             'default_cpa_amount': getattr(settings, 'AFFILIATE_DEFAULT_CPA', 0),
             'default_cpa_min_deposit': getattr(settings, 'AFFILIATE_DEFAULT_CPA_MIN_DEPOSIT', 20),
+            'aviator_commission_since': timezone.now(),
         })
         if created:
             obj.refresh_from_db()  # in-memory defaults are ints/floats; read back proper Decimals
