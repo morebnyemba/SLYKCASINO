@@ -59,6 +59,11 @@ class LiveTradingSettings(models.Model):
     # as won already (and pads a multiple at no risk). Applies to every in-play
     # pick, single or in a multiple; 0 = off. Pre-match prices are unaffected.
     live_min_odds = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal('1.05'))
+    # In play, a selection the live feed has stopped quoting stays open this
+    # many seconds, then closes until the feed quotes it again. The feed drops
+    # a selection when it is decided or about to be, so its last price must not
+    # stay on offer. (A whole-match pause doesn't count against it.)
+    live_price_grace_seconds = models.PositiveSmallIntegerField(default=60)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

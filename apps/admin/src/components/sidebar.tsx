@@ -7,7 +7,7 @@ import type { IconType } from 'react-icons';
 import {
   BsActivity, BsBroadcast, BsCalendar2Week, BsCashStack, BsChatDots, BsClockHistory, BsGift, BsGrid1X2,
   BsImages, BsList, BsMoonStars, BsPalette, BsPeople, BsPersonBadge, BsBoxArrowRight, BsSun, BsTicketPerforated,
-  BsTrophy, BsXLg, BsDiagram3, BsDatabase, BsCreditCard2Front, BsAirplane, BsPieChart, BsBank, BsShieldExclamation, BsTicket, BsSliders,
+  BsTrophy, BsXLg, BsDiagram3, BsDatabase, BsCreditCard2Front, BsAirplane, BsPieChart, BsBank, BsShieldExclamation, BsTicket, BsSliders, BsChatSquareText,
 } from 'react-icons/bs';
 import { useAuth } from '@/lib/auth-context';
 import { useSiteIdentity } from '@/lib/identity-context';
@@ -26,6 +26,7 @@ export const NAV: NavSection[] = [
     { href: '/', label: 'Dashboard', icon: BsGrid1X2 },
     { href: '/analytics', label: 'Analytics', icon: BsPieChart },
     { href: '/livechat', label: 'Support chat', icon: BsChatDots, badge: 'support' },
+    { href: '/chat', label: 'Community chat', icon: BsChatSquareText },
   ] },
   { title: 'Sportsbook', items: [
     { href: '/sportsbook/matches', label: 'Matches', icon: BsCalendar2Week, badge: 'live', match: ['/sportsbook/matches', '/events'] },

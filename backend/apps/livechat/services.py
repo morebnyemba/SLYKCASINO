@@ -39,4 +39,5 @@ def post_message(*, body: str, channel: str = 'lobby', player_id: Optional[int] 
 
 
 def erase_player_data(player_id: int) -> int:
-    return ChatMessage.objects.filter(player_id=player_id).delete()[0]
+    from . import rooms
+    return ChatMessage.objects.filter(player_id=player_id).delete()[0] + rooms.erase_player_data(player_id)

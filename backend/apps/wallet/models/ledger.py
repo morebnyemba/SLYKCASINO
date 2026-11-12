@@ -62,6 +62,9 @@ class LedgerEntry(models.Model):
         # The Bonus wallet moving to Winnings after its rollover (a pair of
         # entries: out of Bonus, into Winnings), and bonus money over the
         # conversion cap being forfeited.
+        # Winnings taken back when staff reverse a ticket that was settled as
+        # won by mistake (always a debit; counted against wins in every report).
+        BET_REVERSAL = 'bet_reversal', 'Winnings reversed'
         BONUS_CONVERSION = 'bonus_conversion', 'Bonus converted to winnings'
         BONUS_FORFEIT = 'bonus_forfeit', 'Bonus forfeited'
 
@@ -89,7 +92,7 @@ class LedgerEntry(models.Model):
             models.CheckConstraint(
                 check=Q(legacy=True) | ~Q(kind='deposit') | Q(amount__gt=0), name='ledger_deposit_is_credit'),
             models.CheckConstraint(
-                check=Q(legacy=True) | ~Q(kind__in=['bet_stake', 'casino_debit', 'deposit_refund', 'withdrawal_fee'])
+                check=Q(legacy=True) | ~Q(kind__in=['bet_stake', 'casino_debit', 'deposit_refund', 'withdrawal_fee', 'bet_reversal'])
                 | Q(amount__lte=0), name='ledger_stake_is_debit'),
             models.CheckConstraint(
                 check=Q(legacy=True) | ~Q(kind__in=['bet_payout', 'casino_credit', 'bonus', 'affiliate'])

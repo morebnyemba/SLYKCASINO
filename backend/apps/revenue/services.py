@@ -36,7 +36,7 @@ def _sum(qs, field='amount') -> Decimal:
 
 
 CASH_STAKES = ('bet_stake', 'casino_debit')
-CASH_WINS = ('bet_payout', 'casino_credit')
+CASH_WINS = ('bet_payout', 'casino_credit', 'bet_reversal')  # a reversal is negative: winnings taken back
 
 
 def real_money(start: datetime, end: datetime) -> dict:

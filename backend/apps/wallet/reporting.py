@@ -5,7 +5,8 @@ exact and always current. Re-exported from wallet.services.
 
 Sign conventions: stakes are negative entries and wins/refunds positive, so
   turnover (stakes) = -(bet_stake + casino_debit)
-  wins paid          =   bet_payout + casino_credit
+  wins paid          =   bet_payout + casino_credit + bet_reversal (negative:
+                          winnings staff took back from a wrongly settled ticket)
   GGR (player losses) = turnover - wins paid
   NGR                = GGR - bonuses
 """
@@ -24,9 +25,10 @@ from .models import LedgerEntry
 
 ZERO = Decimal('0')
 SPORTS_STAKE, SPORTS_WIN = 'bet_stake', 'bet_payout'
+SPORTS_REVERSAL = 'bet_reversal'
 CASINO_STAKE, CASINO_WIN = 'casino_debit', 'casino_credit'
 STAKE_KINDS = (SPORTS_STAKE, CASINO_STAKE)
-WIN_KINDS = (SPORTS_WIN, CASINO_WIN)
+WIN_KINDS = (SPORTS_WIN, CASINO_WIN, SPORTS_REVERSAL)
 GAMING_KINDS = STAKE_KINDS + WIN_KINDS
 ACTIVITY_KINDS = ('deposit', 'withdrawal', *GAMING_KINDS, 'bonus')
 _TRUNC = {'minute': TruncMinute, 'hour': TruncHour, 'day': TruncDay, 'month': TruncMonth}
@@ -96,7 +98,7 @@ def ledger_kpis(player_ids: Optional[Iterable[int]], start: Optional[datetime], 
         active=Count('wallet__player_id', filter=Q(kind__in=GAMING_KINDS), distinct=True),
     )
     sports_stakes, casino_stakes = -total(SPORTS_STAKE), -total(CASINO_STAKE)
-    sports_wins, casino_wins = total(SPORTS_WIN), total(CASINO_WIN)
+    sports_wins, casino_wins = total(SPORTS_WIN) + total(SPORTS_REVERSAL), total(CASINO_WIN)
     stakes, wins = sports_stakes + casino_stakes, sports_wins + casino_wins
     ggr = stakes - wins
     bonuses = total('bonus')

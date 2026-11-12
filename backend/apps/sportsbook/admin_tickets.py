@@ -257,4 +257,39 @@ class AdminTicketDetailView(APIView):
             'is_suspended': player.is_suspended, 'kyc_status': player.kyc_status,
             'balance': str(wallet_services.get_balance(player.id)),
         }
+        from . import reversal
+        from .models import TicketReversal
+        done = TicketReversal.objects.filter(kind=kind, ticket_id=obj.pk).first()
+        row['reversal'] = reversal.summary(done) if done else None
+        row['can_reverse'] = bool(request.user.is_superuser and obj.status == 'won' and done is None)
         return Response(row)
+
+
+class AdminTicketReverseView(APIView):
+    """POST /api/admin/tickets/<S12|M5>/reverse/ (superuser) — take back the
+    winnings of a ticket settled as won by mistake. {outcome: lost|void, reason,
+    dry_run?, accept_shortfall?, freeze_withdrawals?}. `dry_run` shows what
+    would be taken and what the player still holds, changing nothing."""
+    permission_classes = [IsAdminUser]
+
+    def post(self, request, ticket: str):
+        from . import reversal
+        if not request.user.is_superuser:
+            return Response({'detail': 'Only a superuser can reverse a ticket.'}, status=status.HTTP_403_FORBIDDEN)
+        match = TICKET_RE.fullmatch(ticket.strip())
+        if not match:
+            return Response({'detail': 'Ticket numbers look like S12 or M5.'}, status=status.HTTP_400_BAD_REQUEST)
+        kind = 'single' if match.group(1).lower() == 's' else 'multiple'
+        outcome = str(request.data.get('outcome') or '')
+        try:
+            if request.data.get('dry_run'):
+                plan = reversal.preview(kind, int(match.group(2)), outcome)
+                return Response({'dry_run': True, **{k: str(v) for k, v in plan.items() if k != 'take'},
+                                 'take': {b: str(v) for b, v in plan['take'].items()}})
+            record = reversal.reverse(
+                kind, int(match.group(2)), outcome=outcome, reason=str(request.data.get('reason') or ''),
+                by=request.user.get_username(), accept_shortfall=bool(request.data.get('accept_shortfall')),
+                freeze_withdrawals=bool(request.data.get('freeze_withdrawals')), request=request)
+        except reversal.ReversalError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(reversal.summary(record), status=status.HTTP_201_CREATED)

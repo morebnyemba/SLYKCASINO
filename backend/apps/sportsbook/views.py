@@ -452,7 +452,7 @@ class AdminLiveTradingSettingsView(APIView):
     review (a price jump with no goal, a burst of money on one pick). Also
     lists the matches held right now."""
     permission_classes = [IsAdminUser]
-    FIELDS = ('lock_minute', 'price_jump_percent', 'burst_minutes')
+    FIELDS = ('lock_minute', 'price_jump_percent', 'burst_minutes', 'live_price_grace_seconds')
     FLAGS = ('hold_on_bad_feed', 'suspend_on_feed_pause', 'keep_markets_open')
 
     def _payload(self):
@@ -491,6 +491,9 @@ class AdminLiveTradingSettingsView(APIView):
             return Response({'detail': 'Enter whole numbers (and an amount).'}, status=status.HTTP_400_BAD_REQUEST)
         if cfg.live_min_odds != 0 and not Decimal('1') <= cfg.live_min_odds <= Decimal('3'):
             return Response({'detail': 'The shortest live price is 1.00–3.00 (0 = off).'}, status=status.HTTP_400_BAD_REQUEST)
+        if not 15 <= cfg.live_price_grace_seconds <= 600:
+            return Response({'detail': 'A selection the live feed stops pricing stays open 15–600 seconds.'},
+                            status=status.HTTP_400_BAD_REQUEST)
         if not 0 <= cfg.lock_minute <= 120 or not 0 <= cfg.price_jump_percent <= 1000 or cfg.burst_minutes < 1 or cfg.burst_amount < 0:
             return Response({'detail': 'Lock minute 0–120 (0 = never), price jump 0–1000% (0 = off), '
                                        'a window of at least a minute, and a non-negative amount (0 = off).'},
