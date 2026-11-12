@@ -322,3 +322,61 @@ class ProposalTests(Base):
         self.assertEqual(listing['proposals'][0]['waiting_for'], ['boss', 'partner3'])
         res = self.api(self.partner).post(f'/api/admin/revenue-share/proposals/{pid}/', {'cancel': True}, format='json')
         self.assertEqual(res.json()['status'], 'cancelled')
+
+
+class WholeAdminLockTests(Base):
+    """Two missed weeks in a row make every staff change fail, everywhere."""
+
+    def api(self, user):
+        from rest_framework_simplejwt.tokens import RefreshToken
+        c = APIClient()                     # a real token: the lock reads it before DRF does
+        c.credentials(HTTP_AUTHORIZATION=f'Bearer {RefreshToken.for_user(user).access_token}')
+        return c
+
+    def lock(self):
+        cfg = RevenueSettings.load()
+        cfg.started_on = cfg.audits_from = WEEK - timedelta(days=14)
+        cfg.save()
+        audit.ensure_weeks()
+        from django.core.cache import cache
+        cache.clear()
+
+    def test_staff_changes_are_refused_reads_and_audits_still_work(self):
+        boss = self.api(self.boss)
+        self.lock()
+        res = boss.post('/api/admin/revenue-share/expenses/', {'day': str(timezone.localdate()), 'category': 'ai', 'amount': '1'}, format='json')
+        self.assertEqual(res.status_code, 423)
+        self.assertIn('read-only', res.json()['detail'])
+        self.assertEqual(boss.post('/api/events/', {'name': 'X v Y'}, format='json').status_code, 423)   # outside /admin/ too
+        self.assertEqual(boss.get('/api/admin/revenue-share/').status_code, 200)                     # reading is fine
+        self.assertTrue(self.api(self.clerk).get('/api/admin/lock-status/').json()['locked'])
+        # The way out stays open: upload, submit, co-sign.
+        first = WEEK - timedelta(days=14)
+        for week in (first, first + timedelta(days=7)):
+            for kind in ('paynow', 'payouts'):
+                self.assertEqual(boss.post(f'/api/admin/revenue-share/audits/{week}/upload/', {'kind': kind, 'total': '0'},
+                                           format='json').status_code, 200)
+            self.assertEqual(boss.post(f'/api/admin/revenue-share/audits/{week}/submit/',
+                                       {'declared_balance': '0', 'payouts_source': 'ecocash'}, format='json').status_code, 200)
+            for partner in (self.partner, self.partner3):
+                self.api(partner).post(f'/api/admin/revenue-share/audits/{week}/cosign/', {'decision': 'approve'}, format='json')
+        self.assertFalse(self.api(self.clerk).get('/api/admin/lock-status/').json()['locked'])
+        res = boss.post('/api/admin/revenue-share/expenses/', {'day': str(timezone.localdate()), 'category': 'ai', 'amount': '1'}, format='json')
+        self.assertEqual(res.status_code, 201, res.content)
+
+    def test_players_are_not_affected(self):
+        from apps.accounts import services as accounts
+        self.lock()
+        player = accounts.register_player(username='punter', email='pu@example.com', password=PW)
+        res = self.api(player.user).post('/api/notifications/read-all/')
+        self.assertNotEqual(res.status_code, 423)
+
+    def test_django_admin_is_read_only_too(self):
+        from django.test import Client
+        self.lock()
+        c = Client()
+        c.force_login(self.boss)
+        res = c.post(f'/django-admin/auth/user/{self.clerk.id}/change/', {'username': 'renamed'})
+        self.assertEqual(res.status_code, 423)
+        self.clerk.refresh_from_db()
+        self.assertEqual(self.clerk.username, 'clerk')

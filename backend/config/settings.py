@@ -62,6 +62,10 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    # Two missed weekly pool audits in a row make the whole admin read-only.
+    'config.middleware.AuditLockMiddleware',
+    # Revenue-share settings change only when every partner co-signs.
+    'config.middleware.SettingsCosignMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]

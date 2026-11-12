@@ -26,6 +26,7 @@ api_patterns = [
     path('admin/stats/', views.admin_stats),
     path('admin/analytics/', views.admin_analytics),
     path('admin/profit/', views.admin_profit),
+    path('admin/lock-status/', views.admin_lock_status),
 ]
 
 urlpatterns = [

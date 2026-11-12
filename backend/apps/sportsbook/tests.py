@@ -204,6 +204,34 @@ class AccumulatorTests(TestCase):
         after = wallet_services.get_balance(self.player.id)
         self.assertEqual(before, after)                        # no payout
 
+    def test_accumulator_is_lost_the_moment_one_leg_loses(self):
+        """No waiting for the other matches: the ticket settles as lost at once,
+        and the remaining legs still get their own results later."""
+        from apps.sportsbook.models import BetLeg
+        slip = sportsbook_services.place_accumulator(wallet='deposit',
+            stake=Decimal('10.00'), legs=self._legs(), player_id=self.player.id,
+        )
+        before = wallet_services.get_balance(self.player.id)
+        sportsbook_services.settle_event(self.e1.id, 'away')   # leg 1 loses; leg 2's match not played yet
+        slip.refresh_from_db()
+        self.assertEqual(slip.status, BetSlip.Status.LOST)
+        self.assertIsNotNone(slip.settled_at)
+        legs = {leg.event_ref_id: leg.result for leg in slip.legs.all()}
+        self.assertEqual((legs[self.e1.id], legs[self.e2.id]), (BetLeg.Result.LOST, BetLeg.Result.PENDING))
+        sportsbook_services.settle_event(self.e2.id, 'away')   # the other match finishes later
+        slip.refresh_from_db()
+        self.assertEqual(slip.status, BetSlip.Status.LOST)     # unchanged, never paid
+        self.assertEqual(slip.legs.get(event_ref_id=self.e2.id).result, BetLeg.Result.WON)
+        self.assertEqual(wallet_services.get_balance(self.player.id), before)
+
+    def test_a_won_leg_alone_still_waits(self):
+        slip = sportsbook_services.place_accumulator(wallet='deposit',
+            stake=Decimal('10.00'), legs=self._legs(), player_id=self.player.id,
+        )
+        sportsbook_services.settle_event(self.e1.id, 'home')
+        slip.refresh_from_db()
+        self.assertEqual(slip.status, BetSlip.Status.OPEN)
+
     def test_accumulator_api_create(self):
         refresh = RefreshToken.for_user(self.player.user)
         client = APIClient()

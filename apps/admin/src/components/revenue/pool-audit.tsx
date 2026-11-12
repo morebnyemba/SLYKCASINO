@@ -340,7 +340,7 @@ export function WeeklyAudits() {
 
   return (
     <Panel title="Weekly pool audit"
-      description={`Every week (Monday to Sunday) is due by the end of the following Tuesday. ${data?.founder ?? 'The founder'} uploads Paynow’s report of money received and the EcoCash/bank statement of money paid to players, and states what the pool actually holds after the costs they claim. Every line is matched against the platform, then every partner (${data?.signers.join(', ') ?? '…'}) co-signs or disputes. Two missed weeks in a row lock the money controls until they are approved.`}
+      description={`Every week (Monday to Sunday) is due by the end of the following Tuesday. ${data?.founder ?? 'The founder'} uploads Paynow’s report of money received and the EcoCash/bank statement of money paid to players, and states what the pool actually holds after the costs they claim. Every line is matched against the platform, then every partner (${data?.signers.join(', ') ?? '…'}) co-signs or disputes. Two missed weeks in a row make the whole admin read-only until they are approved.`}
       actions={waiting ? <Badge tone="gold" dot>{waiting} week{waiting === 1 ? '' : 's'} to finish</Badge> : undefined}>
       {notice && <div className="mb-4"><Notice tone={notice.tone} onClose={() => setNotice(null)}>{notice.text}</Notice></div>}
       {!data ? <div className="h-24 animate-pulse rounded-xl bg-muted/30" /> : data.audits.length === 0 ? (

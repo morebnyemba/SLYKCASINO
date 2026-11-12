@@ -260,3 +260,12 @@ def admin_profit(request):
         'profit': m(profit), 'profit_margin': pct(profit, stakes),
         'cash': {'deposits': m(k('deposit')), 'withdrawals': m(-k('withdrawal')), 'net': m(k('deposit') + k('withdrawal'))},
     })
+
+
+@api_view(['GET'])
+@permission_classes([IsAdminUser])
+def admin_lock_status(request):
+    """Any staff login: is the admin read-only because pool audits were missed?"""
+    from apps.revenue.audit import lock_state
+    state = lock_state()
+    return Response({'locked': state['locked'], 'lock_weeks': state['lock_weeks'], 'message': state['message']})

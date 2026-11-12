@@ -283,3 +283,48 @@ class ProposalVote(models.Model):
     class Meta:
         db_table = 'revenue_proposal_vote'
         constraints = [models.UniqueConstraint(fields=['proposal', 'user'], name='revenue_one_vote_per_partner')]
+
+
+class SettingsChange(models.Model):
+    """A settings save held until every partner co-signs it. The original
+    request (method, path, body) is replayed as the person who made it once
+    the last partner approves; one rejection drops it."""
+
+    class Status(models.TextChoices):
+        OPEN = 'open', 'Waiting for every partner'
+        APPLIED = 'applied', 'Approved and applied'
+        REJECTED = 'rejected', 'Rejected'
+        FAILED = 'failed', 'Approved but could not be applied'
+        CANCELLED = 'cancelled', 'Withdrawn'
+        SUPERSEDED = 'superseded', 'Overtaken by another change to the same settings'
+        EXPIRED = 'expired', 'Expired (not co-signed within 7 days)'
+
+    label = models.CharField(max_length=120)
+    method = models.CharField(max_length=8)
+    path = models.CharField(max_length=300)
+    content_type = models.CharField(max_length=200, blank=True)
+    body = models.BinaryField(blank=True)
+    before = models.JSONField(default=dict, blank=True)
+    requested = models.JSONField(default=dict, blank=True)
+    requested_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='+')
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.OPEN, db_index=True)
+    result_status = models.PositiveSmallIntegerField(null=True, blank=True)
+    result_detail = models.CharField(max_length=1000, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    decided_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'revenue_settings_change'
+        ordering = ['-created_at']
+
+
+class ChangeVote(models.Model):
+    change = models.ForeignKey(SettingsChange, on_delete=models.CASCADE, related_name='votes')
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='+')
+    decision = models.CharField(max_length=8, choices=Decision.choices)
+    note = models.CharField(max_length=500, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'revenue_change_vote'
+        constraints = [models.UniqueConstraint(fields=['change', 'user'], name='revenue_one_vote_per_change')]
