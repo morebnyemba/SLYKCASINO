@@ -413,6 +413,31 @@ class AdminAffiliateViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, vi
         return Response({'player': player.username, 'previous_agent': previous, 'credited': credited,
                          'counts_from': referral.counts_from})
 
+    @action(detail=True, methods=['get', 'post'], url_path='deposit-commissions')
+    def deposit_commissions(self, request, pk=None):
+        """GET: every customer the agent referred and their deposit commission
+        (paid, waiting, due, or why not). POST {player_ids?: [...], override?: bool}:
+        pay what's due — or, with override, the chosen customers without the rules."""
+        affiliate = self.get_object()
+        if request.method == 'GET':
+            return Response(_money_json(services.cpa_audit(affiliate)))
+        raw = request.data.get('player_ids') or []
+        try:
+            player_ids = [int(x) for x in raw] if isinstance(raw, list) else []
+        except (TypeError, ValueError):
+            return Response({'detail': 'player_ids must be a list of ids'}, status=status.HTTP_400_BAD_REQUEST)
+        override = bool(request.data.get('override'))
+        try:
+            result = services.pay_cpa(affiliate.pk, player_ids=player_ids or None, override=override,
+                                      by=request.user.get_username())
+        except services.AffiliateError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        accounts_services.audit(affiliate.player_id, 'affiliate_cpa_paid_by_staff', request, override=override,
+                                player_ids=player_ids, **result)
+        if result['created'] or result['approved']:
+            services.pay_out_earnings(affiliate_id=affiliate.pk)
+        return Response(result)
+
     @action(detail=True, methods=['post'], url_path='terms')
     def terms(self, request, pk=None):
         fields = ('code', 'revshare_percent', 'cpa_amount', 'cpa_min_deposit', 'cpa_percent', 'cpa_cap', 'note')
