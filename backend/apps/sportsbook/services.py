@@ -419,9 +419,10 @@ def settle_event(event_id: int, result: str) -> int:
         settled += 1
 
     # Resolve any accumulator legs on this event, then re-check their parent slips.
+    # Every pending leg gets its result, including legs of slips already lost
+    # on another leg (so the ticket shows each match's result).
     legs = BetLeg.objects.filter(
         event_ref_id=event_id, outcome_ref__isnull=True, result=BetLeg.Result.PENDING,
-        slip__status__in=(BetSlip.Status.OPEN, BetSlip.Status.PENDING),
     ).select_related('slip')
     slips = {}
     for leg in legs:
@@ -643,18 +644,21 @@ def place_accumulator(
 
 @transaction.atomic
 def _settle_slip_if_ready(slip_id: int) -> BetSlip:
-    """Resolve an accumulator once none of its legs are still pending. Any lost
-    leg loses the slip; otherwise it wins and pays stake x (product of won-leg
-    odds, void legs counting as 1.0). Payout credit is idempotency-keyed."""
+    """Resolve an accumulator. A lost leg loses the slip at once, without
+    waiting for its other matches (their legs still get their results as those
+    matches settle). With no lost leg it waits until none is pending, then wins
+    and pays stake x (product of won-leg odds, void legs counting as 1.0).
+    Payout credit is idempotency-keyed."""
     slip = BetSlip.objects.select_for_update().get(pk=slip_id)
     if slip.status not in (BetSlip.Status.OPEN, BetSlip.Status.PENDING):
         return slip  # already settled — idempotent
 
     legs = list(slip.legs.all())
-    if any(leg.result == BetLeg.Result.PENDING for leg in legs):
-        return slip  # not all legs resolved yet
+    lost_leg = any(leg.result == BetLeg.Result.LOST for leg in legs)
+    if not lost_leg and any(leg.result == BetLeg.Result.PENDING for leg in legs):
+        return slip  # no leg lost, and not all legs resolved yet
 
-    if any(leg.result == BetLeg.Result.LOST for leg in legs):
+    if lost_leg:
         slip.status = BetSlip.Status.LOST
     else:
         won_odds = [leg.odds for leg in legs if leg.result == BetLeg.Result.WON]

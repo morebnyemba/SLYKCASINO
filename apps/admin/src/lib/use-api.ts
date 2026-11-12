@@ -91,6 +91,10 @@ export async function authedPost<T>(
     }
 
     const json = await res.json().catch(() => ({}));
+    if (res.status === 202 && (json as { pending?: boolean }).pending) {
+      // A settings save held for the partners' co-signatures: not applied, so not "saved".
+      return { error: (json as { detail?: string }).detail ?? 'Sent for co-signing.', status: 202 };
+    }
     if (!res.ok) {
       const msg = (json as { detail?: string }).detail ?? `API ${res.status}`;
       return { error: msg, status: res.status };
@@ -125,6 +129,10 @@ export async function authedRequest<T>(
     }
     if (res.status === 204) return { status: 204 };
     const json = await res.json().catch(() => ({}));
+    if (res.status === 202 && (json as { pending?: boolean }).pending) {
+      // A settings save held for the partners' co-signatures: not applied, so not "saved".
+      return { error: (json as { detail?: string }).detail ?? 'Sent for co-signing.', status: 202 };
+    }
     if (!res.ok) {
       const obj = json as Record<string, unknown>;
       const detail = typeof obj.detail === 'string' ? obj.detail : null;

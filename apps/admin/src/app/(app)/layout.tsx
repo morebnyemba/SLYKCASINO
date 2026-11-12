@@ -1,6 +1,7 @@
 import { AuthGuard } from '@/components/auth-guard';
 import { Sidebar } from '@/components/sidebar';
 import { AdminLockBar } from '@/components/revenue/admin-lock-bar';
+import { PendingChangesBar } from '@/components/revenue/settings-changes';
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -9,6 +10,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <Sidebar />
         <main className="min-w-0 flex-1">
           <AdminLockBar />
+          <PendingChangesBar />
           <div className="mx-auto w-full max-w-[1400px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">{children}</div>
         </main>
       </div>

@@ -295,3 +295,35 @@ class AuditFileView(APIView):
         if not f:
             return Response({'detail': 'No such report.'}, status=status.HTTP_404_NOT_FOUND)
         return FileResponse(f.open('rb'), as_attachment=True, filename=f.name.rsplit('/', 1)[-1])
+
+
+class SettingsChangesView(APIView):
+    """GET — settings changes waiting for (or decided by) the partners."""
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        from . import changes
+        from .models import SettingsChange
+        changes._expire()
+        qs = SettingsChange.objects.select_related('requested_by')
+        if not audit.can_view(request.user):
+            qs = qs.filter(requested_by=request.user)
+        return Response({'pending_for_me': changes.pending_for(request.user),
+                         'changes': [changes.change_row(c, user=request.user) for c in qs[:50]]})
+
+
+class SettingsChangeView(APIView):
+    """POST {decision: approve|reject, note?} — or {cancel: true} by the requester."""
+    permission_classes = [IsAdminUser]
+
+    def post(self, request, pk: int):
+        from . import changes
+        try:
+            if request.data.get('cancel'):
+                c = changes.cancel(pk, user=request.user)
+            else:
+                c = changes.vote(pk, user=request.user, decision=str(request.data.get('decision') or ''),
+                                 note=str(request.data.get('note') or ''), request=request)
+        except changes.ChangeError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(changes.change_row(c, user=request.user))

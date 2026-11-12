@@ -365,7 +365,7 @@ function SettingsPanel({ view, onDone, onFail }: { view: BossView; onDone: (t: s
     if (res.error) onFail(res.error); else onDone('Revenue-share settings saved.');
   }
   return (
-    <Panel title="Settings" description="Who holds each wallet (a staff login; they see only their own wallet and ask for its withdrawal), each wallet’s share, and the first day that counts.">
+    <Panel title="Settings" description="Who holds each wallet (a staff login; they see only their own wallet and ask for its withdrawal), each wallet’s share, the founder and the first day that counts. Saving sends the change to every partner to co-sign (Money › Revenue-share changes); it applies only when all approve.">
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Field label="Share per wallet (%)" hint="Applies to days not yet closed. Three wallets, so at most 33.33%.">
           <TextInput inputMode="decimal" value={pct} onChange={(e) => setPct(e.target.value.replace(/[^0-9.]/g, ''))} />
