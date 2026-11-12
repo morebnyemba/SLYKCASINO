@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 import { BsArrowDown, BsArrowUp, BsCheck2, BsClipboard, BsLink45Deg, BsPersonCircle } from 'react-icons/bs';
-import { Badge, Btn, Drawer, EmptyState, Notice, cx, money, tableClass, tdClass, thClass, trClass } from '@/components/console/ui';
+import { Badge, Btn, Drawer, EmptyState, Notice, Pager, cx, money, tableClass, tdClass, thClass, trClass } from '@/components/console/ui';
 import { ImpersonateButton } from '@/components/players/impersonate';
 import { ReversalNote, ReverseTicket, type Reversal } from '@/components/tickets/reverse-ticket';
 import { useAuth } from '@/lib/auth-context';
@@ -357,9 +357,12 @@ export function PlayerActivity({ playerId }: { playerId: number }) {
   const tickets = useTicketList(`player_id=${playerId}&limit=25`);
   const [active, setActive] = useState<string | null>(null);
   const step = useTicketKeys(tab === 'tickets' ? tickets.rows : [], active, setActive);
-  const jet = useApi<{ results: JetRow[]; summary: { bets: number; staked: string; won: string; net: string } }>(tab === 'aviator' ? `/admin/jet/bets/?player_id=${playerId}` : null);
-  const wd = useApi<{ results: { id: number; amount: string; method_label: string; account_number: string; status: string; status_label: string; reference: string; note: string; created_at: string }[] }>(
-    tab === 'withdrawals' ? `/admin/withdrawals/?status=all&player_id=${playerId}` : null);
+  const [jetPage, setJetPage] = useState(1);
+  const [wdPage, setWdPage] = useState(1);
+  const jet = useApi<{ results: JetRow[]; count?: number; summary: { bets: number; staked: string; won: string; net: string } }>(
+    tab === 'aviator' ? `/admin/jet/bets/?player_id=${playerId}&page=${jetPage}&page_size=50` : null);
+  const wd = useApi<{ count?: number; results: { id: number; amount: string; method_label: string; account_number: string; status: string; status_label: string; reference: string; note: string; created_at: string }[] }>(
+    tab === 'withdrawals' ? `/admin/withdrawals/?status=all&player_id=${playerId}&page=${wdPage}&page_size=50` : null);
   const s = tickets.summary;
   return (
     <div className="overflow-hidden rounded-2xl border border-border/70 bg-card">
@@ -409,6 +412,7 @@ export function PlayerActivity({ playerId }: { playerId: number }) {
                 ))}
               </tbody>
             </table>
+            <Pager page={jetPage} count={jet.data?.count ?? 0} pageSize={50} onPage={setJetPage} />
           </div>
         )
       )}
@@ -429,6 +433,7 @@ export function PlayerActivity({ playerId }: { playerId: number }) {
                 ))}
               </tbody>
             </table>
+            <Pager page={wdPage} count={wd.data?.count ?? 0} pageSize={50} onPage={setWdPage} />
           </div>
         )
       )}

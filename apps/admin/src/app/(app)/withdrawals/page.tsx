@@ -6,7 +6,7 @@ import { BsBank, BsCheck2Circle, BsCopy, BsSearch, BsXCircle } from 'react-icons
 import { PayoutsTab } from '@/components/affiliates/payouts-tab';
 import { WithdrawalLimitsPanel } from '@/components/settings/betting-rules';
 import {
-  Badge, Btn, Drawer, EmptyState, Field, Notice, PageHeader, Panel, Tabs, TextInput, cx, money,
+  Badge, Btn, Drawer, EmptyState, Field, Notice, PageHeader, Pager, Panel, Tabs, TextInput, cx, money,
   tableClass, tdClass, thClass, trClass,
 } from '@/components/console/ui';
 import { useAuth } from '@/lib/auth-context';
@@ -30,7 +30,8 @@ interface Withdrawal {
   /** Held by the fraud engine: can't be paid until the player's case is closed. */
   risk_hold?: boolean; risk_note?: string;
 }
-interface Queue { results: Withdrawal[]; counts: { requested: number }; pending_total: string }
+interface Queue { results: Withdrawal[]; count?: number; counts: { requested: number }; pending_total: string }
+const WD_PAGE = 50;
 
 const TONE = { requested: 'gold', paid: 'green', rejected: 'red', cancelled: 'slate' } as const;
 type Status = Withdrawal['status'] | 'all';
@@ -66,12 +67,16 @@ function destination(w: Withdrawal) {
 
 function PlayerWithdrawals() {
   const { accessToken } = useAuth();
-  const [status, setStatus] = useState<Status>('requested');
+  const [status, setStatusRaw] = useState<Status>('requested');
   const [q, setQ] = useState('');
-  const [search, setSearch] = useState('');
-  const [source, setSource] = useState<'' | 'winnings' | 'deposit'>('');
+  const [search, setSearchRaw] = useState('');
+  const [source, setSourceRaw] = useState<'' | 'winnings' | 'deposit'>('');
+  const [page, setPage] = useState(1);
+  const setStatus = (v: Status) => { setStatusRaw(v); setPage(1); };
+  const setSearch = (v: string) => { setSearchRaw(v); setPage(1); };
+  const setSource = (v: '' | 'winnings' | 'deposit') => { setSourceRaw(v); setPage(1); };
   const { data, loading, refetch } = useApi<Queue>(
-    `/admin/withdrawals/?status=${status}${search ? `&q=${encodeURIComponent(search)}` : ''}${source ? `&wallet=${source}` : ''}`);
+    `/admin/withdrawals/?status=${status}&page=${page}&page_size=${WD_PAGE}${search ? `&q=${encodeURIComponent(search)}` : ''}${source ? `&wallet=${source}` : ''}`);
   const [acting, setActing] = useState<{ w: Withdrawal; verb: 'mark-paid' | 'reject' } | null>(null);
   const [text, setText] = useState('');
   // Paying is three steps: 1 check the player, 2 send the money, 3 confirm with the reference.
@@ -184,6 +189,7 @@ function PlayerWithdrawals() {
                   ))}
                 </tbody>
               </table>
+              <Pager page={page} count={data?.count ?? 0} pageSize={WD_PAGE} onPage={setPage} />
             </div>
           )}
       </div>

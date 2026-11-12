@@ -11,7 +11,8 @@ import { LoadingState } from '@slyk/ui/components/spinner';
 import { DeletePlayer } from '@/components/players/delete-player';
 import { ImpersonateButton } from '@/components/players/impersonate';
 import { PlayerActivity } from '@/components/tickets/tickets';
-import { kindLabel, kindTone, WALLET_LABEL, WALLETS, type WalletId } from '@/lib/ledger-kinds';
+import { KIND_FILTERS, kindLabel, kindTone, WALLET_LABEL, WALLETS, type WalletId } from '@/lib/ledger-kinds';
+import { Pager } from '@/components/console/ui';
 import { DepositRefund } from '@/components/deposit-refund';
 import { PlayerRisk } from '@/components/risk/player-risk';
 
@@ -56,7 +57,8 @@ interface KYCSubmission {
   reviewed_by_username: string;
 }
 
-interface ListResponse<T> { results?: T[] }
+interface ListResponse<T> { results?: T[]; count?: number }
+const LEDGER_PAGE = 50;
 
 function statusBadge(status: KYCSubmission['status']) {
   if (status === 'approved') return <Badge variant="success">Approved</Badge>;
@@ -69,7 +71,12 @@ export default function PlayerDetailPage({ params }: PageProps) {
   const { accessToken } = useAuth();
 
   const { data: player, loading, refetch } = useApi<Player>(`/players/${id}/`);
-  const { data: ledgerData } = useApi<ListResponse<LedgerEntry>>(`/admin/ledger/?player_id=${id}`);
+  const [ledgerPage, setLedgerPage] = useState(1);
+  const [ledgerKind, setLedgerKind] = useState('');
+  const [ledgerWallet, setLedgerWallet] = useState('');
+  const { data: ledgerData } = useApi<ListResponse<LedgerEntry>>(
+    `/admin/ledger/?player_id=${id}&page=${ledgerPage}&page_size=${LEDGER_PAGE}`
+    + `${ledgerKind ? `&kind=${ledgerKind}` : ''}${ledgerWallet ? `&bucket=${ledgerWallet}` : ''}`);
   const { data: kycData } = useApi<ListResponse<KYCSubmission>>(`/admin/kyc/?player_id=${id}`);
   const ledger = ledgerData?.results ?? [];
   const kycSubmissions = kycData?.results ?? [];
@@ -317,10 +324,24 @@ export default function PlayerDetailPage({ params }: PageProps) {
       </Card>
 
       <Card className="overflow-hidden rounded-2xl border-border/70">
-        <CardHeader><CardTitle className="text-base">Ledger history</CardTitle></CardHeader>
+        <CardHeader>
+          <div className="flex flex-wrap items-center gap-3">
+            <CardTitle className="text-base">Ledger history</CardTitle>
+            <span className="text-xs text-muted-foreground">{(ledgerData?.count ?? 0).toLocaleString()} entries</span>
+            <select value={ledgerKind} onChange={(e) => { setLedgerKind(e.target.value); setLedgerPage(1); }}
+              className="ml-auto h-9 rounded-lg border border-border bg-background px-2 text-sm" aria-label="Type">
+              {KIND_FILTERS.map((k) => <option key={k.id} value={k.id}>{k.label}</option>)}
+            </select>
+            <select value={ledgerWallet} onChange={(e) => { setLedgerWallet(e.target.value); setLedgerPage(1); }}
+              className="h-9 rounded-lg border border-border bg-background px-2 text-sm" aria-label="Wallet">
+              <option value="">All wallets</option>
+              {WALLETS.map((w) => <option key={w} value={w}>{WALLET_LABEL[w]}</option>)}
+            </select>
+          </div>
+        </CardHeader>
         <CardContent className="p-0">
           {ledger.length === 0 && (
-            <p className="p-4 text-sm text-muted-foreground">No ledger entries.</p>
+            <p className="p-4 text-sm text-muted-foreground">No ledger entries{ledgerKind || ledgerWallet ? ' for this filter' : ''}.</p>
           )}
           {ledger.length > 0 && (
             <table className="w-full text-sm">
@@ -351,6 +372,7 @@ export default function PlayerDetailPage({ params }: PageProps) {
               </tbody>
             </table>
           )}
+          <Pager page={ledgerPage} count={ledgerData?.count ?? 0} pageSize={LEDGER_PAGE} onPage={setLedgerPage} />
         </CardContent>
       </Card>
 

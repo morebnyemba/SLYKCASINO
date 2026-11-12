@@ -347,11 +347,16 @@ class AdminPlayerBetsView(APIView):
             player_id = 0
         if not player_id:
             return Response({'detail': 'Choose a player.'}, status=status.HTTP_400_BAD_REQUEST)
-        bets = JetBet.objects.filter(player_id=player_id).select_related('round')[:100]
+        from apps.wallet.views import _page_args
+        size, page = _page_args(request, default=100)
+        all_bets = JetBet.objects.filter(player_id=player_id)
+        total = all_bets.count()
+        bets = all_bets.select_related('round').order_by('-id')[(page - 1) * size:page * size]
         agg = JetBet.objects.filter(player_id=player_id, is_free=False).aggregate(
             n=Count('id'), staked=Sum('stake'), won=Sum('payout'))
         staked, won = agg['staked'] or Decimal('0'), agg['won'] or Decimal('0')
         return Response({
+            'count': total, 'page': page, 'page_size': size,
             'results': [
                 {**services.bet_payload(b, mine=True), 'created_at': services.iso(b.created_at),
                  'crash_point': str(b.round.crash_point) if b.round.status == JetRound.Status.CRASHED else None}
