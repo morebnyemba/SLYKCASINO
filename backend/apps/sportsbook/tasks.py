@@ -81,6 +81,13 @@ def confirm_live_bet(kind: str, obj_id: int) -> str:
     return services.confirm_live_bet(kind, obj_id)
 
 
+@shared_task(name='apps.sportsbook.tasks.settle_lost_multiples')
+def settle_lost_multiples() -> int:
+    """Every 2 minutes: open multiples that already have a lost leg settle as lost."""
+    from . import services
+    return services.settle_lost_multiples()
+
+
 @shared_task(name='apps.sportsbook.tasks.auto_resolve_markets')
 def auto_resolve_markets() -> dict:
     """Backstop so every market on a finished match gets settled: a final pass

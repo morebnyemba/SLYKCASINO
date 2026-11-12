@@ -224,6 +224,21 @@ class AccumulatorTests(TestCase):
         self.assertEqual(slip.legs.get(event_ref_id=self.e2.id).result, BetLeg.Result.WON)
         self.assertEqual(wallet_services.get_balance(self.player.id), before)
 
+    def test_sweep_settles_open_multiples_that_already_lost_a_leg(self):
+        """Tickets whose leg lost before early settlement existed stay open
+        until the sweep picks them up."""
+        from apps.sportsbook.models import BetLeg
+        slip = sportsbook_services.place_accumulator(wallet='deposit',
+            stake=Decimal('10.00'), legs=self._legs(), player_id=self.player.id,
+        )
+        BetLeg.objects.filter(slip=slip, event_ref=self.e1).update(result=BetLeg.Result.LOST)   # recorded, never re-checked
+        slip.refresh_from_db()
+        self.assertEqual(slip.status, BetSlip.Status.OPEN)
+        self.assertEqual(sportsbook_services.settle_lost_multiples(), 1)
+        slip.refresh_from_db()
+        self.assertEqual(slip.status, BetSlip.Status.LOST)
+        self.assertEqual(sportsbook_services.settle_lost_multiples(), 0)
+
     def test_a_won_leg_alone_still_waits(self):
         slip = sportsbook_services.place_accumulator(wallet='deposit',
             stake=Decimal('10.00'), legs=self._legs(), player_id=self.player.id,

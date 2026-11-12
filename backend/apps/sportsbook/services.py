@@ -696,6 +696,20 @@ def _settle_slip_if_ready(slip_id: int) -> BetSlip:
     return slip
 
 
+def settle_lost_multiples() -> int:
+    """Safety net: settle every open multiple that already has a lost leg —
+    tickets whose leg lost before multiples settled early, and in-play tickets
+    that were still in their acceptance delay when a leg lost. Idempotent."""
+    ids = list(BetSlip.objects.filter(status__in=(BetSlip.Status.OPEN, BetSlip.Status.PENDING),
+                                      legs__result=BetLeg.Result.LOST).values_list('id', flat=True).distinct())
+    settled = 0
+    for slip_id in ids:
+        with transaction.atomic():
+            if _settle_slip_if_ready(slip_id).status == BetSlip.Status.LOST:
+                settled += 1
+    return settled
+
+
 # -- in-play acceptance ---------------------------------------------------------
 
 _WAIT = 'wait'

@@ -342,6 +342,12 @@ CELERY_BEAT_SCHEDULE = {
         # matches still in play or with open bets are fetched.
         'schedule': 180.0,
     },
+    'sportsbook-settle-lost-multiples': {
+        'task': 'apps.sportsbook.tasks.settle_lost_multiples',
+        # A multiple with a lost leg is lost — settles any still open (older
+        # tickets, in-play ones that were in their acceptance delay).
+        'schedule': 120.0,
+    },
     'sportsbook-auto-resolve-markets': {
         'task': 'apps.sportsbook.tasks.auto_resolve_markets',
         # Every 10 min: no finished match keeps an unsettled market.
