@@ -256,6 +256,30 @@ def _shown(name: str, mask: bool) -> str:
     return utils.mask_username(name) if mask else name
 
 
+def customer_rows(affiliate: Affiliate, referrals, *, mask: bool = True) -> list[dict]:
+    """One page of an agent's customers: name, joined, campaign, whether they
+    have deposited, and their net revenue this month."""
+    ids = [r.player_id for r in referrals]
+    month = utils.month_start(timezone.localdate())
+    this_month = {pid: v for pid, v in referral_stats_for(ids, start=_aware(month)).items()}
+    lifetime = referral_stats_for(ids)
+    names = accounts_services.usernames_for(ids)
+    return [{
+        'player': _shown(names.get(r.player_id, '?'), mask),
+        'joined': r.created_at,
+        'campaign': r.campaign,
+        'deposited': lifetime.get(r.player_id, {}).get('deposits', Decimal('0')) > 0,
+        'ngr_this_month': this_month.get(r.player_id, {}).get('ngr', Decimal('0')),
+    } for r in referrals]
+
+
+def referral_stats_for(ids: list[int], *, start=None, end=None) -> dict[int, dict]:
+    totals = wallet_services.totals_by_kind(ids, start=start, end=end)
+    return {pid: {'deposits': totals.get(pid, {}).get('deposit', Decimal('0')),
+                  'ngr': utils.net_gaming_revenue(totals.get(pid, {})),
+                  'active': any(k in totals.get(pid, {}) for k in utils.GAMING_KINDS)} for pid in ids}
+
+
 def dashboard(affiliate: Affiliate, *, mask: bool = True) -> dict:
     """What an affiliate (or an operator) sees: link stats, this month's
     running revenue and estimated commission, and money earned."""

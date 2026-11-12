@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { FaHandshake } from 'react-icons/fa';
 import { FaArrowRight, FaClockRotateLeft } from 'react-icons/fa6';
 import { BsLink45Deg } from 'react-icons/bs';
@@ -257,6 +257,120 @@ function commissionText(c: Commission) {
 
 type Tab = 'customers' | 'transactions' | 'withdrawals';
 
+interface Paged<T> { count: number; results: T[] }
+interface Customer { player: string; joined: string; campaign: string; deposited: boolean }
+const PAGE = 25;
+
+function PagerBar({ page, count, onPage }: { page: number; count: number; onPage: (p: number) => void }) {
+  const pages = Math.max(1, Math.ceil(count / PAGE));
+  if (pages <= 1) return null;
+  const from = (page - 1) * PAGE + 1;
+  return (
+    <div className="flex items-center justify-between gap-3 border-t border-border pt-3 text-xs text-muted-foreground">
+      <span>{from}–{Math.min(page * PAGE, count)} of {count.toLocaleString()}</span>
+      <div className="flex gap-2">
+        <button disabled={page <= 1} onClick={() => onPage(page - 1)} className="rounded-lg border border-border px-3 py-1.5 font-bold disabled:opacity-40">Previous</button>
+        <button disabled={page >= pages} onClick={() => onPage(page + 1)} className="rounded-lg border border-border px-3 py-1.5 font-bold disabled:opacity-40">Next</button>
+      </div>
+    </div>
+  );
+}
+
+/** Every customer linked to the agent, a page at a time (nobody hidden). */
+function CustomersList() {
+  const [page, setPage] = useState(1);
+  const [q, setQ] = useState('');
+  const { data, loading } = useApi<Paged<Customer>>(
+    `/affiliates/me/customers/?page=${page}&page_size=${PAGE}${q.trim() ? `&q=${encodeURIComponent(q.trim())}` : ''}`);
+  return (
+    <div className="space-y-3">
+      <input value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }} placeholder="Find a customer"
+        className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm" />
+      {loading && !data ? <LoadingState className="py-4" label="Loading customers…" /> : !data?.results.length ? (
+        <p className="py-4 text-sm text-muted-foreground">{q ? 'No customer matches.' : 'Nobody has joined with your link yet. Share it below.'}</p>
+      ) : (
+        <ul className="divide-y divide-border">
+          {data.results.map((r, i) => (
+            <li key={`${page}-${i}`} className="flex items-center justify-between gap-3 py-3">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold">{r.player}</p>
+                <p className="text-xs text-muted-foreground">Joined {new Date(r.joined).toLocaleDateString()}{r.campaign && ` · via ${r.campaign}`}</p>
+              </div>
+              <Badge variant={r.deposited ? 'default' : 'secondary'}>{r.deposited ? 'Deposited' : 'No deposit yet'}</Badge>
+            </li>
+          ))}
+        </ul>
+      )}
+      <PagerBar page={page} count={data?.count ?? 0} onPage={setPage} />
+    </div>
+  );
+}
+
+/** Every commission earned, newest first. */
+function EarningsList() {
+  const [page, setPage] = useState(1);
+  const { data, loading } = useApi<Paged<Commission>>(`/affiliates/me/history/?kind=commissions&page=${page}&page_size=${PAGE}`);
+  return (
+    <div className="space-y-3">
+      {loading && !data ? <LoadingState className="py-4" label="Loading earnings…" /> : !data?.results.length ? (
+        <p className="py-4 text-sm text-muted-foreground">Nothing yet. Your commission shows here each morning for the day before.</p>
+      ) : (
+        <ul className="divide-y divide-border">
+          {data.results.map((c) => {
+            const t = commissionText(c);
+            return (
+              <li key={c.id} className="flex items-start justify-between gap-3 py-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold">{t.title}</p>
+                  <p className="text-xs text-muted-foreground">{t.sub}</p>
+                </div>
+                <div className="shrink-0 text-right">
+                  <p className="font-bold tabular-nums text-win">+{money(c.amount)}</p>
+                  <Badge variant={STATUS_BADGE[c.status]}>{STATUS_LABEL[c.status]}</Badge>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      <PagerBar page={page} count={data?.count ?? 0} onPage={setPage} />
+    </div>
+  );
+}
+
+/** Every move to Winnings and every withdrawal, newest first. */
+function WithdrawalsList({ min }: { min: number }) {
+  const [page, setPage] = useState(1);
+  const { data, loading } = useApi<Paged<Payout>>(`/affiliates/me/history/?kind=payouts&page=${page}&page_size=${PAGE}`);
+  return (
+    <div className="space-y-3">
+      {loading && !data ? <LoadingState className="py-4" label="Loading withdrawals…" /> : !data?.results.length ? (
+        <p className="flex items-center gap-2 py-4 text-sm text-muted-foreground"><FaClockRotateLeft /> No withdrawals yet. You can withdraw once your wallet reaches {money(min)}.</p>
+      ) : (
+        <ul className="divide-y divide-border">
+          {data.results.map((po) => (
+            <li key={po.id} className="flex items-start justify-between gap-3 py-3">
+              <div className="min-w-0">
+                <p className="text-sm font-semibold">
+                  {po.method === 'wallet' ? 'Moved to your Winnings wallet' : <>To {po.method_label}{po.account_number && <span className="ml-1.5 font-mono text-xs text-muted-foreground">···{po.account_number.slice(-4)}</span>}</>}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {new Date(po.created_at).toLocaleDateString()}{(po.reference || po.note) && ` · ${po.status === 'paid' ? `Ref ${po.reference}` : po.note}`}
+                </p>
+              </div>
+              <div className="shrink-0 text-right">
+                <p className="font-bold tabular-nums">{money(po.amount)}</p>
+                <Badge variant={PAYOUT_BADGE[po.status]}>{PAYOUT_LABEL[po.status]}</Badge>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+      <PagerBar page={page} count={data?.count ?? 0} onPage={setPage} />
+    </div>
+  );
+}
+
 function Dashboard({ a, refetch }: { a: Affiliate & { stats: Stats }; refetch: () => void }) {
   const s = a.stats;
   const b = a.balance ?? { available: '0', pending: '0', in_payout: '0', paid_out: '0', carryover: '0' };
@@ -265,8 +379,6 @@ function Dashboard({ a, refetch }: { a: Affiliate & { stats: Stats }; refetch: (
   const p = a.programme;
   const welcome = p && Number(p.welcome_bonus_percent) > 0
     ? `${Number(p.welcome_bonus_percent)}%${Number(p.welcome_bonus_cap) > 0 ? ` (up to ${money(p.welcome_bonus_cap)})` : ''}` : undefined;
-  const payouts = a.payouts ?? [];
-  const commissions = a.commissions ?? [];
   const rate = Number(s.commission_rate ?? a.revshare_percent);
   const min = Number(a.payout_options?.min_payout ?? MIN_WITHDRAWAL);
   const canWithdraw = Number(b.available) >= min && !!a.payout_options;
@@ -274,17 +386,6 @@ function Dashboard({ a, refetch }: { a: Affiliate & { stats: Stats }; refetch: (
   // what is left here is only money still being checked or held.
   const auto = !!a.payout_options?.auto_payout && Number(b.available) < 0.01;
 
-  // Money in (commissions) and out (withdrawals), newest first.
-  const transactions = useMemo(() => [
-    ...commissions.filter((c) => c.status !== 'rejected').map((c) => ({
-      key: `c${c.id}`, at: c.created_at, ...commissionText(c), amount: Number(c.amount),
-      badge: <Badge variant={STATUS_BADGE[c.status]}>{STATUS_LABEL[c.status]}</Badge>,
-    })),
-    ...payouts.filter((po) => po.status !== 'rejected').map((po) => ({
-      key: `p${po.id}`, at: po.created_at, title: po.method === 'wallet' ? 'Paid into your Winnings wallet' : `Withdrawal to ${po.method_label}`, sub: new Date(po.created_at).toLocaleDateString(),
-      amount: -Number(po.amount), badge: <Badge variant={PAYOUT_BADGE[po.status]}>{PAYOUT_LABEL[po.status]}</Badge>,
-    })),
-  ].sort((x, y) => Date.parse(y.at) - Date.parse(x.at)), [commissions, payouts]);
 
   return (
     <div className="space-y-5">
@@ -364,8 +465,8 @@ function Dashboard({ a, refetch }: { a: Affiliate & { stats: Stats }; refetch: (
       <Card className="rounded-2xl">
         <CardHeader className="pb-0">
           <div className="-mx-1 flex gap-1 overflow-x-auto px-1" role="tablist">
-            {([['customers', `My customers (${s.signups})`], ['transactions', `Transactions (${transactions.length})`],
-              ['withdrawals', `Withdrawals (${payouts.length})`]] as [Tab, string][]).map(([id, label]) => (
+            {([['customers', `My customers (${s.signups})`], ['transactions', 'Earnings'],
+              ['withdrawals', 'Withdrawals']] as [Tab, string][]).map(([id, label]) => (
               <button key={id} role="tab" aria-selected={tab === id} onClick={() => setTab(id)}
                 className={`shrink-0 border-b-2 px-3 py-2 text-sm font-bold transition-colors ${tab === id ? 'border-secondary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}>
                 {label}
@@ -374,63 +475,9 @@ function Dashboard({ a, refetch }: { a: Affiliate & { stats: Stats }; refetch: (
           </div>
         </CardHeader>
         <CardContent className="pt-4">
-          {tab === 'customers' && (s.referrals.length === 0 ? (
-            <p className="py-4 text-sm text-muted-foreground">Nobody has joined with your link yet. Share it below.</p>
-          ) : (
-            <ul className="divide-y divide-border">
-              {s.referrals.map((r, i) => (
-                <li key={i} className="flex items-center justify-between gap-3 py-3">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold">{r.player}</p>
-                    <p className="text-xs text-muted-foreground">Joined {new Date(r.joined).toLocaleDateString()}{r.campaign && ` · via ${r.campaign}`}</p>
-                  </div>
-                  <Badge variant={r.deposited ? 'default' : 'secondary'}>{r.deposited ? 'Deposited' : 'No deposit yet'}</Badge>
-                </li>
-              ))}
-            </ul>
-          ))}
-
-          {tab === 'transactions' && (transactions.length === 0 ? (
-            <p className="py-4 text-sm text-muted-foreground">Nothing yet. Your commission shows here each morning for the day before.</p>
-          ) : (
-            <ul className="divide-y divide-border">
-              {transactions.map((x) => (
-                <li key={x.key} className="flex items-start justify-between gap-3 py-3">
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold">{x.title}</p>
-                    <p className="text-xs text-muted-foreground">{x.sub}</p>
-                  </div>
-                  <div className="shrink-0 text-right">
-                    <p className={`font-bold tabular-nums ${x.amount >= 0 ? 'text-win' : ''}`}>{x.amount >= 0 ? '+' : '−'}{money(Math.abs(x.amount))}</p>
-                    {x.badge}
-                  </div>
-                </li>
-              ))}
-            </ul>
-          ))}
-
-          {tab === 'withdrawals' && (payouts.length === 0 ? (
-            <p className="flex items-center gap-2 py-4 text-sm text-muted-foreground"><FaClockRotateLeft /> No withdrawals yet. You can withdraw once your wallet reaches {money(min)}.</p>
-          ) : (
-            <ul className="divide-y divide-border">
-              {payouts.map((po) => (
-                <li key={po.id} className="flex items-start justify-between gap-3 py-3">
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold">
-                      To {po.method_label}{po.account_number && <span className="ml-1.5 font-mono text-xs text-muted-foreground">···{po.account_number.slice(-4)}</span>}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {new Date(po.created_at).toLocaleDateString()}{(po.reference || po.note) && ` · ${po.status === 'paid' ? `Ref ${po.reference}` : po.note}`}
-                    </p>
-                  </div>
-                  <div className="shrink-0 text-right">
-                    <p className="font-bold tabular-nums">{money(po.amount)}</p>
-                    <Badge variant={PAYOUT_BADGE[po.status]}>{PAYOUT_LABEL[po.status]}</Badge>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          ))}
+          {tab === 'customers' && <CustomersList />}
+          {tab === 'transactions' && <EarningsList />}
+          {tab === 'withdrawals' && <WithdrawalsList min={min} />}
         </CardContent>
       </Card>
 

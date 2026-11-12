@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { BsCheck2Circle, BsXCircle } from 'react-icons/bs';
 import {
-  Badge, Btn, Drawer, EmptyState, Field, Notice, Tabs, TextInput, cx, money, tableClass, tdClass, thClass, trClass,
+  Badge, Btn, Drawer, EmptyState, Field, Notice, Pager, Tabs, TextInput, cx, money, tableClass, tdClass, thClass, trClass,
 } from '@/components/console/ui';
 import { useAuth } from '@/lib/auth-context';
 import { authedPost, useApi } from '@/lib/use-api';
@@ -13,15 +13,18 @@ interface Payout {
   account_name: string; account_number: string; bank_name: string; status: 'requested' | 'paid' | 'rejected';
   reference: string; note: string; created_at: string; decided_at: string | null;
 }
-type Page<T> = { results?: T[] } | T[];
+type Page<T> = { results?: T[]; count?: number } | T[];
+const countOf = <T,>(d?: Page<T> | null) => (Array.isArray(d) ? d.length : d?.count ?? d?.results?.length ?? 0);
 const rows = <T,>(d?: Page<T> | null) => (Array.isArray(d) ? d : d?.results ?? []);
 const TONE = { requested: 'gold', paid: 'green', rejected: 'red' } as const;
 
 /** Affiliate payout requests: send the money, then mark it paid — or reject it. */
 export function PayoutsTab() {
   const { accessToken } = useAuth();
-  const [status, setStatus] = useState<'requested' | 'paid' | 'rejected' | ''>('requested');
-  const { data, loading, refetch } = useApi<Page<Payout>>(`/admin/affiliate-payouts/?status=${status}`);
+  const [status, setStatusRaw] = useState<'requested' | 'paid' | 'rejected' | ''>('requested');
+  const [page, setPage] = useState(1);
+  const setStatus = (v: 'requested' | 'paid' | 'rejected' | '') => { setStatusRaw(v); setPage(1); };
+  const { data, loading, refetch } = useApi<Page<Payout>>(`/admin/affiliate-payouts/?status=${status}&page=${page}&page_size=25`);
   const [acting, setActing] = useState<{ payout: Payout; verb: 'mark-paid' | 'reject' } | null>(null);
   const [reference, setReference] = useState('');
   const [note, setNote] = useState('');
@@ -98,6 +101,7 @@ export function PayoutsTab() {
                   ))}
                 </tbody>
               </table>
+              <Pager page={page} count={countOf(data)} pageSize={25} onPage={setPage} />
             </div>
           )}
       </div>
