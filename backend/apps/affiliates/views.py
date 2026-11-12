@@ -16,6 +16,7 @@ from apps.accounts import services as accounts_services
 from common.timeframes import TimeframeError
 
 from . import services
+from .pagination import AffiliatePagination
 from .models import Affiliate, Commission, Payout, Referral
 from .serializers import (
     AdminAffiliateSerializer, AdminPayoutSerializer, AffiliateSerializer, CommissionSerializer, PayoutSerializer,
@@ -33,6 +34,15 @@ def _money_json(value):
     if isinstance(value, list):
         return [_money_json(v) for v in value]
     return value
+
+
+def _affiliates_matching(q: str):
+    """Agents whose code or username contains `q` (staff search)."""
+    from django.db.models import Q
+
+    from apps.accounts.models import Player
+    players = Player.objects.filter(username__icontains=q).values_list('id', flat=True)
+    return Affiliate.objects.filter(Q(code__icontains=q) | Q(player_id__in=players)).values('pk')
 
 
 def _player_or_403(request):
@@ -124,11 +134,14 @@ class AdminPayoutViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     mark-paid ({reference, note}) and reject ({note})."""
     serializer_class = AdminPayoutSerializer
     permission_classes = [IsAdminUser]
+    pagination_class = AffiliatePagination
 
     def get_queryset(self):
         qs = Payout.objects.select_related('affiliate').order_by('-created_at')
         wanted = self.request.query_params.get('status')
-        return qs.filter(status=wanted) if wanted else qs
+        qs = qs.filter(status=wanted) if wanted else qs
+        q = (self.request.query_params.get('q') or '').strip()
+        return qs.filter(affiliate__in=_affiliates_matching(q)) if q else qs
 
     def get_serializer_context(self):
         from apps.accounts.models import Player
@@ -262,7 +275,7 @@ class AdminProgrammeView(APIView):
 
     def put(self, request):
         fields = [*services.PROGRAMME_FIELDS, 'negative_carryover', 'external_payouts', 'auto_payout',
-                  'auto_approve_commissions']
+                  'auto_approve_commissions', 'lock_until_month_end']
         try:
             programme = services.update_programme(**{f: request.data.get(f) for f in fields})
         except (services.AffiliateError, ArithmeticError, ValueError) as exc:
@@ -290,13 +303,16 @@ class AdminAffiliateViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, vi
     """Staff: every affiliate, with approve/suspend, terms and dashboards."""
     serializer_class = AdminAffiliateSerializer
     permission_classes = [IsAdminUser]
+    pagination_class = AffiliatePagination
 
     def get_queryset(self):
         qs = Affiliate.objects.annotate(
             referrals_count=Count('referrals', distinct=True), clicks_count=Count('clicks', distinct=True),
         ).order_by('-created_at')
         wanted = self.request.query_params.get('status')
-        return qs.filter(status=wanted) if wanted else qs
+        qs = qs.filter(status=wanted) if wanted else qs
+        q = (self.request.query_params.get('q') or '').strip()
+        return qs.filter(pk__in=_affiliates_matching(q)) if q else qs
 
     def get_serializer_context(self):
         ctx = super().get_serializer_context()
@@ -414,6 +430,7 @@ class AdminCommissionViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     """Staff: commissions to review and pay."""
     serializer_class = CommissionSerializer
     permission_classes = [IsAdminUser]
+    pagination_class = AffiliatePagination
 
     def get_queryset(self):
         qs = Commission.objects.select_related('affiliate').order_by('-created_at')
@@ -422,7 +439,8 @@ class AdminCommissionViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
             qs = qs.filter(status=params['status'])
         if params.get('affiliate'):
             qs = qs.filter(affiliate_id=params['affiliate'])
-        return qs
+        q = (params.get('q') or '').strip()
+        return qs.filter(affiliate__in=_affiliates_matching(q)) if q else qs
 
     @action(detail=True, methods=['post'], url_path='approve')
     def approve(self, request, pk=None):
@@ -449,3 +467,52 @@ class AdminCommissionViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         except ValueError:
             return Response({'detail': 'today must be YYYY-MM-DD'}, status=status.HTTP_400_BAD_REQUEST)
         return Response(result)
+
+
+def _my_affiliate(request):
+    player, denied = _player_or_403(request)
+    if denied:
+        return None, denied
+    affiliate = services.get_for_player(player.id)
+    if affiliate is None:
+        return None, Response({'detail': 'not an affiliate'}, status=status.HTTP_404_NOT_FOUND)
+    return affiliate, None
+
+
+class MyCustomersView(APIView):
+    """GET /api/affiliates/me/customers/?page=&page_size=&q= — every customer
+    linked to the agent, newest first, one page at a time (names masked for
+    the agent, in full for staff viewing as them)."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        affiliate, denied = _my_affiliate(request)
+        if denied:
+            return denied
+        paginator = AffiliatePagination()
+        qs = affiliate.referrals.order_by('-created_at')
+        q = (request.query_params.get('q') or '').strip()
+        if q:
+            from apps.accounts.models import Player
+            qs = qs.filter(player_id__in=Player.objects.filter(username__icontains=q).values('id'))
+        page = paginator.paginate_queryset(qs, request, view=self)
+        return paginator.get_paginated_response(
+            services.customer_rows(affiliate, page, mask=not impersonation.is_impersonated(request)))
+
+
+class MyHistoryView(APIView):
+    """GET /api/affiliates/me/history/?kind=commissions|payouts&page= — the
+    agent's earnings or withdrawals, newest first, one page at a time."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        affiliate, denied = _my_affiliate(request)
+        if denied:
+            return denied
+        paginator = AffiliatePagination()
+        if request.query_params.get('kind') == 'payouts':
+            page = paginator.paginate_queryset(affiliate.payouts.order_by('-created_at'), request, view=self)
+            return paginator.get_paginated_response(PayoutSerializer(page, many=True).data)
+        qs = affiliate.commissions.exclude(status=Commission.Status.REJECTED).order_by('-created_at')
+        page = paginator.paginate_queryset(qs, request, view=self)
+        return paginator.get_paginated_response(CommissionSerializer(page, many=True).data)

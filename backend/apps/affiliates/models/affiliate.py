@@ -177,6 +177,10 @@ class AffiliateProgramme(models.Model):
     # A deposit (CPA) or monthly commission is final as soon as it qualifies,
     # with no operator approval. Off: staff approve each one first.
     auto_approve_commissions = models.BooleanField(default=True)
+    # Earnings stay in the agent's own wallet, locked for the month they were
+    # earned in; from the 1st of the next month the agent moves them to their
+    # Winnings wallet or withdraws them (mobile money / bank).
+    lock_until_month_end = models.BooleanField(default=True)
     # Agents earn their % of what their customers actually lose — real-money
     # stakes minus winnings, every game, pooled per agent and closed daily —
     # from this moment. Losing tickets settled before it were paid per ticket.

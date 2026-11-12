@@ -7,7 +7,7 @@ import { Badge } from '@slyk/ui/components/badge';
 import { useAuth } from '@/lib/auth-context';
 import { authedPost, useApi } from '@/lib/use-api';
 import { LoadingState, Spinner } from '@slyk/ui/components/spinner';
-import { PageHeader } from '@/components/console/ui';
+import { PageHeader, Pager, TextInput } from '@/components/console/ui';
 import { AffiliateAnalyticsPanel } from '@/components/affiliates/affiliate-analytics';
 import { ProgrammeSettings } from '@/components/affiliates/programme-settings';
 import { PayoutsTab } from '@/components/affiliates/payouts-tab';
@@ -47,7 +47,9 @@ interface Commission {
   created_at: string;
 }
 
-type Page<T> = { results?: T[] } | T[];
+type Page<T> = { results?: T[]; count?: number } | T[];
+const countOf = <T,>(d?: Page<T> | null) => (Array.isArray(d) ? d.length : d?.count ?? d?.results?.length ?? 0);
+const PAGE = 25;
 const rowsOf = <T,>(d?: Page<T> | null) => (Array.isArray(d) ? d : d?.results ?? []);
 
 const money = (v: string) => `$${Number(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -127,8 +129,12 @@ function TermsEditor({ a, onSaved }: { a: Affiliate; onSaved: () => void }) {
 
 function AffiliatesTab() {
   const { accessToken } = useAuth();
-  const [status, setStatus] = useState('pending');
-  const { data, loading, refetch } = useApi<Page<Affiliate>>(`/admin/affiliates/?status=${status}&page_size=100`);
+  const [status, setStatusRaw] = useState('pending');
+  const [page, setPage] = useState(1);
+  const [q, setQ] = useState('');
+  const setStatus = (v: string) => { setStatusRaw(v); setPage(1); };
+  const { data, loading, refetch } = useApi<Page<Affiliate>>(
+    `/admin/affiliates/?status=${status}&page=${page}&page_size=${PAGE}${q.trim() ? `&q=${encodeURIComponent(q.trim())}` : ''}`);
   const [open, setOpen] = useState<number | null>(null);
   const [stats, setStats] = useState<number | null>(null);
   const [tickets, setTickets] = useState<number | null>(null);
@@ -151,7 +157,11 @@ function AffiliatesTab() {
   return (
     <div className="space-y-4">
       <CreditingHealth version={credited} />
-      <Filter value={status} onChange={setStatus} options={[['pending', 'Pending'], ['active', 'Active'], ['suspended', 'Suspended'], ['rejected', 'Rejected'], ['', 'All']]} />
+      <div className="flex flex-wrap items-center gap-3">
+        <Filter value={status} onChange={setStatus} options={[['pending', 'Pending'], ['active', 'Active'], ['suspended', 'Suspended'], ['rejected', 'Rejected'], ['', 'All']]} />
+        <TextInput value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }} placeholder="Search code or username" className="h-9 w-64" />
+        <span className="ml-auto text-xs text-muted-foreground">{countOf(data)} agent{countOf(data) === 1 ? '' : 's'}</span>
+      </div>
       {error && <p className="text-sm text-red-500">{error}</p>}
       <Card className="overflow-hidden rounded-2xl border-border/70">
         <CardContent className="p-0">
@@ -221,6 +231,7 @@ function AffiliatesTab() {
               </tbody>
             </table>
           )}
+          <Pager page={page} count={countOf(data)} pageSize={PAGE} onPage={setPage} />
         </CardContent>
       </Card>
     </div>
@@ -229,8 +240,12 @@ function AffiliatesTab() {
 
 function CommissionsTab() {
   const { accessToken } = useAuth();
-  const [status, setStatus] = useState('pending');
-  const { data, loading, refetch } = useApi<Page<Commission>>(`/admin/affiliate-commissions/?status=${status}`);
+  const [status, setStatusRaw] = useState('pending');
+  const [page, setPage] = useState(1);
+  const [q, setQ] = useState('');
+  const setStatus = (v: string) => { setStatusRaw(v); setPage(1); };
+  const { data, loading, refetch } = useApi<Page<Commission>>(
+    `/admin/affiliate-commissions/?status=${status}&page=${page}&page_size=${PAGE}${q.trim() ? `&q=${encodeURIComponent(q.trim())}` : ''}`);
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState<number | 'run' | null>(null);
   const rows = rowsOf(data);
@@ -258,6 +273,7 @@ function CommissionsTab() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
         <Filter value={status} onChange={setStatus} options={[['pending', 'To review'], ['approved', 'Approved'], ['paid', 'Paid (before payouts)'], ['rejected', 'Rejected'], ['', 'All']]} />
+        <TextInput value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }} placeholder="Agent code or username" className="h-9 w-56" />
         <button
           onClick={runNow}
           disabled={busy === 'run'}
@@ -315,6 +331,7 @@ function CommissionsTab() {
               </tbody>
             </table>
           )}
+          <Pager page={page} count={countOf(data)} pageSize={PAGE} onPage={setPage} />
         </CardContent>
       </Card>
     </div>

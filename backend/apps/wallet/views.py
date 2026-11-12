@@ -402,6 +402,19 @@ class MyWithdrawalsView(APIView):
         return Response({'withdrawal': withdrawals.payload(req), **wallets_payload(player.id)})
 
 
+def _page_args(request, *, default: int, most: int = 200) -> tuple[int, int]:
+    """(page size, page number) from ?page_size= / ?page=, clamped."""
+    try:
+        size = max(1, min(int(request.query_params.get('page_size') or default), most))
+    except ValueError:
+        size = default
+    try:
+        page = max(1, int(request.query_params.get('page') or 1))
+    except ValueError:
+        page = 1
+    return size, page
+
+
 class AdminWithdrawalsView(APIView):
     """GET /api/admin/withdrawals/?status=requested|paid|rejected|cancelled|all&q=
     — the payout queue, with what staff check before paying.
@@ -426,7 +439,10 @@ class AdminWithdrawalsView(APIView):
             ids = list(Player.objects.filter(Q(username__icontains=q) | Q(email__icontains=q)).values_list('id', flat=True)[:200])
             qs = qs.filter(Q(player_id__in=ids) | Q(account_number__icontains=q) | Q(reference__icontains=q)
                            | Q(id=int(q) if q.isdigit() else -1))
-        rows = list(qs.order_by('created_at' if state == 'requested' else '-id')[:200])
+        size, page = _page_args(request, default=200)
+        total = qs.count()
+        start = (page - 1) * size
+        rows = list(qs.order_by('created_at' if state == 'requested' else '-id')[start:start + size])
         players = {p.id: p for p in Player.objects.filter(id__in={r.player_id for r in rows})}
         out = []
         for r in rows:
@@ -438,7 +454,7 @@ class AdminWithdrawalsView(APIView):
                 row['context'] = withdrawals.player_context(r.player_id)
             out.append(row)
         return Response({
-            'results': out,
+            'results': out, 'count': total, 'page': page, 'page_size': size,
             'counts': {s: WithdrawalRequest.objects.filter(status=s).count() for s in ('requested',)},
             'pending_total': f"{(WithdrawalRequest.objects.filter(status='requested').aggregate(t=Sum('amount'))['t'] or Decimal('0')):.2f}",
         })
