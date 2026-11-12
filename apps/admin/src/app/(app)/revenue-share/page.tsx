@@ -8,6 +8,7 @@ import {
 } from '@/components/console/ui';
 import { useAuth } from '@/lib/auth-context';
 import { authedPost, authedRequest, useApi } from '@/lib/use-api';
+import { PoolLedger, WeeklyAudits } from '@/components/revenue/pool-audit';
 
 interface Withdrawal {
   id: number; slot: number; label: string; amount: string; status: 'requested' | 'paid' | 'rejected'; status_label: string;
@@ -24,12 +25,14 @@ interface Day {
   pool: string; affiliate_costs: string;
 }
 interface Option { id: string; label: string }
-interface HolderView { role: 'holder'; wallet: Wallet; withdrawals: Withdrawal[]; methods: Option[] }
+interface Pool { earned: string; affiliate_costs: string; expenses: string; remaining: string; expenses_by_category: Record<string, string> }
+interface HolderView { role: 'holder'; wallet: Wallet; withdrawals: Withdrawal[]; methods: Option[]; pool: Pool; is_founder: boolean }
 interface BossView {
-  role: 'superuser'; own_slot: number | null;
+  role: 'superuser'; own_slot: number | null; is_founder: boolean;
+  founder: { id: number; username: string } | null; founder_set: boolean; superusers: { id: number; username: string }[];
   settings: { share_percent: string; started_on: string | null; locked_start: boolean };
   wallets: Wallet[];
-  pool: { earned: string; affiliate_costs: string; expenses: string; remaining: string; expenses_by_category: Record<string, string> };
+  pool: Pool;
   today: { day: string; ggr: string; bonus_conversions: string; carried_in: string; base: string; share_each: string; pool: string };
   days: Day[]; withdrawals: Withdrawal[];
   expenses: { id: number; day: string; category: string; category_label: string; amount: string; note: string; recorded_by: string }[];
@@ -170,6 +173,14 @@ function HolderPanel({ view, onDone, onFail }: { view: HolderView; onDone: (t: s
         )}
       </Panel>
       <Panel title="My withdrawals" padded={false}><WithdrawalsTable rows={view.withdrawals} /></Panel>
+      <div className="grid gap-3 sm:grid-cols-4">
+        <Mini label="Into the pool" value={view.pool.earned} />
+        <Mini label="Affiliates paid" value={`-${view.pool.affiliate_costs}`} />
+        <Mini label="Costs recorded" value={`-${view.pool.expenses}`} />
+        <Mini label="In the pool" value={view.pool.remaining} strong />
+      </div>
+      <PoolLedger />
+      <WeeklyAudits />
     </>
   );
 }
@@ -203,7 +214,7 @@ function BossPanel({ view, onDone, onFail }: { view: BossView; onDone: (t: strin
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <StatTile label="Today so far (real-money GGR)" value={money(view.today.ggr)} icon={BsSunrise}
           hint={`${Number(view.today.bonus_conversions) > 0 ? `After ${money(view.today.bonus_conversions)} of bonus unlocked into Winnings. ` : ''}If the day ended now: ${money(view.today.share_each)} per wallet, ${money(view.today.pool)} to the pool${Number(view.today.carried_in) < 0 ? ` (after ${money(view.today.carried_in)} carried from losing days)` : ''}.`} />
-        <StatTile label="Operating pool left" value={money(view.pool.remaining)} icon={BsPiggyBank} tone={Number(view.pool.remaining) < 0 ? 'red' : 'indigo'}
+        <StatTile label="In the pool" value={money(view.pool.remaining)} icon={BsPiggyBank} tone={Number(view.pool.remaining) < 0 ? 'red' : 'indigo'}
           hint={`${money(view.pool.earned)} in, less ${money(view.pool.affiliate_costs)} affiliates and ${money(view.pool.expenses)} costs.`} />
         <StatTile label="Share per wallet" value={`${pct}%`} icon={BsPieChart} hint={`Pool keeps ${(100 - 3 * pct).toFixed(2).replace(/\.00$/, '')}% of each day.`} />
         <StatTile label="Owed to partners" value={money(view.wallets.reduce((s, w) => s + Number(w.balance), 0))} icon={BsCashCoin}
@@ -226,6 +237,8 @@ function BossPanel({ view, onDone, onFail }: { view: BossView; onDone: (t: strin
       </Panel>
 
       <PoolPanel view={view} onDone={onDone} onFail={onFail} />
+      <PoolLedger />
+      <WeeklyAudits />
 
       <Panel title="Closed days" description="Each day is shared once, when it ends. A losing day carries its loss forward; later days earn it back before anything is shared." padded={false}>
         {view.days.length === 0 ? <EmptyState icon={BsSunrise} title="No days closed yet">The first day is shared when it ends.</EmptyState> : (
@@ -284,7 +297,7 @@ function PoolPanel({ view, onDone, onFail }: { view: BossView; onDone: (t: strin
         <Mini label="Into the pool" value={view.pool.earned} />
         <Mini label="Affiliates paid" value={`-${view.pool.affiliate_costs}`} />
         <Mini label="Costs recorded" value={`-${view.pool.expenses}`} />
-        <Mini label="Left" value={view.pool.remaining} strong />
+        <Mini label="In the pool" value={view.pool.remaining} strong />
       </div>
       <div className="flex flex-wrap items-end gap-3">
         <Field label="Date" className="w-40"><TextInput type="date" value={form.day} max={today} onChange={(e) => setForm({ ...form, day: e.target.value })} /></Field>
@@ -330,8 +343,10 @@ function SettingsPanel({ view, onDone, onFail }: { view: BossView; onDone: (t: s
   const [pct, setPct] = useState(view.settings.share_percent);
   const [start, setStart] = useState(view.settings.started_on ?? '');
   const [rows, setRows] = useState(view.wallets.map((w) => ({ slot: w.slot, label: w.label, holder_id: w.holder_id ? String(w.holder_id) : '' })));
+  const [founder, setFounder] = useState(view.founder_set && view.founder ? String(view.founder.id) : '');
   const [busy, setBusy] = useState(false);
   useEffect(() => {
+    setFounder(view.founder_set && view.founder ? String(view.founder.id) : '');
     setPct(view.settings.share_percent); setStart(view.settings.started_on ?? '');
     setRows(view.wallets.map((w) => ({ slot: w.slot, label: w.label, holder_id: w.holder_id ? String(w.holder_id) : '' })));
   }, [view]);
@@ -339,7 +354,7 @@ function SettingsPanel({ view, onDone, onFail }: { view: BossView; onDone: (t: s
     if (!accessToken) return;
     setBusy(true);
     const res = await authedRequest('PUT', '/admin/revenue-share/settings/', accessToken, {
-      share_percent: pct, started_on: start || null,
+      share_percent: pct, started_on: start || null, founder_id: founder ? Number(founder) : null,
       wallets: rows.map((r) => ({ slot: r.slot, label: r.label, holder_id: r.holder_id ? Number(r.holder_id) : null })),
     });
     setBusy(false);
@@ -353,6 +368,12 @@ function SettingsPanel({ view, onDone, onFail }: { view: BossView; onDone: (t: s
         </Field>
         <Field label="First day that counts" hint={view.settings.locked_start ? 'Fixed once a day has been shared.' : 'Days before it are never shared.'}>
           <TextInput type="date" value={start} disabled={view.settings.locked_start} onChange={(e) => setStart(e.target.value)} />
+        </Field>
+        <Field label="Founder (weekly audit)" hint="Uploads the Paynow and payouts reports and signs each week off.">
+          <Select value={founder} onChange={(e) => setFounder(e.target.value)}>
+            <option value="">Wallet 1’s holder{!view.founder_set && view.founder ? ` (${view.founder.username})` : ''}</option>
+            {view.superusers.map((u) => <option key={u.id} value={u.id}>{u.username}</option>)}
+          </Select>
         </Field>
       </div>
       <div className="mt-4 grid gap-4 lg:grid-cols-3">

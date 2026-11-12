@@ -22,6 +22,10 @@ class RevenueSettings(models.Model):
     `started_on` is the first day that counts (days before it are never shared)."""
     share_percent = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal('10.00'))
     started_on = models.DateField(null=True, blank=True)
+    # Uploads the weekly Paynow and payouts reports and signs each week off.
+    # Unset: whoever holds Partner 1's wallet.
+    founder = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+                                related_name='+')
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -164,3 +168,35 @@ class PoolExpense(models.Model):
     class Meta:
         db_table = 'revenue_pool_expense'
         ordering = ['-day', '-id']
+
+
+class PoolAudit(models.Model):
+    """One week (Monday to Sunday) of the pool checked against the outside
+    world: the founder uploads Paynow's report of money received and their own
+    report of money paid out to players; each is matched line by line against
+    what the platform recorded. Signing a week off freezes its figures and
+    locks that week's pool costs."""
+
+    class Status(models.TextChoices):
+        OPEN = 'open', 'Waiting for reports'
+        REVIEW = 'review', 'Reports in — to sign off'
+        SIGNED = 'signed', 'Signed off'
+
+    week_start = models.DateField(unique=True)
+    status = models.CharField(max_length=8, choices=Status.choices, default=Status.OPEN)
+    paynow_file = models.FileField(upload_to='pool-audits/%Y/', blank=True)
+    paynow_result = models.JSONField(default=dict, blank=True)
+    payouts_file = models.FileField(upload_to='pool-audits/%Y/', blank=True)
+    payouts_result = models.JSONField(default=dict, blank=True)
+    # The platform's own figures, frozen at sign-off (live until then).
+    snapshot = models.JSONField(default=dict, blank=True)
+    note = models.CharField(max_length=1000, blank=True)
+    uploaded_by = models.CharField(max_length=150, blank=True)
+    signed_by = models.CharField(max_length=150, blank=True)
+    signed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'revenue_pool_audit'
+        ordering = ['-week_start']

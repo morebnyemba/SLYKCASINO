@@ -217,6 +217,9 @@ def record_expense(*, day, category: str, amount, note: str = '', by: str, reque
         raise RevenueError('The amount must be above zero.')
     if day > timezone.localdate():
         raise RevenueError('That date is in the future.')
+    from .audit import locked
+    if locked(day):
+        raise RevenueError('That week is signed off — its costs are locked. Record it in the current week instead.')
     expense = PoolExpense.objects.create(day=day, category=category, amount=amount, note=(note or '').strip()[:300],
                                          recorded_by=by[:150])
     accounts_services.audit(None, 'revenue_expense_recorded', request, category=category, amount=str(amount),
@@ -228,6 +231,9 @@ def delete_expense(expense_id: int, *, by: str, request=None) -> None:
     expense = PoolExpense.objects.filter(pk=expense_id).first()
     if expense is None:
         raise RevenueError('Expense not found.')
+    from .audit import locked
+    if locked(expense.day):
+        raise RevenueError('That week is signed off — its costs are locked.')
     accounts_services.audit(None, 'revenue_expense_deleted', request, category=expense.category,
                             amount=str(expense.amount), day=expense.day.isoformat(), by=by)
     expense.delete()
@@ -235,7 +241,8 @@ def delete_expense(expense_id: int, *, by: str, request=None) -> None:
 
 # -- settings ---------------------------------------------------------------------
 
-def update_settings(*, share_percent=None, started_on=None, wallets=None, by: str, request=None) -> RevenueSettings:
+def update_settings(*, share_percent=None, started_on=None, wallets=None, founder_id=..., by: str,
+                    request=None) -> RevenueSettings:
     """Superuser: the share per wallet (applies to days not yet closed), the
     first day that counts (only before any day has closed), and who holds each
     wallet (a staff login; one wallet each)."""
@@ -261,6 +268,14 @@ def update_settings(*, share_percent=None, started_on=None, wallets=None, by: st
             if start > timezone.localdate():
                 raise RevenueError('The start date can’t be in the future.')
             cfg.started_on = start
+        if founder_id is not ...:
+            if founder_id in (None, ''):
+                cfg.founder = None
+            else:
+                user = get_user_model().objects.filter(pk=founder_id, is_superuser=True, is_active=True).first()
+                if user is None:
+                    raise RevenueError('The founder must be an active superuser.')
+                cfg.founder = user
         cfg.save()
         if wallets:
             ShareWallet.ensure()
@@ -286,6 +301,7 @@ def update_settings(*, share_percent=None, started_on=None, wallets=None, by: st
                 wallet.save()
     accounts_services.audit(None, 'revenue_settings', request, share_percent=str(cfg.share_percent),
                             started_on=str(cfg.started_on), by=by,
+                            founder=cfg.founder.get_username() if cfg.founder else None,
                             holders={w.slot: (w.holder.get_username() if w.holder else None) for w in ShareWallet.ensure()})
     return cfg
 

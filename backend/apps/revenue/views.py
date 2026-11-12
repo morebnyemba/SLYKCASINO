@@ -9,8 +9,8 @@ from rest_framework.permissions import IsAdminUser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from . import services
-from .models import PoolExpense, RevenueDay, RevenueSettings, ShareWallet, ShareWithdrawal
+from . import audit, services
+from .models import PoolAudit, PoolExpense, RevenueDay, RevenueSettings, ShareWallet, ShareWithdrawal
 
 
 def _forbidden(text='Only a superuser can do this.'):
@@ -34,7 +34,8 @@ class OverviewView(APIView):
         if not request.user.is_superuser:
             if own is None:
                 return _forbidden('Revenue share is visible to superusers and wallet holders only.')
-            return Response({'role': 'holder', 'wallet': services.wallet_summary(own),
+            return Response({'role': 'holder', 'wallet': services.wallet_summary(own), 'pool': services.pool_summary(),
+                             'is_founder': audit.is_founder(request.user),
                              'withdrawals': [services.withdrawal_row(w) for w in own.withdrawals.all()[:20]],
                              'methods': [{'id': m.value, 'label': m.label} for m in ShareWithdrawal.Method]})
         cfg = RevenueSettings.load()
@@ -42,6 +43,10 @@ class OverviewView(APIView):
         return Response({
             'role': 'superuser',
             'own_slot': own.slot if own else None,
+            'is_founder': audit.is_founder(request.user),
+            'founder': (lambda f: {'id': f.id, 'username': f.get_username()} if f else None)(audit.founder()),
+            'founder_set': cfg.founder_id is not None,
+            'superusers': [{'id': u.id, 'username': u.get_username()} for u in staff if u.is_superuser],
             'settings': {'share_percent': str(cfg.share_percent), 'started_on': cfg.started_on.isoformat() if cfg.started_on else None,
                          'locked_start': RevenueDay.objects.exists()},
             'wallets': [services.wallet_summary(w, entries=5) for w in ShareWallet.ensure()],
@@ -112,7 +117,8 @@ class ExpenseView(APIView):
         try:
             services.delete_expense(pk, by=request.user.get_username(), request=request)
         except services.RevenueError as exc:
-            return Response({'detail': str(exc)}, status=status.HTTP_404_NOT_FOUND)
+            code = status.HTTP_404_NOT_FOUND if 'not found' in str(exc) else status.HTTP_400_BAD_REQUEST
+            return Response({'detail': str(exc)}, status=code)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -127,9 +133,104 @@ class SettingsView(APIView):
         if wallets is not None and not isinstance(wallets, list):
             return Response({'detail': 'wallets must be a list.'}, status=status.HTTP_400_BAD_REQUEST)
         try:
+            extra = {'founder_id': request.data.get('founder_id')} if 'founder_id' in request.data else {}
             services.update_settings(share_percent=request.data.get('share_percent'),
-                                     started_on=request.data.get('started_on'), wallets=wallets,
+                                     started_on=request.data.get('started_on'), wallets=wallets, **extra,
                                      by=request.user.get_username(), request=request)
         except services.RevenueError as exc:
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return OverviewView().get(request)
+
+
+def _week(value: str):
+    from datetime import date
+    try:
+        return date.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+class PoolLedgerView(APIView):
+    """GET ?from=&to= — the operating pool's movements with a running balance.
+    Superusers and wallet holders (read-only for holders)."""
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        if not audit.can_view(request.user):
+            return _forbidden('The pool is visible to superusers and wallet holders only.')
+        services.close_days()
+        start, end = _week(request.query_params.get('from') or ''), _week(request.query_params.get('to') or '')
+        return Response({'summary': services.pool_summary(), **audit.pool_ledger(start=start, end=end)})
+
+
+class PoolDayView(APIView):
+    """GET — the affiliate commissions behind one closed day's pool cost."""
+    permission_classes = [IsAdminUser]
+
+    def get(self, request, day: str):
+        if not audit.can_view(request.user):
+            return _forbidden('The pool is visible to superusers and wallet holders only.')
+        d = _week(day)
+        if d is None:
+            return Response({'detail': 'Use YYYY-MM-DD.'}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({'day': day, 'commissions': audit.affiliate_costs_on(d)})
+
+
+class AuditsView(APIView):
+    """GET — every weekly pool audit (newest first) and who the founder is."""
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        if not audit.can_view(request.user):
+            return _forbidden('Pool audits are visible to superusers and wallet holders only.')
+        audit.ensure_weeks()
+        f = audit.founder()
+        rows = [audit.audit_row(a) for a in PoolAudit.objects.all()[:26]]
+        return Response({'is_founder': audit.is_founder(request.user), 'founder': f.get_username() if f else None,
+                         'audits': rows})
+
+
+class AuditUploadView(APIView):
+    """POST multipart {kind: paynow|payouts, file} or {kind, total} — the founder."""
+    permission_classes = [IsAdminUser]
+
+    def post(self, request, week: str):
+        w = _week(week)
+        if w is None:
+            return Response({'detail': 'Use YYYY-MM-DD.'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            a = audit.upload(w, str(request.data.get('kind') or ''), user=request.user, file=request.FILES.get('file'),
+                             total=request.data.get('total'), request=request)
+        except audit.AuditError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(audit.audit_row(a))
+
+
+class AuditSignView(APIView):
+    """POST {note?} — the founder signs the week off (freezes it, locks its costs)."""
+    permission_classes = [IsAdminUser]
+
+    def post(self, request, week: str):
+        w = _week(week)
+        if w is None:
+            return Response({'detail': 'Use YYYY-MM-DD.'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            a = audit.sign_off(w, user=request.user, note=str(request.data.get('note') or ''), request=request)
+        except audit.AuditError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(audit.audit_row(a))
+
+
+class AuditFileView(APIView):
+    """GET — download an uploaded report (it holds players' numbers: staff with pool access only)."""
+    permission_classes = [IsAdminUser]
+
+    def get(self, request, week: str, kind: str):
+        from django.http import FileResponse
+        if not audit.can_view(request.user):
+            return _forbidden('Pool audits are visible to superusers and wallet holders only.')
+        a = PoolAudit.objects.filter(week_start=_week(week)).first() if _week(week) else None
+        f = getattr(a, f'{kind}_file', None) if a and kind in audit.KINDS else None
+        if not f:
+            return Response({'detail': 'No such report.'}, status=status.HTTP_404_NOT_FOUND)
+        return FileResponse(f.open('rb'), as_attachment=True, filename=f.name.rsplit('/', 1)[-1])
