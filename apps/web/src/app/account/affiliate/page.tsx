@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { FaHandshake } from 'react-icons/fa';
-import { FaArrowRight, FaClockRotateLeft } from 'react-icons/fa6';
+import { FaArrowRight, FaClockRotateLeft, FaLock, FaLockOpen } from 'react-icons/fa6';
 import { BsLink45Deg } from 'react-icons/bs';
 import { Card, CardContent, CardHeader } from '@slyk/ui/components/card';
 import { Badge } from '@slyk/ui/components/badge';
@@ -234,14 +234,17 @@ function Apply({ onDone }: { onDone: () => void }) {
   );
 }
 
-function MoneyChip({ label, value }: { label: string; value: string }) {
+function MoneyChip({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
     <div className="rounded-xl bg-white/10 px-3 py-2.5 backdrop-blur-sm">
       <p className="text-[11px] font-semibold uppercase tracking-wide text-white/60">{label}</p>
       <p className="mt-0.5 text-base font-extrabold tabular-nums sm:text-lg">{value}</p>
+      {hint && <p className="text-[10.5px] text-white/55">{hint}</p>}
     </div>
   );
 }
+
+const shortDate = (iso: string) => new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
 
 function commissionText(c: Commission) {
   if (c.kind === 'netloss') {
@@ -403,12 +406,21 @@ function Dashboard({ a, refetch }: { a: Affiliate & { stats: Stats }; refetch: (
             ) : (
               <>
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/60">Agent wallet · code {a.code}</p>
-                <p className="mt-1 text-4xl font-extrabold tabular-nums sm:text-5xl">{money(b.available)}</p>
-                <p className="mt-1 text-sm text-white/75">
-                  {Number(b.locked ?? 0) > 0 && b.unlocks_on
-                    ? <>Plus <b className="text-white">{money(b.locked!)}</b> earned this month — unlocks on {new Date(b.unlocks_on).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}. </>
-                    : null}
-                  Move it to your Winnings wallet or withdraw it (minimum {money(min)}).
+                <p className="mt-1 text-4xl font-extrabold tabular-nums sm:text-5xl">{money(Number(b.available) + Number(b.locked ?? 0))}</p>
+                <div className="mt-2 flex flex-wrap gap-2 text-sm">
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-win/25 px-3 py-1 font-bold">
+                    <FaLockOpen size={11} /> {money(b.available)} available now
+                  </span>
+                  {Number(b.locked ?? 0) > 0 && b.unlocks_on && (
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1 font-bold">
+                      <FaLock size={11} /> {money(b.locked!)} unlocks on {shortDate(b.unlocks_on)}
+                    </span>
+                  )}
+                </div>
+                <p className="mt-2 text-sm text-white/75">
+                  {Number(b.locked ?? 0) > 0
+                    ? <>This month’s earnings stay locked until the month ends. From the 1st, move them to your Winnings wallet or withdraw them (minimum {money(min)}).</>
+                    : <>Move it to your Winnings wallet or withdraw it (minimum {money(min)}).</>}
                 </p>
               </>
             )}
@@ -426,16 +438,17 @@ function Dashboard({ a, refetch }: { a: Affiliate & { stats: Stats }; refetch: (
               disabled={!canWithdraw}
               className="flex items-center gap-2 rounded-xl bg-win px-5 py-3 text-sm font-extrabold text-win-foreground shadow transition-transform hover:scale-[1.02] disabled:opacity-50 disabled:hover:scale-100"
             >
-              Move or withdraw <FaArrowRight size={12} />
+              {canWithdraw ? <>Move or withdraw <FaArrowRight size={12} /></>
+                : Number(b.locked ?? 0) > 0 && b.unlocks_on ? <><FaLock size={11} /> Unlocks {shortDate(b.unlocks_on)}</>
+                  : <>Move or withdraw <FaArrowRight size={12} /></>}
             </button>
           )}
         </div>
-        <div className="mt-5 grid grid-cols-3 gap-2.5">
-          {Number(b.locked ?? 0) > 0
-            ? <MoneyChip label="Locked this month" value={money(b.locked!)} />
-            : <MoneyChip label="Being checked" value={money(b.pending)} />}
-          <MoneyChip label="On its way" value={money(b.in_payout)} />
-          <MoneyChip label={auto ? 'Paid to wallet' : 'Withdrawn'} value={money(b.paid_out)} />
+        <div className="mt-5 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+          <MoneyChip label="Today so far" value={money(s.commission_today ?? 0)} hint="added after midnight" />
+          <MoneyChip label="This month" value={money(s.commission_month ?? 0)} />
+          <MoneyChip label="On its way" value={money(b.in_payout)} hint={Number(b.pending) > 0 ? `${money(b.pending)} being checked` : undefined} />
+          <MoneyChip label={auto ? 'Paid to wallet' : 'Moved or withdrawn'} value={money(b.paid_out)} />
         </div>
       </section>
 
