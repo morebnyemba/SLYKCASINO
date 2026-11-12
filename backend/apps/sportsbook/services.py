@@ -554,6 +554,76 @@ def _slip_bonus(slip: BetSlip, won_odds: list[Decimal], payout: Decimal) -> Deci
 
 # -- accumulators ------------------------------------------------------------
 
+def _pick_for(outcome, selection: str) -> 'same_match.Pick':
+    from . import same_match
+    if outcome is None:
+        return same_match.Pick(market='mr', kind='match_result', key=selection,
+                               name=f'Match result: {selection.title()}')
+    m = outcome.market
+    return same_match.Pick(market=str(m.id), kind=m.kind, period=m.period or 'ft', line=m.line, metric=m.metric,
+                           key=outcome.key, label=outcome.label, name=f'{m.name}: {outcome.label}')
+
+
+def same_match_review(normalised: list[dict]) -> dict:
+    """Check a multiple's picks match by match: the first pair that can't share
+    a ticket (`problem`, with the indexes of its legs), the price factor for
+    same-match picks, the odds per match (for the multibet bonus and Bonus-wallet
+    rules, which count a match once), and the % applied (None if no match has
+    more than one pick)."""
+    from apps.wallet.models import WalletRules
+
+    from . import same_match
+    rules = WalletRules.load()
+    groups: dict = {}
+    for i, n in enumerate(normalised):
+        groups.setdefault(n['event_id'] if n['event_id'] is not None else f'x{i}', []).append(i)
+    factor, per_match, percent, problem = Decimal('1'), [], None, None
+    for event_id, idxs in groups.items():
+        odds = Decimal('1')
+        for i in idxs:
+            odds *= normalised[i]['odds']
+        if len(idxs) > 1 and problem is None:
+            if not rules.same_match_bets:
+                problem = {'legs': idxs, 'message': 'Multiples can’t combine two picks from the same match — remove one or switch to Singles.'}
+            else:
+                picks = {id(p): i for i, p in ((i, normalised[i]['pick']) for i in idxs)}
+                found = same_match.problems(normalised[i]['pick'] for i in idxs)
+                if found:
+                    a, b, message = found[0]
+                    problem = {'legs': [picks[id(a)], picks[id(b)]], 'message': message}
+            f = same_match.price_factor(len(idxs), rules.same_match_price_percent)
+            factor *= f
+            odds *= f
+            percent = rules.same_match_price_percent
+        per_match.append(odds)
+    return {'problem': problem, 'factor': factor, 'per_match': per_match, 'percent': percent}
+
+
+def check_accumulator(legs: list[dict]) -> dict:
+    """For the bet slip: would these legs make a valid multiple, and at what
+    price? Prices aren't locked here — placing re-checks everything."""
+    normalised = []
+    for leg in legs:
+        outcome, selection, event_id = None, leg.get('selection') or Selection.HOME, leg.get('event_id')
+        if leg.get('outcome_id') is not None:
+            outcome = MarketOutcome.objects.select_related('market').filter(pk=leg['outcome_id']).first()
+            if outcome is None:
+                continue
+            event_id, selection = outcome.market.event_id, Selection.HOME
+        try:
+            odds = Decimal(str(leg.get('odds') or '1'))
+        except (ArithmeticError, ValueError):
+            odds = Decimal('1')
+        normalised.append({'event_id': int(event_id) if event_id is not None else None, 'odds': odds,
+                           'pick': _pick_for(outcome, selection)})
+    review = same_match_review(normalised)
+    combined = Decimal('1')
+    for o in review['per_match']:
+        combined *= o
+    return {'problem': review['problem'], 'combined_odds': str(utils.quantize(combined)),
+            'same_match_percent': str(review['percent']) if review['percent'] is not None else None}
+
+
 @transaction.atomic
 def place_accumulator(
     *, stake: Decimal, legs: list[dict], player_id: Optional[int] = None, wallet: Optional[str] = None,
@@ -563,8 +633,10 @@ def place_accumulator(
     are the product of every leg; a single stake is debited for an identified
     player, rolling back atomically on InsufficientFunds. A leg may carry
     `outcome_id` to back a secondary-market outcome (price-checked); at most one
-    leg per event is allowed. `wallet` is the balance the player chose to pay
-    from; the combined odds must meet its minimum."""
+    `outcome_id` to back a secondary-market outcome (price-checked). Picks from
+    the same match are allowed unless they contradict or overlap (see
+    same_match), at a reduced price. `wallet` is the balance the player chose
+    to pay from; the combined odds must meet its minimum."""
     if not legs or len(legs) < 2:
         raise ValueError('an accumulator needs at least 2 selections')
     if player_id is not None:
@@ -573,7 +645,6 @@ def place_accumulator(
 
     combined = Decimal('1')
     normalised: list[dict] = []
-    seen_events: set[int] = set()
     in_play = False
     for leg in legs:
         errors = helpers.validate_bet_request_structure({
@@ -596,29 +667,31 @@ def place_accumulator(
         elif event_id is not None:
             leg_in_play = _check_event_bettable(event_id, selection, odds)
         in_play = in_play or leg_in_play
-        # Selections on the same event are correlated, so a multiple takes one per event.
-        if event_id is not None:
-            if int(event_id) in seen_events:
-                raise ValueError('an accumulator can include only one selection per event')
-            seen_events.add(int(event_id))
-        combined *= odds
         normalised.append({
             'event': leg['event'], 'odds': odds, 'selection': selection,
-            'event_id': event_id, 'outcome': outcome,
+            'event_id': int(event_id) if event_id is not None else None, 'outcome': outcome,
+            'pick': _pick_for(outcome, selection),
         })
+    review = same_match_review(normalised)
+    if review['problem']:
+        raise ValueError(review['problem']['message'])
+    for o in review['per_match']:
+        combined *= o
     combined_odds = utils.quantize(combined)
     if player_id is not None:
         wallet_services.check_min_odds(wallet, combined_odds)
         if wallet == 'bonus':
             from apps.wallet import bonus
-            bonus.check_ticket(player_id, stake=stake, leg_odds=[n['odds'] for n in normalised], is_multiple=True)
+            # A match counts once towards the Bonus wallet's selections rule.
+            bonus.check_ticket(player_id, stake=stake, leg_odds=review['per_match'], is_multiple=True)
 
     placed_status = BetSlip.Status.ACCEPTING if in_play else BetSlip.Status.OPEN
     status_ = placed_status if player_id is None else BetSlip.Status.PENDING
     slip = BetSlip.objects.create(
         player_id=player_id, stake=utils.quantize(stake),
         combined_odds=combined_odds, status=status_, wallet=wallet or 'deposit',
-        bonus_percent=multibet_bonus_percent([n['odds'] for n in normalised]),
+        bonus_percent=multibet_bonus_percent(review['per_match']),
+        same_match_percent=review['percent'],
     )
     BetLeg.objects.bulk_create([
         BetLeg(slip=slip, event=n['event'], odds=n['odds'], selection=n['selection'],
@@ -643,6 +716,26 @@ def place_accumulator(
 
 
 @transaction.atomic
+def _won_odds_per_match(slip: BetSlip, legs) -> list[Decimal]:
+    """The won legs' prices, one per match: same-match picks multiplied
+    together with the same-match % applied for each extra pick that won (a
+    void pick drops out, like everywhere else)."""
+    groups: dict = {}
+    for leg in legs:
+        if leg.result == BetLeg.Result.WON:
+            groups.setdefault(leg.event_ref_id or f'leg{leg.pk}', []).append(Decimal(leg.odds))
+    out = []
+    for odds_list in groups.values():
+        odds = Decimal('1')
+        for o in odds_list:
+            odds *= o
+        if len(odds_list) > 1 and slip.same_match_percent:
+            from .same_match import price_factor
+            odds *= price_factor(len(odds_list), slip.same_match_percent)
+        out.append(odds)
+    return out
+
+
 def _settle_slip_if_ready(slip_id: int) -> BetSlip:
     """Resolve an accumulator. A lost leg loses the slip at once, without
     waiting for its other matches (their legs still get their results as those
@@ -661,7 +754,7 @@ def _settle_slip_if_ready(slip_id: int) -> BetSlip:
     if lost_leg:
         slip.status = BetSlip.Status.LOST
     else:
-        won_odds = [leg.odds for leg in legs if leg.result == BetLeg.Result.WON]
+        won_odds = _won_odds_per_match(slip, legs)
         effective = Decimal('1')
         for odds in won_odds:
             effective *= odds

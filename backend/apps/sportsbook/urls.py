@@ -6,7 +6,7 @@ from .admin_tickets import AdminTicketDetailView, AdminTicketReverseView, AdminT
 from .player_tickets import MyTicketsView, PublicTicketView
 from .views import (
     AdminBetViewSet, AdminCashoutSettingsView, AdminLiveTradingSettingsView, AdminUnlockMarketsView, BetSlipViewSet, BetViewSet, BookingCodeCreateView,
-    BookingCodeDetailView, CashoutOffersView, EventViewSet, MultiBetBonusView,
+    BetSlipCheckView, BookingCodeDetailView, CashoutOffersView, EventViewSet, MultiBetBonusView,
 )
 
 router = SimpleRouter()
@@ -21,6 +21,7 @@ urlpatterns = [
     path('booking-codes/', BookingCodeCreateView.as_view(), name='booking-code-create'),
     path('booking-codes/<str:code>/', BookingCodeDetailView.as_view(), name='booking-code-detail'),
     path('multibet-bonus/', MultiBetBonusView.as_view(), name='multibet-bonus'),
+    path('betslips/check/', BetSlipCheckView.as_view(), name='betslip-check'),   # before the router's betslips/<pk>/
     path('cashout/offers/', CashoutOffersView.as_view(), name='cashout-offers'),
     path('my-tickets/', MyTicketsView.as_view(), name='my-tickets'),
     path('tickets/<str:code>/', PublicTicketView.as_view(), name='ticket-lookup'),

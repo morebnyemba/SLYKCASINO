@@ -96,7 +96,7 @@ export function SlipBody({ onClose, variant = 'card' }: {
   const {
     legs, limits, mode, setMode, accaStake, setAccaStake, legStakes, setLegStake,
     combinedOdds, potentialPayout, bonus, status, busy,
-    removeLeg, clear, place, conflictingEvents, hasPriceChanges, hasSuspended, acceptPriceChanges, wallet,
+    removeLeg, clear, place, conflictingEvents, conflictMessage, sameMatchPercent, hasPriceChanges, hasSuspended, acceptPriceChanges, wallet,
   } = useBetslip();
 
   const hasLegs = legs.length > 0;
@@ -200,7 +200,7 @@ export function SlipBody({ onClose, variant = 'card' }: {
                       </p>
                       <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{l.eventName}</p>
                       {conflict && (
-                        <p className="mt-1 text-[11px] font-semibold text-gold">Same match as another pick — place as Singles</p>
+                        <p className="mt-1 text-[11px] font-semibold text-gold">{conflictMessage ?? 'Can’t share a multiple with another pick from this match'}</p>
                       )}
                     </div>
                     {l.suspended ? (
@@ -297,10 +297,15 @@ export function SlipBody({ onClose, variant = 'card' }: {
 
             <dl className="mb-3 space-y-1 text-[12.5px]">
               {!isSingles && (
-                <div className="flex justify-between">
-                  <dt className="text-muted-foreground">{legs.length > 1 ? 'Total odds' : 'Odds'}</dt>
-                  <dd className="font-bold tabular-nums">{fmt(combinedOdds)}</dd>
-                </div>
+                <>
+                  <div className="flex justify-between">
+                    <dt className="text-muted-foreground">{legs.length > 1 ? 'Total odds' : 'Odds'}</dt>
+                    <dd className="font-bold tabular-nums">{fmt(combinedOdds)}</dd>
+                  </div>
+                  {sameMatchPercent != null && sameMatchPercent < 100 && conflictingEvents.size === 0 && (
+                    <p className="text-[11px] text-muted-foreground">Includes the same-match price: {sameMatchPercent}% for each extra pick from one match.</p>
+                  )}
+                </>
               )}
               {bonus.percent > 0 && (
                 <div className="flex justify-between">

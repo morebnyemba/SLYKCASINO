@@ -314,12 +314,12 @@ class MarketBettingTests(TestCase):
         self.assertEqual(slip.payout, D('34.20'))
         self.assertTrue(all(leg.result == BetLeg.Result.WON for leg in slip.legs.all()))
 
-    def test_accumulator_rejects_two_legs_on_one_event(self):
-        with self.assertRaises(ValueError):
-            sb.place_accumulator(wallet='deposit', stake=D('5.00'), player_id=self.player.id, legs=[
-                {'event': 'CvA home', 'odds': '2.00', 'event_id': self.event.id, 'selection': 'home'},
-                {'event': 'CvA over', 'odds': '1.90', 'outcome_id': _outcome(self.ou, 'over').id},
-            ])
+    def test_accumulator_takes_two_different_picks_on_one_event_at_the_same_match_price(self):
+        slip = sb.place_accumulator(wallet='deposit', stake=D('5.00'), player_id=self.player.id, legs=[
+            {'event': 'CvA home', 'odds': '2.00', 'event_id': self.event.id, 'selection': 'home'},
+            {'event': 'CvA over', 'odds': '1.90', 'outcome_id': _outcome(self.ou, 'over').id},
+        ])
+        self.assertEqual((slip.combined_odds, slip.same_match_percent), (D('3.42'), D('90.00')))   # 2.00 × 1.90 × 90%
 
     def test_manual_market_settlement(self):
         corners = _market(self.event, 'manual', 'manual:corners:ft', [('over_9.5', '1.80'), ('under_9.5', '1.95')])

@@ -35,6 +35,10 @@ class BetSlip(models.Model):
     # Multi-bet bonus rate promised at placement (0 = none) and the amount paid
     # on top of `payout` when the slip wins.
     bonus_percent = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+    # Set when the multiple has more than one pick from a match: each extra pick
+    # from one match multiplies the price by this % (correlated picks), at
+    # placement and again on the legs that win. Such tickets can't be cashed out.
+    same_match_percent = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
     bonus = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     # Cash-out: what has been paid out early, and the part of the original
     # stake that bought it. A partial cash-out lowers `stake` (the part still

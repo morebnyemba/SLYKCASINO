@@ -35,6 +35,11 @@ class WalletRules(models.Model):
     min_stake = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.50'))
     max_stake = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('1000.00'))
     max_selections = models.PositiveSmallIntegerField(default=15)
+    # Multiples may take more than one pick from a match (never two that
+    # contradict or overlap); each extra pick from one match multiplies the
+    # price by this % because such picks tend to win together.
+    same_match_bets = models.BooleanField(default=True)
+    same_match_price_percent = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal('90.00'))
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
