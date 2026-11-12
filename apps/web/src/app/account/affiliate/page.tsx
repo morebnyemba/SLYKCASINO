@@ -386,6 +386,10 @@ function Dashboard({ a, refetch }: { a: Affiliate & { stats: Stats }; refetch: (
   const rate = Number(s.commission_rate ?? a.revshare_percent);
   const min = Number(a.payout_options?.min_payout ?? MIN_WITHDRAWAL);
   const canWithdraw = Number(b.available) >= min && !!a.payout_options;
+  const lockedNow = Number(b.locked ?? 0);
+  const unlocksOn = b.unlocks_on ?? null;
+  const daysLeft = unlocksOn
+    ? Math.max(0, Math.ceil((Date.parse(`${unlocksOn}T00:00:00Z`) - Date.now()) / 86_400_000)) : null;
   // With automatic payout, final earnings are already in the Winnings wallet:
   // what is left here is only money still being checked or held.
   const auto = !!a.payout_options?.auto_payout && Number(b.available) < 0.01;
@@ -394,8 +398,25 @@ function Dashboard({ a, refetch }: { a: Affiliate & { stats: Stats }; refetch: (
   return (
     <div className="space-y-5">
       {/* My wallet */}
-      <section className="overflow-hidden rounded-2xl bg-gradient-to-br from-primary via-primary to-[#0B3BB8] p-5 text-white shadow-lg sm:p-6">
-        <div className="flex flex-wrap items-end justify-between gap-4">
+      <section className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-primary via-primary to-[#0B3BB8] p-5 text-white shadow-lg sm:p-6">
+        {lockedNow > 0 && unlocksOn && (
+          <>
+            {/* A big faint padlock behind the balance, and a badge saying when it opens. */}
+            <FaLock aria-hidden className="pointer-events-none absolute -right-6 -top-6 h-40 w-40 text-white/[0.07] sm:h-52 sm:w-52" />
+            <div className="relative mb-4 flex items-center gap-3 rounded-2xl bg-black/20 px-3 py-2.5 ring-1 ring-white/15 sm:absolute sm:right-6 sm:top-6 sm:mb-0">
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-gold text-gold-foreground shadow-md">
+                <FaLock size={18} />
+              </span>
+              <div className="leading-tight">
+                <p className="text-sm font-extrabold">{money(lockedNow)} locked</p>
+                <p className="text-xs text-white/75">
+                  Opens {shortDate(unlocksOn)}{daysLeft != null && ` · ${daysLeft === 0 ? 'today' : daysLeft === 1 ? 'tomorrow' : `in ${daysLeft} days`}`}
+                </p>
+              </div>
+            </div>
+          </>
+        )}
+        <div className="relative flex flex-wrap items-end justify-between gap-4">
           <div>
             {auto ? (
               <>
@@ -406,7 +427,10 @@ function Dashboard({ a, refetch }: { a: Affiliate & { stats: Stats }; refetch: (
             ) : (
               <>
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/60">Agent wallet · code {a.code}</p>
-                <p className="mt-1 text-4xl font-extrabold tabular-nums sm:text-5xl">{money(Number(b.available) + Number(b.locked ?? 0))}</p>
+                <p className="mt-1 flex items-center gap-3 text-4xl font-extrabold tabular-nums sm:text-5xl">
+                  {money(Number(b.available) + lockedNow)}
+                  {lockedNow > 0 && Number(b.available) < 0.01 && <FaLock aria-label="locked" className="h-7 w-7 text-gold sm:h-8 sm:w-8" />}
+                </p>
                 <div className="mt-2 flex flex-wrap gap-2 text-sm">
                   <span className="inline-flex items-center gap-1.5 rounded-full bg-win/25 px-3 py-1 font-bold">
                     <FaLockOpen size={11} /> {money(b.available)} available now
