@@ -211,7 +211,9 @@ class CommissionTests(Base):
         services.record_click('PARTNER')
         stats = services.dashboard(self.affiliate)
         self.assertEqual((stats['signups'], stats['depositors'], stats['clicks_30d']), (1, 1, 1))
-        self.assertEqual((stats['ngr_this_month'], stats['estimated_commission']), (D('60'), D('0.00')))  # no losing tickets
+        # Net loss today: 100 staked − 40 won = 60, so 30% = 18.00 (paid after midnight).
+        self.assertEqual((stats['ngr_this_month'], stats['estimated_commission']), (D('60'), D('18.00')))
+        self.assertEqual(stats['net_loss_today'], D('60.00'))
         self.assertEqual(stats['referrals'][0]['player'], 'al***')
 
 

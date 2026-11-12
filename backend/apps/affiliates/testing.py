@@ -3,7 +3,13 @@ from datetime import timedelta
 
 from django.utils import timezone
 
-from .models import Affiliate, Referral
+from .models import Affiliate, AffiliateProgramme, Referral
+
+
+def per_ticket_mode() -> None:
+    """Run as before the switch to daily net loss: each losing ticket paid on its own."""
+    AffiliateProgramme.load()
+    AffiliateProgramme.objects.update(net_loss_since=None)
 
 
 def backdate_links(days: int = 30) -> None:

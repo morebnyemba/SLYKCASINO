@@ -84,6 +84,7 @@ class Commission(models.Model):
 
     class Kind(models.TextChoices):
         STAKE = 'stake', 'Losing ticket'
+        NET_LOSS = 'netloss', 'Customers’ net loss (day)'
         REVSHARE = 'revshare', 'Revenue share'
         CPA = 'cpa', 'CPA'
 
@@ -127,6 +128,10 @@ class Commission(models.Model):
             models.UniqueConstraint(
                 fields=['ticket'], condition=models.Q(kind='stake'),
                 name='one_commission_per_losing_ticket',
+            ),
+            models.UniqueConstraint(
+                fields=['affiliate', 'period'], condition=models.Q(kind='netloss'),
+                name='one_net_loss_commission_per_affiliate_day',
             ),
         ]
         indexes = [models.Index(fields=['status', 'created_at'])]
@@ -172,13 +177,12 @@ class AffiliateProgramme(models.Model):
     # A deposit (CPA) or monthly commission is final as soon as it qualifies,
     # with no operator approval. Off: staff approve each one first.
     auto_approve_commissions = models.BooleanField(default=True)
-    # Aviator: agents also earn on their customers' lost Aviator bets, at this %
-    # of the stake (blank = each agent's own rate). Only bets lost since
-    # `aviator_commission_since` count: set when this is switched on, so turning
-    # it on never pays for Aviator rounds played before.
-    aviator_commission = models.BooleanField(default=True)
-    aviator_commission_percent = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
-    aviator_commission_since = models.DateTimeField(null=True, blank=True)
+    # Agents earn their % of what their customers actually lose — real-money
+    # stakes minus winnings, every game, pooled per agent and closed daily —
+    # from this moment. Losing tickets settled before it were paid per ticket.
+    net_loss_since = models.DateTimeField(null=True, blank=True)
+    # A day's commission above this waits for staff approval (0 = never).
+    net_loss_review_above = models.DecimalField(max_digits=10, decimal_places=2, default=100)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -191,7 +195,7 @@ class AffiliateProgramme(models.Model):
             'default_revshare_percent': getattr(settings, 'AFFILIATE_DEFAULT_REVSHARE', 30),
             'default_cpa_amount': getattr(settings, 'AFFILIATE_DEFAULT_CPA', 0),
             'default_cpa_min_deposit': getattr(settings, 'AFFILIATE_DEFAULT_CPA_MIN_DEPOSIT', 20),
-            'aviator_commission_since': timezone.now(),
+            'net_loss_since': timezone.now(),
         })
         if created:
             obj.refresh_from_db()  # in-memory defaults are ints/floats; read back proper Decimals
@@ -216,6 +220,37 @@ class RevshareMonth(models.Model):
         db_table = 'affiliates_revshare_month'
         ordering = ['-period']
         constraints = [models.UniqueConstraint(fields=['affiliate', 'period'], name='one_revshare_month_per_affiliate')]
+
+
+class NetLossDay(models.Model):
+    """One closed day of an agent's earnings: what their customers lost in real
+    money that day (stakes minus winnings, every game), adjusted so a stake only
+    counts once its bet has settled, less any winnings of the agent's own or
+    payment-linked accounts (hedging), with an earlier losing balance netted off.
+    Makes closing idempotent, including for days that pay nothing."""
+
+    affiliate = models.ForeignKey(Affiliate, on_delete=models.CASCADE, related_name='net_loss_days')
+    day = models.DateField()
+    customers = models.PositiveIntegerField(default=0)
+    stakes = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    wins = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    bonus_conversions = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    # Stakes still riding when the day opened / closed (counted when they settle).
+    open_in = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    open_out = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    # Winnings of the agent's own account and of accounts sharing a payment number (≤ 0).
+    hedge = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    net_loss = models.DecimalField(max_digits=14, decimal_places=2)
+    carried_in = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    carry_out = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    rate = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+    commission = models.OneToOneField(Commission, null=True, blank=True, on_delete=models.SET_NULL, related_name='net_loss_day')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'affiliates_net_loss_day'
+        ordering = ['-day']
+        constraints = [models.UniqueConstraint(fields=['affiliate', 'day'], name='one_net_loss_day_per_affiliate')]
 
 
 class Payout(models.Model):

@@ -376,6 +376,12 @@ CELERY_BEAT_SCHEDULE = {
         # Each losing ticket's agent commission, 3 minutes after it settles.
         'schedule': 60.0,
     },
+    'affiliates-close-net-loss-days': {
+        'task': 'apps.affiliates.tasks.close_net_loss_days',
+        # Agents' commission on their customers' net loss, for each completed
+        # day (closed within the hour after midnight; idempotent, catches up).
+        'schedule': 3600.0,
+    },
     'affiliates-catch-up-losing-tickets': {
         'task': 'apps.affiliates.tasks.catch_up_losing_tickets',
         # Safety net: losing tickets of the last 35 days the minute job missed

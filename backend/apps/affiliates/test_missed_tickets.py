@@ -13,7 +13,7 @@ from rest_framework.test import APIClient
 from apps.accounts import services as accounts
 from apps.affiliates import services
 from apps.affiliates.models import Affiliate, Commission, Referral
-from apps.affiliates.testing import backdate_links
+from apps.affiliates.testing import backdate_links, per_ticket_mode
 from apps.sportsbook.models import Bet, BetSlip
 
 PASSWORD = secrets.token_urlsafe(16)
@@ -26,6 +26,7 @@ class Base(TestCase):
         self.customer = accounts.create_player(username='customer')
         services.attach_referral(player_id=self.customer.id, code='AGENT')
         backdate_links()
+        per_ticket_mode()
         self.agent.refresh_from_db()
 
     def make_agent(self, username, code):
@@ -170,8 +171,8 @@ class AdminApiTests(Base):
         self.assertEqual((health['missing_tickets'], health['missing_amount'], health['running']), (1, '30.00', False))
         audit = self.api.get(f'{self.base}/tickets-audit/', {'days': 10}).json()
         self.assertEqual((audit['counts']['missing'], audit['customers']), (1, 1))
-        self.assertEqual(self.api.post(f'{self.base}/credit-missed/').json(), {'credited': 1})
-        self.assertEqual(self.api.post('/api/admin/affiliates/credit-missed/').json(), {'credited': 0})
+        self.assertEqual(self.api.post(f'{self.base}/credit-missed/').json(), {'credited': 1, 'days': 0})
+        self.assertEqual(self.api.post('/api/admin/affiliates/credit-missed/').json(), {'credited': 0, 'days': 0})
         self.assertEqual(self.earned(), D('30.00'))
 
     def test_link_customer_by_username_or_email(self):

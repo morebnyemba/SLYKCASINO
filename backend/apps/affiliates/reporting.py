@@ -36,27 +36,17 @@ def _in(moment, start, end) -> bool:
 
 
 def lost_stakes_between(player_ids, start, end) -> tuple[Decimal, int, int]:
-    """(total stake, tickets, players) of these players' real-money losses in
-    [start, end) that earn their agent a share: lost sports tickets and, while
-    the programme pays on Aviator, lost Aviator bets. Bonus-wallet stakes and
-    free bets never count (start None = from the beginning)."""
+    """(total stake, tickets, players) of these players' tickets settled as
+    lost in [start, end) (start None = from the beginning)."""
     from django.db.models import Count
 
-    from apps.jet.models import JetBet
     from apps.sportsbook.models import Bet, BetSlip
-
-    from .models import AffiliateProgramme
 
     total, tickets, players = Decimal('0'), 0, set()
     if not player_ids:
         return total, tickets, 0
-    programme = AffiliateProgramme.load()
-    querysets = [m.objects.filter(player_id__in=player_ids, status='lost', settled_at__lt=end).exclude(wallet='bonus')
-                 for m in (Bet, BetSlip)]
-    if programme.aviator_commission and programme.aviator_commission_since:
-        querysets.append(JetBet.objects.filter(player_id__in=player_ids, status='lost', settled_at__lt=end, is_free=False,
-                                               settled_at__gte=programme.aviator_commission_since).exclude(wallet='bonus'))
-    for qs in querysets:
+    for model in (Bet, BetSlip):
+        qs = model.objects.filter(player_id__in=player_ids, status='lost', settled_at__lt=end)
         if start is not None:
             qs = qs.filter(settled_at__gte=start)
         agg = qs.aggregate(stake=Sum('stake'), n=Count('id'))
