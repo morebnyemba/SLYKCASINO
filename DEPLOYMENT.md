@@ -140,3 +140,6 @@ docker compose -f docker-compose.yml up -d
 
 > Point `DOMAIN`'s A/AAAA record at this host **before** step 3 — Let's Encrypt
 > validates over the public internet on port 80.
+
+> Running a mail server on the same host: see [MAILCOW.md](MAILCOW.md) — it adds
+> `-f docker-compose.mail.yml` to the deploy command.
