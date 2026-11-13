@@ -1,0 +1,16 @@
+# Copied to /opt/mailcow-dockerized/docker-compose.override.yml by
+# scripts/mailcow-install.sh. Mailcow loads this file automatically and keeps it
+# across its updates.
+#
+# Puts Mailcow's web server (only) on the small `mail-proxy` network that the
+# BetBlits nginx also joins. BetBlits never joins Mailcow's own network: there
+# its nginx would answer to the alias "nginx" alongside Mailcow's, and it would
+# be able to reach Mailcow's MySQL/Redis/Dovecot.
+services:
+  nginx-mailcow:
+    networks:
+      mail-proxy:
+
+networks:
+  mail-proxy:
+    external: true
