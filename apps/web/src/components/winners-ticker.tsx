@@ -53,7 +53,7 @@ export function WinnersTicker() {
               >
                 <span className="font-medium text-foreground">{w.game_name}</span>
                 <span className="font-mono font-semibold text-green-500">+{parseFloat(w.win).toFixed(2)}</span>
-                {mult >= 2 && <span className="font-mono text-yellow-400">{mult.toFixed(1)}×</span>}
+                {mult >= 2 && <span className="font-mono text-secondary">{mult.toFixed(1)}×</span>}
               </span>
             );
           })}

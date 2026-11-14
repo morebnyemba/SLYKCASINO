@@ -59,8 +59,8 @@ export const viewport: Viewport = {
   themeColor: '#FFFFFF',
 };
 
-// Applied before paint. The player site is light only (a theme saved by an older
-// version is ignored); the player's accent colour still applies without a flash.
+// Applied before paint. The player site is light only, with the site's blue accent
+// (a theme or accent saved by an older version is ignored).
 const THEME_INIT_SCRIPT = `
 (function () {
   document.documentElement.dataset.theme = 'light';
@@ -68,15 +68,6 @@ const THEME_INIT_SCRIPT = `
   try {
     if (window.sessionStorage.getItem('slyk:splash')) document.documentElement.dataset.splash = 'off';
     else window.sessionStorage.setItem('slyk:splash', '1');
-  } catch (e) {}
-  try {
-    var raw = window.localStorage.getItem('slyk:settings');
-    var s = raw ? JSON.parse(raw) : null;
-    // '#6C63E8' was the old saved default: it now means "follow the site colours".
-    if (s && s.accent && s.accent !== '#6C63E8') {
-      document.documentElement.style.setProperty('--secondary', s.accent);
-      document.documentElement.style.setProperty('--ring', s.accent);
-    }
   } catch (e) {}
 })();
 `;

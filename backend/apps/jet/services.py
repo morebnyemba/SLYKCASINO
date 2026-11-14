@@ -87,6 +87,7 @@ def bet_payload(bet: JetBet, *, mine: bool = False) -> dict:
         data['auto_cashout'] = str(bet.auto_cashout) if bet.auto_cashout else None
         data['is_free'] = bet.is_free
         data['wallet'] = bet.wallet
+        data['wallets'] = {k: str(v) for k, v in bet_parts(bet).items()} if not bet.is_free else None
     return data
 
 
@@ -124,25 +125,29 @@ def _money(value, field: str) -> Decimal:
 AUTO_WALLET = 'auto'
 
 
-def _auto_wallet(player_id: int, stake: Decimal) -> str:
-    """The wallet an Aviator stake comes from when the player doesn't choose:
-    Deposit while it covers the stake, then Winnings (bonus money can't play
-    games). A stake is never split across wallets — a cash-out returns it to the
-    one wallet it came from — so if neither covers it alone the player is told
-    the most they can stake. Locks the wallet row for the caller's transaction."""
+def _auto_parts(player_id: int, stake: Decimal) -> dict[str, Decimal]:
+    """Where an Aviator stake comes from when the player doesn't choose: Deposit
+    first, then Winnings for whatever Deposit can't cover — a whole stake from one
+    wallet when it can, split across the two when it must (bonus money can't play
+    games). Locks the wallet row for the caller's transaction."""
     from apps.wallet.models import Wallet
     w = Wallet.objects.select_for_update().filter(player_id=player_id).first()
     deposit = w.deposit_balance if w else Decimal('0')
     winnings = w.winnings_balance if w else Decimal('0')
-    if deposit >= stake:
-        return 'deposit'
-    if winnings >= stake:
-        return 'winnings'
-    best = max(deposit, winnings)
-    if best <= 0:
-        raise wallet_services.InsufficientFunds('Not enough balance — deposit to play.')
-    raise JetError(f'Each bet comes from one wallet: you can stake up to ${best:.2f} '
-                   f'(Deposit ${deposit:.2f}, Winnings ${winnings:.2f}).')
+    if deposit + winnings < stake:
+        raise wallet_services.InsufficientFunds(
+            f'Not enough balance: you have ${deposit + winnings:.2f} to play with.' if deposit + winnings > 0
+            else 'Not enough balance — deposit to play.')
+    from_deposit = min(deposit, stake)
+    parts = {'deposit': from_deposit, 'winnings': stake - from_deposit}
+    return {k: v for k, v in parts.items() if v > 0}
+
+
+def bet_parts(bet: JetBet) -> dict[str, Decimal]:
+    """The wallets a bet's stake came from and how much from each."""
+    if bet.stake_deposit or bet.stake_winnings:
+        return {k: v for k, v in (('deposit', bet.stake_deposit), ('winnings', bet.stake_winnings)) if v > 0}
+    return {bet.wallet: bet.stake}
 
 
 @transaction.atomic
@@ -173,15 +178,19 @@ def place_bet(*, player, stake=None, slot: int = 1, auto_cashout=None, free_bet_
         stake = free.amount
         wallet = 'bonus'  # a free bet is promotional money
     stake = _money(stake, 'stake')
+    parts: dict[str, Decimal] = {}
+    # No wallet named: Deposit then Winnings, picked once the bet rules below pass
+    # (so a bad stake or a closed round gets its own message, not a balance one).
+    auto_pick = free is None and wallet in (None, '', AUTO_WALLET)
     if free is None:
-        if wallet in (None, '', AUTO_WALLET):
-            wallet = _auto_wallet(player.id, stake)
-        try:
-            wallet = wallet_services.betting_bucket(wallet)
-            from apps.wallet import bonus
-            bonus.not_for_games(wallet)
-        except wallet_services.WalletRuleError as exc:
-            raise JetError(str(exc))
+        if not auto_pick:
+            try:
+                wallet = wallet_services.betting_bucket(wallet)
+                from apps.wallet import bonus
+                bonus.not_for_games(wallet)
+            except wallet_services.WalletRuleError as exc:
+                raise JetError(str(exc))
+            parts = {wallet: stake}
     if free is None and (stake < cfg.min_bet or stake > cfg.max_bet):
         raise JetError(f'Bets are ${cfg.min_bet:.2f} to ${cfg.max_bet:.2f}.')
     auto = None
@@ -198,20 +207,28 @@ def place_bet(*, player, stake=None, slot: int = 1, auto_cashout=None, free_bet_
         raise JetError('You already have a bet in this slot.')
     if free is None and rnd.total_stake + stake > cfg.round_stake_limit:
         raise JetError('This round is full — try the next one.')
+    if auto_pick:
+        parts = _auto_parts(player.id, stake)
+        wallet = next(iter(parts))
 
     bet = JetBet.objects.create(
         round=rnd, player_id=player.id, display_name=engine.mask_name(player.username),
         slot=slot, stake=stake, auto_cashout=auto, is_free=free is not None, wallet=wallet,
+        stake_deposit=parts.get('deposit', Decimal('0')) if free is None and wallet != 'bonus' else Decimal('0'),
+        stake_winnings=parts.get('winnings', Decimal('0')) if free is None and wallet != 'bonus' else Decimal('0'),
     )
     if free is not None:
         # No money moves and the round's (real-money) totals are untouched.
         free.status, free.bet = JetFreeBet.Status.USED, bet
         free.save(update_fields=['status', 'bet'])
     else:
-        wallet_services.debit(
-            player_id=player.id, amount=stake, kind='casino_debit', bucket=wallet,
-            idempotency_key=f'jet:stake:{bet.id}', reference=f'jet:round:{rnd.id}:bet:{bet.id}',
-        )
+        for i, (bucket, amount) in enumerate(parts.items()):
+            # The first part keeps the original key, so bets placed before splitting replay the same.
+            wallet_services.debit(
+                player_id=player.id, amount=amount, kind='casino_debit', bucket=bucket,
+                idempotency_key=f'jet:stake:{bet.id}' + ('' if i == 0 else f':{bucket}'),
+                reference=f'jet:round:{rnd.id}:bet:{bet.id}',
+            )
         JetRound.objects.filter(pk=rnd.pk).update(total_stake=F('total_stake') + stake, bet_count=F('bet_count') + 1)
     publish({'type': 'bet', 'bet': bet_payload(bet)})
     return bet
@@ -239,10 +256,12 @@ def _refund(bet: JetBet, now) -> None:
         # The free bet goes back to the player, ready for another round.
         JetFreeBet.objects.filter(bet=bet).update(status=JetFreeBet.Status.AVAILABLE, bet=None)
     else:
-        wallet_services.credit(
-            player_id=bet.player_id, amount=bet.stake, kind='casino_credit', bucket=bet.wallet,
-            idempotency_key=f'jet:refund:{bet.id}', reference=f'jet:round:{bet.round_id}:bet:{bet.id}:refund',
-        )
+        for i, (bucket, amount) in enumerate(bet_parts(bet).items()):
+            wallet_services.credit(
+                player_id=bet.player_id, amount=amount, kind='casino_credit', bucket=bucket,
+                idempotency_key=f'jet:refund:{bet.id}' + ('' if i == 0 else f':{bucket}'),
+                reference=f'jet:round:{bet.round_id}:bet:{bet.id}:refund',
+            )
     bet.status = JetBet.Status.REFUNDED
     bet.settled_at = now
     bet.save(update_fields=['status', 'settled_at'])
@@ -261,10 +280,19 @@ def _pay(bet: JetBet, multiplier: Decimal, cfg: JetSettings, now) -> JetBet:
                 idempotency_key=f'jet:freewin:{bet.id}', reference=f'jet:round:{bet.round_id}:bet:{bet.id}:free-bet-win',
             )
     else:
-        wallet_services.pay_out(
-            player_id=bet.player_id, source=bet.wallet, stake=bet.stake, payout=payout, kind='casino_credit',
-            idempotency_key=f'jet:payout:{bet.id}', reference=f'jet:round:{bet.round_id}:bet:{bet.id}:cashout',
-        )
+        # Each part of the stake goes back to its own wallet; only the profit lands in Winnings.
+        # (If a payout cap ever left less than the stake, Deposit is made whole first.)
+        left = payout
+        items = list(bet_parts(bet).items())
+        for i, (bucket, amount) in enumerate(items):
+            last = i == len(items) - 1
+            share = left if last else min(amount, left)
+            wallet_services.pay_out(
+                player_id=bet.player_id, source=bucket, stake=amount, payout=share, kind='casino_credit',
+                idempotency_key=f'jet:payout:{bet.id}' + ('' if i == 0 else f':{bucket}'),
+                reference=f'jet:round:{bet.round_id}:bet:{bet.id}:cashout',
+            )
+            left -= share
     bet.status = JetBet.Status.CASHED
     bet.cashout_multiplier = multiplier
     bet.payout = payout

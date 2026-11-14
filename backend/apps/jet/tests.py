@@ -510,7 +510,8 @@ class BotChatTests(TestCase):
 
 
 class AutoWalletTests(TestCase):
-    """Aviator picks the wallet itself: Deposit while it covers the stake, then Winnings."""
+    """Aviator picks the wallet itself: Deposit first, then Winnings — switching
+    when Deposit is used up and splitting a stake that Deposit only partly covers."""
 
     def setUp(self):
         self.player, _ = _player('rudo', funds='8')            # $8 in Deposit
@@ -523,22 +524,36 @@ class AutoWalletTests(TestCase):
         w = wallet_services.get_balance_dto(self.player.id)
         return w.deposit, w.winnings
 
-    def test_deposit_first_then_winnings(self):
+    def test_deposit_first_then_splits_then_switches(self):
         first = services.place_bet(player=self.player, stake='5', slot=1, now=self.now)          # wallet omitted
-        self.assertEqual(first.wallet, 'deposit')
+        self.assertEqual((first.wallet, services.bet_parts(first)), ('deposit', {'deposit': D('5.00')}))
         second = services.place_bet(wallet='auto', player=self.player, stake='5', slot=2, now=self.now)  # $3 left in Deposit
-        self.assertEqual(second.wallet, 'winnings')
-        self.assertEqual(self.buckets(), (D('3.00'), D('15.00')))
+        self.assertEqual(services.bet_parts(second), {'deposit': D('3.00'), 'winnings': D('2.00')})
+        self.assertEqual(self.buckets(), (D('0.00'), D('18.00')))
+        nxt = _round(now=self.now + timedelta(minutes=5))
+        third = services.place_bet(wallet='auto', player=self.player, stake='4', slot=1, now=self.now + timedelta(minutes=5))
+        self.assertEqual((third.round_id, third.wallet, services.bet_parts(third)), (nxt.id, 'winnings', {'winnings': D('4.00')}))
 
-    def test_cashout_returns_stake_to_its_wallet(self):
+    def test_split_cashout_returns_each_part_profit_to_winnings(self):
+        bet = services.place_bet(wallet='auto', player=self.player, stake='10', slot=1, now=self.now)  # 8 + 2
+        self.assertEqual(self.buckets(), (D('0.00'), D('18.00')))
+        services._pay(bet, D('2.00'), JetSettings.load(), self.now)
+        # $8 back to Deposit; $2 back + $10 profit to Winnings.
+        self.assertEqual(self.buckets(), (D('8.00'), D('30.00')))
+
+    def test_split_refund_on_cancel(self):
+        bet = services.place_bet(wallet='auto', player=self.player, stake='10', slot=1, now=self.now)
+        services.cancel_bet(player_id=self.player.id, bet_id=bet.id, now=self.now)
+        self.assertEqual(self.buckets(), (D('8.00'), D('20.00')))
+
+    def test_single_wallet_cashout_unchanged(self):
         bet = services.place_bet(wallet='auto', player=self.player, stake='5', slot=1, now=self.now)
         services._pay(bet, D('2.00'), JetSettings.load(), self.now)
-        # $5 stake back to Deposit, $5 profit to Winnings.
-        self.assertEqual(self.buckets(), (D('8.00'), D('25.00')))
+        self.assertEqual(self.buckets(), (D('8.00'), D('25.00')))   # stake back to Deposit, profit to Winnings
 
-    def test_never_splits_a_stake(self):
-        with self.assertRaisesMessage(services.JetError, 'up to $20.00'):
-            services.place_bet(wallet='auto', player=self.player, stake='25', slot=1, now=self.now)
+    def test_more_than_both_wallets_together(self):
+        with self.assertRaisesMessage(wallet_services.InsufficientFunds, '$28.00'):
+            services.place_bet(wallet='auto', player=self.player, stake='30', slot=1, now=self.now)
         self.assertEqual(self.buckets(), (D('8.00'), D('20.00')))
 
     def test_empty_wallets(self):
@@ -549,3 +564,9 @@ class AutoWalletTests(TestCase):
     def test_bonus_still_refused_when_chosen(self):
         with self.assertRaises(services.JetError):
             services.place_bet(wallet='bonus', player=self.player, stake='1', slot=1, now=self.now)
+
+    def test_ledger_has_a_debit_per_wallet(self):
+        from apps.wallet.models import LedgerEntry
+        bet = services.place_bet(wallet='auto', player=self.player, stake='10', slot=1, now=self.now)
+        rows = LedgerEntry.objects.filter(reference=f'jet:round:{self.rnd.id}:bet:{bet.id}', kind='casino_debit')
+        self.assertEqual(sorted((r.bucket, r.amount) for r in rows), [('deposit', D('-8.00')), ('winnings', D('-2.00'))])

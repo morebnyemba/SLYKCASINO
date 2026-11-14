@@ -142,7 +142,7 @@ export function CashoutPanel({ kind, id, stake, odds, offer, onDone, compact = f
       {!confirming ? (
         <button
           onClick={() => { setConfirming(true); setShare(100); setMessage(null); }}
-          className="flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-gold to-[#f0b54a] text-[13px] font-extrabold text-black shadow-sm transition-transform active:scale-[0.99]"
+          className="flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-secondary to-primary text-[13px] font-extrabold text-secondary-foreground shadow-sm transition-transform active:scale-[0.99]"
         >
           <BsCashCoin size={15} /> Cash out {money(value)}
         </button>

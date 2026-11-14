@@ -70,18 +70,14 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     setHydrated(true);
   }, []);
 
-  // Reflect the accent onto <html> so CSS custom properties cascade everywhere.
+  // The site's accent is always its blue: an accent saved by an older version
+  // (gold, emerald, coral…) is cleared rather than applied.
   useEffect(() => {
     const root = document.documentElement;
     root.dataset.theme = 'light';
-    if (settings.accent) {
-      root.style.setProperty('--secondary', settings.accent);
-      root.style.setProperty('--ring', settings.accent);
-    } else {
-      root.style.removeProperty('--secondary');
-      root.style.removeProperty('--ring');
-    }
-  }, [settings.accent]);
+    root.style.removeProperty('--secondary');
+    root.style.removeProperty('--ring');
+  }, []);
 
   useEffect(() => {
     if (!hydrated) return;

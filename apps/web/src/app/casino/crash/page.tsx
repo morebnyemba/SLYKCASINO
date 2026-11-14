@@ -40,7 +40,7 @@ interface HistoryItem { id: number; crash_point: string; created_at: string }
 const CEILING_MULTIPLIER = 1000;
 
 function multColor(m: number): string {
-  if (m >= 10) return 'text-yellow-400';
+  if (m >= 10) return 'text-secondary';
   if (m >= 2) return 'text-green-400';
   return 'text-foreground';
 }
@@ -156,7 +156,7 @@ export default function CrashPage() {
               <span
                 key={h.id}
                 className={`shrink-0 rounded-md px-2 py-1 text-xs font-mono font-semibold ${
-                  m >= 10 ? 'bg-yellow-400/15 text-yellow-400'
+                  m >= 10 ? 'bg-secondary/15 text-secondary'
                     : m >= 2 ? 'bg-green-500/15 text-green-500'
                     : 'bg-red-500/15 text-red-500'
                 }`}

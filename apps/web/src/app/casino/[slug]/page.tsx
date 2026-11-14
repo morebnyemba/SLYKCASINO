@@ -32,8 +32,8 @@ function winLabel(win: string, stake: string): { text: string; color: string } {
   const s = parseFloat(stake);
   if (w === 0) return { text: 'No win', color: 'text-muted-foreground' };
   const mult = w / s;
-  if (mult >= 20) return { text: `JACKPOT! ${w.toFixed(2)} ×${mult.toFixed(0)}`, color: 'text-yellow-400' };
-  if (mult >= 5) return { text: `BIG WIN! ${w.toFixed(2)} ×${mult.toFixed(0)}`, color: 'text-orange-400' };
+  if (mult >= 20) return { text: `JACKPOT! ${w.toFixed(2)} ×${mult.toFixed(0)}`, color: 'text-secondary' };
+  if (mult >= 5) return { text: `BIG WIN! ${w.toFixed(2)} ×${mult.toFixed(0)}`, color: 'text-primary' };
   if (mult >= 2) return { text: `WIN ${w.toFixed(2)} ×${mult.toFixed(0)}`, color: 'text-green-400' };
   return { text: `Win ${w.toFixed(2)}`, color: 'text-green-600' };
 }
