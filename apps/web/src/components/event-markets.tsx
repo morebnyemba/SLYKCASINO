@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { Fragment, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { BsChevronLeft, BsChevronDown, BsCheckCircleFill, BsLockFill, BsSearch, BsXCircleFill } from 'react-icons/bs';
 import { OddsButton } from '@/components/odds-button';
 import { LiveBadge, TeamBadge, sportMeta } from '@/components/event-row';
@@ -10,7 +10,7 @@ import { useLiveMarkets } from '@/lib/use-live-markets';
 import { formatOdds, useSettings } from '@/lib/settings-context';
 import { filterMarket, normalize, searchTokens } from '@/lib/market-search';
 import {
-  MARKET_GROUPS, dayLabel, displayGroup, hasScore, homeMove, isBettable, isFinished, isLive, isMainOpen, isPriced, kickoffTime, matchClock,
+  MARKET_GROUPS, dayLabel, displayGroup, hasScore, shortOutcome, homeMove, isBettable, isFinished, isLive, isMainOpen, isPriced, kickoffTime, matchClock,
   teamNames, withTeamNames, type EventItem, type Market, type MarketGroup, type MarketOutcome,
 } from '@/lib/sports';
 
@@ -48,6 +48,8 @@ function fmtLine(line: string | null | undefined, signed: boolean) {
   const text = String(n);
   return signed && n > 0 ? `+${text}` : text;
 }
+
+const MARKET_BATCH = 15;
 
 function Collapsible({ title, badge, children, defaultOpen = true, forceOpen = false }: {
   title: string; badge?: React.ReactNode; children: React.ReactNode; defaultOpen?: boolean;
@@ -193,7 +195,23 @@ export function EventMarkets({ ev }: { ev: EventItem }) {
   const resultMatches = searching && tokens.every((t) => normalize(
     `main match result 1x2 winner win full time ft ${resultOutcomes.map((o) => o.label).join(' ')}`,
   ).includes(t));
-  const visible = filtered ?? (tab === 'all' ? blocks : blocks.filter((b) => b.group === tab));
+  const allVisible = filtered ?? (tab === 'all' ? blocks : blocks.filter((b) => b.group === tab));
+  // Big matches carry 150+ markets: the first MARKET_BATCH render, more as the player scrolls
+  // (search results always show in full).
+  const [blockLimit, setBlockLimit] = useState(MARKET_BATCH);
+  useEffect(() => { setBlockLimit(MARKET_BATCH); }, [tab]);
+  const visible = searching ? allVisible : allVisible.slice(0, blockLimit);
+  const moreBlocks = !searching && allVisible.length > blockLimit;
+  const moreRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const el = moreRef.current;
+    if (!el || !moreBlocks) return;
+    const io = new IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting)) setBlockLimit((n) => n + MARKET_BATCH);
+    }, { rootMargin: '900px 0px' });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [moreBlocks, blockLimit]);
   const showResult = searching ? resultMatches : tab === 'all' || tab === 'main';
   const resultCount = visible.length + (showResult ? 1 : 0);
 
@@ -202,6 +220,7 @@ export function EventMarkets({ ev }: { ev: EventItem }) {
     eventName: ev.name,
     odds: o.odds,
     disabled: closed || !m.is_open || !o.is_open,
+    quietLock: closed || !m.is_open,
     move: o.previous_odds != null && Number(o.previous_odds) !== Number(o.odds)
       ? (Number(o.odds) > Number(o.previous_odds) ? 'up' as const : 'down' as const)
       : undefined,
@@ -211,13 +230,25 @@ export function EventMarkets({ ev }: { ev: EventItem }) {
   function renderSingle(m: Market) {
     if (m.group === 'scorers') return renderScorers(m);
     const many = m.outcomes.length > 3;
-    const cols = m.outcomes.length === 2 ? 'grid-cols-2' : many ? 'grid-cols-2 sm:grid-cols-3' : 'grid-cols-3';
+    // Many-option markets use shop shorthand ("1 & GG", "1X", "1/X") — full team
+    // names can't fit — with a key under the title. The slip and ticket keep the full wording.
+    const codes = m.outcomes.map((o) => shortOutcome(m.kind, o.key, m.line));
+    const coded = codes.every(Boolean);
+    const label = (o: MarketOutcome, i: number) => (coded ? codes[i]! : names(o.label));
+    const cols = m.outcomes.length === 2 ? 'grid-cols-2' : many ? (coded ? 'grid-cols-3' : 'grid-cols-2 sm:grid-cols-3') : 'grid-cols-3';
     return (
       <Collapsible key={m.id} title={names(m.name)} badge={<StatusBadge market={m} />} forceOpen={searching}>
+        {coded && away && (
+          <p className="-mt-1 mb-2 text-[11px] font-semibold text-muted-foreground">
+            <b className="text-foreground">1</b> {home} · <b className="text-foreground">X</b> Draw · <b className="text-foreground">2</b> {away}
+            {m.kind === 'result_btts' && <> · <b className="text-foreground">GG</b> both score · <b className="text-foreground">NG</b> not both</>}
+          </p>
+        )}
         <div className={`grid gap-2 ${cols}`}>
-          {m.outcomes.map((o) => m.settled
-            ? <SettledOutcome key={o.id} outcome={o} label={names(o.label)} stack={m.outcomes.length === 3} />
-            : <OddsButton key={o.id} {...outcomeProps(m, o)} label={names(o.label)} size="sm" stackOnMobile={m.outcomes.length === 3} />)}
+          {m.outcomes.map((o, i) => m.settled
+            ? <SettledOutcome key={o.id} outcome={o} label={label(o, i)} stack={m.outcomes.length === 3 || coded} />
+            : <OddsButton key={o.id} {...outcomeProps(m, o)} label={label(o, i)} title={names(o.label)} size="sm"
+                stackOnMobile={m.outcomes.length === 3 || coded} />)}
         </div>
       </Collapsible>
     );
@@ -252,7 +283,7 @@ export function EventMarkets({ ev }: { ev: EventItem }) {
       >
         <div className={`mb-1.5 grid gap-2 px-0.5 text-center text-[11px] font-extrabold text-muted-foreground ${grid}`}>
           <span className="text-left">{signed ? 'Line' : ({ corners: 'Corners', cards: 'Cards' } as Record<string, string>)[block.markets[0].metric ?? ''] ?? 'Goals'}</span>
-          {columns.map((c) => <span key={c} className="truncate">{colLabel(c)}</span>)}
+          {columns.map((c) => <span key={c} className="line-clamp-2 break-words leading-tight">{colLabel(c)}</span>)}
         </div>
         <div className="space-y-1.5">
           {block.markets.map((m) => (
@@ -282,8 +313,9 @@ export function EventMarkets({ ev }: { ev: EventItem }) {
       </Link>
 
       {/* Scoreboard */}
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-primary to-[#0f0a2b] p-5 text-white shadow-lg sm:p-7">
-        <div className="mb-5 flex items-center gap-2 text-xs font-bold text-white/70">
+      {/* Compact on phones so the markets start on the first screen. */}
+      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-primary to-[#0f0a2b] p-4 text-white shadow-lg sm:p-7">
+        <div className="mb-3 flex items-center gap-2 text-xs font-bold text-white/70 sm:mb-5">
           {SportIcon && <SportIcon size={14} />}
           <span>{sport.label}</span>
           <span className="ml-auto flex items-center gap-2" suppressHydrationWarning>
@@ -294,8 +326,8 @@ export function EventMarkets({ ev }: { ev: EventItem }) {
         </div>
         <div className="flex items-center justify-between gap-4">
           <div className="flex min-w-0 flex-1 flex-col items-center gap-2 text-center">
-            <TeamBadge team={ev.home_team} name={home} size={56} />
-            <span className="w-full truncate text-base font-extrabold sm:text-lg">{home}</span>
+            <TeamBadge team={ev.home_team} name={home} size={40} />
+            <span className="line-clamp-2 w-full break-words text-sm font-extrabold leading-tight sm:text-lg">{home}</span>
           </div>
           <div className="flex flex-col items-center gap-1">
             {hasScore(cur) ? (
@@ -313,8 +345,8 @@ export function EventMarkets({ ev }: { ev: EventItem }) {
           <div className="flex min-w-0 flex-1 flex-col items-center gap-2 text-center">
             {away ? (
               <>
-                <TeamBadge team={ev.away_team} name={away} size={56} />
-                <span className="w-full truncate text-base font-extrabold sm:text-lg">{away}</span>
+                <TeamBadge team={ev.away_team} name={away} size={40} />
+                <span className="line-clamp-2 w-full break-words text-sm font-extrabold leading-tight sm:text-lg">{away}</span>
               </>
             ) : (
               <span className="text-sm text-white/60">Outright</span>
@@ -454,6 +486,16 @@ export function EventMarkets({ ev }: { ev: EventItem }) {
           </Collapsible>
         )}
         {visible.map((b) => (b.type === 'single' ? renderSingle(b.market) : renderLines(b)))}
+        {moreBlocks && (
+          <div ref={moreRef} className="flex justify-center">
+            <button
+              onClick={() => setBlockLimit((n) => n + MARKET_BATCH)}
+              className="rounded-xl border border-border bg-card px-4 py-2.5 text-[13px] font-bold text-muted-foreground hover:text-foreground"
+            >
+              Show more markets ({allVisible.length - blockLimit} more)
+            </button>
+          </div>
+        )}
         {searching && resultCount === 0 && (
           <div className="rounded-2xl border border-dashed border-border px-4 py-8 text-center">
             <p className="mb-1 text-sm font-bold">No betting options match “{query.trim()}”</p>

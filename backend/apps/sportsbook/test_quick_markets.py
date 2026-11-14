@@ -39,9 +39,19 @@ class QuickMarketsTests(TestCase):
         market(self.ev, 'btts', [('yes', '1.8'), ('no', '2.0')])
         q = self.rows()[self.ev.id]['quick_markets']
         self.assertEqual(q['ou']['line'], '2.5')
-        self.assertEqual([o['key'] for o in q['ou']['outcomes']], ['over', 'under'])
-        self.assertEqual([o['key'] for o in q['dc']['outcomes']], ['1x', '12', 'x2'])  # column order, not feed order
+        self.assertEqual([o['odds'] for o in q['ou']['outcomes']], ['1.90', '1.90'])
+        dc = Market.objects.get(event=self.ev, kind='double_chance')
+        ids = {o.key: o.id for o in dc.outcomes.all()}
+        self.assertEqual([o['id'] for o in q['dc']['outcomes']], [ids['1x'], ids['12'], ids['x2']])  # column order, not feed order
         self.assertEqual(q['gg']['outcomes'][0]['odds'], '1.80')
+        self.assertEqual(set(q['gg']), {'market_id', 'line', 'outcomes'})  # compact: labels come from the client
+
+    def test_closed_outcome_is_a_gap(self):
+        m = market(self.ev, 'btts', [('yes', '1.8'), ('no', '2.0')])
+        m.outcomes.filter(key='no').update(is_open=False)
+        q = self.rows()[self.ev.id]['quick_markets']
+        self.assertIsNotNone(q['gg']['outcomes'][0])
+        self.assertIsNone(q['gg']['outcomes'][1])
 
     def test_falls_back_to_nearest_line_and_skips_incomplete_or_wrong_markets(self):
         market(self.ev, 'over_under', [('over', '1.5'), ('under', '2.4')], D('3.5'))

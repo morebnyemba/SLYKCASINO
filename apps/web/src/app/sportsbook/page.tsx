@@ -5,7 +5,7 @@ import { SportsbookBrowser } from '@/components/sportsbook-browser';
 import { SportsbookHero } from '@/components/sportsbook-hero';
 import type { Banner } from '@/components/banner-slider';
 import { apiGet, apiGetAll } from '@/lib/config';
-import { isLive, sortEvents, type EventItem } from '@/lib/sports';
+import { isLive, slimEvent, sortEvents, type EventItem } from '@/lib/sports';
 import { SEO_SPORTS, social } from '@/lib/seo';
 
 type PageProps = { searchParams: Promise<{ sport?: string; tab?: string }> };
@@ -55,7 +55,7 @@ export default async function SportsbookPage({ searchParams }: PageProps) {
   // fetched (unpriced ones never show; they're just counted), and the list is
   // cached for 30s and shared by every visitor: live scores and prices reach
   // the page over the realtime socket, not by re-fetching this.
-  const [{ rows: events, failed }, unpriced, bannerData] = await Promise.all([
+  const [{ rows: fullEvents, failed }, unpriced, bannerData] = await Promise.all([
     apiGetAll<EventItem>('/events/?upcoming=true&priced=true&page_size=500', 10, { next: { revalidate: 30 } }),
     apiGet('/events/?upcoming=true&priced=false&page_size=1', { next: { revalidate: 300 } }),
     apiGet<Banner>('/promotions/banners/?placement=sportsbook'),
@@ -65,6 +65,8 @@ export default async function SportsbookPage({ searchParams }: PageProps) {
   // homepage banners into the sportsbook.
   const banners = ((bannerData.results ?? []) as (Banner & { placement?: string })[])
     .filter((b) => b.placement === 'sportsbook');
+  // Every match is embedded in the page for the browser (filters run there): only the fields lists use.
+  const events = fullEvents.map(slimEvent);
   // Fixtures the bookmaker hasn't priced yet aren't bettable, so they stay off the board.
   const awaitingOdds = Number(unpriced.count ?? 0);
   const open = events.filter((ev) => ev.is_open !== false);

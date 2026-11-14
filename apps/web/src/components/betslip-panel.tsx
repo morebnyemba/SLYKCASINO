@@ -8,6 +8,7 @@ import { LoadCodeForm, ShareSlip } from '@/components/booking-code';
 import { useAuth } from '@/lib/auth-context';
 import { useBetslip, keyOf, type BetLeg, type Selection } from '@/lib/betslip-context';
 import { formatOdds, useSettings } from '@/lib/settings-context';
+import { withTeamNames } from '@/lib/sports';
 import { bonusEligible, meetsMinOdds, useWallets, WALLET_IDS, WALLET_LABEL, type WalletId } from '@/lib/wallets';
 import { Spinner } from '@slyk/ui/components/spinner';
 
@@ -21,6 +22,14 @@ function pickLabel(leg: BetLeg): string {
   const [home, away] = leg.eventName.split(/\s+(?:v|vs\.?)\s+/i);
   if (leg.selection === 'away') return away ?? 'Away';
   return away ? home : leg.eventName;
+}
+
+/** The server's same-match note names outcomes as the feed spells them ("Home/Yes"): put the teams in. */
+function namedConflict(message: string | null, legs: BetLeg[], events: Set<string>): string | null {
+  if (!message) return null;
+  const leg = legs.find((l) => events.has(String(l.eventId)));
+  const [home, away] = (leg?.eventName ?? '').split(/\s+(?:v|vs\.?)\s+/i);
+  return home && away ? withTeamNames(message, home, away) : message;
 }
 
 function money(n: number) {
@@ -184,7 +193,17 @@ export function SlipBody({ onClose, variant = 'card' }: {
 
       {hasLegs && (
         <>
-          <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-3 pb-3">
+          {/* Picks, stake, wallet and totals scroll together (a fixed footer left room
+              for barely one pick on phones); only the place button stays pinned. */}
+          <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="space-y-2 px-3 pb-3">
+            {/* Why some picks can't share this multiple: said once, with the teams named. */}
+            {!isSingles && conflictingEvents.size > 0 && (
+              <p className="rounded-xl border border-gold/50 bg-gold/10 px-3 py-2 text-[11.5px] font-semibold text-gold">
+                {namedConflict(conflictMessage, legs, conflictingEvents)
+                  ?? 'Two picks from the same match can’t share a multiple.'} Remove one, or switch to Singles.
+              </p>
+            )}
             {legs.map((l) => {
               const key = keyOf(l);
               const conflict = !isSingles && conflictingEvents.has(String(l.eventId));
@@ -194,13 +213,13 @@ export function SlipBody({ onClose, variant = 'card' }: {
                 <div key={key} className={`rounded-xl border bg-background/50 p-3 ${conflict ? 'border-gold' : 'border-border'}`}>
                   <div className="flex items-start gap-2">
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-[13px] font-extrabold leading-tight">{pickLabel(l)}</p>
+                      <p className="break-words text-[13px] font-extrabold leading-tight">{pickLabel(l)}</p>
                       <p className="mt-0.5 text-[11px] font-semibold text-muted-foreground">
                         {l.outcomeId != null ? l.marketName : `Match result · ${SELECTION_CODE[l.selection]}`}
                       </p>
-                      <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{l.eventName}</p>
+                      <p className="mt-0.5 break-words text-[11px] text-muted-foreground">{l.eventName.replace(/\s+vs?\.?\s+/i, ' – ')}</p>
                       {conflict && (
-                        <p className="mt-1 text-[11px] font-semibold text-gold">{conflictMessage ?? 'Can’t share a multiple with another pick from this match'}</p>
+                        <p className="mt-1 text-[11px] font-bold text-gold">Can’t go on the same multiple — see the note above</p>
                       )}
                     </div>
                     {l.suspended ? (
@@ -252,7 +271,7 @@ export function SlipBody({ onClose, variant = 'card' }: {
             })}
           </div>
 
-          <div className="border-t border-border bg-muted/30 px-4 py-3.5">
+          <div className="border-t border-border bg-muted/30 px-4 pt-3.5">
             {!isSingles && (
               <div className="mb-3">
                 <div className="relative">
@@ -330,6 +349,8 @@ export function SlipBody({ onClose, variant = 'card' }: {
               </p>
             )}
 
+          </div>
+          <div className="sticky bottom-0 z-10 border-t border-border bg-card px-4 pb-3.5 pt-3">
             {user ? (
               hasSuspended ? (
                 <button
@@ -373,6 +394,7 @@ export function SlipBody({ onClose, variant = 'card' }: {
                 {status}
               </p>
             )}
+          </div>
           </div>
         </>
       )}

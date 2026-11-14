@@ -190,9 +190,46 @@ class BannerImageUploadView(APIView):
         )
 
 
+# Widths the site asks for (phone strip, phone at 3x, desktop, desktop at 2x). Only
+# these, so nobody can make the server resize to arbitrary sizes.
+BANNER_WIDTHS = (480, 828, 1200, 1920)
+
+
+def _resized_webp(pk: int, data: bytes, content_type: str, width: int):
+    """A still image scaled down to `width` and re-encoded as WebP, or None to
+    serve the original (animated GIF/WebP, video, already narrower, or larger
+    as WebP). Made once per process and kept in the cache: an upload never changes."""
+    from django.core.cache import cache
+    if content_type not in ('image/jpeg', 'image/png', 'image/webp'):
+        return None
+    key = f'banner-img:{pk}:{width}'
+    hit = cache.get(key)
+    if hit is not None:
+        return hit or None
+    out = b''
+    try:
+        import io
+        from PIL import Image
+        with Image.open(io.BytesIO(data)) as im:
+            if getattr(im, 'is_animated', False) or im.width <= width:
+                out = b''
+            else:
+                im = im.convert('RGBA' if im.mode in ('RGBA', 'LA', 'P') else 'RGB')
+                im.thumbnail((width, width * 4), Image.LANCZOS)
+                buf = io.BytesIO()
+                im.save(buf, 'WEBP', quality=78, method=4)
+                out = buf.getvalue() if buf.tell() < len(data) else b''
+    except Exception:  # noqa: BLE001 — a picture we can't read is served as uploaded
+        out = b''
+    cache.set(key, out, 60 * 60 * 24)
+    return out or None
+
+
 class BannerImageView(APIView):
     """GET /api/promotions/banner-images/<id>/ — the image bytes, cached for a
-    year (an upload never changes; a new design gets a new id)."""
+    year (an upload never changes; a new design gets a new id). `?w=480|828|1200|1920`
+    returns a smaller WebP of a still image (the original banners were up to 1.8 MB,
+    most of a phone's first load)."""
     permission_classes = [AllowAny]
     authentication_classes = []
     throttle_classes = []
@@ -202,6 +239,18 @@ class BannerImageView(APIView):
         if image is None:
             raise Http404
         data = bytes(image.content)
+        try:
+            width = int(request.query_params.get('w', '0'))
+        except ValueError:
+            width = 0
+        if width in BANNER_WIDTHS:
+            small = _resized_webp(pk, data, image.content_type, width)
+            if small is not None:
+                response = HttpResponse(small, content_type='image/webp')
+                response['Content-Length'] = str(len(small))
+                response['Cache-Control'] = 'public, max-age=31536000, immutable'
+                response['X-Content-Type-Options'] = 'nosniff'
+                return response
         start, end, partial = 0, len(data) - 1, False
         wanted = request.headers.get('Range', '')
         if wanted.startswith('bytes=') and ',' not in wanted:

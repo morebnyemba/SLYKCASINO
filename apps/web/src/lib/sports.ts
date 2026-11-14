@@ -61,11 +61,18 @@ export type QuickCode = 'ou' | 'dc' | 'gg';
 /** What a match list shows in its price columns. */
 export type ListMarket = '1x2' | QuickCode;
 
+/** Compact list prices: outcomes in the chip's column order, null where an outcome is closed. */
 export interface QuickMarket {
   market_id: number;
-  name: string;
   line: string | null;
-  outcomes: { id: number; key: string; label: string; odds: string; is_open: boolean }[];
+  outcomes: ({ id: number; odds: string } | null)[];
+}
+
+/** Market name and outcome labels for a chip's pick (the API leaves them out to stay small). */
+export function quickWording(code: QuickCode, line: string | null): { market: string; labels: string[] } {
+  if (code === 'ou') return { market: `Total goals ${line ?? ''}`.trim(), labels: [`Over ${line ?? ''}`.trim(), `Under ${line ?? ''}`.trim()] };
+  if (code === 'dc') return { market: 'Double chance', labels: ['Home or draw', 'Home or away', 'Draw or away'] };
+  return { market: 'Both teams to score', labels: ['Yes', 'No'] };
 }
 
 /** The market chips above a match list and the column captions each one shows. */
@@ -159,9 +166,28 @@ export function matchClock(ev: EventItem): string | null {
 
 /** Swap generic "Home"/"Away" in provider labels for the actual team names. */
 export function withTeamNames(text: string, home: string, away: string | null): string {
+  // Feed labels spell it both ways ("Home or draw", "Draw or away").
   return text
-    .replace(/\bHome\b/g, home)
-    .replace(/\bAway\b/g, away ?? 'Away');
+    .replace(/\bhome\b/gi, home)
+    .replace(/\baway\b/gi, away ?? 'Away');
+}
+
+const RESULT_CODE: Record<string, string> = { home: '1', draw: 'X', away: '2' };
+
+/** Betting-shop shorthand for outcomes of many-option markets, where full team
+ * names can't fit a button: double chance "1X", result & GG/NG "1 & GG",
+ * result & total "X & Over 2.5", half time/full time "1/X". Null = use the label. */
+export function shortOutcome(kind: string, key: string, line?: string | null): string | null {
+  if (kind === 'double_chance') return ({ '1x': '1X', '12': '12', x2: 'X2' } as Record<string, string>)[key] ?? null;
+  const [a, b] = key.split('/');
+  if (!RESULT_CODE[a] || !b) return null;
+  if (kind === 'result_btts') return b === 'yes' ? `${RESULT_CODE[a]} & GG` : b === 'no' ? `${RESULT_CODE[a]} & NG` : null;
+  if (kind === 'result_total' && (b === 'over' || b === 'under')) {
+    const n = line != null ? ` ${Number(line)}` : '';
+    return `${RESULT_CODE[a]} & ${b === 'over' ? 'Over' : 'Under'}${n}`;
+  }
+  if (kind === 'ht_ft' && RESULT_CODE[b]) return `${RESULT_CODE[a]}/${RESULT_CODE[b]}`;
+  return null;
 }
 
 /** Whether the 1X2 prices are real (imported fixtures carry a placeholder until priced). */
@@ -238,6 +264,8 @@ export interface LeagueGroup {
   league: League | null;
   events: EventItem[];
   liveCount: number;
+  /** All the league's matches when `events` holds only the rows rendered so far. */
+  total?: number;
 }
 
 /**
@@ -246,6 +274,31 @@ export interface LeagueGroup {
  * have no league last. Within a league, live matches come first, then by
  * kick-off (sortEvents).
  */
+/** Only what match lists use, without empty values: every event is embedded in
+ * the sportsbook page for the browser, so each byte counts ~600 times. */
+const LIST_FIELDS = [
+  'id', 'name', 'sport', 'odds', 'odds_draw', 'odds_away', 'previous_odds', 'has_odds', 'featured', 'is_open',
+  'starts_at', 'status', 'elapsed', 'score_home', 'score_away', 'markets_count', 'in_play', 'bettable', 'main_open',
+  'live_closed', 'quick_markets',
+] as const;
+
+export function slimEvent(ev: EventItem): EventItem {
+  const out: Record<string, unknown> = {};
+  for (const k of LIST_FIELDS) {
+    const v = (ev as unknown as Record<string, unknown>)[k];
+    if (v !== null && v !== undefined && v !== '') out[k] = v;   // booleans and 0 are kept: false means something
+  }
+  const team = (t?: Team | null) => (t ? { id: t.id, name: t.name, ...(t.logo_url ? { logo_url: t.logo_url } : {}) } : undefined);
+  if (ev.home_team) out.home_team = team(ev.home_team);
+  if (ev.away_team) out.away_team = team(ev.away_team);
+  if (ev.league) {
+    const { id, name, country, logo_url, flag_url, sort_order } = ev.league;
+    out.league = Object.fromEntries(Object.entries({ id, name, country, logo_url, flag_url, sort_order })
+      .filter(([, v]) => v !== null && v !== undefined && v !== ''));
+  }
+  return out as unknown as EventItem;
+}
+
 export function groupByLeague(events: EventItem[]): LeagueGroup[] {
   const groups = new Map<string, LeagueGroup>();
   for (const ev of events) {

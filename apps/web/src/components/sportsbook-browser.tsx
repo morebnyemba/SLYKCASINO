@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { BsArrowDownUp, BsChevronDown, BsLightningChargeFill } from 'react-icons/bs';
 import { GiTrophyCup } from 'react-icons/gi';
@@ -14,6 +14,9 @@ type Tab = 'live' | 'top' | 'upcoming' | 'countries';
 type SortMode = 'league' | 'time';
 
 const COLLAPSED_KEY = 'slyk:collapsed-leagues';
+/** Rows rendered at first, and added each time the player scrolls near the end. Rendering
+ * all ~600 matches at once made a 2.5 MB page that phones took seconds to show. */
+const ROW_BATCH = 40;
 /** ⚡ "Starting soon": kick-off within this window. */
 const SOON_MS = 3 * 3600 * 1000;
 const NO_COUNTRY = 'International';
@@ -153,6 +156,11 @@ export function SportsbookBrowser({ events, topMatches = [], awaitingOdds = 0 }:
   }, [filtered]);
   const chips = LIST_MARKETS.filter((m) => m.id === '1x2' || (marketCounts[m.id] ?? 0) > 0 || m.id === market);
 
+  // Progressive rendering: the first ROW_BATCH rows, more as the end comes into view.
+  const [rowLimit, setRowLimit] = useState(ROW_BATCH);
+  useEffect(() => { setRowLimit(ROW_BATCH); }, [tab, sport, day, soon, sort, market]);
+  const sentinel = useRef<HTMLDivElement | null>(null);
+
   // One block per sport, in sidebar order, each with its own column header.
   const groups = useMemo(() => {
     const order = [...SPORT_CATEGORIES.map((c) => c.id), undefined];
@@ -207,6 +215,43 @@ export function SportsbookBrowser({ events, topMatches = [], awaitingOdds = 0 }:
       return next;
     });
   }, []);
+
+  // The rows within the current budget (collapsed leagues cost nothing).
+  const shown = useMemo(() => {
+    let left = rowLimit;
+    const out: (typeof groups[number] & { total: number })[] = [];
+    for (const g of groups) {
+      if (left <= 0) break;
+      if (sort === 'time') {
+        const evs = sortEvents(g.events).slice(0, left);
+        left -= evs.length;
+        out.push({ ...g, events: evs, total: g.events.length });
+        continue;
+      }
+      const leagues = [];
+      for (const lg of g.leagues) {
+        if (left <= 0) break;
+        const key = `${g.sport ?? 'other'}:${lg.key}`;
+        if (collapsed.has(key)) { leagues.push(lg); continue; }
+        const evs = lg.events.slice(0, left);
+        left -= evs.length;
+        leagues.push({ ...lg, events: evs, total: lg.events.length });
+      }
+      out.push({ ...g, leagues, total: g.events.length });
+    }
+    return out;
+  }, [groups, rowLimit, sort, collapsed]);
+  const totalRows = filtered.length;
+  const hasMore = tab !== 'countries' && rowLimit < totalRows;
+  useEffect(() => {
+    const el = sentinel.current;
+    if (!el || !hasMore) return;
+    const io = new IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting)) setRowLimit((n) => n + ROW_BATCH);
+    }, { rootMargin: '800px 0px' });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [hasMore, shown]);
 
   const SportIcon = sport ? sportMeta(sport).icon ?? GiTrophyCup : GiTrophyCup;
   const filtersActive = !!(sport || day || soon);
@@ -412,17 +457,29 @@ export function SportsbookBrowser({ events, topMatches = [], awaitingOdds = 0 }:
           })}
         </div>
       ) : (
-        groups.map((g) => {
+        shown.map((g) => {
           const meta = sportMeta(g.sport);
           return (
             <div key={g.sport ?? 'other'} className="overflow-hidden rounded-2xl border border-border bg-card">
-              <MarketHeader title={meta.label} icon={meta.icon} count={g.events.length} market={market} />
+              <MarketHeader title={meta.label} icon={meta.icon} count={g.total} market={market} />
               {sort === 'time'
                 ? sortEvents(g.events).map((ev) => <EventRow key={ev.id} ev={ev} showLeague market={market} />)
                 : leagueSections(g.leagues, g.sport ?? 'other', `Other ${meta.label.toLowerCase()}`)}
             </div>
           );
         })
+      )}
+
+      {hasMore && (
+        // Comes into view 800px early, so the next rows are there before the player reaches them.
+        <div ref={sentinel} className="flex justify-center pb-2">
+          <button
+            onClick={() => setRowLimit((n) => n + ROW_BATCH)}
+            className="rounded-xl border border-border bg-card px-4 py-2.5 text-[13px] font-bold text-muted-foreground hover:text-foreground"
+          >
+            Show more matches ({totalRows - Math.min(rowLimit, totalRows)} more)
+          </button>
+        </div>
       )}
     </section>
   );

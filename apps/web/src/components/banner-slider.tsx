@@ -35,15 +35,34 @@ const AUTO_ADVANCE_MS = 6000;
 const REFRESH_MS = 20000;
 
 /**
- * Banner box. On a phone its height follows the width (16:10), so the artwork
- * keeps its shape on any screen from 320px up instead of being squashed or
- * cropped by a fixed height; from `sm` up it has a fixed height. Add the
- * height classes for the surface, e.g. `sm:h-60 md:h-72`.
+ * Banner box. On a phone it's a wide strip (5:2, about 165px tall on a 412px
+ * phone) so the matches start on the first screen; its height follows the
+ * width, so the artwork keeps its shape on any phone. From `sm` up it has a
+ * fixed height: add the classes for the surface, e.g. `sm:h-60 md:h-72`.
  */
-export const BANNER_FRAME = 'group relative aspect-[16/10] w-full min-w-0 min-h-52 touch-pan-y overflow-hidden rounded-3xl bg-muted sm:aspect-auto sm:min-h-0 banner-frame';
+export const BANNER_FRAME = 'group relative aspect-[5/2] w-full min-w-0 min-h-32 touch-pan-y overflow-hidden rounded-2xl bg-muted sm:aspect-auto sm:min-h-0 sm:rounded-3xl banner-frame';
 
 function isExternal(href: string): boolean {
   return /^https?:\/\//i.test(href);
+}
+
+/** Which slides have their content mounted: the one on screen and the next one
+ * (so it's ready when it slides in). The rest load only as they come round —
+ * stacked slides sit in the viewport, so `loading="lazy"` alone fetched them all. */
+export function useMountedSlides(index: number, count: number) {
+  const [mounted, setMounted] = useState<Set<number>>(() => new Set([0]));
+  useEffect(() => {
+    if (count === 0) return;
+    // The next slide is fetched once the first one has had its turn to load.
+    const t = setTimeout(() => setMounted((prev) => {
+      const next = (index + 1) % count;
+      if (prev.has(index) && prev.has(next)) return prev;
+      return new Set([...prev, index, next]);
+    }), index === 0 ? 2500 : 0);
+    setMounted((prev) => (prev.has(index) ? prev : new Set([...prev, index])));
+    return () => clearTimeout(t);
+  }, [index, count]);
+  return mounted;
 }
 
 /** Swipe left/right on a touch screen to change slide. Ignores mostly-vertical drags so the page still scrolls. */
@@ -210,6 +229,7 @@ export function BannerSlider({ banners: initial, placement = 'home_hero' }: { ba
   }, [count, holding, reduced]);
 
   const swipe = useSwipe(() => go(index - 1), () => go(index + 1), setHolding);
+  const mountedSlides = useMountedSlides(index, count);
 
   if (count === 0) return null;
 
@@ -221,7 +241,9 @@ export function BannerSlider({ banners: initial, placement = 'home_hero' }: { ba
           className={`absolute inset-0 overflow-hidden rounded-[inherit] transition-opacity duration-700 ${i === index ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
           aria-hidden={i === index ? undefined : true}
         >
-          <PromoSlide b={b} priority={i === 0} active={i === index} secondary={{ href: '/sportsbook?tab=live', label: 'Live betting' }} />
+          {mountedSlides.has(i) && (
+            <PromoSlide b={b} priority={i === 0} active={i === index} secondary={{ href: '/sportsbook?tab=live', label: 'Live betting' }} />
+          )}
         </div>
       ))}
 
@@ -255,9 +277,19 @@ function imageSrc(url: string) {
   return url.startsWith('/api/') ? `${config.apiUrl.replace(/\/api\/?$/, '')}${url}` : url;
 }
 
+/** Our uploaded banners come in smaller WebP widths (`?w=`), so a phone downloads
+ * ~100 KB instead of the 1–2 MB original. Other URLs are used as they are. */
+function imageSrcSet(url: string): string | undefined {
+  if (!url.startsWith('/api/promotions/banner-images/')) return undefined;
+  const base = imageSrc(url);
+  return [480, 828, 1200, 1920].map((w) => `${base}?w=${w} ${w}w`).join(', ');
+}
+// Phones: the strip is the full width; tablets and up: the content column (~1100px).
+const BANNER_SIZES = '(max-width: 639px) 100vw, 1100px';
+
 const FOCUS: Record<NonNullable<Banner['focus']>, string> = { left: '15% 50%', center: '50% 50%', right: '85% 50%' };
 
-const CTA = 'inline-flex min-h-10 items-center rounded-lg bg-win px-4 py-2 text-xs font-extrabold uppercase tracking-wide text-win-foreground shadow-lg transition-transform hover:scale-105 active:scale-95 sm:px-5 sm:text-sm';
+const CTA = 'inline-flex min-h-8 items-center rounded-lg bg-win px-3 py-1.5 text-[11px] font-extrabold uppercase tracking-wide text-win-foreground shadow-lg transition-transform hover:scale-105 active:scale-95 sm:min-h-10 sm:px-5 sm:py-2 sm:text-sm';
 
 /** One promo banner's content (photo or gradient art, copy and buttons), filling
  * its parent. Shared by the homepage slider and the sportsbook hero. `priority`
@@ -283,10 +315,12 @@ export function PromoSlide({ b, secondary, priority = false, active = true }: {
     <>
       {b.image_url ? (
         <picture>
-          {b.mobile_image_url && <source media="(max-width: 639px)" srcSet={imageSrc(b.mobile_image_url)} />}
+          {b.mobile_image_url && (
+            <source media="(max-width: 639px)" srcSet={imageSrcSet(b.mobile_image_url) ?? imageSrc(b.mobile_image_url)} sizes="100vw" />
+          )}
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src={imageSrc(b.image_url)} alt={overlay ? '' : b.title}
+            src={imageSrc(b.image_url)} srcSet={imageSrcSet(b.image_url)} sizes={BANNER_SIZES} alt={overlay ? '' : b.title}
             loading={priority ? 'eager' : 'lazy'} decoding="async" {...(priority ? { fetchPriority: 'high' as const } : {})}
             key={active ? 'on' : 'off'}
             className={`h-full w-full rounded-[inherit] object-cover ${active && b.motion === 'zoom' ? 'banner-zoom' : ''}`} style={{ objectPosition: position }}
@@ -308,7 +342,8 @@ export function PromoSlide({ b, secondary, priority = false, active = true }: {
       )}
 
       {b.video_url && active && videoAllowed && (
-        <BannerVideo src={imageSrc(b.video_url)} poster={b.image_url ? imageSrc(b.image_url) : undefined} position={position} />
+        <BannerVideo src={imageSrc(b.video_url)} position={position}
+          poster={b.image_url ? (imageSrcSet(b.image_url) ? `${imageSrc(b.image_url)}?w=1200` : imageSrc(b.image_url)) : undefined} />
       )}
       {b.motion === 'shine' && <div aria-hidden className="banner-shine pointer-events-none absolute inset-0" />}
 
@@ -317,18 +352,18 @@ export function PromoSlide({ b, secondary, priority = false, active = true }: {
           {/* Phones: the words sit at the bottom over a fade from below, so the top of the artwork stays clear. */}
           <div className="absolute inset-0 rounded-[inherit] bg-gradient-to-t from-black/85 via-black/40 to-transparent sm:bg-gradient-to-r sm:from-black/[0.86] sm:via-black/50 sm:to-transparent" />
           {/* Keyed on `active` so the words rise into place each time the slide comes round. */}
-          <div key={active ? 'on' : 'off'} className="absolute inset-0 flex flex-col justify-end gap-1 p-4 pb-9 sm:justify-center sm:gap-2 sm:p-10 sm:pb-10">
+          <div key={active ? 'on' : 'off'} className="absolute inset-0 flex flex-col justify-end gap-1 p-3 pb-5 sm:justify-center sm:gap-2 sm:p-10 sm:pb-10">
             {b.eyebrow && (
-              <span className="banner-rise w-fit shrink-0 rounded-md bg-white/15 px-2 py-0.5 text-[10px] font-bold tracking-wider text-white backdrop-blur-sm sm:px-2.5 sm:py-1 sm:text-[11px]">
+              <span className="banner-rise hidden w-fit shrink-0 rounded-md min-[400px]:inline-block sm:inline-block bg-white/15 px-2 py-0.5 text-[10px] font-bold tracking-wider text-white backdrop-blur-sm sm:px-2.5 sm:py-1 sm:text-[11px]">
                 {b.eyebrow}
               </span>
             )}
-            <p style={{ '--d': '80ms' } as React.CSSProperties} className="banner-rise line-clamp-2 max-w-xl shrink-0 text-lg font-extrabold leading-snug text-white drop-shadow sm:line-clamp-none sm:text-3xl sm:leading-tight md:text-4xl">
+            <p style={{ '--d': '80ms' } as React.CSSProperties} className="banner-rise line-clamp-2 max-w-xl shrink-0 text-[15px] font-extrabold leading-tight text-white drop-shadow sm:line-clamp-none sm:text-3xl sm:leading-tight md:text-4xl">
               {b.title}
             </p>
             {b.subtitle && (
-              // Dropped on the narrowest phones, where the title and button need the room.
-              <p style={{ '--d': '160ms' } as React.CSSProperties} className="banner-rise hidden shrink-0 line-clamp-1 max-w-md text-xs text-white/85 min-[380px]:block sm:line-clamp-2 sm:text-base">{b.subtitle}</p>
+              // Tablets and up: the phone strip only has room for the title and button.
+              <p style={{ '--d': '160ms' } as React.CSSProperties} className="banner-rise hidden shrink-0 max-w-md text-xs text-white/85 sm:line-clamp-2 sm:block sm:text-base">{b.subtitle}</p>
             )}
             {(cta || secondary) && (
               <div style={{ '--d': '240ms' } as React.CSSProperties} className="banner-rise mt-1 flex w-fit shrink-0 flex-wrap gap-2 sm:mt-2 sm:gap-3">
@@ -347,7 +382,7 @@ export function PromoSlide({ b, secondary, priority = false, active = true }: {
         </>
       ) : (
         // The design carries its own words: only the button goes on top.
-        cta && <div className="absolute bottom-6 left-3 sm:bottom-6 sm:left-6">{cta}</div>
+        cta && <div className="absolute bottom-4 left-3 sm:bottom-6 sm:left-6">{cta}</div>
       )}
     </>
   );

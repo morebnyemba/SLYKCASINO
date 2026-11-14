@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { FaChevronLeft, FaChevronRight } from 'react-icons/fa';
-import { BANNER_FRAME, PromoSlide, SlideDots, useLiveBanners, usePrefersReducedMotion, useSwipe, type Banner } from '@/components/banner-slider';
+import {
+  BANNER_FRAME, PromoSlide, SlideDots, useLiveBanners, useMountedSlides, usePrefersReducedMotion, useSwipe, type Banner,
+} from '@/components/banner-slider';
 
 const AUTO_ADVANCE_MS = 7000;
 
@@ -29,6 +31,7 @@ export function SportsbookHero({ banners: initial }: { banners: Banner[] }) {
   }, [count, paused, reduced]);
 
   const swipe = useSwipe(() => go(index - 1), () => go(index + 1), setPaused);
+  const mountedSlides = useMountedSlides(index, count);
 
   useEffect(() => { if (index >= count) setIndex(0); }, [index, count]);
 
@@ -36,7 +39,7 @@ export function SportsbookHero({ banners: initial }: { banners: Banner[] }) {
 
   return (
     // The margin lives here so the hero's gap appears and goes with the banners.
-    <div className="mb-5">
+    <div className="mb-3 sm:mb-5">
     <div
       className={`${BANNER_FRAME} sm:h-60 md:h-64`}
       {...swipe}
@@ -51,7 +54,7 @@ export function SportsbookHero({ banners: initial }: { banners: Banner[] }) {
           className={`absolute inset-0 transition-opacity duration-700 ${i === index ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
           aria-hidden={i === index ? undefined : true}
         >
-          <PromoSlide b={s.banner} priority={i === 0} active={i === index} />
+          {mountedSlides.has(i) && <PromoSlide b={s.banner} priority={i === 0} active={i === index} />}
         </div>
       ))}
 
