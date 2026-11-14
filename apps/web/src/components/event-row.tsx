@@ -7,7 +7,8 @@ import { OddsButton } from '@/components/odds-button';
 import { useLiveEvent } from '@/lib/live-board';
 import { SPORT_CATEGORIES } from '@/components/sports-sidebar';
 import {
-  dayLabel, hasScore, homeMove, isLive, isMainOpen, isPriced, kickoffTime, marketShape, matchClock, teamNames, type EventItem, type Team,
+  dayLabel, hasScore, homeMove, isBettable, isLive, isMainOpen, isPriced, kickoffTime, listMarketCols, marketShape, matchClock,
+  teamNames, type EventItem, type ListMarket, type Team,
 } from '@/lib/sports';
 
 export function sportMeta(id?: string): { label: string; icon?: IconType } {
@@ -58,7 +59,7 @@ function EventStatus({ ev, inline = false }: { ev: EventItem; inline?: boolean }
   if (!ev.starts_at) return <span className="text-[11px] font-semibold text-muted-foreground">TBC</span>;
   return inline ? (
     // Kickoff times render in the viewer's timezone, which can differ from the server's.
-    <span suppressHydrationWarning className="text-[11px] font-semibold text-muted-foreground">
+    <span suppressHydrationWarning className="whitespace-nowrap text-[11px] font-semibold text-muted-foreground">
       {dayLabel(ev.starts_at)} · {kickoffTime(ev.starts_at)}
     </span>
   ) : (
@@ -69,17 +70,20 @@ function EventStatus({ ev, inline = false }: { ev: EventItem; inline?: boolean }
   );
 }
 
-const ODDS_COLS = 'grid grid-cols-3 gap-1.5 w-[178px] sm:w-[222px]';
+const oddsCols = (n: number) => `grid ${n === 2 ? 'grid-cols-2' : 'grid-cols-3'} gap-1.5 w-[178px] sm:w-[222px]`;
 
-/** Section header for a block of events, with the 1 / X / 2 column captions. */
-export function MarketHeader({ title, icon: Icon, count }: { title: string; icon?: IconType; count?: number }) {
+/** Section header for a block of events, with the column captions of the market shown (1 / X / 2, Over / Under…). */
+export function MarketHeader({ title, icon: Icon, count, market = '1x2' }: {
+  title: string; icon?: IconType; count?: number; market?: ListMarket;
+}) {
+  const cols = listMarketCols(market);
   return (
     <div className="flex items-center gap-2 border-b border-border bg-muted/40 px-3 py-2.5 sm:px-4">
       {Icon && <Icon size={16} className="text-secondary" />}
-      <span className="text-sm font-extrabold">{title}</span>
+      <span className="truncate text-sm font-extrabold">{title}</span>
       {count != null && <span className="text-xs font-semibold text-muted-foreground">{count}</span>}
-      <div className={`ml-auto ${ODDS_COLS} sm:mr-[52px]`}>
-        {['1', 'X', '2'].map((l) => (
+      <div className={`ml-auto shrink-0 ${oddsCols(cols.length)} sm:mr-[52px]`}>
+        {cols.map((l) => (
           <span key={l} className="text-center text-[11px] font-extrabold text-muted-foreground">{l}</span>
         ))}
       </div>
@@ -87,12 +91,41 @@ export function MarketHeader({ title, icon: Icon, count }: { title: string; icon
   );
 }
 
+/** The price columns for an O/U, double chance or GG/NG chip: the match's own
+ * market from the list payload, a dash where it isn't offered. In play these
+ * pre-match prices are locked — live markets are on the match page. */
+function QuickOdds({ ev, market }: { ev: EventItem; market: Exclude<ListMarket, '1x2'> }) {
+  const cols = listMarketCols(market);
+  const q = ev.quick_markets?.[market];
+  const locked = isLive(ev) || !isBettable(ev);
+  return (
+    <div className={oddsCols(cols.length)}>
+      {cols.map((caption, i) => {
+        const o = q?.outcomes[i];
+        if (!q || !o) {
+          return <span key={caption} className="flex h-11 items-center justify-center rounded-lg bg-odds/50 text-muted-foreground/60">—</span>;
+        }
+        // The line is in the column caption when it's the usual 2.5; any other line is shown on the button.
+        const label = market === 'ou' && q.line && q.line !== '2.5' ? `${o.key === 'over' ? 'O' : 'U'} ${q.line}` : undefined;
+        return (
+          <OddsButton
+            key={o.id} eventId={ev.id} eventName={ev.name} odds={o.odds} label={label} disabled={locked || !o.is_open}
+            outcome={{ id: o.id, marketId: q.market_id, marketName: q.name, label: o.label }}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
 /** One compact market row: status, teams, and 1/X/2 price buttons — kept live
  * (prices, score, clock, locks) from the shared board channel. */
-export function EventRow({ ev: snapshot, showLeague = false }: {
+export function EventRow({ ev: snapshot, showLeague = false, market = '1x2' }: {
   ev: EventItem;
   /** Name the competition on the row (lists sorted by time, not grouped by league). */
   showLeague?: boolean;
+  /** Which market the price columns show (the chip row above the list). */
+  market?: ListMarket;
 }) {
   const { ev, moves } = useLiveEvent(snapshot);
   const { home, away } = teamNames(ev);
@@ -107,13 +140,17 @@ export function EventRow({ ev: snapshot, showLeague = false }: {
     <div className="flex items-center gap-3 border-b border-border px-3 py-2.5 transition-colors last:border-b-0 hover:bg-muted/30 sm:px-4">
       <div className="hidden w-16 shrink-0 md:block">
         <EventStatus ev={ev} />
+        <span className="mt-0.5 block text-[10px] font-semibold tabular-nums text-muted-foreground">ID {ev.id}</span>
       </div>
       <Link href={href} className="min-w-0 flex-1">
-        <div className="mb-1 flex items-center gap-2 md:hidden">
+        <div className="mb-1 flex min-w-0 items-center gap-2 overflow-hidden md:hidden">
           <EventStatus ev={ev} inline />
+          {/* Players quote the match ID at shops and on booking codes. */}
+          <span className="whitespace-nowrap text-[10.5px] font-semibold tabular-nums text-muted-foreground">ID {ev.id}</span>
           {!!ev.markets_count && (
-            <span className="ml-auto rounded bg-muted px-1.5 py-0.5 text-[10px] font-extrabold text-muted-foreground sm:hidden">
-              +{ev.markets_count} markets
+            <span className="ml-auto flex shrink-0 items-center gap-0.5 rounded bg-muted px-1.5 py-0.5 text-[10px] font-extrabold text-muted-foreground sm:hidden"
+              aria-label={`${ev.markets_count} more markets`}>
+              +{ev.markets_count}<BsChevronRight size={8} />
             </span>
           )}
         </div>
@@ -141,11 +178,15 @@ export function EventRow({ ev: snapshot, showLeague = false }: {
           )}
         </div>
       </Link>
-      <div className={ODDS_COLS}>
-        <OddsButton eventId={ev.id} eventName={ev.name} selection="home" odds={priced ? ev.odds : null} move={moves.home ?? homeMove(ev)} disabled={closed} />
-        <OddsButton eventId={ev.id} eventName={ev.name} selection="draw" odds={priced && shape === '1x2' ? ev.odds_draw : null} move={moves.draw} disabled={closed} />
-        <OddsButton eventId={ev.id} eventName={ev.name} selection="away" odds={priced && shape !== 'single' ? ev.odds_away : null} move={moves.away} disabled={closed} />
-      </div>
+      {market === '1x2' ? (
+        <div className={oddsCols(3)}>
+          <OddsButton eventId={ev.id} eventName={ev.name} selection="home" odds={priced ? ev.odds : null} move={moves.home ?? homeMove(ev)} disabled={closed} />
+          <OddsButton eventId={ev.id} eventName={ev.name} selection="draw" odds={priced && shape === '1x2' ? ev.odds_draw : null} move={moves.draw} disabled={closed} />
+          <OddsButton eventId={ev.id} eventName={ev.name} selection="away" odds={priced && shape !== 'single' ? ev.odds_away : null} move={moves.away} disabled={closed} />
+        </div>
+      ) : (
+        <QuickOdds ev={ev} market={market} />
+      )}
       <Link
         href={href}
         aria-label={`All markets for ${ev.name}`}

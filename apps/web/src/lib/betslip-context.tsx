@@ -152,6 +152,8 @@ interface BetslipContextValue {
   potentialPayout: number;
   /** Multi-bet bonus on this slip (multiples only): rate, amount, and the next tier to reach. */
   bonus: { percent: number; amount: number; qualifying: number; minOdds: number; next: { minLegs: number; percent: number } | null };
+  /** The top multi-bet bonus rate on offer (0 until loaded / when there's none). */
+  maxBonusPercent: number;
   /** Replace the slip with the picks of a booking code. */
   loadCode: (code: string) => Promise<{ ok: boolean; message: string }>;
   status: string | null;
@@ -564,7 +566,7 @@ export function BetslipProvider({ children }: { children: React.ReactNode }) {
 
   const value: BetslipContextValue = {
     legs, limits, mode, setMode, accaStake, setAccaStake, legStakes, setLegStake,
-    combinedOdds, potentialPayout, bonus, loadCode, status, busy, wallet, setWallet, conflictingEvents, conflictMessage, sameMatchPercent,
+    combinedOdds, potentialPayout, bonus, maxBonusPercent: Math.max(0, ...(ladder?.tiers.map((t) => t.percent) ?? [0])), loadCode, status, busy, wallet, setWallet, conflictingEvents, conflictMessage, sameMatchPercent,
     isOnSlip, isOutcomeOnSlip, toggleLeg, removeLeg, clear, place,
     hasPriceChanges, hasSuspended, acceptPriceChanges,
     slipOpen, setSlipOpen,

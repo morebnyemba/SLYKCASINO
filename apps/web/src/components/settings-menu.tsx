@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { Portal } from '@/components/portal';
-import { BsMoonStarsFill, BsSunFill, BsGearFill, BsCheck } from 'react-icons/bs';
+import { BsGearFill, BsCheck } from 'react-icons/bs';
 import { ACCENT_OPTIONS, useSettings, type OddsFormat } from '@/lib/settings-context';
 
 const ODDS_FORMATS: { id: OddsFormat; label: string }[] = [
@@ -10,22 +10,6 @@ const ODDS_FORMATS: { id: OddsFormat; label: string }[] = [
   { id: 'fractional', label: 'Fractional' },
   { id: 'american', label: 'American' },
 ];
-
-/** Quick light/dark toggle — always visible in the header, on every screen. */
-export function ThemeToggle({ className = '' }: { className?: string }) {
-  const { theme, toggleTheme } = useSettings();
-  return (
-    <button
-      onClick={toggleTheme}
-      aria-label="Toggle theme"
-      title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-      className={`flex h-9 items-center gap-2 rounded-lg px-2.5 text-xs font-semibold text-muted-foreground transition-colors hover:bg-muted hover:text-foreground ${className}`}
-    >
-      {theme === 'dark' ? <BsSunFill size={14} /> : <BsMoonStarsFill size={14} />}
-      <span>{theme === 'dark' ? 'Light mode' : 'Dark mode'}</span>
-    </button>
-  );
-}
 
 /** Gear-icon dropdown: odds format, accent colour, live-feed toggle. */
 export function SettingsMenu({ className = '', placement = 'header' }: {

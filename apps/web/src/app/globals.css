@@ -133,10 +133,8 @@
   .brand-ring, .brand-breathe { animation: none; }
 }
 
-/* The wordmark comes in two versions: navy "Bet" on light, white "Bet" on dark. */
+/* The wordmark comes in two versions; the site is light only, so the navy "Bet" one shows. */
 .brand-on-dark { display: none; }
-[data-theme='dark'] .brand-on-light { display: none; }
-[data-theme='dark'] .brand-on-dark { display: inline-block; }
 
 
 /* Animated banners (components/banner-slider.tsx). Every one stands still for

@@ -143,7 +143,9 @@ export default function WalletPage() {
               </button>
             </div>
 
-            <WithdrawPanel onChanged={() => { refetchWallet(); refetchLedger(); }} />
+            <div id="withdraw" className="scroll-mt-24">
+              <WithdrawPanel onChanged={() => { refetchWallet(); refetchLedger(); }} />
+            </div>
           </div>
 
         </CardContent>
@@ -151,7 +153,7 @@ export default function WalletPage() {
 
       <DepositBonuses onDeposit={(amount) => { setDepositAmount(amount); setDepositOpen(true); }} />
 
-      <Card className="rounded-2xl border-gold/15">
+      <Card id="transactions" className="scroll-mt-24 rounded-2xl border-gold/15">
         <CardHeader className="flex-col gap-3 space-y-0 sm:flex-row sm:items-center sm:justify-between">
           <CardTitle className="text-base">Transaction history</CardTitle>
           <div className="flex flex-wrap items-center gap-2">

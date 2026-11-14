@@ -19,7 +19,7 @@ from . import cashout as cashout_services
 from . import services
 from .dtos import AccumulatorRequestDTO, BetRequestDTO
 from .models import Bet, BetLeg, BetSlip, Event, Market
-from .serializers import BetSerializer, BetSlipSerializer, EventDetailSerializer, EventSerializer
+from .serializers import QUICK_KINDS, BetSerializer, BetSlipSerializer, EventDetailSerializer, EventSerializer
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +53,15 @@ class EventViewSet(viewsets.ModelViewSet):
         if self.action == 'retrieve':
             qs = qs.prefetch_related(Prefetch(
                 'markets', queryset=Market.objects.prefetch_related('outcomes'),
+            ))
+        elif self.action == 'list':
+            # Just the markets the list's chips can show (O/U, DC, GG/NG), in two queries.
+            qs = qs.prefetch_related(Prefetch(
+                'markets', to_attr='quick_list',
+                queryset=Market.objects.filter(
+                    is_open=True, settled=False, period=Market.Period.FULL_TIME, metric=Market.Metric.GOALS,
+                    kind__in=QUICK_KINDS,
+                ).prefetch_related('outcomes'),
             ))
         return qs
 

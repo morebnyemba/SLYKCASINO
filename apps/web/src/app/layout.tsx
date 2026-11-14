@@ -55,32 +55,31 @@ export const viewport: Viewport = {
   initialScale: 1,
   // Lets the header pad itself below the notch (env(safe-area-inset-top)).
   viewportFit: 'cover',
-  themeColor: '#0C1446',
+  // Light only: the phone's browser bar matches the white header.
+  themeColor: '#FFFFFF',
 };
 
-// Applied before paint so switching themes never flashes the previous theme on load.
+// Applied before paint. The player site is light only (a theme saved by an older
+// version is ignored); the player's accent colour still applies without a flash.
 const THEME_INIT_SCRIPT = `
 (function () {
+  document.documentElement.dataset.theme = 'light';
   try {
     var raw = window.localStorage.getItem('slyk:settings');
     var s = raw ? JSON.parse(raw) : null;
-    document.documentElement.dataset.theme = (s && s.theme) || 'dark';
     // '#6C63E8' was the old saved default: it now means "follow the site colours".
     if (s && s.accent && s.accent !== '#6C63E8') {
       document.documentElement.style.setProperty('--secondary', s.accent);
       document.documentElement.style.setProperty('--ring', s.accent);
     }
-  } catch (e) {
-    document.documentElement.dataset.theme = 'dark';
-  }
+  } catch (e) {}
 })();
 `;
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const [themeCss, identity] = await Promise.all([fetchSiteThemeCss(), fetchSiteIdentity()]);
   return (
-    // data-theme is set by THEME_INIT_SCRIPT before hydration.
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" data-theme="light" suppressHydrationWarning>
       <head>
         {/* Operator-configured brand colors from the admin dashboard, layered
             over the static defaults in @slyk/ui/globals.css. */}

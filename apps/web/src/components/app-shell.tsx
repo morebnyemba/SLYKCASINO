@@ -42,7 +42,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <main className="mx-auto w-full max-w-[1600px] flex-1 px-3 py-4 sm:px-5 sm:py-6 xl:px-6">{children}</main>
               <SiteFooter />
               {/* Keeps the footer clear of the fixed mobile tab bar. */}
-              <div className="h-20 lg:hidden" />
+              <div className="h-32 lg:hidden" />
             </div>
             <BetRail />
           </div>

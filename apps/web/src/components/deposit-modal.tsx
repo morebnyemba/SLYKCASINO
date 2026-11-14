@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import { BsChevronLeft, BsShieldLockFill, BsXLg } from 'react-icons/bs';
 import { BoltIcon } from '@/components/logo';
@@ -335,10 +336,7 @@ export function DepositModal({ open, onClose, initialAmount }: { open: boolean; 
   let primaryLabel: React.ReactNode = 'Continue';
   let primaryDisabled = false;
   let onPrimary = () => {};
-  if (step === 'method') {
-    primaryDisabled = !method;
-    onPrimary = () => method && setStep('amount');
-  } else if (step === 'amount') {
+  if (step === 'method' || step === 'amount') {
     primaryLabel = 'Review deposit';
     primaryDisabled = !canContinueAmount;
     onPrimary = () => canContinueAmount && setStep('confirm');
@@ -356,36 +354,41 @@ export function DepositModal({ open, onClose, initialAmount }: { open: boolean; 
 
   function onBack() {
     setError(null);
-    setStep(step === 'confirm' ? 'amount' : 'method');
+    setStep('method');
   }
 
   // -- shared step bodies (responsive classes cover both desktop modal & mobile sheet) --
 
-  const methodList = (
-    <div className="flex flex-col gap-2.5">
-      {methods.map((m) => (
-        <button
-          key={m.id}
-          onClick={() => { setMethod(m.id); setStep('amount'); }}
-          className={`flex items-center gap-3 rounded-2xl border bg-card px-3.5 py-3 text-left transition-colors hover:border-secondary ${
-            method === m.id ? 'border-secondary' : 'border-border'
-          }`}
-        >
-          <span style={logoStyle(m)} className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-[13px] font-extrabold text-white ${m.logoClass}`}>
-            {m.logo}
-          </span>
-          <span className="flex min-w-0 flex-col gap-0.5">
-            <span className="text-sm font-bold">{m.name}</span>
-            <span className="text-[11.5px] text-muted-foreground">{m.meta}</span>
-          </span>
-          <span className="ml-auto flex items-center gap-2.5">
-            <span className="rounded-md bg-win/15 px-2 py-1 text-[10.5px] font-bold text-win">{m.speed}</span>
-            <span className="text-lg text-muted-foreground">›</span>
-          </span>
-        </button>
-      ))}
+  // Method tiles (the selected one ticked) — the amount goes on the same screen, below them.
+  const methodTiles = (
+    <div>
+      <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Payment method">
+        {methods.map((m) => {
+          const on = selected.id === m.id;
+          return (
+            <button
+              key={m.id}
+              role="radio"
+              aria-checked={on}
+              onClick={() => setMethod(m.id)}
+              className={`relative flex min-h-[88px] flex-col items-center justify-center gap-1.5 rounded-xl border-2 bg-card px-1.5 py-2.5 text-center transition-colors ${
+                on ? 'border-gold bg-gold/5' : 'border-border hover:border-secondary/50'
+              }`}
+            >
+              {on && (
+                <span className="absolute right-1.5 top-1.5 flex h-[18px] w-[18px] items-center justify-center rounded-full bg-gold text-[11px] font-black text-gold-foreground">✓</span>
+              )}
+              <span style={logoStyle(m)} className={`flex h-9 w-9 items-center justify-center rounded-lg text-[12px] font-extrabold text-white ${m.logoClass}`}>
+                {m.logo}
+              </span>
+              <span className="line-clamp-2 text-[12px] font-bold leading-tight">{m.name}</span>
+              <span className="text-[10px] font-semibold text-win">{m.speed}</span>
+            </button>
+          );
+        })}
+      </div>
       {!gateway && (
-        <p className="mt-1 text-center text-[11px] text-muted-foreground">
+        <p className="mt-2 text-center text-[11px] text-muted-foreground">
           Demo environment — every method credits instantly through our test payment processor.
         </p>
       )}
@@ -394,16 +397,6 @@ export function DepositModal({ open, onClose, initialAmount }: { open: boolean; 
 
   const amountBody = (
     <div>
-      <div className="mb-4 flex items-center gap-2.5 rounded-xl border border-border bg-card px-3.5 py-2.5">
-        <span style={logoStyle(selected)} className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[11px] font-extrabold text-white ${selected.logoClass}`}>
-          {selected.logo}
-        </span>
-        <span className="text-[13.5px] font-bold">{selected.name}</span>
-        <button onClick={() => setStep('method')} className="ml-auto text-[12.5px] font-bold text-secondary">
-          Change
-        </button>
-      </div>
-
       <p className="mb-1.5 text-[12.5px] font-bold text-muted-foreground">Enter amount ({currency})</p>
       <div className="flex items-center justify-center gap-1 rounded-2xl border-2 border-secondary bg-muted/30 px-4 py-3.5 sm:justify-start">
         <span className="font-mono text-[34px] font-extrabold text-muted-foreground">$</span>
@@ -591,10 +584,21 @@ export function DepositModal({ open, onClose, initialAmount }: { open: boolean; 
     </div>
   );
 
-  const body = step === 'method' ? methodList : step === 'amount' ? amountBody : step === 'confirm' ? confirmBody
+  const detailsBody = <div className="space-y-4">{methodTiles}{amountBody}</div>;
+  const body = step === 'method' || step === 'amount' ? detailsBody : step === 'confirm' ? confirmBody
     : step === 'waiting' ? waitingBody : successBody;
 
-  const showBack = step === 'amount' || step === 'confirm';
+  const showBack = step === 'confirm';
+  // Deposit | Withdraw, as players expect from other betting sites; Withdraw opens the wallet's withdrawal form.
+  const switcher = step === 'method' || step === 'amount' ? (
+    <div className="flex gap-5 border-b border-border">
+      <span className="-mb-px border-b-2 border-gold pb-2 text-[15px] font-extrabold text-gold">Deposit</span>
+      <Link href="/account/wallet#withdraw" onClick={resetAndClose} className="pb-2 text-[15px] font-bold text-muted-foreground hover:text-foreground">
+        Withdraw
+      </Link>
+    </div>
+  ) : null;
+
   const showSecure = step !== 'success';
 
   return (
@@ -621,7 +625,7 @@ export function DepositModal({ open, onClose, initialAmount }: { open: boolean; 
 
           <StepDots step={step} />
 
-          <div className="min-h-[300px] px-5.5 pb-6 pt-4.5">{body}</div>
+          <div className="max-h-[60vh] min-h-[300px] space-y-4 overflow-y-auto px-5.5 pb-6 pt-4.5">{switcher}{body}</div>
 
           <div className="flex items-center gap-3 border-t border-border px-5.5 py-4">
             {showBack && (
@@ -672,14 +676,14 @@ export function DepositModal({ open, onClose, initialAmount }: { open: boolean; 
           </div>
 
           <div className="flex items-center gap-1.5 px-4.5 pb-3">
-            {(['method', 'amount', 'confirm'] as const).map((s, i) => {
-              const order = ['method', 'amount', 'confirm'];
-              const stepIdx = step === 'success' || step === 'waiting' ? 3 : order.indexOf(step);
+            {(['method', 'confirm'] as const).map((s, i) => {
+              const order = ['method', 'confirm'];
+              const stepIdx = step === 'success' || step === 'waiting' ? 2 : step === 'amount' ? 0 : order.indexOf(step);
               return <span key={s} className={`h-1 flex-1 rounded-full ${i <= stepIdx ? 'bg-gold' : 'bg-border'}`} />;
             })}
           </div>
 
-          <div className="flex-1 overflow-y-auto px-4.5">{body}</div>
+          <div className="flex-1 space-y-4 overflow-y-auto px-4.5">{switcher}{body}</div>
 
           <div className="border-t border-border px-4.5 py-3.5 pb-6">
             <button
@@ -702,9 +706,9 @@ export function DepositModal({ open, onClose, initialAmount }: { open: boolean; 
 }
 
 function StepDots({ step }: { step: Step }) {
-  const order = ['method', 'amount', 'confirm'];
-  const stepIdx = step === 'success' || step === 'waiting' ? 3 : order.indexOf(step);
-  const labels = ['Method', 'Amount', 'Confirm'];
+  const order = ['method', 'confirm'];
+  const stepIdx = step === 'success' || step === 'waiting' ? 2 : step === 'amount' ? 0 : order.indexOf(step);
+  const labels = ['Method & amount', 'Confirm'];
   return (
     <div className="flex items-center gap-1.5 px-5.5 pb-1 pt-4">
       {labels.map((label, i) => {
@@ -720,7 +724,7 @@ function StepDots({ step }: { step: Step }) {
               {done ? '✓' : i + 1}
             </span>
             <span className={`text-[12.5px] font-bold ${active || done ? 'text-foreground' : 'text-muted-foreground'}`}>{label}</span>
-            {i < 2 && <span className={`mx-1 h-0.5 w-[26px] rounded-full ${done ? 'bg-secondary' : 'bg-border'}`} />}
+            {i < labels.length - 1 && <span className={`mx-1 h-0.5 w-[26px] rounded-full ${done ? 'bg-secondary' : 'bg-border'}`} />}
           </div>
         );
       })}

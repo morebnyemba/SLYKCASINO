@@ -19,7 +19,7 @@ export function WhatsAppButton() {
   if (!href) return null;
   return (
     <a href={href} target="_blank" rel="noopener noreferrer" aria-label="Chat with support on WhatsApp"
-      className="fixed bottom-[148px] right-3 z-30 flex h-14 w-14 items-center justify-center rounded-full bg-[#25D366] text-white shadow-[0_10px_30px_rgba(0,0,0,0.35)] transition-transform hover:scale-105 lg:bottom-24 lg:right-5">
+      className="fixed bottom-[186px] right-3 z-30 flex h-14 w-14 items-center justify-center rounded-full bg-[#25D366] text-white shadow-[0_10px_30px_rgba(0,0,0,0.35)] transition-transform hover:scale-105 lg:bottom-24 lg:right-5">
       <FaWhatsapp size={30} />
     </a>
   );

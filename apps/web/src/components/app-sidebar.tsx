@@ -3,12 +3,12 @@
 import Link from 'next/link';
 import { Suspense } from 'react';
 import { usePathname, useSearchParams } from 'next/navigation';
-import { BsLayoutSidebarInset, BsUpcScan, BsXLg } from 'react-icons/bs';
+import { BsLayoutSidebarInset, BsSearch, BsUpcScan, BsXLg } from 'react-icons/bs';
 import { GiAirplane, GiTrophy } from 'react-icons/gi';
 import { FaGift, FaHandshake, FaRegCommentDots, FaShieldAlt, FaUsers } from 'react-icons/fa';
 import type { IconType } from 'react-icons';
 import { SPORT_CATEGORIES } from '@/components/sports-sidebar';
-import { ThemeToggle, SettingsMenu } from '@/components/settings-menu';
+import { SettingsMenu } from '@/components/settings-menu';
 import { useShell } from '@/lib/shell-context';
 import { Logo, LogoMark } from '@/components/logo';
 import { isAuthRoute } from '@/lib/auth-routes';
@@ -99,7 +99,7 @@ function Section({ title, items, compact, pathname, query, onNavigate }: {
 
 function SidebarNav({ query, variant }: { query: URLSearchParams | null; variant: 'rail' | 'drawer' }) {
   const pathname = usePathname();
-  const { collapsed, toggleCollapsed, setMenuOpen } = useShell();
+  const { collapsed, toggleCollapsed, setMenuOpen, setSearchOpen } = useShell();
   const compact = variant === 'rail' && collapsed;
   const sectionProps = { compact, pathname, query, onNavigate: () => setMenuOpen(false) };
 
@@ -142,6 +142,12 @@ function SidebarNav({ query, variant }: { query: URLSearchParams | null; variant
               <BsXLg size={16} />
             </button>
           </div>
+          <button
+            onClick={() => { setMenuOpen(false); setSearchOpen(true); }}
+            className="flex h-10 w-full items-center gap-2.5 rounded-xl border border-border bg-background/60 px-3.5 text-sm text-muted-foreground"
+          >
+            <BsSearch size={14} /> Search teams or matches
+          </button>
         </div>
       )}
 
@@ -153,7 +159,6 @@ function SidebarNav({ query, variant }: { query: URLSearchParams | null; variant
       </nav>
 
       <div className={`flex items-center gap-1 border-t border-border p-2 ${compact ? 'flex-col' : ''}`}>
-        <ThemeToggle className={compact ? '!w-9 !justify-center !px-0 [&>span]:hidden' : 'flex-1'} />
         <SettingsMenu placement="sidebar" />
       </div>
     </div>

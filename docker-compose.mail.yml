@@ -1,0 +1,22 @@
+# =============================================================================
+#  Mailcow side-by-side with BetBlits — add this file to the prod deploy ONLY
+#  after scripts/mailcow-install.sh has run on the server:
+#
+#    docker compose --env-file .env.prod -f docker-compose.yml \
+#      -f docker-compose.prod.yml -f docker-compose.mail.yml up -d --build
+#
+#  The edge nginx joins the `mail-proxy` network (shared with Mailcow's web
+#  server only) and forwards mail.* there — see nginx/mail/mailcow.conf.
+# =============================================================================
+services:
+  nginx:
+    networks: [edge, mail-proxy]
+    volumes:
+      - ./nginx/mail/mailcow.conf:/etc/nginx/mailcow/mailcow.conf:ro
+      - ./nginx/mail/40-mailcow.sh:/docker-entrypoint.d/40-mailcow.sh:ro
+      # Mailcow's certificate (its ACME client renews it in place).
+      - ${MAILCOW_DIR:-/opt/mailcow-dockerized}/data/assets/ssl:/etc/nginx/mailcow/ssl:ro
+
+networks:
+  mail-proxy:
+    external: true
