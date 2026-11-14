@@ -26,7 +26,7 @@ class Banner(models.Model):
     title = models.CharField(max_length=200)
     subtitle = models.CharField(max_length=300, blank=True)
     image_url = models.CharField(max_length=500)
-    # A design made for phones (about 16:10). Shown instead of `image_url` on
+    # A design made for phones (a 5:2 strip, e.g. 1200x480). Shown instead of `image_url` on
     # small screens; without one the wide design is cropped to fit.
     mobile_image_url = models.CharField(max_length=500, blank=True)
     # Which part of the wide design stays in view when it is cropped for a phone.

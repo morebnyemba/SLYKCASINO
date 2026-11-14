@@ -130,7 +130,7 @@ function BannerPreviews({ form }: { form: FormState }) {
       </div>
       <div className="w-[240px] shrink-0">
         <p className="mb-1 text-xs font-semibold text-muted-foreground">Phone{form.mobile_image_url ? '' : ' (cropped from the wide design)'}</p>
-        <div className="relative aspect-[16/10] overflow-hidden rounded-3xl ring-1 ring-border">
+        <div className="relative aspect-[5/2] overflow-hidden rounded-2xl ring-1 ring-border">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={imageSrc(form.mobile_image_url || form.image_url)} alt="Phone preview" className="h-full w-full object-cover"
             style={{ objectPosition: form.mobile_image_url ? '50% 50%' : FOCUS_POSITION[form.focus] }} />
@@ -297,7 +297,7 @@ export default function BannersPage() {
                   <button type="button" onClick={() => set('mobile_image_url', '')} className="text-xs font-semibold text-destructive hover:underline">Remove phone design</button>
                 )}
                 <p className="text-xs text-muted-foreground">
-                  Shown on screens under 640px wide. Make it 1080 × 675 (16:10) and keep words and faces at least 8% in from every edge, because small phones crop a little.
+                  Shown on screens under 640px wide. Phones show banners as a wide strip: make it 1200 × 480 (5:2) and keep words and faces at least 8% in from every edge, because small phones crop a little. Older 16:10 phone designs lose their top and bottom — re-export them, or remove the phone design to use the wide one.
                 </p>
               </div>
               <div className="space-y-1 sm:col-span-2">

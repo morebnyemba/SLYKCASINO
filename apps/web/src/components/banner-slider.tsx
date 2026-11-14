@@ -35,12 +35,12 @@ const AUTO_ADVANCE_MS = 6000;
 const REFRESH_MS = 20000;
 
 /**
- * Banner box. On a phone its height follows the width (16:10), so the artwork
- * keeps its shape on any screen from 320px up instead of being squashed or
- * cropped by a fixed height; from `sm` up it has a fixed height. Add the
- * height classes for the surface, e.g. `sm:h-60 md:h-72`.
+ * Banner box. On a phone it's a wide strip (5:2, about 165px tall on a 412px
+ * phone) so the matches start on the first screen; its height follows the
+ * width, so the artwork keeps its shape on any phone. From `sm` up it has a
+ * fixed height: add the classes for the surface, e.g. `sm:h-60 md:h-72`.
  */
-export const BANNER_FRAME = 'group relative aspect-[16/10] w-full min-w-0 min-h-52 touch-pan-y overflow-hidden rounded-3xl bg-muted sm:aspect-auto sm:min-h-0 banner-frame';
+export const BANNER_FRAME = 'group relative aspect-[5/2] w-full min-w-0 min-h-32 touch-pan-y overflow-hidden rounded-2xl bg-muted sm:aspect-auto sm:min-h-0 sm:rounded-3xl banner-frame';
 
 function isExternal(href: string): boolean {
   return /^https?:\/\//i.test(href);
@@ -257,7 +257,7 @@ function imageSrc(url: string) {
 
 const FOCUS: Record<NonNullable<Banner['focus']>, string> = { left: '15% 50%', center: '50% 50%', right: '85% 50%' };
 
-const CTA = 'inline-flex min-h-10 items-center rounded-lg bg-win px-4 py-2 text-xs font-extrabold uppercase tracking-wide text-win-foreground shadow-lg transition-transform hover:scale-105 active:scale-95 sm:px-5 sm:text-sm';
+const CTA = 'inline-flex min-h-8 items-center rounded-lg bg-win px-3 py-1.5 text-[11px] font-extrabold uppercase tracking-wide text-win-foreground shadow-lg transition-transform hover:scale-105 active:scale-95 sm:min-h-10 sm:px-5 sm:py-2 sm:text-sm';
 
 /** One promo banner's content (photo or gradient art, copy and buttons), filling
  * its parent. Shared by the homepage slider and the sportsbook hero. `priority`
@@ -317,18 +317,18 @@ export function PromoSlide({ b, secondary, priority = false, active = true }: {
           {/* Phones: the words sit at the bottom over a fade from below, so the top of the artwork stays clear. */}
           <div className="absolute inset-0 rounded-[inherit] bg-gradient-to-t from-black/85 via-black/40 to-transparent sm:bg-gradient-to-r sm:from-black/[0.86] sm:via-black/50 sm:to-transparent" />
           {/* Keyed on `active` so the words rise into place each time the slide comes round. */}
-          <div key={active ? 'on' : 'off'} className="absolute inset-0 flex flex-col justify-end gap-1 p-4 pb-9 sm:justify-center sm:gap-2 sm:p-10 sm:pb-10">
+          <div key={active ? 'on' : 'off'} className="absolute inset-0 flex flex-col justify-end gap-1 p-3 pb-5 sm:justify-center sm:gap-2 sm:p-10 sm:pb-10">
             {b.eyebrow && (
-              <span className="banner-rise w-fit shrink-0 rounded-md bg-white/15 px-2 py-0.5 text-[10px] font-bold tracking-wider text-white backdrop-blur-sm sm:px-2.5 sm:py-1 sm:text-[11px]">
+              <span className="banner-rise hidden w-fit shrink-0 rounded-md min-[400px]:inline-block sm:inline-block bg-white/15 px-2 py-0.5 text-[10px] font-bold tracking-wider text-white backdrop-blur-sm sm:px-2.5 sm:py-1 sm:text-[11px]">
                 {b.eyebrow}
               </span>
             )}
-            <p style={{ '--d': '80ms' } as React.CSSProperties} className="banner-rise line-clamp-2 max-w-xl shrink-0 text-lg font-extrabold leading-snug text-white drop-shadow sm:line-clamp-none sm:text-3xl sm:leading-tight md:text-4xl">
+            <p style={{ '--d': '80ms' } as React.CSSProperties} className="banner-rise line-clamp-2 max-w-xl shrink-0 text-[15px] font-extrabold leading-tight text-white drop-shadow sm:line-clamp-none sm:text-3xl sm:leading-tight md:text-4xl">
               {b.title}
             </p>
             {b.subtitle && (
-              // Dropped on the narrowest phones, where the title and button need the room.
-              <p style={{ '--d': '160ms' } as React.CSSProperties} className="banner-rise hidden shrink-0 line-clamp-1 max-w-md text-xs text-white/85 min-[380px]:block sm:line-clamp-2 sm:text-base">{b.subtitle}</p>
+              // Tablets and up: the phone strip only has room for the title and button.
+              <p style={{ '--d': '160ms' } as React.CSSProperties} className="banner-rise hidden shrink-0 max-w-md text-xs text-white/85 sm:line-clamp-2 sm:block sm:text-base">{b.subtitle}</p>
             )}
             {(cta || secondary) && (
               <div style={{ '--d': '240ms' } as React.CSSProperties} className="banner-rise mt-1 flex w-fit shrink-0 flex-wrap gap-2 sm:mt-2 sm:gap-3">
@@ -347,7 +347,7 @@ export function PromoSlide({ b, secondary, priority = false, active = true }: {
         </>
       ) : (
         // The design carries its own words: only the button goes on top.
-        cta && <div className="absolute bottom-6 left-3 sm:bottom-6 sm:left-6">{cta}</div>
+        cta && <div className="absolute bottom-4 left-3 sm:bottom-6 sm:left-6">{cta}</div>
       )}
     </>
   );

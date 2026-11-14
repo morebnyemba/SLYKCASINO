@@ -36,7 +36,7 @@ export function SportsbookHero({ banners: initial }: { banners: Banner[] }) {
 
   return (
     // The margin lives here so the hero's gap appears and goes with the banners.
-    <div className="mb-5">
+    <div className="mb-3 sm:mb-5">
     <div
       className={`${BANNER_FRAME} sm:h-60 md:h-64`}
       {...swipe}
