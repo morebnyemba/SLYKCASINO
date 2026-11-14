@@ -10,6 +10,10 @@ operating pool until it's sold. Rules:
   that holder's consent — applied at once when they ask for it themselves or
   the wallet has no holder, otherwise held until they approve.
 * Price: `price_per_percent` below, from the last 30 closed days.
+* Resale: share a holder gives up is sold for them (unless they give it back to
+  the house). Sales use the oldest released share first, and the releaser gets
+  `seller_percent` (90%) of that part of the price in their share wallet; the
+  house keeps the rest. Unsold released share can be taken back.
 
 Every step is written to the audit log.
 """
@@ -17,7 +21,7 @@ from __future__ import annotations
 
 import statistics
 from datetime import timedelta
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
 from typing import Optional
 
 from django.contrib.auth import get_user_model
@@ -26,7 +30,7 @@ from django.utils import timezone
 
 from apps.accounts import services as accounts_services
 
-from .models import RevenueDay, RevenueSettings, ShareBuyer, ShareChange, ShareSale, ShareWallet
+from .models import RevenueDay, RevenueSettings, ShareBuyer, ShareChange, ShareEntry, ShareRelease, ShareSale, ShareWallet
 from .services import RevenueError
 
 CENT = Decimal('0.01')
@@ -143,7 +147,7 @@ def _room_for(pct: Decimal, *, wallet: Optional[ShareWallet] = None) -> None:
         raise RevenueError(f'Only {max(cap - others - current, ZERO):.2f}% of the {cap:.2f}% partner pool is unsold.')
 
 
-def set_share(*, slot: int, percent, by_user, reason: str = '', request=None) -> dict:
+def set_share(*, slot: int, percent, by_user, reason: str = '', for_sale: bool = True, request=None) -> dict:
     """Set one wallet's share. A raise comes out of the unsold part (superuser);
     a cut needs the holder's consent (see module docstring)."""
     from .audit import assert_unlocked
@@ -166,7 +170,8 @@ def set_share(*, slot: int, percent, by_user, reason: str = '', request=None) ->
             accounts_services.audit(None, 'share_raised', request, slot=slot, holder=_name(wallet.holder),
                                     from_percent=str(old), to_percent=str(new), by=by_user.get_username(), reason=reason)
             return {'applied': True, 'change': None}
-        return _cut(wallet, to_percent=new, new_holder=None, by_user=by_user, reason=reason, request=request)
+        return _cut(wallet, to_percent=new, new_holder=None, by_user=by_user, reason=reason, for_sale=for_sale,
+                    request=request)
 
 
 def transfer_wallet(*, slot: int, new_holder_id, by_user, reason: str = '', request=None) -> dict:
@@ -184,14 +189,15 @@ def transfer_wallet(*, slot: int, new_holder_id, by_user, reason: str = '', requ
         clash = ShareWallet.objects.filter(holder=user).exclude(pk=wallet.pk).first()
         if clash is not None:
             raise RevenueError(f'{user.get_username()} already holds wallet {clash.slot} — change its share instead.')
-        return _cut(wallet, to_percent=wallet.percent, new_holder=user, by_user=by_user, reason=reason, request=request)
+        return _cut(wallet, to_percent=wallet.percent, new_holder=user, by_user=by_user, reason=reason, for_sale=False,
+                    request=request)
 
 
 def _name(user) -> Optional[str]:
     return user.get_username() if user else None
 
 
-def _cut(wallet: ShareWallet, *, to_percent: Decimal, new_holder, by_user, reason: str, request) -> dict:
+def _cut(wallet: ShareWallet, *, to_percent: Decimal, new_holder, by_user, reason: str, request, for_sale: bool = True) -> dict:
     holder = wallet.holder
     own = holder is not None and holder.pk == by_user.pk
     if not (own or by_user.is_superuser):
@@ -201,6 +207,7 @@ def _cut(wallet: ShareWallet, *, to_percent: Decimal, new_holder, by_user, reaso
     change = ShareChange.objects.create(
         wallet=wallet, holder=holder, from_percent=wallet.percent, to_percent=to_percent, new_holder=new_holder,
         reason=(reason or '').strip()[:500], requested_by=by_user.get_username(),
+        for_sale=bool(for_sale) and new_holder is None and to_percent < wallet.percent,
     )
     accounts_services.audit(None, 'share_change_requested', request, id=change.id, slot=wallet.slot, holder=_name(holder),
                             from_percent=str(change.from_percent), to_percent=str(to_percent),
@@ -219,6 +226,10 @@ def _apply(change: ShareChange, *, note: str = '') -> None:
         wallet.holder_id = change.new_holder_id
         fields.append('holder')
     wallet.save(update_fields=fields)
+    freed = change.from_percent - change.to_percent
+    if change.for_sale and freed > 0 and not change.new_holder_id:
+        # Up for sale on the holder's behalf: they're paid when it's sold.
+        ShareRelease.objects.create(wallet=wallet, holder_id=change.holder_id, change=change, percent=freed, remaining=freed)
     change.status, change.decided_at, change.decided_note = ShareChange.Status.APPLIED, timezone.now(), note[:500]
     change.save(update_fields=['status', 'decided_at', 'decided_note'])
     accounts_services.audit(None, 'share_change_applied', None, id=change.id, slot=wallet.slot,
@@ -255,7 +266,7 @@ def change_row(c: ShareChange) -> dict:
             'from_percent': str(c.from_percent), 'to_percent': str(c.to_percent),
             'new_holder': _name(c.new_holder), 'reason': c.reason, 'status': c.status,
             'status_label': c.get_status_display(), 'requested_by': c.requested_by,
-            'decided_note': c.decided_note, 'created_at': c.created_at.isoformat(),
+            'decided_note': c.decided_note, 'created_at': c.created_at.isoformat(), 'for_sale': c.for_sale,
             'decided_at': c.decided_at.isoformat() if c.decided_at else None}
 
 
@@ -379,6 +390,37 @@ def _confirm(sale: ShareSale, *, by_user) -> None:
     sale.wallet = wallet
     sale.status, sale.decided_by, sale.decided_at = ShareSale.Status.CONFIRMED, by_user.get_username(), timezone.now()
     sale.save()
+    _pay_sellers(sale)
+
+
+def _pay_sellers(sale: ShareSale) -> None:
+    """Split a confirmed sale's price: the share it used comes out of the oldest
+    open releases first; each releaser gets `seller_percent` of their part of the
+    price (rounded down to the cent) in their share wallet. Share nobody released
+    (pool growth, never held) is the house's, so its part of the price is too."""
+    cfg = RevenueSettings.load()
+    left = sale.percent
+    per_wallet: dict[int, dict] = {}
+    for lot in ShareRelease.objects.select_for_update().filter(remaining__gt=0).order_by('created_at', 'id'):
+        if left <= 0:
+            break
+        part = min(lot.remaining, left)
+        amount = (sale.price * part / sale.percent * cfg.seller_percent / Decimal('100')).quantize(CENT, rounding=ROUND_DOWN)
+        lot.remaining -= part
+        lot.save(update_fields=['remaining'])
+        left -= part
+        row = per_wallet.setdefault(lot.wallet_id, {'slot': lot.wallet.slot, 'holder': _name(lot.holder),
+                                                    'percent': ZERO, 'amount': ZERO})
+        row['percent'] += part
+        row['amount'] += amount
+    paid = ZERO
+    for wallet_id, row in per_wallet.items():
+        if row['amount'] > 0:
+            ShareEntry.objects.create(wallet_id=wallet_id, kind=ShareEntry.Kind.SALE, amount=row['amount'], sale=sale)
+        paid += row['amount']
+    sale.seller_payouts = [{**r, 'percent': str(r['percent']), 'amount': str(r['amount'])} for r in per_wallet.values()]
+    sale.house_amount = sale.price - paid
+    sale.save(update_fields=['seller_payouts', 'house_amount'])
 
 
 def reject_sale(sale_id: int, *, by_user, note: str = '', request=None) -> ShareSale:
@@ -416,10 +458,13 @@ def sale_row(s: ShareSale) -> dict:
             'payment_reference': s.payment_reference, 'note': s.note, 'requested_by': s.requested_by,
             'decided_by': s.decided_by, 'slot': s.wallet.slot if s.wallet_id else None,
             'created_at': s.created_at.isoformat(), 'decided_at': s.decided_at.isoformat() if s.decided_at else None,
-            'expires_at': (s.created_at + timedelta(days=REQUEST_DAYS)).isoformat() if s.status == ShareSale.Status.REQUESTED else None}
+            'expires_at': (s.created_at + timedelta(days=REQUEST_DAYS)).isoformat() if s.status == ShareSale.Status.REQUESTED else None,
+            'seller_payouts': s.seller_payouts or [],
+            'house_amount': str(s.house_amount) if s.house_amount is not None else None}
 
 
-def update_share_settings(*, partner_pool_percent=None, price_months=None, signer_min_percent=None, by_user, request=None):
+def update_share_settings(*, partner_pool_percent=None, price_months=None, signer_min_percent=None, seller_percent=None,
+                          by_user, request=None):
     """Superuser: size of the partner pool (never below what's held), the price
     multiple, and the smallest share that co-signs audits."""
     if not by_user.is_superuser:
@@ -430,6 +475,10 @@ def update_share_settings(*, partner_pool_percent=None, price_months=None, signe
             pct = _pct(partner_pool_percent, 'partner pool')
             if pct < held_percent():
                 raise RevenueError(f'{held_percent():.2f}% is already held — the pool can’t be smaller than that.')
+            floor = held_percent() + released_percent()
+            if pct < floor:
+                raise RevenueError(f'{released_percent():.2f}% is up for sale for holders who released it — the pool '
+                                   f'can’t be smaller than {floor:.2f}%.')
             cfg.partner_pool_percent = pct
         if price_months not in (None, ''):
             try:
@@ -441,8 +490,50 @@ def update_share_settings(*, partner_pool_percent=None, price_months=None, signe
             cfg.price_months = months
         if signer_min_percent not in (None, ''):
             cfg.signer_min_percent = _pct(signer_min_percent, 'co-signing threshold')
+        if seller_percent not in (None, ''):
+            cfg.seller_percent = _pct(seller_percent, 'seller’s part')
         cfg.save()
     accounts_services.audit(None, 'share_settings', request, partner_pool_percent=str(cfg.partner_pool_percent),
                             price_months=cfg.price_months, signer_min_percent=str(cfg.signer_min_percent),
+                            seller_percent=str(cfg.seller_percent),
                             by=by_user.get_username())
     return cfg
+
+
+# -- releases --------------------------------------------------------------------------
+
+def released_percent() -> Decimal:
+    """Unsold share that holders released to be sold for them."""
+    return sum((r.remaining for r in ShareRelease.objects.filter(remaining__gt=0)), ZERO)
+
+
+def release_row(r: ShareRelease) -> dict:
+    return {'id': r.id, 'slot': r.wallet.slot, 'holder': _name(r.holder), 'holder_id': r.holder_id,
+            'percent': str(r.percent), 'remaining': str(r.remaining), 'created_at': r.created_at.isoformat()}
+
+
+def reclaim_release(release_id: int, *, by_user, request=None) -> ShareRelease:
+    """The holder takes back released share that hasn't sold (all that's left of it),
+    unless it's promised to a buyer who is waiting to pay."""
+    from .audit import assert_unlocked
+    assert_unlocked()
+    with transaction.atomic():
+        RevenueSettings.objects.select_for_update().get(pk=RevenueSettings.load().pk)
+        lot = ShareRelease.objects.select_for_update(of=('self',)).select_related('wallet').filter(pk=release_id).first()
+        if lot is None or lot.remaining <= 0:
+            raise RevenueError('Nothing of that release is left to take back.')
+        if lot.holder_id != by_user.pk or lot.wallet.holder_id != by_user.pk:
+            raise RevenueError('Only the holder who released it can take it back.')
+        _expire_requests()
+        waiting = sum((s.percent for s in ShareSale.objects.filter(status=ShareSale.Status.REQUESTED)), ZERO)
+        if unsold_percent() - waiting < lot.remaining:
+            raise RevenueError('Part of it is promised to a buyer who is waiting to pay — try again once that’s settled.')
+        amount = lot.remaining
+        wallet = ShareWallet.objects.select_for_update().get(pk=lot.wallet_id)
+        wallet.percent += amount
+        wallet.save(update_fields=['percent'])
+        lot.remaining = ZERO
+        lot.save(update_fields=['remaining'])
+    accounts_services.audit(None, 'share_release_reclaimed', request, id=lot.id, slot=wallet.slot, percent=str(amount),
+                            by=by_user.get_username())
+    return lot

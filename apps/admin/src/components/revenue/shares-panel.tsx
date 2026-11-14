@@ -15,16 +15,19 @@ interface Price {
 interface Change {
   id: number; slot: number; holder: string | null; from_percent: string; to_percent: string; new_holder: string | null;
   reason: string; status: string; status_label: string; requested_by: string; decided_note: string; created_at: string;
+  for_sale?: boolean;
 }
+interface Release { id: number; slot: number; holder: string | null; holder_id: number | null; percent: string; remaining: string; created_at: string }
 interface Sale {
   id: number; buyer: string; percent: string; price: string; quoted_price: string | null; status: string; status_label: string;
   payment_method: string; payment_reference: string; note: string; requested_by: string; decided_by: string;
   slot: number | null; created_at: string; expires_at: string | null;
+  seller_payouts: { slot: number; holder: string | null; percent: string; amount: string }[]; house_amount: string | null;
 }
 interface SharesView {
   can_admin: boolean; is_buyer: boolean; own_slot: number | null;
-  settings: { partner_pool_percent: string; price_months: number; signer_min_percent: string };
-  held_percent: string; unsold_percent: string; price: Price;
+  settings: { partner_pool_percent: string; price_months: number; signer_min_percent: string; seller_percent: string };
+  held_percent: string; unsold_percent: string; price: Price; released_percent: string; releases: Release[];
   wallets: { slot: number; label: string; holder: string | null; holder_id: number | null; percent: string }[];
   sales: Sale[]; changes: Change[]; pending_for_me: Change[];
   buyers: { user_id: number; username: string; approved_by: string }[];
@@ -67,7 +70,7 @@ export function SharesPanel({ onDone, onFail }: { onDone: (t: string) => void; o
         <div className="grid gap-3 sm:grid-cols-4">
           <Tile label="Partner pool" value={pct(view.settings.partner_pool_percent)} />
           <Tile label="Held" value={pct(view.held_percent)} />
-          <Tile label="Unsold" value={pct(view.unsold_percent)} strong />
+          <Tile label="Unsold" value={Number(view.released_percent) > 0 ? `${pct(view.unsold_percent)} · ${pct(view.released_percent)} released` : pct(view.unsold_percent)} strong />
           <Tile label="Price of 1%" value={p.price_per_percent ? money(p.price_per_percent) : '—'} strong />
         </div>
         <PriceNote p={p} />
@@ -89,6 +92,7 @@ export function SharesPanel({ onDone, onFail }: { onDone: (t: string) => void; o
       {!view.can_admin && view.is_buyer && <BuyForm view={view} act={act} />}
       <SalesTable view={view} act={act} />
       {view.can_admin && <Buyers view={view} act={act} />}
+      {view.releases.length > 0 && <Releases view={view} act={act} />}
       {view.changes.length > 0 && <ChangesLog rows={view.changes} />}
       {view.can_admin && <ShareSettings view={view} act={act} />}
     </>
@@ -126,9 +130,13 @@ function WalletRow({ w, view, act }: { w: SharesView['wallets'][number]; view: S
   const editable = view.can_admin || own;
   const lower = Number(value) < Number(w.percent);
   const needsConsent = lower && !!w.holder && !own;
+  // A lowered share is sold for the holder (they get the seller's part of the price) unless given back to the house.
+  const [forSale, setForSale] = useState(true);
   async function save() {
     setBusy(true);
-    await act('set/', { slot: w.slot, percent: value }, `Wallet ${w.slot} is now ${pct(value)}.`);
+    await act('set/', { slot: w.slot, percent: value, for_sale: forSale },
+      lower && forSale ? `Wallet ${w.slot} is now ${pct(value)}; the ${pct(Number(w.percent) - Number(value))} freed is up for sale for ${w.holder ?? 'the wallet'}.`
+        : `Wallet ${w.slot} is now ${pct(value)}.`);
     setBusy(false);
   }
   async function handOver() {
@@ -154,6 +162,12 @@ function WalletRow({ w, view, act }: { w: SharesView['wallets'][number]; view: S
               <Btn size="sm" busy={busy} disabled={Number(value) === Number(w.percent) || (!view.can_admin && !lower)} onClick={save}>
                 {needsConsent ? 'Ask holder' : 'Save'}
               </Btn>
+              {lower && (
+                <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <input type="checkbox" checked={forSale} onChange={(e) => setForSale(e.target.checked)} />
+                  Sell it for {own ? 'me' : (w.holder ?? 'them')} ({pct(view.settings.seller_percent)} of the price)
+                </label>
+              )}
               {view.can_admin && (
                 <>
                   <div className="w-40 shrink-0">
@@ -319,6 +333,12 @@ function SaleRow({ s, admin, act }: { s: Sale; admin: boolean; act: Act }) {
       <td className={cx(tdClass, 'tabular-nums')}>
         {money(s.price)}
         {s.quoted_price && s.quoted_price !== s.price && <p className="text-xs text-muted-foreground">Formula {money(s.quoted_price)}</p>}
+        {s.status === 'confirmed' && (s.seller_payouts.length > 0 || s.house_amount) && (
+          <p className="text-xs text-muted-foreground">
+            {s.seller_payouts.map((p) => `${p.holder ?? `Wallet ${p.slot}`} ${money(p.amount)}`).join(' · ')}
+            {s.seller_payouts.length > 0 ? ' · ' : ''}House {money(s.house_amount ?? '0')}
+          </p>
+        )}
       </td>
       <td className={tdClass}>
         <Badge tone={SALE_TONE[s.status] ?? 'slate'} dot>{s.status_label}</Badge>
@@ -406,10 +426,11 @@ function ShareSettings({ view, act }: { view: SharesView; act: Act }) {
   const [pool, setPool] = useState(view.settings.partner_pool_percent);
   const [months, setMonths] = useState(String(view.settings.price_months));
   const [signers, setSigners] = useState(view.settings.signer_min_percent);
+  const [seller, setSeller] = useState(view.settings.seller_percent);
   const [busy, setBusy] = useState(false);
   return (
     <Panel title="Share settings">
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Field label="Partner pool (%)" hint="The part of each day’s GGR that shareholders split. Can’t go below what’s held.">
           <TextInput inputMode="decimal" value={pool} onChange={(e) => setPool(e.target.value.replace(/[^0-9.]/g, ''))} />
         </Field>
@@ -419,13 +440,47 @@ function ShareSettings({ view, act }: { view: SharesView; act: Act }) {
         <Field label="Co-sign audits from (%)" hint="Holders of at least this share co-sign weekly audits; smaller holders can’t lock the admin.">
           <TextInput inputMode="decimal" value={signers} onChange={(e) => setSigners(e.target.value.replace(/[^0-9.]/g, ''))} />
         </Field>
+        <Field label="Seller gets (%)" hint="Of the price when share someone released is sold; the house keeps the rest.">
+          <TextInput inputMode="decimal" value={seller} onChange={(e) => setSeller(e.target.value.replace(/[^0-9.]/g, ''))} />
+        </Field>
       </div>
       <div className="mt-3 flex justify-end">
         <Btn variant="primary" busy={busy} onClick={async () => {
           setBusy(true);
-          await act('settings/', { partner_pool_percent: pool, price_months: months, signer_min_percent: signers }, 'Share settings saved.');
+          await act('settings/', { partner_pool_percent: pool, price_months: months, signer_min_percent: signers, seller_percent: seller }, 'Share settings saved.');
           setBusy(false);
         }}>Save</Btn>
+      </div>
+    </Panel>
+  );
+}
+
+function Releases({ view, act }: { view: SharesView; act: Act }) {
+  const { user } = useAuth();
+  return (
+    <Panel title="Up for sale for holders" description={`Share holders gave up to be sold for them. Sales use the oldest first; the holder gets ${pct(view.settings.seller_percent)} of its part of the price in their share wallet. They can take back what hasn’t sold.`} padded={false}>
+      <div className="overflow-x-auto">
+        <table className={tableClass}>
+          <thead><tr>
+            <th className={thClass}>Released by</th><th className={thClass}>Released</th><th className={thClass}>Still for sale</th>
+            <th className={thClass}>Since</th><th className={thClass} />
+          </tr></thead>
+          <tbody>
+            {view.releases.map((r) => (
+              <tr key={r.id} className={trClass}>
+                <td className={tdClass}>{r.holder ?? 'No holder'}<p className="text-xs text-muted-foreground">Wallet {r.slot}</p></td>
+                <td className={cx(tdClass, 'tabular-nums')}>{pct(r.percent)}</td>
+                <td className={cx(tdClass, 'font-semibold tabular-nums')}>{pct(r.remaining)}</td>
+                <td className={cx(tdClass, 'whitespace-nowrap text-xs text-muted-foreground')}>{new Date(r.created_at).toLocaleDateString()}</td>
+                <td className={tdClass}>
+                  {user?.username === r.holder && (
+                    <Btn size="sm" onClick={() => act('reclaim/', { release_id: r.id }, `Took back ${pct(r.remaining)} — it’s yours again.`)}>Take back</Btn>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </Panel>
   );

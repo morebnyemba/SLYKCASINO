@@ -36,6 +36,8 @@ class RevenueSettings(models.Model):
     price_months = models.PositiveSmallIntegerField(default=12)
     # Holders of at least this share co-sign weekly audits (smaller holders can't lock the admin).
     signer_min_percent = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal('5.00'))
+    # When share a holder released is sold, they get this much of the price; the house keeps the rest.
+    seller_percent = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal('90.00'))
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -151,12 +153,15 @@ class ShareEntry(models.Model):
         WITHDRAWAL = 'withdrawal', 'Withdrawal'
         RETURN = 'return', 'Withdrawal rejected'
         POOL = 'pool', 'Paid out of the pool (agreed by all partners)'
+        SALE = 'sale', 'Your released share was sold'
 
     wallet = models.ForeignKey(ShareWallet, on_delete=models.PROTECT, related_name='entries')
     kind = models.CharField(max_length=10, choices=Kind.choices)
     amount = models.DecimalField(max_digits=14, decimal_places=2)
     day = models.ForeignKey(RevenueDay, null=True, blank=True, on_delete=models.PROTECT, related_name='entries')
     withdrawal = models.ForeignKey(ShareWithdrawal, null=True, blank=True, on_delete=models.PROTECT, related_name='entries')
+    # The sale that paid a holder for share they released (kind SALE).
+    sale = models.ForeignKey('ShareSale', null=True, blank=True, on_delete=models.PROTECT, related_name='payouts')
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -166,6 +171,7 @@ class ShareEntry(models.Model):
             models.UniqueConstraint(fields=['wallet', 'day'], condition=Q(kind='accrual'), name='revenue_one_accrual_per_day'),
             models.UniqueConstraint(fields=['withdrawal', 'kind'], condition=Q(withdrawal__isnull=False),
                                     name='revenue_one_entry_per_withdrawal_kind'),
+            models.UniqueConstraint(fields=['wallet', 'sale'], condition=Q(kind='sale'), name='revenue_one_payout_per_sale_wallet'),
         ]
 
 
@@ -384,6 +390,9 @@ class ShareSale(models.Model):
     requested_by = models.CharField(max_length=150)
     decided_by = models.CharField(max_length=150, blank=True)
     wallet = models.ForeignKey(ShareWallet, null=True, blank=True, on_delete=models.PROTECT, related_name='sales')
+    # Who released the share sold and what each got; the house keeps the rest.
+    seller_payouts = models.JSONField(default=list, blank=True)
+    house_amount = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     decided_at = models.DateTimeField(null=True, blank=True)
 
@@ -409,6 +418,9 @@ class ShareChange(models.Model):
     to_percent = models.DecimalField(max_digits=5, decimal_places=2)
     new_holder = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name='+')
     reason = models.CharField(max_length=500, blank=True)
+    # A cut's freed share is sold on the holder's behalf (they get the seller's part of
+    # the price) unless they give it back to the house.
+    for_sale = models.BooleanField(default=True)
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.PENDING, db_index=True)
     requested_by = models.CharField(max_length=150)
     decided_note = models.CharField(max_length=500, blank=True)
@@ -418,3 +430,19 @@ class ShareChange(models.Model):
     class Meta:
         db_table = 'revenue_share_change'
         ordering = ['-created_at']
+
+
+class ShareRelease(models.Model):
+    """Share a holder gave up to be sold for them. Sales use the oldest open
+    releases first; each pays the releaser `seller_percent` of its part of the
+    price. `remaining` drops as it's sold (or taken back by the holder)."""
+    wallet = models.ForeignKey(ShareWallet, on_delete=models.PROTECT, related_name='releases')
+    holder = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name='+')
+    change = models.OneToOneField(ShareChange, null=True, blank=True, on_delete=models.PROTECT, related_name='release')
+    percent = models.DecimalField(max_digits=5, decimal_places=2)
+    remaining = models.DecimalField(max_digits=5, decimal_places=2)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'revenue_share_release'
+        ordering = ['created_at', 'id']

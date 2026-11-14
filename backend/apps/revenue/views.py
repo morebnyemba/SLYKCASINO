@@ -335,7 +335,7 @@ class SettingsChangeView(APIView):
 
 def _shares_payload(user) -> dict:
     from . import shares
-    from .models import ShareBuyer, ShareChange, ShareSale
+    from .models import ShareBuyer, ShareChange, ShareRelease, ShareSale
     cfg = RevenueSettings.load()
     superuser = user.is_superuser
     own = ShareWallet.objects.filter(holder=user).first()
@@ -350,7 +350,10 @@ def _shares_payload(user) -> dict:
         'is_buyer': shares.is_buyer(user),
         'own_slot': own.slot if own else None,
         'settings': {'partner_pool_percent': str(cfg.partner_pool_percent), 'price_months': cfg.price_months,
-                     'signer_min_percent': str(cfg.signer_min_percent)},
+                     'signer_min_percent': str(cfg.signer_min_percent), 'seller_percent': str(cfg.seller_percent)},
+        'released_percent': str(shares.released_percent()),
+        'releases': [shares.release_row(r) for r in ShareRelease.objects.select_related('wallet', 'holder')
+                     .filter(remaining__gt=0) if superuser or r.holder_id == user.pk],
         'held_percent': str(shares.held_percent()),
         'unsold_percent': str(shares.unsold_percent()),
         'price': shares.price_per_percent(),
@@ -415,7 +418,9 @@ class ShareActionView(APIView):
         d, u = request.data, request.user
         actions = {
             'set': lambda: shares.set_share(slot=int(d.get('slot') or 0), percent=d.get('percent'), by_user=u,
-                                            reason=d.get('reason', ''), request=request),
+                                            reason=d.get('reason', ''), for_sale=d.get('for_sale', True) not in (False, 'false', 0, '0'),
+                                            request=request),
+            'reclaim': lambda: shares.reclaim_release(int(d.get('release_id') or 0), by_user=u, request=request),
             'transfer': lambda: shares.transfer_wallet(slot=int(d.get('slot') or 0), new_holder_id=d.get('new_holder_id'),
                                                        by_user=u, reason=d.get('reason', ''), request=request),
             'buy': lambda: shares.request_purchase(by_user=u, percent=d.get('percent'), request=request),
@@ -425,7 +430,8 @@ class ShareActionView(APIView):
                                                by_user=u, request=request),
             'settings': lambda: shares.update_share_settings(partner_pool_percent=d.get('partner_pool_percent'),
                                                              price_months=d.get('price_months'),
-                                                             signer_min_percent=d.get('signer_min_percent'), by_user=u, request=request),
+                                                             signer_min_percent=d.get('signer_min_percent'),
+                                                             seller_percent=d.get('seller_percent'), by_user=u, request=request),
             'buyer-add': lambda: shares.approve_buyer(user_id=d.get('user_id'), by_user=u, request=request),
             'buyer-remove': lambda: shares.remove_buyer(user_id=d.get('user_id'), by_user=u, request=request),
         }

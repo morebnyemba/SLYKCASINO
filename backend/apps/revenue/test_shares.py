@@ -11,7 +11,7 @@ from rest_framework.test import APIClient
 
 from apps.accounts.models import AuditLog
 from apps.revenue import audit, services, shares
-from apps.revenue.models import RevenueDay, RevenueSettings, ShareChange, ShareSale, ShareWallet
+from apps.revenue.models import RevenueDay, RevenueSettings, ShareChange, ShareRelease, ShareSale, ShareWallet
 from apps.revenue.services import RevenueError
 
 URL = '/api/admin/revenue-share/shares/'
@@ -214,7 +214,8 @@ class PayoutTests(Base):
         self.assertEqual((day.share_percent, day.shared, day.pool), (D('27.50'), D('275.00'), D('725.00')))
         buyer_wallet = ShareWallet.objects.get(holder=self.buyer)
         self.assertEqual(services.wallet_balance(buyer_wallet), D('25.00'))
-        self.assertEqual(services.wallet_balance(ShareWallet.objects.get(slot=1)), D('50.00'))
+        # Boss's 5% day share ($50) plus 90% of the $1 sale of share boss released ($0.90).
+        self.assertEqual(services.wallet_balance(ShareWallet.objects.get(slot=1)), D('50.90'))
 
 
 class SignerTests(Base):
@@ -255,3 +256,95 @@ class ApiTests(Base):
         res = self.api(self.p2).post(f'{URL}changes/{pending[0]["id"]}/', {'approve': True}, format='json')
         self.assertEqual(res.status_code, 200)
         self.assertEqual(self.pct(2), D('9.00'))
+
+
+class ResaleTests(Base):
+    """Share a holder releases is sold for them: they get 90% of its part of the price."""
+
+    def setUp(self):
+        super().setUp()
+        days([1000] * 30)                                      # 1% = $3,600
+
+    def balance(self, slot):
+        return services.wallet_balance(ShareWallet.objects.get(slot=slot))
+
+    def test_releaser_gets_ninety_percent_and_the_house_ten(self):
+        shares.set_share(slot=1, percent='6', by_user=self.boss)          # boss releases 4%
+        sale = shares.record_sale(buyer_id=self.buyer.id, percent='2', payment_reference='R', by_user=self.boss)
+        # 2% x $3,600 = $7,200: boss $6,480, house $720.
+        self.assertEqual((self.balance(1), sale.house_amount), (D('6480.00'), D('720.00')))
+        self.assertEqual(sale.seller_payouts, [{'slot': 1, 'holder': 'boss', 'percent': '2.00', 'amount': '6480.00'}])
+        self.assertEqual(shares.released_percent(), D('2.00'))
+        entry = ShareWallet.objects.get(slot=1).entries.get(kind='sale')
+        self.assertEqual((entry.sale_id, entry.get_kind_display()), (sale.id, 'Your released share was sold'))
+
+    def test_oldest_release_sells_first_across_holders(self):
+        shares.set_share(slot=2, percent='9', by_user=self.p2)            # p2 releases 1% first
+        shares.set_share(slot=3, percent='7', by_user=self.p3)            # then p3 releases 3%
+        sale = shares.record_sale(buyer_id=self.buyer.id, percent='2', payment_reference='R', by_user=self.boss)
+        # 1% from p2, 1% from p3: $3,240 each, house $720.
+        self.assertEqual((self.balance(2), self.balance(3), sale.house_amount), (D('3240.00'), D('3240.00'), D('720.00')))
+        self.assertEqual(ShareRelease.objects.get(wallet__slot=3).remaining, D('2.00'))
+
+    def test_an_agreed_price_is_what_gets_split(self):
+        shares.set_share(slot=1, percent='6', by_user=self.boss)
+        shares.record_sale(buyer_id=self.buyer.id, percent='1', price='1000', payment_reference='R', by_user=self.boss)
+        self.assertEqual(self.balance(1), D('900.00'))
+
+    def test_giving_back_to_the_house_pays_nobody(self):
+        shares.set_share(slot=1, percent='6', by_user=self.boss, for_sale=False)
+        sale = shares.record_sale(buyer_id=self.buyer.id, percent='2', payment_reference='R', by_user=self.boss)
+        self.assertEqual((self.balance(1), sale.house_amount, sale.seller_payouts), (D('0'), D('7200.00'), []))
+
+    def test_share_nobody_released_is_the_houses(self):
+        shares.update_share_settings(partner_pool_percent='35', by_user=self.boss)    # 5% new, house-owned
+        shares.set_share(slot=1, percent='9', by_user=self.boss)                      # boss releases 1%
+        sale = shares.record_sale(buyer_id=self.buyer.id, percent='3', payment_reference='R', by_user=self.boss)
+        # Oldest release first: boss's 1% ($3,240 to boss); the other 2% is the house's.
+        self.assertEqual((self.balance(1), sale.house_amount), (D('3240.00'), D('7560.00')))
+
+    def test_a_consented_cut_is_sold_for_the_holder(self):
+        shares.set_share(slot=2, percent='8', by_user=self.boss)
+        shares.decide_change(ShareChange.objects.get().id, by_user=self.p2, approve=True)
+        shares.record_sale(buyer_id=self.buyer.id, percent='2', payment_reference='R', by_user=self.boss)
+        self.assertEqual(self.balance(2), D('6480.00'))
+
+    def test_a_buyers_request_pays_the_releaser_when_confirmed(self):
+        shares.set_share(slot=1, percent='6', by_user=self.boss)
+        shares.approve_buyer(user_id=self.buyer.id, by_user=self.boss)
+        sale = shares.request_purchase(by_user=self.buyer, percent='1')
+        self.assertEqual(self.balance(1), D('0'))                          # not before payment
+        shares.confirm_sale(sale.id, by_user=self.boss, payment_reference='EC1')
+        self.assertEqual(self.balance(1), D('3240.00'))
+
+    def test_unsold_release_can_be_taken_back(self):
+        shares.set_share(slot=2, percent='6', by_user=self.p2)
+        lot = ShareRelease.objects.get()
+        with self.assertRaisesMessage(RevenueError, 'Only the holder'):
+            shares.reclaim_release(lot.id, by_user=self.p3)
+        shares.reclaim_release(lot.id, by_user=self.p2)
+        self.assertEqual((self.pct(2), shares.released_percent()), (D('10.00'), D('0')))
+
+    def test_reclaim_respects_buyers_waiting_to_pay(self):
+        shares.set_share(slot=2, percent='8', by_user=self.p2)            # 2% released
+        shares.approve_buyer(user_id=self.buyer.id, by_user=self.boss)
+        shares.request_purchase(by_user=self.buyer, percent='1')
+        with self.assertRaisesMessage(RevenueError, 'waiting to pay'):
+            shares.reclaim_release(ShareRelease.objects.get().id, by_user=self.p2)
+
+    def test_pool_cant_shrink_below_share_up_for_sale(self):
+        shares.set_share(slot=1, percent='6', by_user=self.boss)
+        with self.assertRaisesMessage(RevenueError, 'up for sale'):
+            shares.update_share_settings(partner_pool_percent='27', by_user=self.boss)
+
+    def test_seller_part_is_a_setting(self):
+        shares.update_share_settings(seller_percent='100', by_user=self.boss)
+        shares.set_share(slot=1, percent='6', by_user=self.boss)
+        sale = shares.record_sale(buyer_id=self.buyer.id, percent='1', payment_reference='R', by_user=self.boss)
+        self.assertEqual((self.balance(1), sale.house_amount), (D('3600.00'), D('0.00')))
+
+    def test_payouts_can_be_withdrawn_like_earnings(self):
+        shares.set_share(slot=2, percent='9', by_user=self.p2)
+        shares.record_sale(buyer_id=self.buyer.id, percent='1', payment_reference='R', by_user=self.boss)
+        w = services.request_withdrawal(user=self.p2, method='ecocash', account='0771234567')
+        self.assertEqual(w.amount, D('3240.00'))
