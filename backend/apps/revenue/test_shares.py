@@ -10,7 +10,7 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from apps.accounts.models import AuditLog
-from apps.revenue import audit, services, shares
+from apps.revenue import agreement, audit, services, shares
 from apps.revenue.models import RevenueDay, RevenueSettings, ShareChange, ShareRelease, ShareSale, ShareWallet
 from apps.revenue.services import RevenueError
 
@@ -86,13 +86,13 @@ class SaleTests(Base):
     def test_nothing_to_sell_while_the_founders_hold_all_thirty_percent(self):
         self.assertEqual(shares.unsold_percent(), D('0'))
         with self.assertRaisesMessage(RevenueError, 'Only 0.00%'):
-            shares.record_sale(buyer_id=self.buyer.id, percent='1', payment_reference='EC123', by_user=self.boss)
+            shares.record_sale(buyer_id=self.buyer.id, percent='1', payment_reference='EC123', accepted_agreement=True, by_user=self.boss)
 
     def test_admin_records_a_paid_sale_out_of_unsold_shares(self):
         shares.set_share(slot=1, percent='5', by_user=self.boss)         # the founder frees 5% of their own
         self.assertEqual(shares.unsold_percent(), D('5.00'))
         sale = shares.record_sale(buyer_id=self.buyer.id, percent='2.5', payment_method='EcoCash',
-                                  payment_reference='EC123', by_user=self.boss)
+                                  payment_reference='EC123', accepted_agreement=True, by_user=self.boss)
         self.assertEqual((sale.status, sale.price, sale.quoted_price), ('confirmed', D('9000.00'), D('9000.00')))
         wallet = ShareWallet.objects.get(holder=self.buyer)
         self.assertEqual((wallet.slot, wallet.percent), (4, D('2.50')))
@@ -102,20 +102,20 @@ class SaleTests(Base):
     def test_an_agreed_price_is_kept_next_to_the_quote_and_a_reference_is_required(self):
         shares.set_share(slot=1, percent='5', by_user=self.boss)
         with self.assertRaisesMessage(RevenueError, 'payment reference'):
-            shares.record_sale(buyer_id=self.buyer.id, percent='1', by_user=self.boss)
-        sale = shares.record_sale(buyer_id=self.buyer.id, percent='1', price='3000', payment_reference='BANK9', by_user=self.boss)
+            shares.record_sale(buyer_id=self.buyer.id, percent='1', accepted_agreement=True, by_user=self.boss)
+        sale = shares.record_sale(buyer_id=self.buyer.id, percent='1', price='3000', payment_reference='BANK9', accepted_agreement=True, by_user=self.boss)
         self.assertEqual((sale.price, sale.quoted_price), (D('3000.00'), D('3600.00')))
 
     def test_a_second_purchase_adds_to_the_same_wallet(self):
         shares.set_share(slot=1, percent='5', by_user=self.boss)
         for _ in range(2):
-            shares.record_sale(buyer_id=self.buyer.id, percent='1', payment_reference='R', by_user=self.boss)
+            shares.record_sale(buyer_id=self.buyer.id, percent='1', payment_reference='R', accepted_agreement=True, by_user=self.boss)
         self.assertEqual(ShareWallet.objects.get(holder=self.buyer).percent, D('2.00'))
 
     def test_only_a_superuser_records_sales(self):
         shares.set_share(slot=1, percent='5', by_user=self.boss)
         with self.assertRaises(RevenueError):
-            shares.record_sale(buyer_id=self.buyer.id, percent='1', payment_reference='R', by_user=self.p2)
+            shares.record_sale(buyer_id=self.buyer.id, percent='1', payment_reference='R', accepted_agreement=True, by_user=self.p2)
 
 
 class BuyerTests(Base):
@@ -126,9 +126,9 @@ class BuyerTests(Base):
 
     def test_approved_buyer_asks_and_it_counts_once_payment_is_confirmed(self):
         with self.assertRaisesMessage(RevenueError, 'approved buyers'):
-            shares.request_purchase(by_user=self.buyer, percent='2')
+            shares.request_purchase(by_user=self.buyer, percent='2', accepted_agreement=True)
         shares.approve_buyer(user_id=self.buyer.id, by_user=self.boss)
-        sale = shares.request_purchase(by_user=self.buyer, percent='2')
+        sale = shares.request_purchase(by_user=self.buyer, percent='2', accepted_agreement=True)
         self.assertEqual((sale.status, sale.price), ('requested', D('7200.00')))
         self.assertFalse(ShareWallet.objects.filter(holder=self.buyer).exists())   # not until paid
         with self.assertRaisesMessage(RevenueError, 'payment reference'):
@@ -140,16 +140,16 @@ class BuyerTests(Base):
         other = User.objects.create_user('rudo', 'r@example.com', 'x', is_staff=True)
         for u in (self.buyer, other):
             shares.approve_buyer(user_id=u.id, by_user=self.boss)
-        shares.request_purchase(by_user=self.buyer, percent='4')
+        shares.request_purchase(by_user=self.buyer, percent='4', accepted_agreement=True)
         with self.assertRaisesMessage(RevenueError, 'unsold'):
-            shares.request_purchase(by_user=other, percent='2')           # only 1% left after the 4% waiting
+            shares.request_purchase(by_user=other, percent='2', accepted_agreement=True)           # only 1% left after the 4% waiting
 
     def test_requests_can_be_rejected_cancelled_and_expire(self):
         shares.approve_buyer(user_id=self.buyer.id, by_user=self.boss)
-        sale = shares.request_purchase(by_user=self.buyer, percent='1')
+        sale = shares.request_purchase(by_user=self.buyer, percent='1', accepted_agreement=True)
         shares.reject_sale(sale.id, by_user=self.buyer)
         self.assertEqual(ShareSale.objects.get(pk=sale.id).status, 'cancelled')
-        sale = shares.request_purchase(by_user=self.buyer, percent='1')
+        sale = shares.request_purchase(by_user=self.buyer, percent='1', accepted_agreement=True)
         ShareSale.objects.filter(pk=sale.id).update(created_at=timezone.now() - timedelta(days=8))
         with self.assertRaisesMessage(RevenueError, 'isn’t waiting'):
             shares.confirm_sale(sale.id, by_user=self.boss, payment_reference='late')
@@ -206,7 +206,7 @@ class PayoutTests(Base):
         cfg.started_on = timezone.localdate() - timedelta(days=1)
         cfg.save()
         shares.set_share(slot=1, percent='5', by_user=self.boss)
-        shares.record_sale(buyer_id=self.buyer.id, percent='2.5', price='1', payment_reference='R', by_user=self.boss)
+        shares.record_sale(buyer_id=self.buyer.id, percent='2.5', price='1', payment_reference='R', accepted_agreement=True, by_user=self.boss)
         with patch.object(services, 'day_ggr', return_value=D('1000')):
             services.close_days()
         day = RevenueDay.objects.get()
@@ -222,7 +222,7 @@ class SignerTests(Base):
     def test_small_holders_dont_cosign_audits(self):
         days([1000] * 30)
         shares.set_share(slot=1, percent='5', by_user=self.boss)
-        shares.record_sale(buyer_id=self.buyer.id, percent='2', payment_reference='R', by_user=self.boss)
+        shares.record_sale(buyer_id=self.buyer.id, percent='2', payment_reference='R', accepted_agreement=True, by_user=self.boss)
         names = {u.username for u in audit.signers()}
         self.assertEqual(names, {'boss', 'p2', 'p3'})                          # tendai holds 2% < 5%
         shares.update_share_settings(signer_min_percent='1', by_user=self.boss)
@@ -239,11 +239,16 @@ class ApiTests(Base):
         self.api(self.boss).post(URL + 'buyer-add/', {'user_id': self.buyer.id}, format='json')
         mine = self.api(self.buyer).get(URL).json()
         self.assertEqual((mine['can_admin'], mine['is_buyer'], mine['buyers']), (False, True, []))
-        res = self.api(self.buyer).post(URL + 'buy/', {'percent': '1'}, format='json')
+        self.assertEqual(mine['agreement']['version'], agreement.VERSION)
+        res = self.api(self.buyer).post(URL + 'buy/', {'percent': '1', 'accepted_agreement': True}, format='json')
         self.assertEqual(res.status_code, 400)                                  # nothing unsold yet
         self.api(self.boss).post(URL + 'set/', {'slot': 1, 'percent': '5'}, format='json')
         res = self.api(self.buyer).post(URL + 'buy/', {'percent': '1'}, format='json')
+        self.assertEqual(res.status_code, 400)                                  # agreement not accepted
+        self.assertIn('agreement', res.json()['detail'])
+        res = self.api(self.buyer).post(URL + 'buy/', {'percent': '1', 'accepted_agreement': True}, format='json')
         self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(res.json()['sales'][0]['agreement_sha256'], agreement.TEXT_SHA256)
         sale_id = res.json()['sales'][0]['id']
         res = self.api(self.boss).post(f'{URL}sales/{sale_id}/', {'action': 'confirm', 'payment_reference': 'EC1'}, format='json')
         self.assertEqual(res.json()['sales'][0]['status'], 'confirmed')
@@ -270,7 +275,7 @@ class ResaleTests(Base):
 
     def test_releaser_gets_ninety_percent_and_the_house_ten(self):
         shares.set_share(slot=1, percent='6', by_user=self.boss)          # boss releases 4%
-        sale = shares.record_sale(buyer_id=self.buyer.id, percent='2', payment_reference='R', by_user=self.boss)
+        sale = shares.record_sale(buyer_id=self.buyer.id, percent='2', payment_reference='R', accepted_agreement=True, by_user=self.boss)
         # 2% x $3,600 = $7,200: boss $6,480, house $720.
         self.assertEqual((self.balance(1), sale.house_amount), (D('6480.00'), D('720.00')))
         self.assertEqual(sale.seller_payouts, [{'slot': 1, 'holder': 'boss', 'percent': '2.00', 'amount': '6480.00'}])
@@ -281,38 +286,38 @@ class ResaleTests(Base):
     def test_oldest_release_sells_first_across_holders(self):
         shares.set_share(slot=2, percent='9', by_user=self.p2)            # p2 releases 1% first
         shares.set_share(slot=3, percent='7', by_user=self.p3)            # then p3 releases 3%
-        sale = shares.record_sale(buyer_id=self.buyer.id, percent='2', payment_reference='R', by_user=self.boss)
+        sale = shares.record_sale(buyer_id=self.buyer.id, percent='2', payment_reference='R', accepted_agreement=True, by_user=self.boss)
         # 1% from p2, 1% from p3: $3,240 each, house $720.
         self.assertEqual((self.balance(2), self.balance(3), sale.house_amount), (D('3240.00'), D('3240.00'), D('720.00')))
         self.assertEqual(ShareRelease.objects.get(wallet__slot=3).remaining, D('2.00'))
 
     def test_an_agreed_price_is_what_gets_split(self):
         shares.set_share(slot=1, percent='6', by_user=self.boss)
-        shares.record_sale(buyer_id=self.buyer.id, percent='1', price='1000', payment_reference='R', by_user=self.boss)
+        shares.record_sale(buyer_id=self.buyer.id, percent='1', price='1000', payment_reference='R', accepted_agreement=True, by_user=self.boss)
         self.assertEqual(self.balance(1), D('900.00'))
 
     def test_giving_back_to_the_house_pays_nobody(self):
         shares.set_share(slot=1, percent='6', by_user=self.boss, for_sale=False)
-        sale = shares.record_sale(buyer_id=self.buyer.id, percent='2', payment_reference='R', by_user=self.boss)
+        sale = shares.record_sale(buyer_id=self.buyer.id, percent='2', payment_reference='R', accepted_agreement=True, by_user=self.boss)
         self.assertEqual((self.balance(1), sale.house_amount, sale.seller_payouts), (D('0'), D('7200.00'), []))
 
     def test_share_nobody_released_is_the_houses(self):
         shares.update_share_settings(partner_pool_percent='35', by_user=self.boss)    # 5% new, house-owned
         shares.set_share(slot=1, percent='9', by_user=self.boss)                      # boss releases 1%
-        sale = shares.record_sale(buyer_id=self.buyer.id, percent='3', payment_reference='R', by_user=self.boss)
+        sale = shares.record_sale(buyer_id=self.buyer.id, percent='3', payment_reference='R', accepted_agreement=True, by_user=self.boss)
         # Oldest release first: boss's 1% ($3,240 to boss); the other 2% is the house's.
         self.assertEqual((self.balance(1), sale.house_amount), (D('3240.00'), D('7560.00')))
 
     def test_a_consented_cut_is_sold_for_the_holder(self):
         shares.set_share(slot=2, percent='8', by_user=self.boss)
         shares.decide_change(ShareChange.objects.get().id, by_user=self.p2, approve=True)
-        shares.record_sale(buyer_id=self.buyer.id, percent='2', payment_reference='R', by_user=self.boss)
+        shares.record_sale(buyer_id=self.buyer.id, percent='2', payment_reference='R', accepted_agreement=True, by_user=self.boss)
         self.assertEqual(self.balance(2), D('6480.00'))
 
     def test_a_buyers_request_pays_the_releaser_when_confirmed(self):
         shares.set_share(slot=1, percent='6', by_user=self.boss)
         shares.approve_buyer(user_id=self.buyer.id, by_user=self.boss)
-        sale = shares.request_purchase(by_user=self.buyer, percent='1')
+        sale = shares.request_purchase(by_user=self.buyer, percent='1', accepted_agreement=True)
         self.assertEqual(self.balance(1), D('0'))                          # not before payment
         shares.confirm_sale(sale.id, by_user=self.boss, payment_reference='EC1')
         self.assertEqual(self.balance(1), D('3240.00'))
@@ -328,7 +333,7 @@ class ResaleTests(Base):
     def test_reclaim_respects_buyers_waiting_to_pay(self):
         shares.set_share(slot=2, percent='8', by_user=self.p2)            # 2% released
         shares.approve_buyer(user_id=self.buyer.id, by_user=self.boss)
-        shares.request_purchase(by_user=self.buyer, percent='1')
+        shares.request_purchase(by_user=self.buyer, percent='1', accepted_agreement=True)
         with self.assertRaisesMessage(RevenueError, 'waiting to pay'):
             shares.reclaim_release(ShareRelease.objects.get().id, by_user=self.p2)
 
@@ -340,11 +345,44 @@ class ResaleTests(Base):
     def test_seller_part_is_a_setting(self):
         shares.update_share_settings(seller_percent='100', by_user=self.boss)
         shares.set_share(slot=1, percent='6', by_user=self.boss)
-        sale = shares.record_sale(buyer_id=self.buyer.id, percent='1', payment_reference='R', by_user=self.boss)
+        sale = shares.record_sale(buyer_id=self.buyer.id, percent='1', payment_reference='R', accepted_agreement=True, by_user=self.boss)
         self.assertEqual((self.balance(1), sale.house_amount), (D('3600.00'), D('0.00')))
 
     def test_payouts_can_be_withdrawn_like_earnings(self):
         shares.set_share(slot=2, percent='9', by_user=self.p2)
-        shares.record_sale(buyer_id=self.buyer.id, percent='1', payment_reference='R', by_user=self.boss)
+        shares.record_sale(buyer_id=self.buyer.id, percent='1', payment_reference='R', accepted_agreement=True, by_user=self.boss)
         w = services.request_withdrawal(user=self.p2, method='ecocash', account='0771234567')
         self.assertEqual(w.amount, D('3240.00'))
+
+
+class AgreementTests(Base):
+    def setUp(self):
+        super().setUp()
+        days([1000] * 30)
+        shares.set_share(slot=1, percent='5', by_user=self.boss, for_sale=False)
+        shares.approve_buyer(user_id=self.buyer.id, by_user=self.boss)
+
+    def test_buyer_must_accept_and_acceptance_is_recorded(self):
+        with self.assertRaisesMessage(RevenueError, 'must accept'):
+            shares.request_purchase(by_user=self.buyer, percent='1')
+        with self.assertRaisesMessage(RevenueError, 'must accept'):
+            shares.request_purchase(by_user=self.buyer, percent='1', accepted_agreement='no')
+        self.assertFalse(ShareSale.objects.exists())
+        sale = shares.request_purchase(by_user=self.buyer, percent='1', accepted_agreement='true')
+        self.assertEqual((sale.agreement_version, sale.agreement_sha256, sale.agreement_confirmed_by),
+                         (agreement.VERSION, agreement.TEXT_SHA256, 'tendai'))
+        self.assertIsNotNone(sale.agreement_accepted_at)
+
+    def test_recorded_sale_needs_the_admin_to_confirm_the_buyer_accepted(self):
+        with self.assertRaisesMessage(RevenueError, 'The buyer must accept'):
+            shares.record_sale(buyer_id=self.buyer.id, percent='1', payment_reference='R', by_user=self.boss)
+        sale = shares.record_sale(buyer_id=self.buyer.id, percent='1', payment_reference='R', accepted_agreement=True,
+                                  by_user=self.boss)
+        self.assertEqual((sale.status, sale.agreement_confirmed_by), (ShareSale.Status.CONFIRMED, 'boss'))
+
+    def test_fingerprint_tracks_the_text(self):
+        import hashlib
+        self.assertEqual(len(agreement.TEXT_SHA256), 64)
+        self.assertEqual(agreement.TEXT_SHA256, hashlib.sha256(agreement._canonical().encode()).hexdigest())
+        p = agreement.payload()
+        self.assertTrue(p['sections'] and all(s['paragraphs'] for s in p['sections']))

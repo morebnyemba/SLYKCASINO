@@ -393,6 +393,13 @@ class ShareSale(models.Model):
     # Who released the share sold and what each got; the house keeps the rest.
     seller_payouts = models.JSONField(default=list, blank=True)
     house_amount = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    # The purchase agreement accepted for this sale: its version and the SHA-256
+    # of its text (agreement.py), and who confirmed it — the buyer themself when
+    # they asked to buy, or the superuser who recorded an offline sale.
+    agreement_version = models.CharField(max_length=20, blank=True)
+    agreement_sha256 = models.CharField(max_length=64, blank=True)
+    agreement_accepted_at = models.DateTimeField(null=True, blank=True)
+    agreement_confirmed_by = models.CharField(max_length=150, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     decided_at = models.DateTimeField(null=True, blank=True)
 

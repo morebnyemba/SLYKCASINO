@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { LegalLayout } from '@/components/legal-layout';
+import { fetchLegalDetails } from '@/lib/legal';
 
 export const metadata: Metadata = {
   title: 'Cookie Policy',
@@ -7,11 +8,12 @@ export const metadata: Metadata = {
   description: 'How BetBlits uses cookies and similar technologies.',
 };
 
-export default function CookiePolicyPage() {
+export default async function CookiePolicyPage() {
+  const l = await fetchLegalDetails();
   return (
-    <LegalLayout title="Cookie Policy" effectiveDate="[INSERT EFFECTIVE DATE]">
+    <LegalLayout title="Cookie Policy">
       <p>
-        This Cookie Policy explains how <strong>[COMPANY LEGAL NAME]</strong> (&quot;BetBlits&quot;) uses
+        This Cookie Policy explains how <strong>{l.operator}</strong> (&quot;BetBlits&quot;) uses
         cookies and similar tracking technologies on our website, and how you can control them, in line with the
         EU ePrivacy Directive, GDPR, and other applicable laws.
       </p>
@@ -38,9 +40,7 @@ export default function CookiePolicyPage() {
 
       <h2>4. Managing Your Cookie Preferences</h2>
       <p>
-        On your first visit, you will be asked to accept or customize non-essential cookies. You can change your
-        preferences at any time via <strong>[COOKIE PREFERENCE LINK/CENTER]</strong> or through your browser
-        settings, which allow you to block or delete cookies. Disabling strictly necessary cookies may prevent you
+        You can block or delete cookies at any time through your browser settings. Disabling strictly necessary cookies may prevent you
         from logging in or using core features.
       </p>
 
@@ -48,7 +48,7 @@ export default function CookiePolicyPage() {
       <p>We may update this Cookie Policy from time to time. Changes will be posted on this page with a revised effective date.</p>
 
       <h2>6. Contact Us</h2>
-      <p>Questions about our use of cookies can be sent to <strong>[PRIVACY EMAIL]</strong>.</p>
+      <p>Questions about our use of cookies can be sent to {l.email ? <strong>{l.email}</strong> : l.contact}.</p>
     </LegalLayout>
   );
 }

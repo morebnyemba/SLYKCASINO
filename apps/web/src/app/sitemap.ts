@@ -19,7 +19,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     ...SEO_SPORTS.map((s) => ({
       url: absolute(`/sportsbook?sport=${s.id}`), lastModified: now, changeFrequency: 'hourly' as const, priority: 0.8,
     })),
-    ...['terms', 'privacy', 'responsible-gambling', 'aml-kyc-policy', 'cookies'].map((p) => ({
+    ...['terms', 'disclaimer', 'privacy', 'responsible-gambling', 'aml-kyc-policy', 'cookies'].map((p) => ({
       url: absolute(`/legal/${p}`), changeFrequency: 'yearly' as const, priority: 0.3,
     })),
   ];

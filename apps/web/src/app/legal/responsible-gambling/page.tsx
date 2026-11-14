@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { LegalLayout } from '@/components/legal-layout';
+import { fetchLegalDetails } from '@/lib/legal';
 
 export const metadata: Metadata = {
   title: 'Responsible Gambling',
@@ -8,9 +9,10 @@ export const metadata: Metadata = {
   description: 'Tools, resources, and support for safer, controlled play.',
 };
 
-export default function ResponsibleGamblingPage() {
+export default async function ResponsibleGamblingPage() {
+  const l = await fetchLegalDetails();
   return (
-    <LegalLayout title="Responsible Gambling" effectiveDate="[INSERT EFFECTIVE DATE]">
+    <LegalLayout title="Responsible Gambling">
       <p>
         Gambling should always be entertaining and never a way to make money or escape financial or personal
         problems. BetBlits is committed to promoting safer gambling and providing tools and resources to help
@@ -32,12 +34,11 @@ export default function ResponsibleGamblingPage() {
       <ul>
         <li><strong>Deposit limits</strong> — set a daily limit on how much you can deposit. Reducing a limit takes effect immediately; increasing a limit takes effect after a cooling-off period to prevent impulsive changes.</li>
         <li><strong>Self-exclusion</strong> — temporarily or permanently exclude yourself from the platform for 7, 30, 90, 180, or 365 days, or indefinitely. During self-exclusion you will be unable to log in, deposit, or place bets, and we will not send you marketing communications.</li>
-        <li><strong>Reality checks</strong> — periodic reminders of session duration and net win/loss <strong>[IF IMPLEMENTED]</strong>.</li>
         <li><strong>Account closure</strong> — close your account at any time via Account Settings.</li>
       </ul>
       <p>
         Self-exclusion requests are honored promptly and cannot be reversed early by the player; if you wish to
-        discuss reinstatement after a self-exclusion period ends, contact <strong>[SUPPORT EMAIL]</strong>.
+        discuss reinstatement after a self-exclusion period ends, contact {l.email ? <strong>{l.email}</strong> : l.contact}.
       </p>
 
       <h2>3. Recognizing the Signs of Problem Gambling</h2>
@@ -69,7 +70,7 @@ export default function ResponsibleGamblingPage() {
 
       <h2>6. Contact Us</h2>
       <p>
-        To discuss responsible gambling tools or concerns, contact <strong>[SUPPORT EMAIL]</strong> or use{' '}
+        To discuss responsible gambling tools or concerns, contact {l.email ? <strong>{l.email}</strong> : l.contact} or use{' '}
         <Link href="/livechat">Live Chat</Link>.
       </p>
     </LegalLayout>

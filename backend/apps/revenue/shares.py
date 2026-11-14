@@ -30,6 +30,7 @@ from django.utils import timezone
 
 from apps.accounts import services as accounts_services
 
+from . import agreement
 from .models import RevenueDay, RevenueSettings, ShareBuyer, ShareChange, ShareEntry, ShareRelease, ShareSale, ShareWallet
 from .services import RevenueError
 
@@ -298,11 +299,20 @@ def _expire_requests() -> None:
         status=ShareSale.Status.CANCELLED, decided_by='expired', decided_at=timezone.now())
 
 
-def request_purchase(*, by_user, percent, request=None) -> ShareSale:
+def _agreement_fields(accepted, by_user, who: str) -> dict:
+    if accepted is not True and str(accepted).lower() not in ('true', '1', 'yes', 'on'):
+        raise RevenueError(f'{who} must accept the revenue share purchase agreement (version {agreement.VERSION}).')
+    return {'agreement_version': agreement.VERSION, 'agreement_sha256': agreement.TEXT_SHA256,
+            'agreement_accepted_at': timezone.now(), 'agreement_confirmed_by': by_user.get_username()}
+
+
+def request_purchase(*, by_user, percent, accepted_agreement=False, request=None) -> ShareSale:
     """An approved buyer asks to buy `percent` at today's formula price; they pay
-    outside the site and it counts once an admin confirms the payment."""
+    outside the site and it counts once an admin confirms the payment. They must
+    accept the purchase agreement and risk disclosure first."""
     if not is_buyer(by_user):
         raise RevenueError('Only approved buyers can ask to buy shares.')
+    signed = _agreement_fields(accepted_agreement, by_user, 'You')
     pct = _pct(percent)
     if pct <= 0:
         raise RevenueError('Choose how much to buy.')
@@ -316,9 +326,9 @@ def request_purchase(*, by_user, percent, request=None) -> ShareSale:
         if ShareSale.objects.filter(buyer=by_user, status=ShareSale.Status.REQUESTED).exists():
             raise RevenueError('You already have a purchase waiting for payment.')
         sale = ShareSale.objects.create(buyer=by_user, percent=pct, price=Decimal(q['total']), quoted_price=Decimal(q['total']),
-                                        quote=q, requested_by=by_user.get_username())
+                                        quote=q, requested_by=by_user.get_username(), **signed)
     accounts_services.audit(None, 'share_purchase_requested', request, id=sale.id, buyer=by_user.get_username(),
-                            percent=str(pct), price=str(sale.price))
+                            percent=str(pct), price=str(sale.price), agreement=sale.agreement_version)
     return sale
 
 
@@ -327,11 +337,13 @@ def _requested_by_others(user) -> Decimal:
 
 
 def record_sale(*, buyer_id, percent, price=None, payment_method: str = '', payment_reference: str = '', note: str = '',
-                by_user, request=None) -> ShareSale:
+                accepted_agreement=False, by_user, request=None) -> ShareSale:
     """A superuser records a sale that has been paid: it counts at once. The price
-    defaults to the formula's; a different agreed price is kept next to the quote."""
+    defaults to the formula's; a different agreed price is kept next to the quote.
+    The superuser confirms the buyer has accepted the purchase agreement."""
     if not by_user.is_superuser:
         raise RevenueError('Only a superuser can record a sale.')
+    signed = _agreement_fields(accepted_agreement, by_user, 'The buyer')
     from .audit import assert_unlocked
     assert_unlocked()
     pct = _pct(percent)
@@ -351,7 +363,7 @@ def record_sale(*, buyer_id, percent, price=None, payment_method: str = '', paym
         sale = ShareSale.objects.create(
             buyer=buyer, percent=pct, price=agreed, quoted_price=Decimal(q['total']) if q['total'] else None, quote=q,
             payment_method=(payment_method or '')[:40], payment_reference=payment_reference.strip()[:120],
-            note=(note or '')[:500], requested_by=by_user.get_username(),
+            note=(note or '')[:500], requested_by=by_user.get_username(), **signed,
         )
         _confirm(sale, by_user=by_user)
     accounts_services.audit(None, 'share_sale_recorded', request, id=sale.id, buyer=buyer.get_username(), percent=str(pct),
@@ -460,7 +472,10 @@ def sale_row(s: ShareSale) -> dict:
             'created_at': s.created_at.isoformat(), 'decided_at': s.decided_at.isoformat() if s.decided_at else None,
             'expires_at': (s.created_at + timedelta(days=REQUEST_DAYS)).isoformat() if s.status == ShareSale.Status.REQUESTED else None,
             'seller_payouts': s.seller_payouts or [],
-            'house_amount': str(s.house_amount) if s.house_amount is not None else None}
+            'house_amount': str(s.house_amount) if s.house_amount is not None else None,
+            'agreement_version': s.agreement_version, 'agreement_sha256': s.agreement_sha256,
+            'agreement_accepted_at': s.agreement_accepted_at.isoformat() if s.agreement_accepted_at else None,
+            'agreement_confirmed_by': s.agreement_confirmed_by}
 
 
 def update_share_settings(*, partner_pool_percent=None, price_months=None, signer_min_percent=None, seller_percent=None,

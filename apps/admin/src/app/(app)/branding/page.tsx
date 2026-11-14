@@ -24,6 +24,11 @@ interface IdentityResponse {
   logo_url: string;
   license_text: string;
   whatsapp_number: string;
+  legal_name: string;
+  registered_address: string;
+  support_email: string;
+  governing_law: string;
+  dispute_body: string;
   updated_at?: string;
   updated_by_username?: string;
 }
@@ -34,6 +39,11 @@ const DEFAULT_IDENTITY: IdentityResponse = {
   logo_url: '',
   license_text: '',
   whatsapp_number: '',
+  legal_name: '',
+  registered_address: '',
+  support_email: '',
+  governing_law: '',
+  dispute_body: '',
 };
 
 // Keep in sync with backend/apps/branding/tokens.py.
@@ -232,7 +242,10 @@ function IdentitySection() {
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
-    if (data) setForm({ ...DEFAULT_IDENTITY, ...data, whatsapp_number: data.whatsapp_number ?? '' });
+    if (data) {
+      const filled = Object.fromEntries(Object.entries(data).map(([k, v]) => [k, v ?? ''])) as Partial<IdentityResponse>;
+      setForm({ ...DEFAULT_IDENTITY, ...filled });
+    }
   }, [data]);
 
   const set = (k: keyof IdentityResponse, v: string) => setForm((f) => ({ ...f, [k]: v }));
@@ -251,6 +264,11 @@ function IdentitySection() {
         logo_url: form.logo_url,
         license_text: form.license_text,
         whatsapp_number: form.whatsapp_number,
+        legal_name: form.legal_name,
+        registered_address: form.registered_address,
+        support_email: form.support_email,
+        governing_law: form.governing_law,
+        dispute_body: form.dispute_body,
       }),
     });
     setSaving(false);
@@ -342,9 +360,33 @@ function IdentitySection() {
                 className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
               />
               <p className="text-xs text-muted-foreground">
-                Shown in the site footer. Leave blank until you hold a licence; then enter it exactly as issued, e.g. “Licensed by the Curaçao Gaming Authority (CGA), licence no. OGL/2024/…”. While blank, the site makes no licensing claim.
+                Shown in the site footer and the Terms. Leave blank until you hold a licence; then enter it exactly as issued, e.g. “Licensed by the Curaçao Gaming Authority (CGA), licence no. OGL/2024/…”. While blank, the site makes no licensing claim.
               </p>
             </div>
+            <div className="sm:col-span-2 border-t border-border pt-4">
+              <p className="text-sm font-semibold">Legal details</p>
+              <p className="text-xs text-muted-foreground">
+                Used in the Terms, Disclaimer, Privacy, Cookie, Responsible Gambling and AML pages. Blank fields show neutral wording instead — have a lawyer confirm these before launch.
+              </p>
+            </div>
+            {([
+              ['legal_name', 'Company legal name', 'BetBlits (Private) Limited'],
+              ['registered_address', 'Registered address', 'Street, city, country'],
+              ['support_email', 'Support email', 'support@yourdomain.com'],
+              ['governing_law', 'Governing law (country)', 'Zimbabwe'],
+              ['dispute_body', 'Dispute body / regulator (optional)', 'The body players can escalate unresolved complaints to'],
+            ] as [keyof IdentityResponse, string, string][]).map(([key, label, placeholder]) => (
+              <div key={key} className="space-y-1">
+                <label className="text-sm font-medium">{label}</label>
+                <input
+                  value={(form[key] as string) ?? ''}
+                  onChange={(e) => set(key, e.target.value)}
+                  placeholder={placeholder}
+                  type={key === 'support_email' ? 'email' : 'text'}
+                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+              </div>
+            ))}
           </div>
         )}
       </CardContent>

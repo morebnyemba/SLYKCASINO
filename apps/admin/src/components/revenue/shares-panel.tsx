@@ -23,11 +23,14 @@ interface Sale {
   payment_method: string; payment_reference: string; note: string; requested_by: string; decided_by: string;
   slot: number | null; created_at: string; expires_at: string | null;
   seller_payouts: { slot: number; holder: string | null; percent: string; amount: string }[]; house_amount: string | null;
+  agreement_version: string; agreement_sha256: string; agreement_accepted_at: string | null; agreement_confirmed_by: string;
 }
+interface Agreement { version: string; title: string; sha256: string; sections: { heading: string; paragraphs: string[] }[] }
 interface SharesView {
   can_admin: boolean; is_buyer: boolean; own_slot: number | null;
   settings: { partner_pool_percent: string; price_months: number; signer_min_percent: string; seller_percent: string };
   held_percent: string; unsold_percent: string; price: Price; released_percent: string; releases: Release[];
+  agreement: Agreement;
   wallets: { slot: number; label: string; holder: string | null; holder_id: number | null; percent: string }[];
   sales: Sale[]; changes: Change[]; pending_for_me: Change[];
   buyers: { user_id: number; username: string; approved_by: string }[];
@@ -220,6 +223,34 @@ function useQuote(percent: string) {
   return total;
 }
 
+/** The purchase agreement and risk disclosure, readable in place, with the box
+ *  that must be ticked before a sale or a request can be sent. */
+function AgreementBox({ agreement, checked, onChange, label }: {
+  agreement: Agreement; checked: boolean; onChange: (v: boolean) => void; label: string;
+}) {
+  return (
+    <div className="mt-3 rounded-lg border border-amber-400/60 bg-amber-400/10 p-3 text-sm">
+      <p className="font-semibold text-amber-600 dark:text-amber-300">Risk warning: you may lose the whole price. Payouts depend on daily GGR, can be zero for long periods, and are not guaranteed.</p>
+      <details className="mt-2">
+        <summary className="cursor-pointer font-medium text-primary">Read the {agreement.title.toLowerCase()} (version {agreement.version})</summary>
+        <div className="mt-2 max-h-80 space-y-3 overflow-y-auto rounded-md border border-border bg-background p-3 text-xs leading-relaxed">
+          {agreement.sections.map((sec, i) => (
+            <section key={sec.heading}>
+              <h4 className="mb-1 font-semibold">{i + 1}. {sec.heading}</h4>
+              {sec.paragraphs.map((t) => <p key={t} className="mb-1.5">{t}</p>)}
+            </section>
+          ))}
+          <p className="text-[10px] text-muted-foreground">Fingerprint: {agreement.sha256.slice(0, 16)}… — recorded with the sale.</p>
+        </div>
+      </details>
+      <label className="mt-2 flex items-start gap-2">
+        <input type="checkbox" className="mt-0.5 h-4 w-4 accent-primary" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+        <span>{label}</span>
+      </label>
+    </div>
+  );
+}
+
 function SellForm({ view, act }: { view: SharesView; act: Act }) {
   const [buyer, setBuyer] = useState('');
   const [percent, setPercent] = useState('');
@@ -227,14 +258,15 @@ function SellForm({ view, act }: { view: SharesView; act: Act }) {
   const [method, setMethod] = useState('EcoCash');
   const [reference, setReference] = useState('');
   const [note, setNote] = useState('');
+  const [signed, setSigned] = useState(false);
   const [busy, setBusy] = useState(false);
   const quote = useQuote(percent);
   async function sell() {
     setBusy(true);
-    const ok = await act('sale/', { buyer_id: Number(buyer), percent, price: price || null, payment_method: method, payment_reference: reference, note },
-      `Sold ${pct(percent)} — it earns from today’s close.`);
+    const ok = await act('sale/', { buyer_id: Number(buyer), percent, price: price || null, payment_method: method, payment_reference: reference, note,
+      accepted_agreement: signed }, `Sold ${pct(percent)} — it earns from today’s close.`);
     setBusy(false);
-    if (ok) { setPercent(''); setPrice(''); setReference(''); setNote(''); }
+    if (ok) { setPercent(''); setPrice(''); setReference(''); setNote(''); setSigned(false); }
   }
   return (
     <Panel title="Sell shares" description={`Record a share that has been paid for (cash, EcoCash or bank — outside the site). Up to ${pct(view.unsold_percent)} is unsold. The buyer needs a staff login; they see only their own wallet.`}>
@@ -261,8 +293,10 @@ function SellForm({ view, act }: { view: SharesView; act: Act }) {
         </Field>
         <Field label="Note (optional)"><TextInput value={note} onChange={(e) => setNote(e.target.value)} /></Field>
       </div>
+      <AgreementBox agreement={view.agreement} checked={signed} onChange={setSigned}
+        label={`The buyer has read and signed the purchase agreement and risk disclosure (version ${view.agreement.version}). Keep the signed copy.`} />
       <div className="mt-3 flex justify-end">
-        <Btn variant="primary" busy={busy} disabled={!buyer || !(Number(percent) > 0) || reference.trim().length < 2 || (!price && !quote)} onClick={sell}>
+        <Btn variant="primary" busy={busy} disabled={!signed || !buyer || !(Number(percent) > 0) || reference.trim().length < 2 || (!price && !quote)} onClick={sell}>
           Record sale{percent ? ` of ${pct(percent)}` : ''}{(price || quote) ? ` for ${money(price || quote!)}` : ''}
         </Btn>
       </div>
@@ -272,6 +306,7 @@ function SellForm({ view, act }: { view: SharesView; act: Act }) {
 
 function BuyForm({ view, act }: { view: SharesView; act: Act }) {
   const [percent, setPercent] = useState('');
+  const [accepted, setAccepted] = useState(false);
   const [busy, setBusy] = useState(false);
   const quote = useQuote(percent);
   const waiting = view.sales.find((s) => s.status === 'requested');
@@ -293,12 +328,14 @@ function BuyForm({ view, act }: { view: SharesView; act: Act }) {
           <TextInput inputMode="decimal" value={percent} onChange={(e) => setPercent(e.target.value.replace(/[^0-9.]/g, ''))} placeholder="1" />
         </Field>
         <p className="pb-2 text-sm text-muted-foreground">{quote ? <>Price: <b className="text-foreground">{money(quote)}</b></> : view.price.reason}</p>
-        <Btn variant="primary" busy={busy} disabled={!quote} onClick={async () => {
+        <Btn variant="primary" busy={busy} disabled={!quote || !accepted} onClick={async () => {
           setBusy(true);
-          await act('buy/', { percent }, 'Request sent — pay the business, then an admin confirms it.');
+          await act('buy/', { percent, accepted_agreement: accepted }, 'Request sent — pay the business, then an admin confirms it.');
           setBusy(false);
         }}>Ask to buy</Btn>
       </div>
+      <AgreementBox agreement={view.agreement} checked={accepted} onChange={setAccepted}
+        label={`I have read and accept the purchase agreement and risk disclosure (version ${view.agreement.version}). I understand I may lose the whole price and that no return is promised.`} />
     </Panel>
   );
 }
@@ -343,6 +380,7 @@ function SaleRow({ s, admin, act }: { s: Sale; admin: boolean; act: Act }) {
       <td className={tdClass}>
         <Badge tone={SALE_TONE[s.status] ?? 'slate'} dot>{s.status_label}</Badge>
         {(s.payment_method || s.payment_reference) && <p className="mt-1 text-xs text-muted-foreground">{[s.payment_method, s.payment_reference].filter(Boolean).join(' · ')}</p>}
+        {s.agreement_version && <p className="mt-0.5 text-[11px] text-muted-foreground" title={`Fingerprint ${s.agreement_sha256}`}>Agreement v{s.agreement_version} · confirmed by {s.agreement_confirmed_by}</p>}
       </td>
       <td className={cx(tdClass, 'whitespace-nowrap text-xs text-muted-foreground')}>{new Date(s.created_at).toLocaleDateString()}</td>
       {admin && (
