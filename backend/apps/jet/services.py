@@ -121,6 +121,30 @@ def _money(value, field: str) -> Decimal:
     return amount
 
 
+AUTO_WALLET = 'auto'
+
+
+def _auto_wallet(player_id: int, stake: Decimal) -> str:
+    """The wallet an Aviator stake comes from when the player doesn't choose:
+    Deposit while it covers the stake, then Winnings (bonus money can't play
+    games). A stake is never split across wallets — a cash-out returns it to the
+    one wallet it came from — so if neither covers it alone the player is told
+    the most they can stake. Locks the wallet row for the caller's transaction."""
+    from apps.wallet.models import Wallet
+    w = Wallet.objects.select_for_update().filter(player_id=player_id).first()
+    deposit = w.deposit_balance if w else Decimal('0')
+    winnings = w.winnings_balance if w else Decimal('0')
+    if deposit >= stake:
+        return 'deposit'
+    if winnings >= stake:
+        return 'winnings'
+    best = max(deposit, winnings)
+    if best <= 0:
+        raise wallet_services.InsufficientFunds('Not enough balance — deposit to play.')
+    raise JetError(f'Each bet comes from one wallet: you can stake up to ${best:.2f} '
+                   f'(Deposit ${deposit:.2f}, Winnings ${winnings:.2f}).')
+
+
 @transaction.atomic
 def place_bet(*, player, stake=None, slot: int = 1, auto_cashout=None, free_bet_id=None, now=None,
               wallet=None) -> JetBet:
@@ -148,14 +172,16 @@ def place_bet(*, player, stake=None, slot: int = 1, auto_cashout=None, free_bet_
             raise JetError('That free bet has been used or has expired.')
         stake = free.amount
         wallet = 'bonus'  # a free bet is promotional money
-    else:
+    stake = _money(stake, 'stake')
+    if free is None:
+        if wallet in (None, '', AUTO_WALLET):
+            wallet = _auto_wallet(player.id, stake)
         try:
             wallet = wallet_services.betting_bucket(wallet)
             from apps.wallet import bonus
             bonus.not_for_games(wallet)
         except wallet_services.WalletRuleError as exc:
             raise JetError(str(exc))
-    stake = _money(stake, 'stake')
     if free is None and (stake < cfg.min_bet or stake > cfg.max_bet):
         raise JetError(f'Bets are ${cfg.min_bet:.2f} to ${cfg.max_bet:.2f}.')
     auto = None

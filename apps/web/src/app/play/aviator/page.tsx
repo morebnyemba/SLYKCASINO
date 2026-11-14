@@ -9,7 +9,7 @@ import { BetsList, HistoryStrip } from '@/components/jet/side-panels';
 import { useAuth } from '@/lib/auth-context';
 import { multiplierAt, useJet, useJetChat, type JetBet, type JetRound } from '@/lib/jet';
 import * as sound from '@/lib/jet-sound';
-import { GAME_WALLET_IDS, WALLET_LABEL, type WalletId } from '@/lib/wallets';
+import { GAME_WALLET_IDS, WALLET_LABEL } from '@/lib/wallets';
 
 /** Plays the game's sounds from state changes: take-off, engine, countdown, crash and the player's cash-outs. */
 function useGameSounds(round: JetRound | null, multiplier: number, myBets: JetBet[], now: () => number) {
@@ -140,8 +140,6 @@ export default function AviatorPage() {
   const { state, error, now, placeBet, cancelBet, cashOut } = useJet();
   const [multiplier, setMultiplier] = useState(1);
   const [rulesOpen, setRulesOpen] = useState(false);
-  // The wallet both bet panels pay from — chosen by the player, never assumed.
-  const [wallet, setWallet] = useState<WalletId | ''>('');
   const chat = useJetChat();
   const [chatOpen, setChatOpen] = useState(false);
   const [seen, setSeen] = useState(0);
@@ -179,13 +177,18 @@ export default function AviatorPage() {
       <header className="-mx-2 -mt-2 mb-2 flex items-center gap-3 border-b border-[#2c2d30] bg-[#1b1c1d] px-3 py-2 text-white sm:-mx-3 sm:-mt-3 sm:mb-3">
         <GameLogo name={s.display_name} />
         {state.wallets && (
-          <select value={wallet} onChange={(e) => setWallet(e.target.value as WalletId)} aria-label="Pay from"
-            className="ml-auto max-w-[11rem] rounded-full border border-[#2c2d30] bg-[#141516] px-3 py-1.5 text-sm font-extrabold tabular-nums text-[#28a909]">
-            <option value="" disabled>Pay from…</option>
-            {GAME_WALLET_IDS.map((id) => (
-              <option key={id} value={id}>{WALLET_LABEL[id]} · {Number(state.wallets![id]).toFixed(2)}</option>
-            ))}
-          </select>
+          // Bets pay from Deposit while it covers the stake, then Winnings (the server picks per bet).
+          <div
+            className="ml-auto flex flex-col items-end rounded-full border border-[#2c2d30] bg-[#141516] px-3 py-1 leading-tight"
+            title={GAME_WALLET_IDS.map((id) => `${WALLET_LABEL[id]} ${Number(state.wallets![id]).toFixed(2)}`).join(' · ')}
+          >
+            <span className="text-sm font-extrabold tabular-nums text-[#28a909]">
+              {GAME_WALLET_IDS.reduce((sum, id) => sum + Number(state.wallets![id] ?? 0), 0).toFixed(2)}
+            </span>
+            <span className="text-[9.5px] font-semibold text-white/55">
+              Deposit {Number(state.wallets.deposit ?? 0).toFixed(2)} · Winnings {Number(state.wallets.winnings ?? 0).toFixed(2)}
+            </span>
+          </div>
         )}
         <button onClick={() => setRulesOpen((v) => !v)} aria-label="How to play"
           className={`${state.wallets ? '' : 'ml-auto'} flex items-center gap-1.5 rounded-full bg-[#141516] px-3 py-1.5 text-xs font-bold text-white/80 hover:text-white`}>
@@ -253,8 +256,8 @@ export default function AviatorPage() {
                 loggedIn={!!user}
                 freeBet={(state.free_bets ?? [])[slot - 1]}
                 onPlace={async (stake, auto, freeId) => {
-                  if (!freeId && !wallet) return { error: 'Choose which wallet to play from (top right).' };
-                  const r = await placeBet(slot, stake, auto, freeId, wallet || null);
+                  // Deposit first, then Winnings — chosen by the server for each bet.
+                  const r = await placeBet(slot, stake, auto, freeId, freeId ? null : 'auto');
                   if (!r.error) sound.playBet();
                   return r;
                 }}

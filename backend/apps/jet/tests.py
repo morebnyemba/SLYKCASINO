@@ -507,3 +507,45 @@ class BotChatTests(TestCase):
         admin.force_authenticate(User.objects.create_superuser('mod2', 'm2@example.com', 'pw'))
         rows = admin.get('/api/admin/jet/chat/').json()['results']
         self.assertTrue(rows and all((r['kind'], r['player_id']) == ('bot', None) for r in rows))
+
+
+class AutoWalletTests(TestCase):
+    """Aviator picks the wallet itself: Deposit while it covers the stake, then Winnings."""
+
+    def setUp(self):
+        self.player, _ = _player('rudo', funds='8')            # $8 in Deposit
+        wallet_services.credit(player_id=self.player.id, amount=D('20'), kind='casino_credit', bucket='winnings',
+                               idempotency_key='seed:rudo:win')  # $20 in Winnings
+        self.now = timezone.now()
+        self.rnd = _round(now=self.now)
+
+    def buckets(self):
+        w = wallet_services.get_balance_dto(self.player.id)
+        return w.deposit, w.winnings
+
+    def test_deposit_first_then_winnings(self):
+        first = services.place_bet(player=self.player, stake='5', slot=1, now=self.now)          # wallet omitted
+        self.assertEqual(first.wallet, 'deposit')
+        second = services.place_bet(wallet='auto', player=self.player, stake='5', slot=2, now=self.now)  # $3 left in Deposit
+        self.assertEqual(second.wallet, 'winnings')
+        self.assertEqual(self.buckets(), (D('3.00'), D('15.00')))
+
+    def test_cashout_returns_stake_to_its_wallet(self):
+        bet = services.place_bet(wallet='auto', player=self.player, stake='5', slot=1, now=self.now)
+        services._pay(bet, D('2.00'), JetSettings.load(), self.now)
+        # $5 stake back to Deposit, $5 profit to Winnings.
+        self.assertEqual(self.buckets(), (D('8.00'), D('25.00')))
+
+    def test_never_splits_a_stake(self):
+        with self.assertRaisesMessage(services.JetError, 'up to $20.00'):
+            services.place_bet(wallet='auto', player=self.player, stake='25', slot=1, now=self.now)
+        self.assertEqual(self.buckets(), (D('8.00'), D('20.00')))
+
+    def test_empty_wallets(self):
+        broke = account_services.create_player(username='broke')
+        with self.assertRaises(wallet_services.InsufficientFunds):
+            services.place_bet(wallet='auto', player=broke, stake='1', slot=1, now=self.now)
+
+    def test_bonus_still_refused_when_chosen(self):
+        with self.assertRaises(services.JetError):
+            services.place_bet(wallet='bonus', player=self.player, stake='1', slot=1, now=self.now)
