@@ -18,6 +18,7 @@ const KEY = 'slyk:announcement-dismissed';
 export function AnnouncementBar() {
   const [a, setA] = useState<Announcement | null>(null);
   const [hidden, setHidden] = useState(true);
+  const [expanded, setExpanded] = useState(false);
   const whatsapp = useWhatsAppSupport();
 
   useEffect(() => {
@@ -45,7 +46,13 @@ export function AnnouncementBar() {
     <div role="status" className={`border-b px-3 py-2.5 text-sm sm:px-5 ${warn ? 'border-gold/40 bg-gold/15' : 'border-secondary/30 bg-secondary/10'}`}>
       <div className="mx-auto flex max-w-[1600px] flex-wrap items-center gap-x-4 gap-y-2">
         <FaInfoCircle className={`shrink-0 ${warn ? 'text-gold' : 'text-secondary'}`} />
-        <p className="min-w-0 flex-1 leading-snug">
+        {/* min-w keeps the text from being squeezed to a one-word column when the
+            buttons only just fit beside it (412px Android phones): they wrap below instead.
+            On phones a long notice shows 3 lines; tap to read it all. */}
+        <p
+          onClick={() => setExpanded((v) => !v)}
+          className={`min-w-[14rem] flex-1 cursor-pointer leading-snug sm:cursor-auto ${expanded ? '' : 'line-clamp-3 sm:line-clamp-none'}`}
+        >
           {a.title && <b className="mr-1.5">{a.title}:</b>}{a.message}
         </p>
         <div className="flex items-center gap-2">

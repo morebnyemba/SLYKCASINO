@@ -400,7 +400,7 @@ export function BetslipDrawer() {
       {!slipOpen && legs.length > 0 && pathname.startsWith('/sportsbook') && (
         <button
           onClick={() => setSlipOpen(true)}
-          className="fixed bottom-[76px] left-3 right-3 z-30 flex lg:bottom-5 lg:left-auto lg:right-5 lg:w-80 items-center gap-3 rounded-2xl bg-win px-4 py-3 text-win-foreground shadow-[0_10px_30px_rgba(0,0,0,0.45)]"
+          className="fixed bottom-[118px] left-3 right-3 z-30 flex lg:bottom-5 lg:left-auto lg:right-5 lg:w-80 items-center gap-3 rounded-2xl bg-win px-4 py-3 text-win-foreground shadow-[0_10px_30px_rgba(0,0,0,0.45)]"
         >
           <span className="flex h-6 min-w-6 items-center justify-center rounded-full bg-win-foreground px-1.5 text-xs font-extrabold text-win">
             {legs.length}

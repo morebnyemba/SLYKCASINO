@@ -8,7 +8,7 @@ import { SPORT_CATEGORIES } from '@/components/sports-sidebar';
 import { Carousel, CarouselItem } from '@/components/carousel';
 import { EventRow, FeaturedMatchCard, MarketHeader, sportMeta } from '@/components/event-row';
 import { LeagueSection } from '@/components/league-section';
-import { groupByLeague, isLive, sortEvents, type EventItem } from '@/lib/sports';
+import { LIST_MARKETS, groupByLeague, isLive, sortEvents, type EventItem, type ListMarket } from '@/lib/sports';
 
 type Tab = 'live' | 'top' | 'upcoming' | 'countries';
 type SortMode = 'league' | 'time';
@@ -79,13 +79,15 @@ export function SportsbookBrowser({ events, topMatches = [], awaitingOdds = 0 }:
   const day = params.get('day');
   const sort: SortMode = params.get('sort') === 'time' ? 'time' : 'league';
   const soon = params.get('soon') === '1';
+  const mkParam = params.get('mk');
+  const market: ListMarket = LIST_MARKETS.some((m) => m.id === mkParam) ? (mkParam as ListMarket) : '1x2';
 
   // Days depend on the viewer's timezone, so they're built after mount (the
   // server can't know it, and a mismatch would break hydration).
   const [mounted, setMounted] = useState(false);
   useEffect(() => { setMounted(true); }, []);
 
-  function update(next: { sport?: string | null; tab?: Tab; day?: string | null; sort?: SortMode; soon?: boolean }) {
+  function update(next: { sport?: string | null; tab?: Tab; day?: string | null; sort?: SortMode; soon?: boolean; market?: ListMarket }) {
     const q = new URLSearchParams(params.toString());
     const set = (key: string, value: string | null) => { if (value) q.set(key, value); else q.delete(key); };
     if (next.sport !== undefined) set('sport', next.sport);
@@ -93,6 +95,7 @@ export function SportsbookBrowser({ events, topMatches = [], awaitingOdds = 0 }:
     if (next.day !== undefined) set('day', next.day);
     if (next.sort !== undefined) set('sort', next.sort === 'time' ? 'time' : null);
     if (next.soon !== undefined) set('soon', next.soon ? '1' : null);
+    if (next.market !== undefined) set('mk', next.market === '1x2' ? null : next.market);
     const qs = q.toString();
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
   }
@@ -142,7 +145,15 @@ export function SportsbookBrowser({ events, topMatches = [], awaitingOdds = 0 }:
     return list;
   }, [openEvents, sport, tab, day, soon, mounted]);
 
-  // One block per sport, in sidebar order, each with its own 1/X/2 header.
+  // Chips for markets no listed match offers are hidden (1X2 always shows).
+  const marketCounts = useMemo(() => {
+    const c: Record<string, number> = {};
+    for (const ev of filtered) for (const k of Object.keys(ev.quick_markets ?? {})) c[k] = (c[k] ?? 0) + 1;
+    return c;
+  }, [filtered]);
+  const chips = LIST_MARKETS.filter((m) => m.id === '1x2' || (marketCounts[m.id] ?? 0) > 0 || m.id === market);
+
+  // One block per sport, in sidebar order, each with its own column header.
   const groups = useMemo(() => {
     const order = [...SPORT_CATEGORIES.map((c) => c.id), undefined];
     const bySport = new Map<string | undefined, EventItem[]>();
@@ -208,6 +219,7 @@ export function SportsbookBrowser({ events, topMatches = [], awaitingOdds = 0 }:
         <LeagueSection
           key={key}
           group={lg}
+          market={market}
           collapsed={collapsed.has(key)}
           onToggle={() => toggleLeague(key)}
           fallbackTitle={fallbackTitle}
@@ -244,7 +256,11 @@ export function SportsbookBrowser({ events, topMatches = [], awaitingOdds = 0 }:
               }`}
             >
               {t.id === 'live' && liveCount > 0 && <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-live" />}
-              <span className="truncate">{t.label}</span>
+              {t.id === 'top' ? (
+                <span className="truncate"><span className="hidden min-[380px]:inline">Top Events</span><span className="min-[380px]:hidden">Top</span></span>
+              ) : (
+                <span className="truncate">{t.label}</span>
+              )}
             </button>
           ))}
         </div>
@@ -269,13 +285,32 @@ export function SportsbookBrowser({ events, topMatches = [], awaitingOdds = 0 }:
             </FilterSelect>
           )}
           {tab !== 'countries' && (
+            // By time | By league: both options visible, the active one filled.
+            <div role="radiogroup" aria-label="Order matches" className="hidden h-11 shrink-0 rounded-xl border border-border bg-card p-1 min-[400px]:flex sm:min-w-[200px] sm:flex-1">
+              {(['time', 'league'] as SortMode[]).map((m) => (
+                <button
+                  key={m}
+                  role="radio"
+                  aria-checked={sort === m}
+                  onClick={() => update({ sort: m })}
+                  className={`flex-1 rounded-lg px-2.5 text-[12.5px] font-bold transition-colors sm:text-sm ${
+                    sort === m ? 'bg-foreground text-background' : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  <span className="hidden sm:inline">By </span>{m === 'time' ? 'Time' : 'League'}
+                </button>
+              ))}
+            </div>
+          )}
+          {tab !== 'countries' && (
+            // The narrowest phones: one button showing the order, tap to switch.
             <button
               onClick={() => update({ sort: sort === 'league' ? 'time' : 'league' })}
               aria-label={`Sorted ${sort === 'league' ? 'by league' : 'by time'} — tap to switch`}
-              className="flex h-11 shrink-0 items-center justify-between gap-2 rounded-xl border border-border bg-card px-3 text-[13px] font-semibold sm:min-w-[140px] sm:flex-1 sm:text-sm"
+              className="flex h-11 shrink-0 items-center gap-1.5 rounded-xl border border-border bg-card px-2.5 text-[12.5px] font-semibold min-[400px]:hidden"
             >
-              <span className="truncate"><span className="hidden sm:inline">By </span>{sort === 'league' ? 'League' : 'Time'}</span>
-              <BsArrowDownUp size={14} className="shrink-0 text-muted-foreground" />
+              {sort === 'league' ? 'League' : 'Time'}
+              <BsArrowDownUp size={12} className="text-muted-foreground" />
             </button>
           )}
           {tab !== 'live' && (
@@ -292,6 +327,27 @@ export function SportsbookBrowser({ events, topMatches = [], awaitingOdds = 0 }:
             </button>
           )}
         </div>
+
+        {/* Market chips: which market the price columns show (1X2, Over/Under 2.5, double chance, GG/NG). */}
+        {tab !== 'countries' && chips.length > 1 && (
+          <div className="-mx-3 flex gap-2 overflow-x-auto px-3 [scrollbar-width:none] sm:mx-0 sm:px-0" role="radiogroup" aria-label="Market shown">
+            {chips.map((m) => (
+              <button
+                key={m.id}
+                role="radio"
+                aria-checked={market === m.id}
+                onClick={() => update({ market: m.id })}
+                className={`h-9 shrink-0 rounded-lg border px-3.5 text-[13px] font-bold transition-colors ${
+                  market === m.id
+                    ? 'border-secondary bg-secondary/10 text-secondary'
+                    : 'border-transparent text-foreground hover:bg-muted'
+                }`}
+              >
+                {m.id === 'ou' ? 'Over/Under 2.5' : m.label}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {soon && tab !== 'live' && (
@@ -360,9 +416,9 @@ export function SportsbookBrowser({ events, topMatches = [], awaitingOdds = 0 }:
           const meta = sportMeta(g.sport);
           return (
             <div key={g.sport ?? 'other'} className="overflow-hidden rounded-2xl border border-border bg-card">
-              <MarketHeader title={meta.label} icon={meta.icon} count={g.events.length} />
+              <MarketHeader title={meta.label} icon={meta.icon} count={g.events.length} market={market} />
               {sort === 'time'
-                ? sortEvents(g.events).map((ev) => <EventRow key={ev.id} ev={ev} showLeague />)
+                ? sortEvents(g.events).map((ev) => <EventRow key={ev.id} ev={ev} showLeague market={market} />)
                 : leagueSections(g.leagues, g.sport ?? 'other', `Other ${meta.label.toLowerCase()}`)}
             </div>
           );

@@ -3,18 +3,19 @@
 import { BsChevronDown } from 'react-icons/bs';
 import { GiTrophyCup } from 'react-icons/gi';
 import { EventRow } from '@/components/event-row';
-import type { LeagueGroup } from '@/lib/sports';
+import type { LeagueGroup, ListMarket } from '@/lib/sports';
 
 /**
  * One league inside a sport block: a header (flag/logo · country · league ·
  * count) that collapses its matches, and the match rows beneath it.
  */
-export function LeagueSection({ group, collapsed, onToggle, fallbackTitle }: {
+export function LeagueSection({ group, collapsed, onToggle, fallbackTitle, market }: {
   group: LeagueGroup;
   collapsed: boolean;
   onToggle: () => void;
   /** Title for matches with no league (e.g. "Other football"). */
   fallbackTitle: string;
+  market?: ListMarket;
 }) {
   const { league } = group;
   const icon = league?.flag_url || league?.logo_url;
@@ -53,7 +54,7 @@ export function LeagueSection({ group, collapsed, onToggle, fallbackTitle }: {
           className={`shrink-0 text-muted-foreground transition-transform ${collapsed ? '-rotate-90' : ''}`}
         />
       </button>
-      {!collapsed && group.events.map((ev) => <EventRow key={ev.id} ev={ev} />)}
+      {!collapsed && group.events.map((ev) => <EventRow key={ev.id} ev={ev} market={market} />)}
     </div>
   );
 }

@@ -1,7 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { BsArrowRight, BsDownload, BsFunnel, BsUpcScan, BsXLg } from 'react-icons/bs';
 import { BetTicket, money, ticketFromRow, type ApiBet, type ApiSlip, type Ticket } from '@/components/bet-ticket';
 import { useCashoutOffers } from '@/components/cashout';
@@ -10,6 +11,15 @@ import { authedGet, useApi } from '@/lib/use-api';
 import { LoadingState, Spinner } from '@slyk/ui/components/spinner';
 
 type Tab = 'all' | 'open' | 'live' | 'settled';
+
+/** Menu links open a tab directly (?tab=open, ?tab=settled), also when only the query changes. */
+function TabFromQuery({ onTab }: { onTab: (t: Tab) => void }) {
+  const t = useSearchParams().get('tab');
+  useEffect(() => {
+    if (t === 'open' || t === 'live' || t === 'settled' || t === 'all') onTab(t);
+  }, [t, onTab]);
+  return null;
+}
 type Row = (ApiBet | ApiSlip) & { kind: 'single' | 'multiple' };
 interface Page {
   results: Row[];
@@ -100,6 +110,7 @@ export default function MyBetsPage() {
 
   return (
     <div>
+      <Suspense><TabFromQuery onTab={setTab} /></Suspense>
       <div className="mb-3 flex items-center justify-between gap-2">
         <h1 className="text-2xl font-bold">My Bets</h1>
         <div className="flex items-center gap-1.5">

@@ -10,7 +10,7 @@ import { useLiveMarkets } from '@/lib/use-live-markets';
 import { formatOdds, useSettings } from '@/lib/settings-context';
 import { filterMarket, normalize, searchTokens } from '@/lib/market-search';
 import {
-  MARKET_GROUPS, dayLabel, hasScore, homeMove, isBettable, isFinished, isLive, isMainOpen, isPriced, kickoffTime, matchClock,
+  MARKET_GROUPS, dayLabel, displayGroup, hasScore, homeMove, isBettable, isFinished, isLive, isMainOpen, isPriced, kickoffTime, matchClock,
   teamNames, withTeamNames, type EventItem, type Market, type MarketGroup, type MarketOutcome,
 } from '@/lib/sports';
 
@@ -117,7 +117,8 @@ export function EventMarkets({ ev }: { ev: EventItem }) {
     score_home: ev.score_home, score_away: ev.score_away, elapsed: ev.elapsed, status: ev.status,
   });
   const initialMarkets = useMemo(() => ev.markets ?? [], [ev.markets]);
-  const markets = useLiveMarkets(ev.id, initialMarkets);
+  const liveMarkets = useLiveMarkets(ev.id, initialMarkets);
+  const markets = useMemo(() => liveMarkets.map((m) => ({ ...m, group: displayGroup(m) })), [liveMarkets]);
   const [tab, setTab] = useState<Tab>('all');
   const [query, setQuery] = useState('');
   const tokens = useMemo(() => searchTokens(query), [query]);

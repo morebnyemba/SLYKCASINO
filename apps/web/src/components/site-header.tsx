@@ -4,9 +4,11 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import {
-  FaUser, FaSignOutAlt, FaWallet, FaBell, FaIdCard, FaShieldAlt, FaChevronDown, FaPlus, FaGift, FaHandshake,
+  FaUser, FaSignOutAlt, FaWallet, FaBell, FaIdCard, FaShieldAlt, FaChevronDown, FaGift, FaHandshake,
 } from 'react-icons/fa';
-import { BsReceipt, BsSearch, BsTicketPerforated } from 'react-icons/bs';
+import {
+  BsArrowLeftRight, BsCashStack, BsClockHistory, BsList, BsPlusCircle, BsReceipt, BsSearch, BsTicketPerforated,
+} from 'react-icons/bs';
 import type { IconType } from 'react-icons';
 import { useAuth } from '@/lib/auth-context';
 import { WALLET_CHANGED } from '@/components/cashout';
@@ -31,14 +33,19 @@ interface Notification {
   read: boolean;
 }
 
+// Money and bets first (what players open the menu for), then the account.
+const MONEY_LINKS: { href: string; label: string; icon: IconType }[] = [
+  { href: '/account/wallet#withdraw', label: 'Withdraw', icon: BsCashStack },
+  { href: '/account/bets?tab=open', label: 'Open bets', icon: BsTicketPerforated },
+  { href: '/account/bets?tab=settled', label: 'Bet history', icon: BsClockHistory },
+  { href: '/account/wallet#transactions', label: 'Transactions', icon: BsArrowLeftRight },
+  { href: '/promotions', label: 'Bonus & promotions', icon: FaGift },
+];
 const ACCOUNT_LINKS: { href: string; label: string; icon: IconType }[] = [
-  { href: '/account/profile', label: 'Profile', icon: FaUser },
-  { href: '/account/wallet', label: 'Wallet', icon: FaWallet },
-  { href: '/account/bets', label: 'My bets', icon: BsTicketPerforated },
-  { href: '/promotions', label: 'Promotions', icon: FaGift },
-  { href: '/account/affiliate', label: 'Agent dashboard', icon: FaHandshake },
+  { href: '/account/profile', label: 'My account', icon: FaUser },
   { href: '/account/verification', label: 'Verification', icon: FaIdCard },
-  { href: '/account/settings', label: 'Responsible gaming', icon: FaShieldAlt },
+  { href: '/account/affiliate', label: 'Agent dashboard', icon: FaHandshake },
+  { href: '/account/settings', label: 'Safety & limits', icon: FaShieldAlt },
 ];
 
 function formatBalance(balance?: string): string {
@@ -49,6 +56,16 @@ function formatBalance(balance?: string): string {
 
 const iconBtn =
   'relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-muted hover:text-foreground';
+
+function MenuButton() {
+  const { menuOpen, setMenuOpen } = useShell();
+  return (
+    <button onClick={() => setMenuOpen(!menuOpen)} aria-label="Menu" aria-expanded={menuOpen}
+      className={`${iconBtn.replace('h-10 w-10', 'h-10 w-9')} -ml-1 lg:hidden`}>
+      <BsList size={22} />
+    </button>
+  );
+}
 
 function SearchTrigger() {
   const { setSearchOpen } = useShell();
@@ -63,9 +80,8 @@ function SearchTrigger() {
         <span className="truncate">Search teams or matches</span>
         <kbd className="ml-auto rounded-md border border-border bg-muted px-1.5 text-[10px] font-bold">/</kbd>
       </button>
-      {/* …icon button elsewhere. */}
-      {/* (Phones and tablets search from the bottom bar.) */}
-      <button onClick={() => setSearchOpen(true)} aria-label="Search" className={`${iconBtn.replace('relative flex', 'relative hidden lg:flex')} xl:hidden`}>
+      {/* …icon button elsewhere (the narrowest phones search from the menu and the quick-nav chips). */}
+      <button onClick={() => setSearchOpen(true)} aria-label="Search" className={`${iconBtn.replace('relative flex', 'relative hidden sm:flex')} xl:hidden`}>
         <BsSearch size={16} />
       </button>
     </>
@@ -107,7 +123,7 @@ function WalletControl({ wallet, onDeposit }: { wallet: Wallet | null; onDeposit
           : 'Wallet'}
         className="flex min-w-0 items-center gap-2 px-2.5 transition-colors hover:bg-muted sm:px-3"
       >
-        <FaWallet size={13} className="hidden shrink-0 text-secondary min-[380px]:block" />
+        <FaWallet size={13} className="hidden shrink-0 text-secondary sm:block" />
         <span className="flex min-w-0 flex-col leading-none">
           <span className="truncate text-[13px] font-extrabold tabular-nums sm:text-sm">{formatBalance(wallet?.balance)}</span>
           <span className="mt-0.5 text-[9.5px] font-bold uppercase tracking-wide text-muted-foreground 2xl:hidden">{wallet?.currency ?? 'Balance'}</span>
@@ -117,21 +133,25 @@ function WalletControl({ wallet, onDeposit }: { wallet: Wallet | null; onDeposit
       <button
         onClick={onDeposit}
         aria-label="Deposit"
-        className="flex items-center gap-1.5 bg-win px-3 text-xs font-extrabold text-win-foreground transition-opacity hover:opacity-90 sm:px-4 sm:text-sm"
+        className="flex items-center gap-1.5 bg-win px-2.5 text-xs font-extrabold text-win-foreground transition-opacity hover:opacity-90 min-[390px]:px-3 sm:px-4 sm:text-sm"
       >
-        <FaPlus size={11} className="sm:hidden" />
-        <span className="hidden sm:inline">Deposit</span>
+        <span>Deposit</span>
       </button>
     </div>
   );
 }
 
-function UserMenu({ username, unreadCount, onLogout, onDeposit }: {
-  username: string; unreadCount: number; onLogout: () => void; onDeposit: () => void;
+const menuRow = 'flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left font-semibold text-muted-foreground transition-colors hover:bg-muted hover:text-foreground';
+
+function UserMenu({ username, unreadCount, onLogout, onDeposit, wallet }: {
+  username: string; unreadCount: number; onLogout: () => void; onDeposit: () => void; wallet: Wallet | null;
 }) {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
+  const { setSearchOpen } = useShell();
   useEffect(() => { setOpen(false); }, [pathname]);
+  // A hash/query change on the same page (Bet history after Open bets) doesn't change the pathname.
+  const close = () => setOpen(false);
 
   return (
     <div className="relative shrink-0">
@@ -163,22 +183,55 @@ function UserMenu({ username, unreadCount, onLogout, onDeposit }: {
                 <p className="truncate text-sm font-extrabold">{username}</p>
                 <Link href="/account/profile" className="text-xs font-semibold text-secondary hover:underline">View profile</Link>
               </div>
-              <button
-                onClick={() => { setOpen(false); onDeposit(); }}
-                className="rounded-lg bg-win px-3 py-1.5 text-xs font-extrabold text-win-foreground"
-              >
-                Deposit
-              </button>
+            </div>
+            {/* Balance card: the total, its three wallets, and Deposit. */}
+            <div className="mx-3 mt-3 rounded-2xl bg-gradient-to-br from-primary to-[#0B3BB8] p-3.5 text-white">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-[10px] font-bold uppercase tracking-wide text-white/70">Balance</p>
+                  <p className="truncate text-xl font-black tabular-nums">
+                    {formatBalance(wallet?.balance)} <span className="text-xs font-bold text-white/70">{wallet?.currency ?? ''}</span>
+                  </p>
+                </div>
+                <button
+                  onClick={() => { close(); onDeposit(); }}
+                  className="shrink-0 rounded-lg bg-win px-3.5 py-2 text-xs font-extrabold text-win-foreground"
+                >
+                  Deposit
+                </button>
+              </div>
+              {wallet?.wallets && (
+                <div className="mt-2.5 grid grid-cols-3 gap-1.5 text-[10.5px]">
+                  {(['deposit', 'bonus', 'winnings'] as const).map((k) => (
+                    <div key={k} className="rounded-lg bg-white/10 px-2 py-1.5">
+                      <p className="font-semibold capitalize text-white/70">{k}</p>
+                      <p className="font-extrabold tabular-nums">{formatBalance(wallet.wallets![k].balance)}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
             <nav className="p-1.5 text-sm">
+              <button onClick={() => { close(); setSearchOpen(true); }} className={`${menuRow} sm:hidden`}>
+                <BsSearch size={14} /> Search
+              </button>
+              <button onClick={() => { close(); onDeposit(); }} className={menuRow}>
+                <BsPlusCircle size={14} /> Deposit
+              </button>
+              {MONEY_LINKS.map((l) => {
+                const Icon = l.icon;
+                return (
+                  <Link key={l.href} href={l.href} onClick={close} className={menuRow}>
+                    <Icon size={14} />
+                    {l.label}
+                  </Link>
+                );
+              })}
+              <div className="my-1 border-t border-border" />
               {ACCOUNT_LINKS.map((l) => {
                 const Icon = l.icon;
                 return (
-                  <Link
-                    key={l.href}
-                    href={l.href}
-                    className="flex items-center gap-3 rounded-xl px-3 py-2.5 font-semibold text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                  >
+                  <Link key={l.href} href={l.href} onClick={close} className={menuRow}>
                     <Icon size={14} />
                     {l.label}
                   </Link>
@@ -186,7 +239,8 @@ function UserMenu({ username, unreadCount, onLogout, onDeposit }: {
               })}
               <Link
                 href="/account/notifications"
-                className="flex items-center gap-3 rounded-xl px-3 py-2.5 font-semibold text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                onClick={close}
+                className={menuRow}
               >
                 <FaBell size={14} />
                 Notifications
@@ -263,10 +317,12 @@ export function SiteHeader() {
         <div className="flex h-16 items-center gap-2 px-3 sm:gap-3 sm:px-4 lg:px-5">
           {/* The desktop rail carries the logo; smaller screens (and the rail-less
               sign-in pages) show it here. */}
+          {/* Phones/tablets: the menu drawer (sports, games, promotions…) opens from here. */}
+          {!onAuthPage && <MenuButton />}
           <div className={onAuthPage ? '' : 'lg:hidden'}>
             {/* The wordmark shows on every screen (a little smaller on the narrowest
                 phones); search lives in the bottom bar on phones, leaving room for it. */}
-            <Logo imgClassName="h-9 max-[359px]:h-8 sm:h-10" />
+            <Logo imgClassName="h-9 max-[389px]:h-7 sm:h-10" />
           </div>
 
           <SearchTrigger />
@@ -287,6 +343,7 @@ export function SiteHeader() {
                   )}
                 </Link>
                 <UserMenu
+                  wallet={wallet}
                   username={user.username}
                   unreadCount={unreadCount}
                   onLogout={handleLogout}

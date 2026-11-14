@@ -1,6 +1,8 @@
 """sportsbook transport (DRF). Mutations are delegated to services."""
 from __future__ import annotations
 
+from decimal import Decimal
+
 from rest_framework import serializers
 
 from .models import Bet, BetLeg, BetSlip, Event, LeagueSetting, Market, MarketOutcome, Team
@@ -35,6 +37,38 @@ class MarketSerializer(serializers.ModelSerializer):
         ]
 
 
+# Markets a match list can show instead of 1X2 (the chip row above the list):
+# code -> (market kind, outcome keys in column order).
+QUICK_MARKETS = {
+    'ou': ('over_under', ('over', 'under')),
+    'dc': ('double_chance', ('1x', '12', 'x2')),
+    'gg': ('btts', ('yes', 'no')),
+}
+QUICK_KINDS = [kind for kind, _ in QUICK_MARKETS.values()]
+
+
+def quick_markets(markets) -> dict:
+    """The list prices for one match: full-time goals O/U (the line nearest 2.5),
+    double chance and both teams to score, each only when every column is priced."""
+    out = {}
+    for code, (kind, keys) in QUICK_MARKETS.items():
+        candidates = [m for m in markets if m.kind == kind]
+        if kind == 'over_under':
+            candidates = sorted((m for m in candidates if m.line is not None),
+                                key=lambda m: (abs(m.line - Decimal('2.5')), m.line))
+        for m in candidates:
+            by_key = {o.key: o for o in m.outcomes.all()}
+            if all(k in by_key for k in keys):
+                out[code] = {
+                    'market_id': m.id, 'name': m.name,
+                    'line': format(m.line.normalize(), 'f') if m.line is not None else None,
+                    'outcomes': [{'id': by_key[k].id, 'key': k, 'label': by_key[k].label, 'odds': str(by_key[k].odds),
+                                  'is_open': by_key[k].is_open} for k in keys],
+                }
+                break
+    return out
+
+
 class EventSerializer(serializers.ModelSerializer):
     home_team = TeamSerializer(read_only=True)
     away_team = TeamSerializer(read_only=True)
@@ -47,6 +81,12 @@ class EventSerializer(serializers.ModelSerializer):
     bettable = serializers.SerializerMethodField()
     main_open = serializers.SerializerMethodField()
     live_closed = serializers.SerializerMethodField()
+    # O/U, double chance and GG/NG prices for the list's market chips (list view only).
+    quick_markets = serializers.SerializerMethodField()
+
+    def get_quick_markets(self, obj):
+        markets = getattr(obj, 'quick_list', None)
+        return None if markets is None else quick_markets(markets)
 
     def _state(self, obj):
         from .services import trading_state
@@ -73,7 +113,7 @@ class EventSerializer(serializers.ModelSerializer):
             'id', 'name', 'sport', 'odds', 'odds_draw', 'odds_away', 'previous_odds', 'has_odds',
             'featured', 'is_open', 'starts_at', 'home_team', 'away_team', 'league',
             'status', 'elapsed', 'score_home', 'score_away', 'ht_score_home', 'ht_score_away',
-            'markets_count', 'in_play', 'bettable', 'main_open', 'live_closed',
+            'markets_count', 'in_play', 'bettable', 'main_open', 'live_closed', 'quick_markets',
         ]
         read_only_fields = ['status', 'elapsed', 'score_home', 'score_away', 'ht_score_home', 'ht_score_away']
 

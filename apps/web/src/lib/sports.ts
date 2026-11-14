@@ -50,9 +50,34 @@ export interface EventItem {
   main_open?: boolean;
   /** Open secondary markets (list endpoint). */
   markets_count?: number;
+  /** O/U, double chance and GG/NG prices for the list's market chips (list endpoint). */
+  quick_markets?: Partial<Record<QuickCode, QuickMarket>> | null;
   /** Every market (detail endpoint). */
   markets?: Market[];
   match_facts?: MatchFacts | null;
+}
+
+export type QuickCode = 'ou' | 'dc' | 'gg';
+/** What a match list shows in its price columns. */
+export type ListMarket = '1x2' | QuickCode;
+
+export interface QuickMarket {
+  market_id: number;
+  name: string;
+  line: string | null;
+  outcomes: { id: number; key: string; label: string; odds: string; is_open: boolean }[];
+}
+
+/** The market chips above a match list and the column captions each one shows. */
+export const LIST_MARKETS: { id: ListMarket; label: string; cols: string[] }[] = [
+  { id: '1x2', label: '1X2', cols: ['1', 'X', '2'] },
+  { id: 'ou', label: 'Over/Under', cols: ['Over', 'Under'] },
+  { id: 'dc', label: 'DC', cols: ['1X', '12', 'X2'] },
+  { id: 'gg', label: 'GG/NG', cols: ['GG', 'NG'] },
+];
+
+export function listMarketCols(market: ListMarket) {
+  return (LIST_MARKETS.find((m) => m.id === market) ?? LIST_MARKETS[0]).cols;
 }
 
 export interface MarketOutcome {
@@ -66,7 +91,7 @@ export interface MarketOutcome {
 }
 
 export type MarketGroup =
-  | 'main' | 'goals' | 'halves' | 'handicap' | 'score' | 'teams' | 'corners' | 'cards' | 'scorers' | 'specials';
+  | 'main' | 'goals' | 'halves' | 'combo' | 'handicap' | 'score' | 'teams' | 'corners' | 'cards' | 'scorers' | 'specials';
 
 export interface Market {
   id: number;
@@ -83,11 +108,18 @@ export interface Market {
   outcomes: MarketOutcome[];
 }
 
+/** Combined bets ("1 & GG", "Draw & Over 2.5") get their own Combo tab on the match page. */
+const COMBO_KINDS = new Set(['result_btts', 'result_total']);
+export function displayGroup(m: Pick<Market, 'kind' | 'group'>): MarketGroup {
+  return COMBO_KINDS.has(m.kind) ? 'combo' : m.group;
+}
+
 export const MARKET_GROUPS: { id: MarketGroup; label: string }[] = [
   { id: 'main', label: 'Main' },
   { id: 'goals', label: 'Goals' },
   { id: 'handicap', label: 'Handicaps' },
   { id: 'halves', label: 'Halves' },
+  { id: 'combo', label: 'Combo' },
   { id: 'teams', label: 'Team' },
   { id: 'scorers', label: 'Goalscorers' },
   { id: 'score', label: 'Correct score' },
