@@ -8,7 +8,7 @@ import { useLiveEvent } from '@/lib/live-board';
 import { SPORT_CATEGORIES } from '@/components/sports-sidebar';
 import {
   dayLabel, hasScore, homeMove, isBettable, isLive, isMainOpen, isPriced, kickoffTime, listMarketCols, marketShape, matchClock,
-  teamNames, type EventItem, type ListMarket, type Team,
+  teamNames, withTeamNames, type EventItem, type ListMarket, type Team,
 } from '@/lib/sports';
 
 export function sportMeta(id?: string): { label: string; icon?: IconType } {
@@ -98,6 +98,7 @@ function QuickOdds({ ev, market }: { ev: EventItem; market: Exclude<ListMarket, 
   const cols = listMarketCols(market);
   const q = ev.quick_markets?.[market];
   const locked = isLive(ev) || !isBettable(ev);
+  const { home, away } = teamNames(ev);
   return (
     <div className={oddsCols(cols.length)}>
       {cols.map((caption, i) => {
@@ -110,7 +111,7 @@ function QuickOdds({ ev, market }: { ev: EventItem; market: Exclude<ListMarket, 
         return (
           <OddsButton
             key={o.id} eventId={ev.id} eventName={ev.name} odds={o.odds} label={label} disabled={locked || !o.is_open}
-            outcome={{ id: o.id, marketId: q.market_id, marketName: q.name, label: o.label }}
+            outcome={{ id: o.id, marketId: q.market_id, marketName: q.name, label: withTeamNames(o.label, home, away) }}
           />
         );
       })}

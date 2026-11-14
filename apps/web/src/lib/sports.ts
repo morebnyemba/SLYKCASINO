@@ -159,9 +159,28 @@ export function matchClock(ev: EventItem): string | null {
 
 /** Swap generic "Home"/"Away" in provider labels for the actual team names. */
 export function withTeamNames(text: string, home: string, away: string | null): string {
+  // Feed labels spell it both ways ("Home or draw", "Draw or away").
   return text
-    .replace(/\bHome\b/g, home)
-    .replace(/\bAway\b/g, away ?? 'Away');
+    .replace(/\bhome\b/gi, home)
+    .replace(/\baway\b/gi, away ?? 'Away');
+}
+
+const RESULT_CODE: Record<string, string> = { home: '1', draw: 'X', away: '2' };
+
+/** Betting-shop shorthand for outcomes of many-option markets, where full team
+ * names can't fit a button: double chance "1X", result & GG/NG "1 & GG",
+ * result & total "X & Over 2.5", half time/full time "1/X". Null = use the label. */
+export function shortOutcome(kind: string, key: string, line?: string | null): string | null {
+  if (kind === 'double_chance') return ({ '1x': '1X', '12': '12', x2: 'X2' } as Record<string, string>)[key] ?? null;
+  const [a, b] = key.split('/');
+  if (!RESULT_CODE[a] || !b) return null;
+  if (kind === 'result_btts') return b === 'yes' ? `${RESULT_CODE[a]} & GG` : b === 'no' ? `${RESULT_CODE[a]} & NG` : null;
+  if (kind === 'result_total' && (b === 'over' || b === 'under')) {
+    const n = line != null ? ` ${Number(line)}` : '';
+    return `${RESULT_CODE[a]} & ${b === 'over' ? 'Over' : 'Under'}${n}`;
+  }
+  if (kind === 'ht_ft' && RESULT_CODE[b]) return `${RESULT_CODE[a]}/${RESULT_CODE[b]}`;
+  return null;
 }
 
 /** Whether the 1X2 prices are real (imported fixtures carry a placeholder until priced). */

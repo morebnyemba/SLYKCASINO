@@ -10,7 +10,7 @@ import { useLiveMarkets } from '@/lib/use-live-markets';
 import { formatOdds, useSettings } from '@/lib/settings-context';
 import { filterMarket, normalize, searchTokens } from '@/lib/market-search';
 import {
-  MARKET_GROUPS, dayLabel, displayGroup, hasScore, homeMove, isBettable, isFinished, isLive, isMainOpen, isPriced, kickoffTime, matchClock,
+  MARKET_GROUPS, dayLabel, displayGroup, hasScore, shortOutcome, homeMove, isBettable, isFinished, isLive, isMainOpen, isPriced, kickoffTime, matchClock,
   teamNames, withTeamNames, type EventItem, type Market, type MarketGroup, type MarketOutcome,
 } from '@/lib/sports';
 
@@ -211,13 +211,25 @@ export function EventMarkets({ ev }: { ev: EventItem }) {
   function renderSingle(m: Market) {
     if (m.group === 'scorers') return renderScorers(m);
     const many = m.outcomes.length > 3;
-    const cols = m.outcomes.length === 2 ? 'grid-cols-2' : many ? 'grid-cols-2 sm:grid-cols-3' : 'grid-cols-3';
+    // Many-option markets use shop shorthand ("1 & GG", "1X", "1/X") — full team
+    // names can't fit — with a key under the title. The slip and ticket keep the full wording.
+    const codes = m.outcomes.map((o) => shortOutcome(m.kind, o.key, m.line));
+    const coded = codes.every(Boolean);
+    const label = (o: MarketOutcome, i: number) => (coded ? codes[i]! : names(o.label));
+    const cols = m.outcomes.length === 2 ? 'grid-cols-2' : many ? (coded ? 'grid-cols-3' : 'grid-cols-2 sm:grid-cols-3') : 'grid-cols-3';
     return (
       <Collapsible key={m.id} title={names(m.name)} badge={<StatusBadge market={m} />} forceOpen={searching}>
+        {coded && away && (
+          <p className="-mt-1 mb-2 text-[11px] font-semibold text-muted-foreground">
+            <b className="text-foreground">1</b> {home} · <b className="text-foreground">X</b> Draw · <b className="text-foreground">2</b> {away}
+            {m.kind === 'result_btts' && <> · <b className="text-foreground">GG</b> both score · <b className="text-foreground">NG</b> not both</>}
+          </p>
+        )}
         <div className={`grid gap-2 ${cols}`}>
-          {m.outcomes.map((o) => m.settled
-            ? <SettledOutcome key={o.id} outcome={o} label={names(o.label)} stack={m.outcomes.length === 3} />
-            : <OddsButton key={o.id} {...outcomeProps(m, o)} label={names(o.label)} size="sm" stackOnMobile={m.outcomes.length === 3} />)}
+          {m.outcomes.map((o, i) => m.settled
+            ? <SettledOutcome key={o.id} outcome={o} label={label(o, i)} stack={m.outcomes.length === 3 || coded} />
+            : <OddsButton key={o.id} {...outcomeProps(m, o)} label={label(o, i)} title={names(o.label)} size="sm"
+                stackOnMobile={m.outcomes.length === 3 || coded} />)}
         </div>
       </Collapsible>
     );
@@ -252,7 +264,7 @@ export function EventMarkets({ ev }: { ev: EventItem }) {
       >
         <div className={`mb-1.5 grid gap-2 px-0.5 text-center text-[11px] font-extrabold text-muted-foreground ${grid}`}>
           <span className="text-left">{signed ? 'Line' : ({ corners: 'Corners', cards: 'Cards' } as Record<string, string>)[block.markets[0].metric ?? ''] ?? 'Goals'}</span>
-          {columns.map((c) => <span key={c} className="truncate">{colLabel(c)}</span>)}
+          {columns.map((c) => <span key={c} className="line-clamp-2 break-words leading-tight">{colLabel(c)}</span>)}
         </div>
         <div className="space-y-1.5">
           {block.markets.map((m) => (
@@ -282,8 +294,9 @@ export function EventMarkets({ ev }: { ev: EventItem }) {
       </Link>
 
       {/* Scoreboard */}
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-primary to-[#0f0a2b] p-5 text-white shadow-lg sm:p-7">
-        <div className="mb-5 flex items-center gap-2 text-xs font-bold text-white/70">
+      {/* Compact on phones so the markets start on the first screen. */}
+      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-primary to-[#0f0a2b] p-4 text-white shadow-lg sm:p-7">
+        <div className="mb-3 flex items-center gap-2 text-xs font-bold text-white/70 sm:mb-5">
           {SportIcon && <SportIcon size={14} />}
           <span>{sport.label}</span>
           <span className="ml-auto flex items-center gap-2" suppressHydrationWarning>
@@ -294,8 +307,8 @@ export function EventMarkets({ ev }: { ev: EventItem }) {
         </div>
         <div className="flex items-center justify-between gap-4">
           <div className="flex min-w-0 flex-1 flex-col items-center gap-2 text-center">
-            <TeamBadge team={ev.home_team} name={home} size={56} />
-            <span className="w-full truncate text-base font-extrabold sm:text-lg">{home}</span>
+            <TeamBadge team={ev.home_team} name={home} size={40} />
+            <span className="line-clamp-2 w-full break-words text-sm font-extrabold leading-tight sm:text-lg">{home}</span>
           </div>
           <div className="flex flex-col items-center gap-1">
             {hasScore(cur) ? (
@@ -313,8 +326,8 @@ export function EventMarkets({ ev }: { ev: EventItem }) {
           <div className="flex min-w-0 flex-1 flex-col items-center gap-2 text-center">
             {away ? (
               <>
-                <TeamBadge team={ev.away_team} name={away} size={56} />
-                <span className="w-full truncate text-base font-extrabold sm:text-lg">{away}</span>
+                <TeamBadge team={ev.away_team} name={away} size={40} />
+                <span className="line-clamp-2 w-full break-words text-sm font-extrabold leading-tight sm:text-lg">{away}</span>
               </>
             ) : (
               <span className="text-sm text-white/60">Outright</span>

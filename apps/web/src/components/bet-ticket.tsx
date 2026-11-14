@@ -6,6 +6,7 @@ import {
   BsCashCoin, BsChevronDown, BsHandThumbsDownFill, BsHandThumbsUpFill, BsUpcScan,
 } from 'react-icons/bs';
 import { CashoutPanel, type CashoutOffer } from '@/components/cashout';
+import { withTeamNames } from '@/lib/sports';
 
 /** The match a bet or leg is on, as the API returns it (null for legacy free-text bets). */
 export interface BetMatch {
@@ -119,7 +120,14 @@ function fixture(m: BetMatch | null | undefined, fallbackName: string) {
 
 /** What was backed, as market + pick ("Double Chance" / "Home or draw", "1X2" / "1 · Chelsea"). */
 function pickParts(l: ApiSlipLeg): { market: string; outcome: string } {
-  if (l.outcome_label) return { market: l.market_name ?? '', outcome: l.outcome_label };
+  if (l.outcome_label) {
+    // Feed labels say "Home/Yes", "Draw or away": name the teams on the ticket.
+    const [a, b] = (l.match?.name ?? l.event.split(' — ')[0]).split(/\s+(?:v|vs\.?)\s+/i);
+    const home = l.match?.home || a;
+    const away = l.match?.away || b || null;
+    const named = (t: string) => (home ? withTeamNames(t, home, away) : t);
+    return { market: named(l.market_name ?? ''), outcome: named(l.outcome_label) };
+  }
   const code = { home: '1', draw: 'X', away: '2' }[l.selection ?? ''];
   if (code) {
     const [a, b] = (l.match?.name ?? l.event.split(' — ')[0]).split(/\s+(?:v|vs\.?)\s+/i);

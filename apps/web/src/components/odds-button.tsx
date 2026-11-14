@@ -11,8 +11,10 @@ import { formatOdds, useSettings } from '@/lib/settings-context';
  */
 export function OddsButton({
   eventId, eventName, selection = 'home', odds, label, move, size = 'md', disabled = false, className = '', outcome,
-  stackOnMobile = false,
+  stackOnMobile = false, title,
 }: {
+  /** Full wording for a shortened label (tooltip / screen readers). */
+  title?: string;
   eventId: string | number;
   eventName: string;
   /** 1X2 pick. Ignored when `outcome` is given. */
@@ -50,7 +52,7 @@ export function OddsButton({
   }, [price]);
 
   const shownMove = flash ?? move;
-  const sizing = size === 'lg' ? 'h-14 px-3 text-base' : size === 'sm' ? 'min-h-11 px-3 py-2 text-[13.5px]' : 'h-11 px-2 text-[13.5px]';
+  const sizing = size === 'lg' ? 'min-h-14 px-3 text-base' : size === 'sm' ? 'min-h-11 px-3 py-2 text-[13.5px]' : 'min-h-11 px-2 text-[13.5px]';
 
   if (!available) {
     // Suspended/closed: keep the caption so the market still reads, with a lock instead of a price.
@@ -61,7 +63,7 @@ export function OddsButton({
         } ${sizing} ${className}`}
         aria-label={label ? `${label}: price unavailable` : 'Price unavailable'}
       >
-        {label && <span className="max-w-full truncate text-[11px] font-bold">{label}</span>}
+        {label && <span className="line-clamp-2 max-w-full break-words text-[11px] font-bold leading-tight">{label}</span>}
         {Number.isFinite(price) ? <BsLockFill size={11} /> : '—'}
       </span>
     );
@@ -79,6 +81,8 @@ export function OddsButton({
           : { eventId, eventName, selection, odds: price },
       )}
       aria-pressed={active}
+      title={title}
+      aria-label={title ? `${title} ${formatOdds(price, oddsFormat)}` : undefined}
       className={`relative flex items-center rounded-lg font-extrabold tabular-nums transition-colors ${
         !label ? 'justify-center'
           : stackOnMobile ? 'flex-col justify-center gap-0.5 py-1.5 sm:flex-row sm:justify-between sm:gap-2 sm:py-2'
@@ -91,7 +95,7 @@ export function OddsButton({
     >
       {label && (
         <span className={`max-w-full text-[11px] font-bold ${
-          stackOnMobile ? 'line-clamp-2 text-center leading-tight sm:line-clamp-none sm:truncate sm:text-left' : 'truncate'
+          stackOnMobile ? 'line-clamp-3 hyphens-auto text-center leading-tight [overflow-wrap:anywhere] sm:line-clamp-2 sm:text-left' : 'line-clamp-2 break-words text-left leading-tight'
         } ${active ? 'text-white/75' : 'text-muted-foreground'}`}>{label}</span>
       )}
       <span className="flex items-center gap-1">
