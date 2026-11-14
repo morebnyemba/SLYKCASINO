@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { Portal } from '@/components/portal';
 import { BsGearFill, BsCheck } from 'react-icons/bs';
-import { ACCENT_OPTIONS, useSettings, type OddsFormat } from '@/lib/settings-context';
+import { useSettings, type OddsFormat } from '@/lib/settings-context';
 
 const ODDS_FORMATS: { id: OddsFormat; label: string }[] = [
   { id: 'decimal', label: 'Decimal' },
@@ -11,13 +11,13 @@ const ODDS_FORMATS: { id: OddsFormat; label: string }[] = [
   { id: 'american', label: 'American' },
 ];
 
-/** Gear-icon dropdown: odds format, accent colour, live-feed toggle. */
+/** Gear-icon dropdown: odds format and the live-feed toggle (the accent is always the site's blue). */
 export function SettingsMenu({ className = '', placement = 'header' }: {
   className?: string;
   /** Where the trigger lives, so the panel opens next to it. */
   placement?: 'header' | 'sidebar';
 }) {
-  const { oddsFormat, setOddsFormat, accent, setAccent, showLiveFeed, setShowLiveFeed } = useSettings();
+  const { oddsFormat, setOddsFormat, showLiveFeed, setShowLiveFeed } = useSettings();
   const [open, setOpen] = useState(false);
 
   return (
@@ -54,27 +54,6 @@ export function SettingsMenu({ className = '', placement = 'header' }: {
                     }`}
                   >
                     {f.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="mb-4">
-              <p className="mb-1.5 text-xs text-muted-foreground">Accent colour</p>
-              <div className="flex gap-2">
-                {ACCENT_OPTIONS.map((opt) => (
-                  <button
-                    key={opt.id}
-                    onClick={() => setAccent(opt.hex)}
-                    aria-label={opt.label}
-                    title={opt.label}
-                    className="flex h-7 w-7 items-center justify-center rounded-full transition-transform hover:scale-110"
-                    style={{
-                      background: opt.hex || 'linear-gradient(135deg, var(--primary) 0 50%, var(--gold) 50% 100%)',
-                      boxShadow: accent === opt.hex ? `0 0 0 2px var(--card), 0 0 0 4px ${opt.hex || 'var(--foreground)'}` : 'none',
-                    }}
-                  >
-                    {accent === opt.hex && <BsCheck size={16} className="text-white drop-shadow" />}
                   </button>
                 ))}
               </div>

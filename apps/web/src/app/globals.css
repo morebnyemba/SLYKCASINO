@@ -140,6 +140,20 @@
   .brand-ring, .brand-breathe { animation: none; }
 }
 
+/* One accent, the site's blue, everywhere: "gold" and "accent" (violet) were used as
+   accents on buttons, selections and highlights. Both follow --secondary — the blue
+   set in the admin — so the operator still picks the shade. `html:root` outranks the
+   admin palette's `:root` block. Green (win/deposit) and red (live/lost) keep their
+   meaning; VIP gold-tier badges stay gold. */
+html:root {
+  --gold: var(--secondary);
+  --gold-foreground: var(--secondary-foreground);
+  --accent: var(--secondary);
+  --accent-foreground: var(--secondary-foreground);
+  --tier-gold: #946A00;
+  --tier-gold-foreground: #946A00;
+}
+
 /* The wordmark comes in two versions; the site is light only, so the navy "Bet" one shows. */
 .brand-on-dark { display: none; }
 

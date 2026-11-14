@@ -104,6 +104,11 @@ class JetBet(models.Model):
     # The wallet (deposit / bonus / winnings) the stake was paid from: refunds
     # and the stake part of a win go back there, only profit goes to winnings.
     wallet = models.CharField(max_length=10, choices=Bucket.choices)
+    # A real-money stake can be split: what came from Deposit and from Winnings
+    # (they add up to `stake`; `wallet` is then the first one used). Both 0 on bets
+    # placed before splitting existed and on bonus/free bets: those use `wallet`.
+    stake_deposit = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    stake_winnings = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     auto_cashout = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     status = models.CharField(max_length=8, choices=Status.choices, default=Status.ACTIVE, db_index=True)
     cashout_multiplier = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)

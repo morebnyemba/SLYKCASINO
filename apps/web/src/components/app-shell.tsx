@@ -11,6 +11,7 @@ import { AppSidebar, MobileMenu } from '@/components/app-sidebar';
 import { BetslipDrawer } from '@/components/betslip-panel';
 import { ReferralTracker } from '@/components/referral-tracker';
 import { NavigationLoader } from '@/components/site-loader';
+import { GameFullscreenLauncher } from '@/components/game-fullscreen';
 import { BetRail } from '@/components/bet-rail';
 import { GlobalSearch } from '@/components/global-search';
 import { MobileQuickNav } from '@/components/mobile-quick-nav';
@@ -55,6 +56,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <ReferralTracker />
       {/* useSearchParams needs a Suspense boundary. */}
       <Suspense><NavigationLoader /></Suspense>
+      <GameFullscreenLauncher />
       <BottomNav />
     </>
   );

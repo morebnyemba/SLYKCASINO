@@ -10,7 +10,7 @@ import { EventRow, FeaturedMatchCard, MarketHeader, sportMeta } from '@/componen
 import { LeagueSection } from '@/components/league-section';
 import { LIST_MARKETS, groupByLeague, isLive, sortEvents, type EventItem, type ListMarket } from '@/lib/sports';
 
-type Tab = 'live' | 'top' | 'upcoming' | 'countries';
+type Tab = 'live' | 'top' | 'leagues' | 'upcoming' | 'countries';
 type SortMode = 'league' | 'time';
 
 const COLLAPSED_KEY = 'slyk:collapsed-leagues';
@@ -24,6 +24,7 @@ const NO_COUNTRY = 'International';
 const TABS: { id: Tab; label: string }[] = [
   { id: 'live', label: 'Live' },
   { id: 'top', label: 'Top Events' },
+  { id: 'leagues', label: 'Leagues' },
   { id: 'upcoming', label: 'Upcoming' },
   { id: 'countries', label: 'Countries' },
 ];
@@ -192,6 +193,15 @@ export function SportsbookBrowser({ events, topMatches = [], awaitingOdds = 0 }:
         || a.rank - b.rank || a.name.localeCompare(b.name))
       .map((c) => ({ ...c, leagues: groupByLeague(c.events) }));
   }, [tab, filtered]);
+  // Leagues tab: every competition with matches, featured ones first (the admin's league
+  // order), then A–Z by country and name; each opens to its matches.
+  const leagueList = useMemo(() => (tab === 'leagues' ? groupByLeague(filtered) : []), [tab, filtered]);
+  const [openLeagues, setOpenLeagues] = useState<Set<string>>(new Set());
+  const toggleOpenLeague = (key: string) => setOpenLeagues((prev) => {
+    const next = new Set(prev);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    return next;
+  });
   const [openCountries, setOpenCountries] = useState<Set<string>>(new Set());
   const toggleCountry = (name: string) => setOpenCountries((prev) => {
     const next = new Set(prev);
@@ -242,7 +252,7 @@ export function SportsbookBrowser({ events, topMatches = [], awaitingOdds = 0 }:
     return out;
   }, [groups, rowLimit, sort, collapsed]);
   const totalRows = filtered.length;
-  const hasMore = tab !== 'countries' && rowLimit < totalRows;
+  const hasMore = tab !== 'countries' && tab !== 'leagues' && rowLimit < totalRows;
   useEffect(() => {
     const el = sentinel.current;
     if (!el || !hasMore) return;
@@ -255,7 +265,7 @@ export function SportsbookBrowser({ events, topMatches = [], awaitingOdds = 0 }:
 
   const SportIcon = sport ? sportMeta(sport).icon ?? GiTrophyCup : GiTrophyCup;
   const filtersActive = !!(sport || day || soon);
-  const empty = tab === 'countries' ? countries.length === 0 : groups.length === 0;
+  const empty = tab === 'countries' ? countries.length === 0 : tab === 'leagues' ? leagueList.length === 0 : groups.length === 0;
 
   const leagueSections = (leagues: ReturnType<typeof groupByLeague>, prefix: string, fallbackTitle: string) =>
     leagues.map((lg) => {
@@ -289,20 +299,20 @@ export function SportsbookBrowser({ events, topMatches = [], awaitingOdds = 0 }:
 
       {/* View tabs + filters, pinned under the header while scrolling. */}
       <div className="sticky top-[var(--header-h)] z-20 -mx-3 space-y-2.5 border-b border-border bg-background/95 px-3 pb-3 pt-2 backdrop-blur sm:mx-0 sm:px-0">
-        <div className="grid grid-cols-4 gap-2" role="tablist" aria-label="Sportsbook view">
+        <div className="grid grid-cols-5 gap-1.5 sm:gap-2" role="tablist" aria-label="Sportsbook view">
           {TABS.map((t) => (
             <button
               key={t.id}
               role="tab"
               aria-selected={tab === t.id}
               onClick={() => update({ tab: t.id, ...(t.id === 'live' ? { day: null, soon: false } : {}) })}
-              className={`relative flex h-11 items-center justify-center gap-1.5 rounded-xl px-1 text-[13px] font-bold transition-colors sm:text-sm ${
+              className={`relative flex h-11 min-w-0 items-center justify-center gap-1 rounded-xl px-0.5 text-[11px] font-bold transition-colors min-[380px]:text-[12px] min-[400px]:text-[13px] sm:gap-1.5 sm:text-sm ${
                 tab === t.id ? 'bg-secondary text-secondary-foreground shadow' : 'bg-muted/70 text-foreground hover:bg-muted'
               }`}
             >
               {t.id === 'live' && liveCount > 0 && <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-live" />}
               {t.id === 'top' ? (
-                <span className="truncate"><span className="hidden min-[380px]:inline">Top Events</span><span className="min-[380px]:hidden">Top</span></span>
+                <span className="truncate"><span className="hidden sm:inline">Top Events</span><span className="sm:hidden">Top</span></span>
               ) : (
                 <span className="truncate">{t.label}</span>
               )}
@@ -329,7 +339,7 @@ export function SportsbookBrowser({ events, topMatches = [], awaitingOdds = 0 }:
               {day && !days.some((d) => d.day === day) && <option value={day}>{day}</option>}
             </FilterSelect>
           )}
-          {tab !== 'countries' && (
+          {tab !== 'countries' && tab !== 'leagues' && (
             // By time | By league: both options visible, the active one filled.
             <div role="radiogroup" aria-label="Order matches" className="hidden h-11 shrink-0 rounded-xl border border-border bg-card p-1 min-[400px]:flex sm:min-w-[200px] sm:flex-1">
               {(['time', 'league'] as SortMode[]).map((m) => (
@@ -347,7 +357,7 @@ export function SportsbookBrowser({ events, topMatches = [], awaitingOdds = 0 }:
               ))}
             </div>
           )}
-          {tab !== 'countries' && (
+          {tab !== 'countries' && tab !== 'leagues' && (
             // The narrowest phones: one button showing the order, tap to switch.
             <button
               onClick={() => update({ sort: sort === 'league' ? 'time' : 'league' })}
@@ -424,7 +434,21 @@ export function SportsbookBrowser({ events, topMatches = [], awaitingOdds = 0 }:
         </p>
       )}
 
-      {tab === 'countries' ? (
+      {tab === 'leagues' ? (
+        <div className="overflow-hidden rounded-2xl border border-border bg-card">
+          <MarketHeader title="Leagues" count={leagueList.length} market={market} />
+          {leagueList.map((lg) => (
+            <LeagueSection
+              key={lg.key}
+              group={lg}
+              market={market}
+              collapsed={!openLeagues.has(lg.key)}
+              onToggle={() => toggleOpenLeague(lg.key)}
+              fallbackTitle="Other matches"
+            />
+          ))}
+        </div>
+      ) : tab === 'countries' ? (
         <div className="overflow-hidden rounded-2xl border border-border bg-card">
           {countries.map((c) => {
             const open = openCountries.has(c.name);

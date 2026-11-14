@@ -246,7 +246,7 @@ export function useJet() {
 
   return {
     state, error, now, reload: load,
-    placeBet: (slot: number, stake: string, autoCashout: string | null, freeBetId?: number, wallet?: WalletId | null) =>
+    placeBet: (slot: number, stake: string, autoCashout: string | null, freeBetId?: number, wallet?: WalletId | 'auto' | null) =>
       act('/jet/bets/', {
         slot, stake, wallet, ...(autoCashout ? { auto_cashout: autoCashout } : {}), ...(freeBetId ? { free_bet_id: freeBetId } : {}),
       }),
