@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { BsLockFill, BsXLg, BsReceipt, BsTrash3 } from 'react-icons/bs';
 import { LoadCodeForm, ShareSlip } from '@/components/booking-code';
 import { useAuth } from '@/lib/auth-context';
@@ -39,7 +39,24 @@ function money(n: number) {
 /** Which wallet pays for the slip. Each shows its balance and minimum odds;
  *  one the slip's odds don't reach can't be picked. The server enforces the
  *  same rules — this only shows them before the player confirms. */
-function WalletPicker({ odds, legOdds, isMultiple }: { odds: number; legOdds: number[]; isMultiple: boolean }) {
+function walletProblems(data: ReturnType<typeof useWallets>['data'], odds: number, legOdds: number[], isMultiple: boolean,
+  fmtOdds: (o: number) => string, stake = 0) {
+  const out: Partial<Record<WalletId, string | null>> = {};
+  if (!data?.wallets) return out;
+  const bonusProblem = bonusEligible(data.bonus_rules, legOdds, isMultiple);
+  for (const id of WALLET_IDS) {
+    const info = data.wallets[id];
+    if (id === 'bonus' && Number(info.balance) <= 0) out[id] = 'Your Bonus wallet is empty';
+    else if (id === 'bonus' && bonusProblem) out[id] = bonusProblem;
+    else if (!meetsMinOdds(info, odds)) out[id] = `Needs odds of ${fmtOdds(Number(info.min_odds))} or more`;
+    // A bonus bet stakes the whole Bonus wallet, so only the other two can run short.
+    else if (id !== 'bonus' && stake > 0 && Number(info.balance) + 1e-9 < stake) out[id] = 'Not enough for this stake';
+    else out[id] = null;
+  }
+  return out;
+}
+
+function WalletPicker({ odds, legOdds, isMultiple, stake = 0 }: { odds: number; legOdds: number[]; isMultiple: boolean; stake?: number }) {
   const { wallet, setWallet, setAccaStake } = useBetslip();
   const { data } = useWallets();
   const { oddsFormat } = useSettings();
@@ -50,18 +67,16 @@ function WalletPicker({ odds, legOdds, isMultiple }: { odds: number; legOdds: nu
   }, [wallet, bonusBalance, setAccaStake]);
   if (!data?.wallets) return null;
   const rules = data.bonus_rules;
-  const bonusProblem = bonusEligible(rules, legOdds, isMultiple);
+  const problems = walletProblems(data, odds, legOdds, isMultiple, (o) => formatOdds(o, oddsFormat), stake);
   return (
     <fieldset className="mb-3">
       <legend className="mb-1.5 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Pay from</legend>
       <div className="grid grid-cols-3 gap-1.5">
         {WALLET_IDS.map((id: WalletId) => {
           const info = data.wallets[id];
-          const why = id === 'bonus'
-            ? (Number(info.balance) <= 0 ? 'Your Bonus wallet is empty' : bonusProblem)
-            : null;
-          const ok = meetsMinOdds(info, odds) && !why;
-          const chosen = wallet === id;
+          const why = problems[id] ?? null;
+          const ok = !why;
+          const chosen = wallet === id && ok;
           return (
             <button
               key={id}
@@ -69,15 +84,16 @@ function WalletPicker({ odds, legOdds, isMultiple }: { odds: number; legOdds: nu
               disabled={!ok}
               onClick={() => setWallet(id)}
               aria-pressed={chosen}
-              title={ok ? undefined : why ?? `Needs odds of ${formatOdds(Number(info.min_odds), oddsFormat)} or more`}
-              className={`rounded-lg border px-2 py-1.5 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-45 ${
+              title={why ?? undefined}
+              className={`relative rounded-xl border-2 px-2.5 py-2 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-45 ${
                 chosen ? 'border-secondary bg-secondary/10' : 'border-border hover:bg-muted'
               }`}
             >
-              <span className="block text-[11px] font-bold">{WALLET_LABEL[id]}</span>
-              <span className="block text-[13px] font-extrabold tabular-nums">{money(Number(info.balance))}</span>
-              <span className="block text-[10px] text-muted-foreground">
-                {id === 'bonus' && rules ? `${rules.min_legs}+ picks @ ${rules.min_leg_odds}+` : `Min odds ${formatOdds(Number(info.min_odds), oddsFormat)}`}
+              {chosen && <span className="absolute right-1.5 top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-secondary text-[10px] font-black text-secondary-foreground">✓</span>}
+              <span className="block text-[11.5px] font-bold">{WALLET_LABEL[id]}</span>
+              <span className="block text-[14px] font-extrabold tabular-nums">{money(Number(info.balance))}</span>
+              <span className="block text-[10px] leading-tight text-muted-foreground">
+                {why ?? (id === 'bonus' && rules ? `${rules.min_legs}+ picks @ ${rules.min_leg_odds}+` : `Min odds ${formatOdds(Number(info.min_odds), oddsFormat)}`)}
               </span>
             </button>
           );
@@ -91,6 +107,50 @@ function WalletPicker({ odds, legOdds, isMultiple }: { odds: number; legOdds: nu
         </p>
       )}
     </fieldset>
+  );
+}
+
+/** The last step before a bet is placed: what's staked and could come back, and
+ * which wallet pays (the last one used is ticked when it can still pay). */
+function ConfirmBet({ odds, legOdds, isMultiple, stake, payout, combined, bets, onCancel, onConfirm }: {
+  odds: number; legOdds: number[]; isMultiple: boolean; stake: number; payout: number;
+  combined: number | null; bets: number; onCancel: () => void; onConfirm: () => Promise<void>;
+}) {
+  const { wallet, busy } = useBetslip();
+  const { data } = useWallets();
+  const { oddsFormat } = useSettings();
+  const problems = walletProblems(data, odds, legOdds, isMultiple, (o) => formatOdds(o, oddsFormat), stake);
+  const canPay = !!wallet && problems[wallet] === null;
+  return (
+    <div className="absolute inset-0 z-20 flex flex-col justify-end bg-black/40" onClick={onCancel}>
+      <div
+        role="dialog" aria-modal="true" aria-label="Confirm your bet"
+        className="animate-slyk-sheet max-h-full overflow-y-auto rounded-t-2xl border-t border-border bg-card px-4 pb-4 pt-3 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mb-3 flex items-center justify-between">
+          <p className="text-[15px] font-extrabold">Confirm your bet</p>
+          <button onClick={onCancel} aria-label="Back to the slip" className="rounded-md p-1.5 text-muted-foreground hover:bg-muted"><BsXLg size={13} /></button>
+        </div>
+        <dl className="mb-3 grid grid-cols-3 gap-2 rounded-xl bg-muted/50 px-3 py-2.5 text-[11px]">
+          <div><dt className="text-muted-foreground">{bets > 1 ? `Stake (${bets} bets)` : 'Stake'}</dt><dd className="text-[14px] font-extrabold tabular-nums">{money(stake)}</dd></div>
+          <div><dt className="text-muted-foreground">{combined != null ? 'Total odds' : 'Bets'}</dt><dd className="text-[14px] font-extrabold tabular-nums">{combined != null ? formatOdds(combined, oddsFormat) : bets}</dd></div>
+          <div className="text-right"><dt className="text-muted-foreground">Potential win</dt><dd className="text-[14px] font-extrabold tabular-nums text-win">{money(payout)}</dd></div>
+        </dl>
+        <WalletPicker odds={odds} legOdds={legOdds} isMultiple={isMultiple} stake={stake} />
+        <div className="flex gap-2">
+          <button onClick={onCancel} className="rounded-xl border border-border px-4 py-3 text-sm font-bold">Back</button>
+          <button
+            onClick={() => void onConfirm()}
+            disabled={!canPay || busy}
+            className="flex-1 rounded-xl bg-win px-4 py-3 text-sm font-extrabold text-win-foreground shadow-lg transition-opacity hover:opacity-90 disabled:opacity-45"
+          >
+            {busy ? <span className="inline-flex items-center justify-center gap-2"><Spinner size={14} />Placing…</span>
+              : canPay ? `Confirm · ${money(stake)}` : 'Choose a wallet'}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -124,12 +184,28 @@ export function SlipBody({ onClose, variant = 'card' }: {
     ? `Place ${legs.length} bet${legs.length === 1 ? '' : 's'} · ${money(totalStake)}`
     : `Place bet · ${money(totalStake)}`;
   const rejected = !!status && /^(Rejected|Enter|Please|Choose|Odds changed|Multiples|Placed \d)/.test(status);
+  // Place bet opens a short confirm step: the stake, the return, and which wallet pays.
+  const [confirming, setConfirming] = useState(false);
+  useEffect(() => { if (!hasLegs || hasPriceChanges || hasSuspended) setConfirming(false); }, [hasLegs, hasPriceChanges, hasSuspended]);
 
   return (
     <div className={variant === 'rail'
-      ? 'flex h-full min-h-0 flex-col'
-      : 'flex max-h-full flex-col overflow-hidden rounded-2xl border border-border bg-card'}
+      ? 'relative flex h-full min-h-0 flex-col'
+      : 'relative flex max-h-full flex-col overflow-hidden rounded-2xl border border-border bg-card'}
     >
+      {confirming && user && hasLegs && (
+        <ConfirmBet
+          odds={isSingles ? Math.min(...legs.map((l) => l.odds)) : combinedOdds}
+          legOdds={legs.map((l) => l.odds)}
+          isMultiple={!isSingles && legs.length > 1}
+          stake={totalStake}
+          payout={potentialPayout}
+          combined={isSingles ? null : combinedOdds}
+          bets={isSingles ? legs.filter((l) => (parseFloat(legStakes[keyOf(l)] || '0') || 0) > 0).length : 1}
+          onCancel={() => setConfirming(false)}
+          onConfirm={async () => { await place(); setConfirming(false); }}
+        />
+      )}
       <div className={`flex items-center gap-2.5 px-4 py-3 ${variant === 'rail' && !hasLegs ? 'hidden' : ''}`}>
         <BsReceipt size={16} className={variant === 'rail' ? 'hidden' : 'text-secondary'} />
         <span className={`font-extrabold ${variant === 'rail' ? 'text-sm text-muted-foreground' : ''}`}>
@@ -311,8 +387,7 @@ export function SlipBody({ onClose, variant = 'card' }: {
               </div>
             )}
 
-            {user && <WalletPicker odds={isSingles ? Math.min(...legs.map((l) => l.odds)) : combinedOdds}
-              legOdds={legs.map((l) => l.odds)} isMultiple={!isSingles && legs.length > 1} />}
+
 
             <dl className="mb-3 space-y-1 text-[12.5px]">
               {!isSingles && (
@@ -368,7 +443,7 @@ export function SlipBody({ onClose, variant = 'card' }: {
                 </button>
               ) : (
                 <button
-                  onClick={place}
+                  onClick={() => setConfirming(true)}
                   disabled={busy}
                   className="w-full rounded-xl bg-win px-4 py-3 text-sm font-extrabold text-win-foreground shadow-lg transition-opacity hover:opacity-90 disabled:opacity-50"
                 >
