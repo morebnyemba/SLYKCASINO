@@ -75,7 +75,10 @@ export interface ApiSlip {
 interface TicketLeg {
   id: number;
   match: string;
+  /** "Market - Pick" on one line (summaries); `market` + `outcome` for the full ticket. */
   pick: string;
+  market: string;
+  outcome: string;
   odds: number;
   result: string;
   info: BetMatch | null;
@@ -114,19 +117,34 @@ function fixture(m: BetMatch | null | undefined, fallbackName: string) {
   return home && away ? `${home} - ${away}` : (m?.name ?? fallbackName);
 }
 
-/** What was backed, ticket-style: "Market - Pick" ("Double Chance - 1X", "1X2 - 1"). */
-function pickLabel(l: ApiSlipLeg): string {
-  if (l.outcome_label) return l.market_name ? `${l.market_name} - ${l.outcome_label}` : l.outcome_label;
+/** What was backed, as market + pick ("Double Chance" / "Home or draw", "1X2" / "1 · Chelsea"). */
+function pickParts(l: ApiSlipLeg): { market: string; outcome: string } {
+  if (l.outcome_label) return { market: l.market_name ?? '', outcome: l.outcome_label };
   const code = { home: '1', draw: 'X', away: '2' }[l.selection ?? ''];
-  if (code) return `1X2 - ${code}`;
+  if (code) {
+    const [a, b] = (l.match?.name ?? l.event.split(' — ')[0]).split(/\s+(?:v|vs\.?)\s+/i);
+    const team = code === '1' ? l.match?.home || a : code === '2' ? l.match?.away || b : 'Draw';
+    return { market: '1X2', outcome: team ? `${code} · ${team}` : code };
+  }
   // Old free-text bets are stored as "Arsenal v Chelsea — Match Result: Home".
   const [, ...rest] = l.event.split(' — ');
-  return rest.length ? rest.join(' — ').replace(': ', ' - ') : '—';
+  if (!rest.length) return { market: '', outcome: '—' };
+  const [market, ...pick] = rest.join(' — ').split(': ');
+  return pick.length ? { market, outcome: pick.join(': ') } : { market: '', outcome: market };
 }
 
 function toLeg(l: ApiSlipLeg, result: string): TicketLeg {
   const match = fixture(l.match, l.event.split(' — ')[0]);
-  return { id: l.id, match, pick: pickLabel(l), odds: Number(l.odds), result, info: l.match ?? null };
+  const { market, outcome } = pickParts(l);
+  return {
+    id: l.id, match, market, outcome, pick: market ? `${market} - ${outcome}` : outcome,
+    odds: Number(l.odds), result, info: l.match ?? null,
+  };
+}
+
+/** The matches on a ticket, each once (same-match picks share a fixture). */
+function matchList(legs: TicketLeg[]) {
+  return [...new Set(legs.map((l) => l.match))].join(' | ');
 }
 
 /** A single's result is its own status; a leg carries its own result. */
@@ -318,7 +336,7 @@ export function BetTicket({ ticket, compact = false, offer, onChanged, collapsib
   if (!open) {
     const o = outcome(t);
     const title = t.kind === 'single' ? t.legs[0]?.pick : `Combo (${t.legs.length})`;
-    const sub = t.kind === 'single' ? t.legs[0]?.match : t.legs.map((l) => l.match).join(' | ');
+    const sub = t.kind === 'single' ? t.legs[0]?.match : matchList(t.legs);
     return (
       <button onClick={() => setOpen(true)} aria-expanded={false}
         className="relative flex w-full items-center gap-3 overflow-hidden rounded-xl border border-border bg-card py-2.5 pl-4 pr-3 text-left shadow-sm transition-colors hover:bg-muted/40">
@@ -361,8 +379,8 @@ export function BetTicket({ ticket, compact = false, offer, onChanged, collapsib
             </button>
           </span>
         </div>
-        <p className="mt-1 truncate border-b border-border/70 pb-2 text-[12px] text-muted-foreground" title={t.legs.map((l) => l.match).join(' | ')}>
-          {t.legs.map((l) => l.match).join(' | ')}
+        <p className="mt-1 truncate border-b border-border/70 pb-2 text-[12px] text-muted-foreground" title={matchList(t.legs)}>
+          {matchList(t.legs)}
         </p>
         {t.bonusPercent > 0 && t.status !== 'lost' && (
           <p className="pt-1.5 text-[11px] font-bold text-gold">
@@ -378,21 +396,32 @@ export function BetTicket({ ticket, compact = false, offer, onChanged, collapsib
           {shown.map((l, i) => {
             const live = l.result === 'pending' && isLiveMatch(l.info);
             const score = scoreLine(l.info);
+            const sameMatch = !!l.info && t.legs.filter((x) => x.info?.id === l.info?.id).length > 1;
             return (
               <li key={l.id} className="relative overflow-hidden rounded-lg bg-muted/60 px-3 pb-2.5 pt-2 text-[12.5px]">
                 <ResultTab result={l.result} live={live} />
-                <p className="pr-20 text-[11.5px] text-muted-foreground">
-                  <b className="text-foreground">{i + 1}.</b> {l.info?.starts_at ? ticketDate(l.info.starts_at) : ''}
+                <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 pr-20 text-[11.5px] text-muted-foreground">
+                  <span><b className="text-foreground">{i + 1}.</b> {l.info?.starts_at ? ticketDate(l.info.starts_at) : ''}</span>
+                  {sameMatch && (
+                    <span className="rounded bg-secondary/15 px-1.5 py-px text-[10px] font-bold uppercase tracking-wide text-secondary">Same match</span>
+                  )}
                 </p>
-                {l.info?.league && <p className="mt-1 truncate text-muted-foreground">{l.info.league}</p>}
+                {l.info?.league && <p className="mt-1 break-words text-muted-foreground">{l.info.league}</p>}
                 {l.info ? (
-                  <Link href={`/sportsbook/${l.info.id}`} className="block truncate text-muted-foreground hover:text-foreground hover:underline">{l.match}</Link>
+                  <Link href={`/sportsbook/${l.info.id}`} className="block break-words text-muted-foreground hover:text-foreground hover:underline">{l.match}</Link>
                 ) : (
-                  <p className="truncate text-muted-foreground">{l.match}</p>
+                  <p className="break-words text-muted-foreground">{l.match}</p>
                 )}
-                <div className="mt-0.5 flex items-baseline justify-between gap-3">
-                  <p className={`min-w-0 truncate text-[13.5px] font-extrabold ${l.result === 'lost' ? 'text-muted-foreground' : ''}`}>{l.pick}</p>
-                  <span className="shrink-0 font-mono text-[13.5px] font-extrabold">{l.odds.toFixed(2)}</span>
+                {/* Market and pick each get their own line and wrap: a long market
+                    ("Results/Both Teams Score") must never hide what was backed. */}
+                <div className="mt-1 flex items-end justify-between gap-3">
+                  <div className={`min-w-0 ${l.result === 'lost' ? 'text-muted-foreground' : ''}`}>
+                    {l.market && (
+                      <p className="break-words text-[11px] font-semibold uppercase leading-tight tracking-wide text-muted-foreground">{l.market}</p>
+                    )}
+                    <p className="break-words text-[13.5px] font-extrabold leading-snug">{l.outcome}</p>
+                  </div>
+                  <span className="shrink-0 font-mono text-[13.5px] font-extrabold leading-snug">{l.odds.toFixed(2)}</span>
                 </div>
                 {score && <p className={`mt-0.5 text-[11.5px] ${score.live ? 'font-bold text-live' : 'text-muted-foreground'}`}>{score.text}</p>}
               </li>

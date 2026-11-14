@@ -8,7 +8,7 @@ import { GiAirplane, GiTrophy } from 'react-icons/gi';
 import { FaGift, FaHandshake, FaRegCommentDots, FaShieldAlt, FaUsers } from 'react-icons/fa';
 import type { IconType } from 'react-icons';
 import { SPORT_CATEGORIES } from '@/components/sports-sidebar';
-import { ThemeToggle, SettingsMenu } from '@/components/settings-menu';
+import { SettingsMenu } from '@/components/settings-menu';
 import { useShell } from '@/lib/shell-context';
 import { Logo, LogoMark } from '@/components/logo';
 import { isAuthRoute } from '@/lib/auth-routes';
@@ -153,7 +153,6 @@ function SidebarNav({ query, variant }: { query: URLSearchParams | null; variant
       </nav>
 
       <div className={`flex items-center gap-1 border-t border-border p-2 ${compact ? 'flex-col' : ''}`}>
-        <ThemeToggle className={compact ? '!w-9 !justify-center !px-0 [&>span]:hidden' : 'flex-1'} />
         <SettingsMenu placement="sidebar" />
       </div>
     </div>

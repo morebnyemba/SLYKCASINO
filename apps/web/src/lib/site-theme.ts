@@ -46,11 +46,10 @@ export async function fetchSiteThemeCss(): Promise<string> {
   try {
     const res = await fetch(`${config.apiUrl}/branding/theme/`, { next: { revalidate: 10 } });
     if (!res.ok) return '';
-    const data = (await res.json()) as { light?: Record<string, string>; dark?: Record<string, string> };
+    // The player site is light only, so the admin's dark palette isn't used here.
+    const data = (await res.json()) as { light?: Record<string, string> };
     const light = toCssBlock(data.light);
-    const dark = toCssBlock(data.dark);
-    if (!light && !dark) return '';
-    return `:root{${light}}[data-theme='dark']{${dark}}`;
+    return light ? `:root{${light}}` : '';
   } catch {
     return '';
   }

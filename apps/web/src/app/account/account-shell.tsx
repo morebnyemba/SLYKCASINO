@@ -7,7 +7,7 @@ import { FaUser, FaWallet, FaShieldAlt, FaIdCard, FaBell, FaSignOutAlt, FaHandsh
 import { GiTrophy } from 'react-icons/gi';
 import type { IconType } from 'react-icons';
 import { useAuth } from '@/lib/auth-context';
-import { ThemeToggle, SettingsMenu } from '@/components/settings-menu';
+import { SettingsMenu } from '@/components/settings-menu';
 import { PageLoader } from '@/components/site-loader';
 
 const tabs: { href: string; label: string; icon: IconType }[] = [
@@ -96,7 +96,6 @@ export function AccountShell({ children }: { children: React.ReactNode }) {
             <p className="truncate text-sm font-semibold">{user.username}</p>
             <p className="text-xs text-muted-foreground">My Account</p>
           </div>
-          <ThemeToggle className="!h-8 !w-8 !gap-0 !px-0 !text-muted-foreground hover:!bg-muted/40 hover:!text-foreground [&>span]:hidden" />
           <SettingsMenu className="!h-8 !w-8 !text-muted-foreground hover:!bg-muted/40 hover:!text-foreground" />
         </div>
         <nav className="flex flex-col gap-1 text-sm">

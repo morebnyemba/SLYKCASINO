@@ -2,7 +2,6 @@
 
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
 
-export type ThemeMode = 'dark' | 'light';
 export type OddsFormat = 'decimal' | 'fractional' | 'american';
 
 export interface AccentOption {
@@ -23,14 +22,12 @@ export const ACCENT_OPTIONS: AccentOption[] = [
 ];
 
 interface Settings {
-  theme: ThemeMode;
   oddsFormat: OddsFormat;
   accent: string;
   showLiveFeed: boolean;
 }
 
 const DEFAULT_SETTINGS: Settings = {
-  theme: 'dark',
   oddsFormat: 'decimal',
   accent: ACCENT_OPTIONS[0].hex,
   showLiveFeed: true,
@@ -40,8 +37,6 @@ const STORAGE_KEY = 'slyk:settings';
 const LEGACY_DEFAULT_ACCENT = '#6C63E8';
 
 interface SettingsContextValue extends Settings {
-  setTheme: (t: ThemeMode) => void;
-  toggleTheme: () => void;
   setOddsFormat: (f: OddsFormat) => void;
   setAccent: (hex: string) => void;
   setShowLiveFeed: (v: boolean) => void;
@@ -54,7 +49,9 @@ function loadStored(): Settings {
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) return DEFAULT_SETTINGS;
-    const stored = { ...DEFAULT_SETTINGS, ...JSON.parse(raw) } as Settings;
+    // `theme` from when the site had a dark mode is dropped: light only now.
+    const { theme: _theme, ...saved } = JSON.parse(raw) as Partial<Settings> & { theme?: unknown };
+    const stored = { ...DEFAULT_SETTINGS, ...saved } as Settings;
     // Indigo used to be the default accent and was saved for everyone; treat it
     // as "follow the site colours" so operator theme changes reach those players.
     if (stored.accent === LEGACY_DEFAULT_ACCENT) stored.accent = '';
@@ -73,10 +70,10 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     setHydrated(true);
   }, []);
 
-  // Reflect theme + accent onto <html> so CSS custom properties cascade everywhere.
+  // Reflect the accent onto <html> so CSS custom properties cascade everywhere.
   useEffect(() => {
     const root = document.documentElement;
-    root.dataset.theme = settings.theme;
+    root.dataset.theme = 'light';
     if (settings.accent) {
       root.style.setProperty('--secondary', settings.accent);
       root.style.setProperty('--ring', settings.accent);
@@ -84,7 +81,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       root.style.removeProperty('--secondary');
       root.style.removeProperty('--ring');
     }
-  }, [settings.theme, settings.accent]);
+  }, [settings.accent]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -95,18 +92,13 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     }
   }, [settings, hydrated]);
 
-  const setTheme = useCallback((theme: ThemeMode) => setSettings((s) => ({ ...s, theme })), []);
-  const toggleTheme = useCallback(
-    () => setSettings((s) => ({ ...s, theme: s.theme === 'dark' ? 'light' : 'dark' })),
-    [],
-  );
   const setOddsFormat = useCallback((oddsFormat: OddsFormat) => setSettings((s) => ({ ...s, oddsFormat })), []);
   const setAccent = useCallback((accent: string) => setSettings((s) => ({ ...s, accent })), []);
   const setShowLiveFeed = useCallback((showLiveFeed: boolean) => setSettings((s) => ({ ...s, showLiveFeed })), []);
 
   return (
     <SettingsContext.Provider
-      value={{ ...settings, setTheme, toggleTheme, setOddsFormat, setAccent, setShowLiveFeed }}
+      value={{ ...settings, setOddsFormat, setAccent, setShowLiveFeed }}
     >
       {children}
     </SettingsContext.Provider>

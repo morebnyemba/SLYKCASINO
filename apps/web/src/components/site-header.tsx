@@ -17,7 +17,7 @@ import { Logo } from '@/components/logo';
 import { Portal } from '@/components/portal';
 import { useRailOpen } from '@/components/bet-rail';
 import { useBetslip } from '@/lib/betslip-context';
-import { SettingsMenu, ThemeToggle } from '@/components/settings-menu';
+import { SettingsMenu } from '@/components/settings-menu';
 import { DepositModal } from '@/components/deposit-modal';
 
 interface Wallet {
@@ -195,7 +195,6 @@ function UserMenu({ username, unreadCount, onLogout, onDeposit }: {
                 )}
               </Link>
               <div className="my-1 flex items-center gap-1 border-t border-border pt-1 lg:hidden">
-                <ThemeToggle className="flex-1" />
                 <SettingsMenu placement="header" />
               </div>
               <div className="my-1 border-t border-border" />
