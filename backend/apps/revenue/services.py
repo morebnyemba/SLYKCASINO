@@ -80,6 +80,17 @@ def split(ggr: Decimal, carried_in: Decimal, percent: Decimal, wallets: int = 3)
     return {'base': base, 'carry_out': min(net, ZERO), 'share_each': share_each, 'pool': base - share_each * wallets}
 
 
+def split_wallets(ggr: Decimal, carried_in: Decimal, percents: list[Decimal]) -> dict:
+    """One day's maths with each wallet's own share: `shares` lines up with
+    `percents`, each rounded down to the cent; the pool keeps the rest. A loss
+    carried from earlier days is netted off first, as in `split`."""
+    net = ggr + carried_in
+    base = max(net, ZERO)
+    shares = [(base * Decimal(p) / Decimal('100')).quantize(CENT, rounding=ROUND_DOWN) for p in percents]
+    shared = sum(shares, ZERO)
+    return {'base': base, 'carry_out': min(net, ZERO), 'shares': shares, 'shared': shared, 'pool': base - shared}
+
+
 def close_days(*, today: Optional[date] = None) -> int:
     """Close every completed day not yet closed, oldest first (the carry needs
     the order). Idempotent, and serialised on the settings row so two runs can't
@@ -90,21 +101,25 @@ def close_days(*, today: Optional[date] = None) -> int:
         cfg = RevenueSettings.objects.select_for_update().get(pk=RevenueSettings.load().pk)
         if cfg.started_on is None or cfg.started_on >= today:
             return 0
-        wallets = ShareWallet.ensure()
+        ShareWallet.ensure()
+        # Each wallet's own share on the day it closes (a share bought today counts from today).
+        wallets = list(ShareWallet.objects.select_for_update().filter(percent__gt=0).order_by('slot'))
+        held = sum((w.percent for w in wallets), Decimal('0'))
         last = RevenueDay.objects.order_by('-day').first()
         day = max(cfg.started_on, last.day + timedelta(days=1)) if last else cfg.started_on
         carried = last.carry_out if last else ZERO
         while day < today:
             ggr = day_ggr(day)
-            maths = split(ggr, carried, cfg.share_percent, len(wallets))
+            maths = split_wallets(ggr, carried, [w.percent for w in wallets])
             record = RevenueDay.objects.create(
-                day=day, ggr=ggr, carried_in=carried, share_percent=cfg.share_percent,
-                bonus_conversions=day_bonus_conversions(day), affiliate_costs=day_affiliate_costs(day), **maths,
+                day=day, ggr=ggr, carried_in=carried, share_percent=held, share_each=ZERO,
+                bonus_conversions=day_bonus_conversions(day), affiliate_costs=day_affiliate_costs(day),
+                base=maths['base'], carry_out=maths['carry_out'], shared=maths['shared'], pool=maths['pool'],
             )
-            if maths['share_each'] > 0:
-                ShareEntry.objects.bulk_create([
-                    ShareEntry(wallet=w, kind=ShareEntry.Kind.ACCRUAL, amount=maths['share_each'], day=record) for w in wallets
-                ])
+            ShareEntry.objects.bulk_create([
+                ShareEntry(wallet=w, kind=ShareEntry.Kind.ACCRUAL, amount=amount, day=record)
+                for w, amount in zip(wallets, maths['shares']) if amount > 0
+            ])
             carried = maths['carry_out']
             day += timedelta(days=1)
             closed += 1
@@ -120,7 +135,7 @@ def wallet_balance(wallet: ShareWallet) -> Decimal:
 def wallet_summary(wallet: ShareWallet, *, entries: int = 20) -> dict:
     open_request = wallet.withdrawals.filter(status=ShareWithdrawal.Status.REQUESTED).first()
     return {
-        'slot': wallet.slot, 'label': wallet.label or f'Partner {wallet.slot}',
+        'slot': wallet.slot, 'label': wallet.label or f'Partner {wallet.slot}', 'percent': str(wallet.percent),
         'holder_id': wallet.holder_id, 'holder': wallet.holder.get_username() if wallet.holder else None,
         'balance': str(wallet_balance(wallet)),
         'earned_total': str(_sum(wallet.entries.filter(kind=ShareEntry.Kind.ACCRUAL))),
@@ -252,9 +267,10 @@ def delete_expense(expense_id: int, *, by: str, request=None) -> None:
 
 def update_settings(*, share_percent=None, started_on=None, wallets=None, founder_id=..., by: str,
                     request=None) -> RevenueSettings:
-    """Superuser: the share per wallet (applies to days not yet closed), the
-    first day that counts (only before any day has closed), and who holds each
-    wallet (a staff login; one wallet each)."""
+    """Superuser: the first day that counts (only before any day has closed),
+    the founder, wallet names, and a holder for a wallet that has none. Shares are
+    set per wallet, and a held wallet changes hands only with its holder's
+    consent — both in revenue.shares."""
     from django.contrib.auth import get_user_model
 
     from .audit import assert_unlocked
@@ -262,13 +278,7 @@ def update_settings(*, share_percent=None, started_on=None, wallets=None, founde
     with transaction.atomic():
         cfg = RevenueSettings.objects.select_for_update().get(pk=RevenueSettings.load().pk)
         if share_percent is not None:
-            try:
-                pct = Decimal(str(share_percent)).quantize(CENT)
-            except ArithmeticError as exc:
-                raise RevenueError('Enter the share as a number.') from exc
-            if not Decimal('0') <= pct <= Decimal('33.33'):
-                raise RevenueError('Each wallet’s share must be between 0% and 33.33% (three wallets).')
-            cfg.share_percent = pct
+            raise RevenueError('Shares are set per wallet now — change a wallet’s share instead.')
         if started_on is not None and str(started_on) != str(cfg.started_on):
             if RevenueDay.objects.exists():
                 raise RevenueError('The start date can’t change once days have been shared.')
@@ -297,8 +307,12 @@ def update_settings(*, share_percent=None, started_on=None, wallets=None, founde
                     raise RevenueError('Unknown wallet.')
                 if 'label' in row:
                     wallet.label = str(row.get('label') or '').strip()[:60]
-                if 'holder_id' in row:
+                if 'holder_id' in row and str(row.get('holder_id') or '') != str(wallet.holder_id or ''):
                     holder_id = row.get('holder_id')
+                    if wallet.holder_id is not None:
+                        # Taking a wallet off its holder is a cut: it needs their consent (shares.transfer_wallet).
+                        raise RevenueError(f'Wallet {wallet.slot} belongs to {wallet.holder.get_username()} — '
+                                           'hand it over with their consent instead.')
                     if holder_id in (None, ''):
                         wallet.holder = None
                     else:
@@ -310,21 +324,23 @@ def update_settings(*, share_percent=None, started_on=None, wallets=None, founde
                             raise RevenueError(f'{user.get_username()} already holds Partner {clash.slot}’s wallet.')
                         wallet.holder = user
                 wallet.save()
-    accounts_services.audit(None, 'revenue_settings', request, share_percent=str(cfg.share_percent),
+    accounts_services.audit(None, 'revenue_settings', request,
                             started_on=str(cfg.started_on), by=by,
                             founder=cfg.founder.get_username() if cfg.founder else None,
-                            holders={w.slot: (w.holder.get_username() if w.holder else None) for w in ShareWallet.ensure()})
+                            holders={w.slot: (w.holder.get_username() if w.holder else None) for w in ShareWallet.all_wallets()})
     return cfg
 
 
 def today_so_far() -> dict:
     """Today's GGR so far and what each wallet would get if the day ended now."""
-    cfg = RevenueSettings.load()
     today = timezone.localdate()
     figures = real_money(_aware(today), timezone.now())
     ggr = figures['ggr']
     last = RevenueDay.objects.order_by('-day').first()
-    maths = split(ggr, last.carry_out if last else ZERO, cfg.share_percent)
+    wallets = list(ShareWallet.objects.filter(percent__gt=0).order_by('slot'))
+    maths = split_wallets(ggr, last.carry_out if last else ZERO, [w.percent for w in wallets])
     return {'day': today.isoformat(), 'ggr': str(ggr), 'bonus_conversions': str(figures['bonus_conversions']),
-            'carried_in': str(last.carry_out if last else ZERO),
-            **{k: str(v) for k, v in maths.items()}}
+            'carried_in': str(last.carry_out if last else ZERO), 'base': str(maths['base']),
+            'carry_out': str(maths['carry_out']), 'shared': str(maths['shared']), 'pool': str(maths['pool']),
+            'held_percent': str(sum((w.percent for w in wallets), Decimal('0'))),
+            'per_wallet': {w.slot: str(a) for w, a in zip(wallets, maths['shares'])}}

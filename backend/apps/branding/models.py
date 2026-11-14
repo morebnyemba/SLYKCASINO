@@ -51,6 +51,13 @@ class SiteIdentity(models.Model):
     # International format, digits only (e.g. 263771234567). Blank hides the
     # site's WhatsApp support button.
     whatsapp_number = models.CharField(max_length=20, blank=True, default='')
+    # Who players contract with, shown in the Terms, Privacy and other legal
+    # pages. Blank fields fall back to neutral wording (never a [PLACEHOLDER]).
+    legal_name = models.CharField(max_length=200, blank=True, default='')
+    registered_address = models.CharField(max_length=300, blank=True, default='')
+    support_email = models.EmailField(blank=True, default='')
+    governing_law = models.CharField(max_length=120, blank=True, default='')
+    dispute_body = models.CharField(max_length=200, blank=True, default='')
     updated_at = models.DateTimeField(auto_now=True)
     updated_by_username = models.CharField(max_length=150, blank=True)
 

@@ -3,7 +3,8 @@ from django.urls import path
 from .views import (
     AuditCosignView, AuditFileView, AuditsView, AuditSubmitView, AuditUploadView, DecideWithdrawalView, ExpensesView,
     ExpenseView, GovernanceView, OverviewView, PoolDayView, PoolLedgerView, ProposalsView, ProposalVoteView, SettingsChangesView,
-    SettingsChangeView, SettingsView, WithdrawView,
+    SettingsChangeView, SettingsView, ShareActionView, ShareChangeDecideView, SharesView, ShareQuoteView,
+    ShareSaleDecideView, WithdrawView,
 )
 
 urlpatterns = [
@@ -13,6 +14,11 @@ urlpatterns = [
     path('admin/revenue-share/expenses/', ExpensesView.as_view(), name='revenue-expenses'),
     path('admin/revenue-share/expenses/<int:pk>/', ExpenseView.as_view(), name='revenue-expense'),
     path('admin/revenue-share/settings/', SettingsView.as_view(), name='revenue-settings'),
+    path('admin/revenue-share/shares/', SharesView.as_view(), name='revenue-shares'),
+    path('admin/revenue-share/shares/quote/', ShareQuoteView.as_view(), name='revenue-share-quote'),
+    path('admin/revenue-share/shares/sales/<int:pk>/', ShareSaleDecideView.as_view(), name='revenue-share-sale'),
+    path('admin/revenue-share/shares/changes/<int:pk>/', ShareChangeDecideView.as_view(), name='revenue-share-change'),
+    path('admin/revenue-share/shares/<str:action>/', ShareActionView.as_view(), name='revenue-share-action'),
     path('admin/revenue-share/pool/', PoolLedgerView.as_view(), name='revenue-pool'),
     path('admin/revenue-share/pool/days/<str:day>/', PoolDayView.as_view(), name='revenue-pool-day'),
     path('admin/revenue-share/audits/', AuditsView.as_view(), name='revenue-audits'),

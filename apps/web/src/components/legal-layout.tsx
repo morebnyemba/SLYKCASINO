@@ -1,7 +1,9 @@
 import Link from 'next/link';
+import { LEGAL_EFFECTIVE_DATE } from '@/lib/legal';
 
 const legalLinks = [
   { href: '/legal/terms', label: 'Terms & Conditions' },
+  { href: '/legal/disclaimer', label: 'Disclaimer' },
   { href: '/legal/privacy', label: 'Privacy Policy' },
   { href: '/legal/cookies', label: 'Cookie Policy' },
   { href: '/legal/responsible-gambling', label: 'Responsible Gambling' },
@@ -10,11 +12,11 @@ const legalLinks = [
 
 export function LegalLayout({
   title,
-  effectiveDate,
+  effectiveDate = LEGAL_EFFECTIVE_DATE,
   children,
 }: {
   title: string;
-  effectiveDate: string;
+  effectiveDate?: string;
   children: React.ReactNode;
 }) {
   return (

@@ -47,7 +47,11 @@ class SiteThemeSerializer(serializers.ModelSerializer):
 class SiteIdentitySerializer(serializers.ModelSerializer):
     class Meta:
         model = SiteIdentity
-        fields = ['site_name', 'tagline', 'logo_url', 'license_text', 'whatsapp_number', 'updated_at', 'updated_by_username']
+        fields = [
+            'site_name', 'tagline', 'logo_url', 'license_text', 'whatsapp_number',
+            'legal_name', 'registered_address', 'support_email', 'governing_law', 'dispute_body',
+            'updated_at', 'updated_by_username',
+        ]
         read_only_fields = ['updated_at', 'updated_by_username']
 
     def validate_logo_url(self, value):

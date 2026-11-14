@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { LegalLayout } from '@/components/legal-layout';
+import { fetchLegalDetails } from '@/lib/legal';
 
 export const metadata: Metadata = {
   title: 'AML & KYC Policy',
@@ -7,9 +8,10 @@ export const metadata: Metadata = {
   description: 'Our anti-money laundering and identity verification practices.',
 };
 
-export default function AmlKycPolicyPage() {
+export default async function AmlKycPolicyPage() {
+  const l = await fetchLegalDetails();
   return (
-    <LegalLayout title="Anti-Money Laundering & Know-Your-Customer Policy" effectiveDate="[INSERT EFFECTIVE DATE]">
+    <LegalLayout title="Anti-Money Laundering & Know-Your-Customer Policy">
       <p>
         BetBlits is committed to preventing the use of its platform for money laundering, terrorist financing,
         or other financial crime, and to verifying that players are of legal age and using their own legitimate
@@ -54,7 +56,7 @@ export default function AmlKycPolicyPage() {
       <h2>4. Reporting Obligations</h2>
       <p>
         Where required by law, we will report suspicious activity to the relevant Financial Intelligence Unit or
-        regulator (<strong>[INSERT RELEVANT FIU/REGULATOR ONCE LICENSED]</strong>) and may be legally prohibited
+        regulator and may be legally prohibited
         from disclosing that a report has been made (&quot;tipping off&quot;).
       </p>
 
@@ -82,7 +84,7 @@ export default function AmlKycPolicyPage() {
 
       <h2>8. Contact Us</h2>
       <p>
-        Questions about identity verification can be sent to <strong>[SUPPORT EMAIL]</strong>.
+        Questions about identity verification can be sent to {l.email ? <strong>{l.email}</strong> : l.contact}.
       </p>
     </LegalLayout>
   );

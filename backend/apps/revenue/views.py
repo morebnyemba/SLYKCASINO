@@ -20,6 +20,7 @@ def _forbidden(text='Only a superuser can do this.'):
 def _day(d: RevenueDay) -> dict:
     return {'day': d.day.isoformat(), 'ggr': str(d.ggr), 'bonus_conversions': str(d.bonus_conversions), 'carried_in': str(d.carried_in), 'base': str(d.base),
             'carry_out': str(d.carry_out), 'share_percent': str(d.share_percent), 'share_each': str(d.share_each),
+            'shared': str(d.shared),
             'pool': str(d.pool), 'affiliate_costs': str(d.affiliate_costs)}
 
 
@@ -50,8 +51,9 @@ class OverviewView(APIView):
             'founder_set': cfg.founder_id is not None,
             'superusers': [{'id': u.id, 'username': u.get_username()} for u in staff if u.is_superuser],
             'settings': {'share_percent': str(cfg.share_percent), 'started_on': cfg.started_on.isoformat() if cfg.started_on else None,
-                         'locked_start': RevenueDay.objects.exists()},
-            'wallets': [services.wallet_summary(w, entries=5) for w in ShareWallet.ensure()],
+                         'locked_start': RevenueDay.objects.exists(),
+                         'partner_pool_percent': str(cfg.partner_pool_percent)},
+            'wallets': [services.wallet_summary(w, entries=5) for w in ShareWallet.all_wallets()],
             'pool': services.pool_summary(),
             'today': services.today_so_far(),
             'days': [_day(d) for d in RevenueDay.objects.all()[:90]],
@@ -327,3 +329,149 @@ class SettingsChangeView(APIView):
         except changes.ChangeError as exc:
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(changes.change_row(c, user=request.user))
+
+
+# -- shares ---------------------------------------------------------------------------
+
+def _shares_payload(user) -> dict:
+    from . import shares
+    from .models import ShareBuyer, ShareChange, ShareRelease, ShareSale
+    cfg = RevenueSettings.load()
+    superuser = user.is_superuser
+    own = ShareWallet.objects.filter(holder=user).first()
+    sales = ShareSale.objects.select_related('buyer', 'wallet')
+    changes = ShareChange.objects.select_related('wallet', 'holder', 'new_holder')
+    if not superuser:
+        sales = sales.filter(buyer=user)
+        changes = changes.filter(holder=user)
+    staff = get_user_model().objects.filter(is_staff=True, is_active=True).order_by('username')
+    return {
+        'can_admin': superuser,
+        'is_buyer': shares.is_buyer(user),
+        'own_slot': own.slot if own else None,
+        'settings': {'partner_pool_percent': str(cfg.partner_pool_percent), 'price_months': cfg.price_months,
+                     'signer_min_percent': str(cfg.signer_min_percent), 'seller_percent': str(cfg.seller_percent)},
+        'agreement': shares.agreement.payload(),
+        'released_percent': str(shares.released_percent()),
+        'releases': [shares.release_row(r) for r in ShareRelease.objects.select_related('wallet', 'holder')
+                     .filter(remaining__gt=0) if superuser or r.holder_id == user.pk],
+        'held_percent': str(shares.held_percent()),
+        'unsold_percent': str(shares.unsold_percent()),
+        'price': shares.price_per_percent(),
+        'wallets': [{'slot': w.slot, 'label': w.label or f'Partner {w.slot}', 'holder': w.holder.get_username() if w.holder else None,
+                     'holder_id': w.holder_id, 'percent': str(w.percent)}
+                    for w in ShareWallet.all_wallets() if superuser or w.percent > 0],
+        'sales': [shares.sale_row(s) for s in sales[:50]],
+        'changes': [shares.change_row(c) for c in changes[:50]],
+        'pending_for_me': [shares.change_row(c) for c in ShareChange.objects.select_related('wallet', 'holder', 'new_holder')
+                           .filter(holder=user, status=ShareChange.Status.PENDING)],
+        'buyers': ([{'user_id': b.user_id, 'username': b.user.get_username(), 'approved_by': b.approved_by}
+                    for b in ShareBuyer.objects.select_related('user')] if superuser else []),
+        'staff': [{'id': u.id, 'username': u.get_username()} for u in staff] if superuser else [],
+    }
+
+
+def _can_see_shares(user) -> bool:
+    from . import shares
+    return user.is_superuser or ShareWallet.objects.filter(holder=user).exists() or shares.is_buyer(user)
+
+
+def _run(fn):
+    from .services import RevenueError
+    try:
+        fn()
+    except RevenueError as exc:
+        return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+    return None
+
+
+class SharesView(APIView):
+    """GET — shares: who holds what, unsold %, today's price, sales and changes.
+    Superusers see everything; holders and approved buyers see their own."""
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        if not _can_see_shares(request.user):
+            return _forbidden('Shares are visible to superusers, shareholders and approved buyers.')
+        return Response(_shares_payload(request.user))
+
+
+class ShareQuoteView(APIView):
+    """GET ?percent= — the formula price for that share today."""
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        from . import shares
+        if not _can_see_shares(request.user):
+            return _forbidden('Shares are visible to superusers, shareholders and approved buyers.')
+        out = {}
+        err = _run(lambda: out.update(shares.quote(request.query_params.get('percent', '1'))))
+        return err or Response(out)
+
+
+class ShareActionView(APIView):
+    """POST /shares/<action>/ — set, transfer, buy, sale (record), settings,
+    buyer-add, buyer-remove. Rules live in revenue.shares."""
+    permission_classes = [IsAdminUser]
+
+    def post(self, request, action: str):
+        from . import shares
+        d, u = request.data, request.user
+        actions = {
+            'set': lambda: shares.set_share(slot=int(d.get('slot') or 0), percent=d.get('percent'), by_user=u,
+                                            reason=d.get('reason', ''), for_sale=d.get('for_sale', True) not in (False, 'false', 0, '0'),
+                                            request=request),
+            'reclaim': lambda: shares.reclaim_release(int(d.get('release_id') or 0), by_user=u, request=request),
+            'transfer': lambda: shares.transfer_wallet(slot=int(d.get('slot') or 0), new_holder_id=d.get('new_holder_id'),
+                                                       by_user=u, reason=d.get('reason', ''), request=request),
+            'buy': lambda: shares.request_purchase(by_user=u, percent=d.get('percent'),
+                                                  accepted_agreement=d.get('accepted_agreement', False), request=request),
+            'sale': lambda: shares.record_sale(buyer_id=d.get('buyer_id'), percent=d.get('percent'), price=d.get('price'),
+                                               payment_method=d.get('payment_method', ''),
+                                               payment_reference=d.get('payment_reference', ''), note=d.get('note', ''),
+                                               accepted_agreement=d.get('accepted_agreement', False),
+                                               by_user=u, request=request),
+            'settings': lambda: shares.update_share_settings(partner_pool_percent=d.get('partner_pool_percent'),
+                                                             price_months=d.get('price_months'),
+                                                             signer_min_percent=d.get('signer_min_percent'),
+                                                             seller_percent=d.get('seller_percent'), by_user=u, request=request),
+            'buyer-add': lambda: shares.approve_buyer(user_id=d.get('user_id'), by_user=u, request=request),
+            'buyer-remove': lambda: shares.remove_buyer(user_id=d.get('user_id'), by_user=u, request=request),
+        }
+        if action not in actions:
+            return Response({'detail': 'Unknown action.'}, status=status.HTTP_404_NOT_FOUND)
+        result = {}
+        err = _run(lambda: result.update(r=actions[action]()))
+        if err:
+            return err
+        r = result.get('r')
+        body = _shares_payload(u)
+        if isinstance(r, dict) and 'applied' in r:
+            body['result'] = r
+        return Response(body)
+
+
+class ShareSaleDecideView(APIView):
+    """POST {action: confirm|reject, payment_method?, payment_reference?, note?}."""
+    permission_classes = [IsAdminUser]
+
+    def post(self, request, pk: int):
+        from . import shares
+        d, u = request.data, request.user
+        if d.get('action') == 'confirm':
+            err = _run(lambda: shares.confirm_sale(pk, by_user=u, payment_method=d.get('payment_method', ''),
+                                                   payment_reference=d.get('payment_reference', ''), request=request))
+        else:
+            err = _run(lambda: shares.reject_sale(pk, by_user=u, note=d.get('note', ''), request=request))
+        return err or Response(_shares_payload(u))
+
+
+class ShareChangeDecideView(APIView):
+    """POST {approve: bool, note?} — the holder answers a cut/transfer of their wallet."""
+    permission_classes = [IsAdminUser]
+
+    def post(self, request, pk: int):
+        from . import shares
+        err = _run(lambda: shares.decide_change(pk, by_user=request.user, approve=bool(request.data.get('approve')),
+                                                note=request.data.get('note', ''), request=request))
+        return err or Response(_shares_payload(request.user))

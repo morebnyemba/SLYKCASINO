@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { LegalLayout } from '@/components/legal-layout';
+import { fetchLegalDetails } from '@/lib/legal';
 
 export const metadata: Metadata = {
   title: 'Privacy Policy',
@@ -7,11 +8,12 @@ export const metadata: Metadata = {
   description: 'How BetBlits collects, uses, and protects your personal data.',
 };
 
-export default function PrivacyPolicyPage() {
+export default async function PrivacyPolicyPage() {
+  const l = await fetchLegalDetails();
   return (
-    <LegalLayout title="Privacy Policy" effectiveDate="[INSERT EFFECTIVE DATE]">
+    <LegalLayout title="Privacy Policy">
       <p>
-        <strong>[COMPANY LEGAL NAME]</strong> (&quot;BetBlits&quot;, &quot;we&quot;, &quot;us&quot;) respects your
+        <strong>{l.operator}</strong> (&quot;BetBlits&quot;, &quot;we&quot;, &quot;us&quot;) respects your
         privacy. This Privacy Policy explains what personal data we collect, why we collect it, how it is used,
         and the rights available to you, in line with the EU/UK General Data Protection Regulation (GDPR), the
         California Consumer Privacy Act (CCPA/CPRA), and other applicable data protection laws.
@@ -19,9 +21,9 @@ export default function PrivacyPolicyPage() {
 
       <h2>1. Who We Are</h2>
       <p>
-        BetBlits is operated by <strong>[COMPANY LEGAL NAME]</strong>, registered at{' '}
-        <strong>[REGISTERED ADDRESS]</strong>. For data protection queries, contact our Data Protection Officer /
-        privacy team at <strong>[PRIVACY EMAIL]</strong>.
+        BetBlits is operated by <strong>{l.operator}</strong>, registered at{' '}
+        <strong>{l.address || 'the address available from our support team'}</strong>. For data protection queries, contact our Data Protection Officer /
+        privacy team at {l.email ? <strong>{l.email}</strong> : l.contact}.
       </p>
 
       <h2>2. Data We Collect</h2>
@@ -69,7 +71,7 @@ export default function PrivacyPolicyPage() {
 
       <h2>6. International Data Transfers</h2>
       <p>
-        Where personal data is transferred outside your country of residence (including to <strong>[LIST PROCESSING COUNTRIES]</strong>), we rely on
+        Where personal data is transferred outside your country of residence, we rely on
         appropriate safeguards such as Standard Contractual Clauses or equivalent mechanisms recognized under
         applicable data protection law.
       </p>
@@ -91,9 +93,9 @@ export default function PrivacyPolicyPage() {
         <li><strong>Restriction & objection</strong> — object to or request restriction of certain processing, including direct marketing.</li>
         <li><strong>Portability</strong> — receive your data in a structured, machine-readable format (available via the data export feature above).</li>
         <li><strong>Withdraw consent</strong> — for marketing or non-essential cookies, at any time.</li>
-        <li><strong>Lodge a complaint</strong> — with your local data protection authority, or with <strong>[SUPERVISORY AUTHORITY — INSERT ONCE LICENSED]</strong>.</li>
+        <li><strong>Lodge a complaint</strong> — with your local data protection authority.</li>
       </ul>
-      <p>To exercise these rights, use the tools in Account Settings or contact <strong>[PRIVACY EMAIL]</strong>. We will respond within the timeframe required by applicable law (e.g., 30 days under GDPR).</p>
+      <p>To exercise these rights, use the tools in Account Settings or contact {l.email ? <strong>{l.email}</strong> : l.contact}. We will respond within the timeframe required by applicable law (e.g., 30 days under GDPR).</p>
 
       <h2>9. Data Security</h2>
       <p>
@@ -122,8 +124,8 @@ export default function PrivacyPolicyPage() {
 
       <h2>13. Contact Us</h2>
       <p>
-        For privacy questions or to exercise your rights, contact <strong>[PRIVACY EMAIL]</strong> or write to{' '}
-        <strong>[REGISTERED ADDRESS]</strong>.
+        For privacy questions or to exercise your rights, contact {l.email ? <strong>{l.email}</strong> : l.contact} or write to{' '}
+        <strong>{l.address || 'the address available from our support team'}</strong>.
       </p>
     </LegalLayout>
   );

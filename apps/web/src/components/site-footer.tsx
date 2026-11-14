@@ -107,10 +107,14 @@ export function SiteFooter() {
             <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 border-secondary text-[10px] font-bold text-secondary">
               18+
             </span>
-            <p>© {new Date().getFullYear()} {identity.site_name}. Bet with your head, not over it.</p>
+            <p>
+              © {new Date().getFullYear()} {identity.site_name}. Bet with your head, not over it. Gambling involves
+              risk: only bet what you can afford to lose. You play at your own risk.
+            </p>
           </div>
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
             <Link href="/legal/terms" className="hover:text-foreground">Terms</Link>
+            <Link href="/legal/disclaimer" className="hover:text-foreground">Disclaimer</Link>
             <Link href="/legal/privacy" className="hover:text-foreground">Privacy</Link>
             <Link href="/legal/cookies" className="hover:text-foreground">Cookies</Link>
             <Link href="/legal/responsible-gambling" className="hover:text-foreground">Responsible gambling</Link>

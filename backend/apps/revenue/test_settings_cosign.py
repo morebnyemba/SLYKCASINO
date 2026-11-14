@@ -1,6 +1,9 @@
-"""Revenue-share settings change only when every partner co-signs."""
+"""Revenue-share settings save directly now (shares are edited per wallet, and a
+cut needs the holder's consent — see test_shares). The co-signing machinery is
+kept for any setting that should need every partner; it's tested here on a
+temporarily governed path."""
+import re
 from datetime import timedelta
-from decimal import Decimal as D
 
 from django.contrib.auth.models import User
 from django.test import Client, TestCase
@@ -32,92 +35,77 @@ class Base(TestCase):
             ShareWallet.objects.filter(slot=slot).update(holder=user)
         RevenueSettings.load()
 
-    def share(self):
-        return RevenueSettings.load().share_percent
+    def label(self, slot=1):
+        return ShareWallet.objects.get(slot=slot).label
 
 
-class CosignTests(Base):
-    def test_a_save_waits_until_every_partner_approves(self):
-        before = self.share()
-        res = jwt(self.boss).put(RULES, {'share_percent': '20.00'}, format='json')
-        self.assertEqual(res.status_code, 202, res.content)
-        self.assertEqual(res.json()['waiting_for'], ['partner2', 'partner3'])
-        self.assertEqual(self.share(), before)                     # not applied
-        cid = res.json()['change_id']
-        row = jwt(self.p2).get('/api/admin/settings-changes/').json()
-        self.assertEqual(row['pending_for_me'], 1)
-        self.assertEqual(row['changes'][0]['diff'], [{'field': 'share_percent', 'before': f'{before:.2f}', 'after': '20.00'}])
-        jwt(self.p2).post(f'/api/admin/settings-changes/{cid}/', {'decision': 'approve'}, format='json')
-        self.assertEqual(self.share(), before)
-        res = jwt(self.p3).post(f'/api/admin/settings-changes/{cid}/', {'decision': 'approve'}, format='json')
-        self.assertEqual(res.json()['status'], 'applied', res.content)
-        self.assertEqual(self.share(), D('20.00'))
-
-    def test_one_rejection_drops_it(self):
-        cid = jwt(self.boss).put(RULES, {'share_percent': '30.00'}, format='json').json()['change_id']
-        res = jwt(self.p3).post(f'/api/admin/settings-changes/{cid}/', {'decision': 'reject', 'note': 'Too high'}, format='json')
-        self.assertEqual(res.json()['status'], 'rejected')
-        self.assertNotEqual(self.share(), D('30.00'))
-
-    def test_a_staff_login_that_isnt_a_partner_needs_all_three(self):
-        res = jwt(self.ops).put(RULES, {'share_percent': '15.00'}, format='json')
-        self.assertEqual(res.json()['waiting_for'], ['boss', 'partner2', 'partner3'])
-
-    def test_wallet_holders_cant_be_reassigned_alone(self):
-        res = jwt(self.boss).put(RULES, {'wallets': [{'slot': 2, 'holder_id': self.ops.id}]}, format='json')
-        self.assertEqual(res.status_code, 202)
-        self.assertEqual(ShareWallet.objects.get(slot=2).holder_id, self.p2.id)
-        diff = jwt(self.p2).get('/api/admin/settings-changes/').json()['changes'][0]['diff']
-        self.assertEqual(diff, [{'field': 'Wallet 2 holder', 'before': 'partner2', 'after': 'ops'}])
-
-    def test_other_settings_are_not_held(self):
-        from apps.wallet.models import WalletRules
-        res = jwt(self.boss).put('/api/admin/wallet-rules/', {'min_stake': '2.00'}, format='json')
+class DirectSaveTests(Base):
+    def test_revenue_settings_are_no_longer_held(self):
+        self.assertIsNone(changes.governed(RULES))
+        res = jwt(self.boss).put(RULES, {'wallets': [{'slot': 1, 'label': 'Founder'}]}, format='json')
         self.assertEqual(res.status_code, 200, res.content)
-        self.assertEqual(WalletRules.load().min_stake, D('2.00'))
+        self.assertEqual(self.label(), 'Founder')
 
-    def test_a_second_change_is_superseded_when_the_first_applies(self):
-        first = jwt(self.boss).put(RULES, {'share_percent': '20.00'}, format='json').json()['change_id']
-        second = jwt(self.p2).put(RULES, {'share_percent': '25.00'}, format='json').json()['change_id']
-        for u in (self.p2, self.p3):
-            jwt(u).post(f'/api/admin/settings-changes/{first}/', {'decision': 'approve'}, format='json')
-        self.assertEqual(SettingsChange.objects.get(pk=second).status, 'superseded')
-
-    def test_invalid_values_fail_on_apply_with_the_reason(self):
-        cid = jwt(self.boss).put(RULES, {'share_percent': '50'}, format='json').json()['change_id']    # over 33.33%
-        jwt(self.p2).post(f'/api/admin/settings-changes/{cid}/', {'decision': 'approve'}, format='json')
-        res = jwt(self.p3).post(f'/api/admin/settings-changes/{cid}/', {'decision': 'approve'}, format='json').json()
-        self.assertEqual(res['status'], 'failed')
-        self.assertTrue(res['result_detail'])
-
-    def test_open_changes_expire_after_a_week(self):
-        cid = jwt(self.boss).put(RULES, {'share_percent': '20.00'}, format='json').json()['change_id']
-        SettingsChange.objects.filter(pk=cid).update(created_at=timezone.now() - timedelta(days=8))
-        res = jwt(self.p2).post(f'/api/admin/settings-changes/{cid}/', {'decision': 'approve'}, format='json')
+    def test_a_held_wallet_cant_be_reassigned_through_settings(self):
+        res = jwt(self.boss).put(RULES, {'wallets': [{'slot': 2, 'holder_id': self.ops.id}]}, format='json')
         self.assertEqual(res.status_code, 400)
-        self.assertEqual(SettingsChange.objects.get(pk=cid).status, 'expired')
+        self.assertIn('consent', res.json()['detail'])
+        self.assertEqual(ShareWallet.objects.get(slot=2).holder_id, self.p2.id)
 
-    def test_requester_can_withdraw_and_others_cant_vote_for_them(self):
-        cid = jwt(self.boss).put(RULES, {'share_percent': '20.00'}, format='json').json()['change_id']
-        self.assertEqual(jwt(self.ops).post(f'/api/admin/settings-changes/{cid}/', {'decision': 'approve'},
-                                            format='json').status_code, 400)          # not a partner
-        res = jwt(self.boss).post(f'/api/admin/settings-changes/{cid}/', {'cancel': True}, format='json')
-        self.assertEqual(res.json()['status'], 'cancelled')
-
-    def test_django_admin_cant_edit_governed_records(self):
+    def test_django_admin_cant_edit_share_records(self):
         c = Client()
         c.force_login(self.boss)
         res = c.post(f'/django-admin/revenue/sharewallet/{ShareWallet.objects.get(slot=2).pk}/change/', {'holder': self.boss.id})
         self.assertEqual(res.status_code, 403)
         self.assertEqual(ShareWallet.objects.get(slot=2).holder_id, self.p2.id)
 
-    def test_with_no_other_partner_a_save_applies_at_once(self):
-        ShareWallet.objects.filter(slot__in=(2, 3)).update(holder=None)
-        res = jwt(self.boss).put(RULES, {'share_percent': '20.00'}, format='json')
-        self.assertEqual(res.status_code, 200, res.content)
-        self.assertEqual(self.share(), D('20.00'))
-
     def test_other_admin_actions_are_not_held(self):
         self.assertIsNone(changes.governed('/api/admin/withdrawals/5/mark-paid/'))
         self.assertIsNone(changes.governed('/api/admin/affiliate-programme/'))
-        self.assertIsNotNone(changes.governed('/api/admin/revenue-share/settings/'))
+
+
+class MachineryTests(Base):
+    """The co-signing flow itself, on a path governed just for these tests."""
+
+    def setUp(self):
+        super().setUp()
+        self._saved = changes._COMPILED
+        changes._COMPILED = [(re.compile(r'^/api/admin/revenue-share/settings/$'), 'Revenue share settings')]
+
+    def tearDown(self):
+        changes._COMPILED = self._saved
+        super().tearDown()
+
+    def rename(self, user, name):
+        return jwt(user).put(RULES, {'wallets': [{'slot': 1, 'label': name}]}, format='json')
+
+    def test_a_save_waits_until_every_partner_approves(self):
+        res = self.rename(self.boss, 'Founder')
+        self.assertEqual(res.status_code, 202, res.content)
+        self.assertEqual(res.json()['waiting_for'], ['partner2', 'partner3'])
+        cid = res.json()['change_id']
+        jwt(self.p2).post(f'/api/admin/settings-changes/{cid}/', {'decision': 'approve'}, format='json')
+        self.assertNotEqual(self.label(), 'Founder')
+        res = jwt(self.p3).post(f'/api/admin/settings-changes/{cid}/', {'decision': 'approve'}, format='json')
+        self.assertEqual(res.json()['status'], 'applied', res.content)
+        self.assertEqual(self.label(), 'Founder')
+
+    def test_one_rejection_drops_it(self):
+        cid = self.rename(self.boss, 'X').json()['change_id']
+        res = jwt(self.p3).post(f'/api/admin/settings-changes/{cid}/', {'decision': 'reject', 'note': 'No thanks'}, format='json')
+        self.assertEqual(res.json()['status'], 'rejected')
+        self.assertNotEqual(self.label(), 'X')
+
+    def test_open_changes_expire_after_a_week(self):
+        cid = self.rename(self.boss, 'Y').json()['change_id']
+        SettingsChange.objects.filter(pk=cid).update(created_at=timezone.now() - timedelta(days=8))
+        res = jwt(self.p2).post(f'/api/admin/settings-changes/{cid}/', {'decision': 'approve'}, format='json')
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(SettingsChange.objects.get(pk=cid).status, 'expired')
+
+    def test_requester_can_withdraw_and_others_cant_vote_for_them(self):
+        cid = self.rename(self.boss, 'Z').json()['change_id']
+        self.assertEqual(jwt(self.ops).post(f'/api/admin/settings-changes/{cid}/', {'decision': 'approve'},
+                                            format='json').status_code, 400)          # not a partner
+        res = jwt(self.boss).post(f'/api/admin/settings-changes/{cid}/', {'cancel': True}, format='json')
+        self.assertEqual(res.json()['status'], 'cancelled')

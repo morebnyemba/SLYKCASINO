@@ -38,3 +38,15 @@ class NewLogoPaletteMigrationTests(TestCase):
         theme.refresh_from_db()
         self.assertEqual(theme.light, DEFAULT_LIGHT)
         self.assertEqual(theme.dark, edited_dark)
+
+
+class LegalIdentityTests(TestCase):
+    def test_legal_details_are_editable_and_public(self):
+        api = APIClient()
+        api.force_authenticate(User.objects.create_user('ops', 'o@example.com', 'x', is_staff=True))
+        body = {'legal_name': 'BetBlits (Pvt) Ltd', 'registered_address': '1 Main St, Harare',
+                'support_email': 'support@example.com', 'governing_law': 'Zimbabwe', 'dispute_body': 'Lotteries and Gaming Board'}
+        self.assertEqual(api.patch('/api/branding/identity/', body, format='json').status_code, 200)
+        public = APIClient().get('/api/branding/identity/').json()
+        self.assertEqual({k: public[k] for k in body}, body)
+        self.assertEqual(api.patch('/api/branding/identity/', {'support_email': 'not-an-email'}, format='json').status_code, 400)

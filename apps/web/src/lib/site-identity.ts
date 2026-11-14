@@ -7,6 +7,12 @@ export interface SiteIdentity {
   license_text: string;
   /** Digits only, with country code; blank hides the WhatsApp support button. */
   whatsapp_number: string;
+  /** Operator details for the legal pages; blank → neutral wording. */
+  legal_name: string;
+  registered_address: string;
+  support_email: string;
+  governing_law: string;
+  dispute_body: string;
 }
 
 export const DEFAULT_IDENTITY: SiteIdentity = {
@@ -15,6 +21,11 @@ export const DEFAULT_IDENTITY: SiteIdentity = {
   logo_url: '',
   license_text: '',
   whatsapp_number: '',
+  legal_name: '',
+  registered_address: '',
+  support_email: '',
+  governing_law: '',
+  dispute_body: '',
 };
 
 /**
@@ -33,6 +44,11 @@ export async function fetchSiteIdentity(): Promise<SiteIdentity> {
       // Blank on purpose until the operator enters a licence they actually hold.
       license_text: data.license_text ?? '',
       whatsapp_number: data.whatsapp_number ?? '',
+      legal_name: data.legal_name ?? '',
+      registered_address: data.registered_address ?? '',
+      support_email: data.support_email ?? '',
+      governing_law: data.governing_law ?? '',
+      dispute_body: data.dispute_body ?? '',
     };
   } catch {
     return DEFAULT_IDENTITY;
