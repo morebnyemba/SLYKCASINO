@@ -11,8 +11,11 @@ import { formatOdds, useSettings } from '@/lib/settings-context';
  */
 export function OddsButton({
   eventId, eventName, selection = 'home', odds, label, move, size = 'md', disabled = false, className = '', outcome,
-  stackOnMobile = false, title,
+  stackOnMobile = false, title, quietLock = false,
 }: {
+  /** The whole market/match is closed and says so above: show the price greyed, no padlock per button
+   * (a locked match drew ~1,700 padlock icons — 700 KB of page). */
+  quietLock?: boolean;
   /** Full wording for a shortened label (tooltip / screen readers). */
   title?: string;
   eventId: string | number;
@@ -64,7 +67,7 @@ export function OddsButton({
         aria-label={label ? `${label}: price unavailable` : 'Price unavailable'}
       >
         {label && <span className="line-clamp-2 max-w-full break-words text-[11px] font-bold leading-tight">{label}</span>}
-        {Number.isFinite(price) ? <BsLockFill size={11} /> : '—'}
+        {!Number.isFinite(price) ? '—' : quietLock ? <span className="tabular-nums">{formatOdds(price, oddsFormat)}</span> : <BsLockFill size={11} />}
       </span>
     );
   }

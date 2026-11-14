@@ -39,43 +39,36 @@ export function SiteLoader({ caption }: { caption?: string }) {
   );
 }
 
-/** Route loading screen: the site loader centred in the content area. */
+/** In-page wait (account pages, game launch): a small spinner, not the branded splash. */
 export function PageLoader({ caption }: { caption?: string }) {
   return (
-    <div className="flex min-h-[60vh] items-center justify-center">
-      <SiteLoader caption={caption} />
+    <div role="status" aria-live="polite" className="flex min-h-[40vh] flex-col items-center justify-center gap-2.5">
+      <span className="h-7 w-7 animate-spin rounded-full border-[3px] border-muted border-t-secondary" aria-hidden />
+      <span className="text-xs font-medium text-muted-foreground">{caption ?? 'Loading…'}</span>
     </div>
   );
 }
 
 /**
- * First-load splash. Rendered on the server so it covers the page from the very
- * first paint, then fades out once the app is interactive. A CSS fallback
- * (.site-splash) also fades it after a few seconds if scripts never run.
+ * First-open splash: once per browser session, and brief. Rendered on the
+ * server so it covers the first paint, then faded out by CSS after ~0.6s —
+ * it never waits for the app's JavaScript (on a slow phone that took seconds
+ * while the page underneath was already there). The head script in the root
+ * layout marks repeat loads in the same session (`data-splash="off"`), which
+ * hides it from the start. Purely decorative: it never blocks taps.
  */
 export function SiteSplash() {
-  const [phase, setPhase] = useState<'shown' | 'leaving' | 'gone'>('shown');
-  useEffect(() => {
-    const leave = setTimeout(() => setPhase('leaving'), 150);
-    const gone = setTimeout(() => setPhase('gone'), 550);
-    return () => { clearTimeout(leave); clearTimeout(gone); };
-  }, []);
-  if (phase === 'gone') return null;
   return (
-    <div
-      aria-hidden={phase === 'leaving'}
-      className={`site-splash fixed inset-0 z-[200] flex items-center justify-center bg-background transition-opacity duration-400 ${
-        phase === 'leaving' ? 'pointer-events-none opacity-0' : 'opacity-100'
-      }`}
-    >
+    <div aria-hidden className="site-splash pointer-events-none fixed inset-0 z-[200] flex items-center justify-center bg-background">
       <SiteLoader />
     </div>
   );
 }
 
 /**
- * Page-change loader: covers the page from a link click until the new page is
- * on screen. Waits 150ms before showing so fast navigations don't flicker.
+ * Page-change feedback: a thin bar across the top from a link click until the
+ * new page is on screen. The current page stays visible and usable underneath.
+ * Waits 120ms before showing so instant navigations show nothing at all.
  */
 export function NavigationLoader() {
   const pathname = usePathname();
@@ -102,19 +95,19 @@ export function NavigationLoader() {
 
   useEffect(() => {
     if (!pending) { setVisible(false); return; }
-    const show = setTimeout(() => setVisible(true), 150);
-    // Never cover the page forever (e.g. a navigation the router cancelled).
+    const show = setTimeout(() => setVisible(true), 120);
+    // Never hang around (e.g. a navigation the router cancelled).
     const giveUp = setTimeout(() => setPending(false), 15000);
     return () => { clearTimeout(show); clearTimeout(giveUp); };
   }, [pending]);
 
-  // The URL changed: the new page (or its loading screen) is rendering.
+  // The URL changed: the new page (or its skeleton) is rendering.
   useEffect(() => { setPending(false); }, [pathname, search]);
 
   if (!visible) return null;
   return (
-    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-background/70 backdrop-blur-[3px]">
-      <SiteLoader />
+    <div role="progressbar" aria-label="Loading page" className="pointer-events-none fixed inset-x-0 top-0 z-[90] h-[3px] overflow-hidden">
+      <div className="nav-progress h-full bg-secondary shadow-[0_0_8px_var(--secondary)]" />
     </div>
   );
 }

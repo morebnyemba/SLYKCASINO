@@ -61,11 +61,18 @@ export type QuickCode = 'ou' | 'dc' | 'gg';
 /** What a match list shows in its price columns. */
 export type ListMarket = '1x2' | QuickCode;
 
+/** Compact list prices: outcomes in the chip's column order, null where an outcome is closed. */
 export interface QuickMarket {
   market_id: number;
-  name: string;
   line: string | null;
-  outcomes: { id: number; key: string; label: string; odds: string; is_open: boolean }[];
+  outcomes: ({ id: number; odds: string } | null)[];
+}
+
+/** Market name and outcome labels for a chip's pick (the API leaves them out to stay small). */
+export function quickWording(code: QuickCode, line: string | null): { market: string; labels: string[] } {
+  if (code === 'ou') return { market: `Total goals ${line ?? ''}`.trim(), labels: [`Over ${line ?? ''}`.trim(), `Under ${line ?? ''}`.trim()] };
+  if (code === 'dc') return { market: 'Double chance', labels: ['Home or draw', 'Home or away', 'Draw or away'] };
+  return { market: 'Both teams to score', labels: ['Yes', 'No'] };
 }
 
 /** The market chips above a match list and the column captions each one shows. */
@@ -257,6 +264,8 @@ export interface LeagueGroup {
   league: League | null;
   events: EventItem[];
   liveCount: number;
+  /** All the league's matches when `events` holds only the rows rendered so far. */
+  total?: number;
 }
 
 /**
@@ -265,6 +274,31 @@ export interface LeagueGroup {
  * have no league last. Within a league, live matches come first, then by
  * kick-off (sortEvents).
  */
+/** Only what match lists use, without empty values: every event is embedded in
+ * the sportsbook page for the browser, so each byte counts ~600 times. */
+const LIST_FIELDS = [
+  'id', 'name', 'sport', 'odds', 'odds_draw', 'odds_away', 'previous_odds', 'has_odds', 'featured', 'is_open',
+  'starts_at', 'status', 'elapsed', 'score_home', 'score_away', 'markets_count', 'in_play', 'bettable', 'main_open',
+  'live_closed', 'quick_markets',
+] as const;
+
+export function slimEvent(ev: EventItem): EventItem {
+  const out: Record<string, unknown> = {};
+  for (const k of LIST_FIELDS) {
+    const v = (ev as unknown as Record<string, unknown>)[k];
+    if (v !== null && v !== undefined && v !== '') out[k] = v;   // booleans and 0 are kept: false means something
+  }
+  const team = (t?: Team | null) => (t ? { id: t.id, name: t.name, ...(t.logo_url ? { logo_url: t.logo_url } : {}) } : undefined);
+  if (ev.home_team) out.home_team = team(ev.home_team);
+  if (ev.away_team) out.away_team = team(ev.away_team);
+  if (ev.league) {
+    const { id, name, country, logo_url, flag_url, sort_order } = ev.league;
+    out.league = Object.fromEntries(Object.entries({ id, name, country, logo_url, flag_url, sort_order })
+      .filter(([, v]) => v !== null && v !== undefined && v !== ''));
+  }
+  return out as unknown as EventItem;
+}
+
 export function groupByLeague(events: EventItem[]): LeagueGroup[] {
   const groups = new Map<string, LeagueGroup>();
   for (const ev of events) {

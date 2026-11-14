@@ -1,5 +1,5 @@
-import { PageLoader } from '@/components/site-loader';
+import { MatchSkeleton } from '@/components/skeletons';
 
 export default function MatchLoading() {
-  return <PageLoader caption="Loading markets…" />;
+  return <MatchSkeleton />;
 }

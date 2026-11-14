@@ -19,7 +19,7 @@ from . import cashout as cashout_services
 from . import services
 from .dtos import AccumulatorRequestDTO, BetRequestDTO
 from .models import Bet, BetLeg, BetSlip, Event, Market
-from .serializers import QUICK_KINDS, BetSerializer, BetSlipSerializer, EventDetailSerializer, EventSerializer
+from .serializers import BetSerializer, BetSlipSerializer, EventDetailSerializer, EventSerializer, quick_markets_for
 
 logger = logging.getLogger(__name__)
 
@@ -54,16 +54,16 @@ class EventViewSet(viewsets.ModelViewSet):
             qs = qs.prefetch_related(Prefetch(
                 'markets', queryset=Market.objects.prefetch_related('outcomes'),
             ))
-        elif self.action == 'list':
-            # Just the markets the list's chips can show (O/U, DC, GG/NG), in two queries.
-            qs = qs.prefetch_related(Prefetch(
-                'markets', to_attr='quick_list',
-                queryset=Market.objects.filter(
-                    is_open=True, settled=False, period=Market.Period.FULL_TIME, metric=Market.Metric.GOALS,
-                    kind__in=QUICK_KINDS,
-                ).prefetch_related('outcomes'),
-            ))
         return qs
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(queryset)
+        rows = page if page is not None else list(queryset)
+        # The market chips' prices (O/U, DC, GG/NG) for just this page, in two flat queries.
+        context = {**self.get_serializer_context(), 'quick_markets': quick_markets_for(e.pk for e in rows)}
+        data = self.get_serializer_class()(rows, many=True, context=context).data
+        return self.get_paginated_response(data) if page is not None else Response(data)
 
     def get_serializer_class(self):
         return EventDetailSerializer if self.action == 'retrieve' else EventSerializer

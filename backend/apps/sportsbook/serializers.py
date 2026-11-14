@@ -47,26 +47,53 @@ QUICK_MARKETS = {
 QUICK_KINDS = [kind for kind, _ in QUICK_MARKETS.values()]
 
 
-def quick_markets(markets) -> dict:
-    """The list prices for one match: full-time goals O/U (the line nearest 2.5),
-    double chance and both teams to score, each only when every column is priced."""
-    out = {}
-    for code, (kind, keys) in QUICK_MARKETS.items():
-        candidates = [m for m in markets if m.kind == kind]
-        if kind == 'over_under':
-            candidates = sorted((m for m in candidates if m.line is not None),
-                                key=lambda m: (abs(m.line - Decimal('2.5')), m.line))
-        for m in candidates:
-            by_key = {o.key: o for o in m.outcomes.all()}
-            if all(k in by_key for k in keys):
-                out[code] = {
-                    'market_id': m.id, 'name': m.name,
-                    'line': format(m.line.normalize(), 'f') if m.line is not None else None,
-                    'outcomes': [{'id': by_key[k].id, 'key': k, 'label': by_key[k].label, 'odds': str(by_key[k].odds),
-                                  'is_open': by_key[k].is_open} for k in keys],
-                }
-                break
-    return out
+def quick_markets_for(event_ids) -> dict[int, dict]:
+    """The list prices for many matches at once: full-time goals O/U (the line
+    nearest 2.5), double chance and both teams to score, each only when every
+    column is priced. Two flat queries of plain values — the ORM prefetch this
+    replaced built ~27,000 model objects for a 500-match page.
+
+    Compact, as it's embedded once per match in the sportsbook page:
+    {code: {"market_id", "line", "outcomes": [{"id", "odds"} | None, ...]}}, outcomes
+    in the column order of QUICK_MARKETS (None = that outcome is closed). Labels
+    and names are derived by the client from the code and line."""
+    from .models import Market, MarketOutcome
+    ids = list(event_ids)
+    if not ids:
+        return {}
+    markets = list(Market.objects.filter(
+        event_id__in=ids, is_open=True, settled=False, period=Market.Period.FULL_TIME,
+        metric=Market.Metric.GOALS, kind__in=QUICK_KINDS,
+    ).values('id', 'event_id', 'kind', 'line'))
+    outcomes: dict[int, dict[str, tuple]] = {}
+    for o in MarketOutcome.objects.filter(market_id__in=[m['id'] for m in markets]).values(
+            'id', 'market_id', 'key', 'odds', 'is_open'):
+        outcomes.setdefault(o['market_id'], {})[o['key']] = (o['id'], o['odds'], o['is_open'])
+    by_event: dict[int, list] = {}
+    for m in markets:
+        by_event.setdefault(m['event_id'], []).append(m)
+    result: dict[int, dict] = {}
+    for event_id, ms in by_event.items():
+        out = {}
+        for code, (kind, keys) in QUICK_MARKETS.items():
+            candidates = [m for m in ms if m['kind'] == kind]
+            if kind == 'over_under':
+                candidates = sorted((m for m in candidates if m['line'] is not None),
+                                    key=lambda m: (abs(m['line'] - Decimal('2.5')), m['line']))
+            else:
+                candidates.sort(key=lambda m: m['id'])
+            for m in candidates:
+                by_key = outcomes.get(m['id'], {})
+                if all(k in by_key for k in keys):
+                    out[code] = {
+                        'market_id': m['id'],
+                        'line': format(m['line'].normalize(), 'f') if m['line'] is not None else None,
+                        'outcomes': [{'id': by_key[k][0], 'odds': str(by_key[k][1])} if by_key[k][2] else None
+                                     for k in keys],
+                    }
+                    break
+        result[event_id] = out
+    return result
 
 
 class EventSerializer(serializers.ModelSerializer):
@@ -85,8 +112,8 @@ class EventSerializer(serializers.ModelSerializer):
     quick_markets = serializers.SerializerMethodField()
 
     def get_quick_markets(self, obj):
-        markets = getattr(obj, 'quick_list', None)
-        return None if markets is None else quick_markets(markets)
+        quick = self.context.get('quick_markets')
+        return None if quick is None else quick.get(obj.pk, {})
 
     def _state(self, obj):
         from .services import trading_state

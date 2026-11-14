@@ -8,7 +8,7 @@ import { useLiveEvent } from '@/lib/live-board';
 import { SPORT_CATEGORIES } from '@/components/sports-sidebar';
 import {
   dayLabel, hasScore, homeMove, isBettable, isLive, isMainOpen, isPriced, kickoffTime, listMarketCols, marketShape, matchClock,
-  teamNames, withTeamNames, type EventItem, type ListMarket, type Team,
+  quickWording, teamNames, withTeamNames, type EventItem, type ListMarket, type Team,
 } from '@/lib/sports';
 
 export function sportMeta(id?: string): { label: string; icon?: IconType } {
@@ -99,19 +99,20 @@ function QuickOdds({ ev, market }: { ev: EventItem; market: Exclude<ListMarket, 
   const q = ev.quick_markets?.[market];
   const locked = isLive(ev) || !isBettable(ev);
   const { home, away } = teamNames(ev);
+  const wording = q ? quickWording(market, q.line) : null;
   return (
     <div className={oddsCols(cols.length)}>
       {cols.map((caption, i) => {
         const o = q?.outcomes[i];
-        if (!q || !o) {
+        if (!q || !o || !wording) {
           return <span key={caption} className="flex h-11 items-center justify-center rounded-lg bg-odds/50 text-muted-foreground/60">—</span>;
         }
         // The line is in the column caption when it's the usual 2.5; any other line is shown on the button.
-        const label = market === 'ou' && q.line && q.line !== '2.5' ? `${o.key === 'over' ? 'O' : 'U'} ${q.line}` : undefined;
+        const label = market === 'ou' && q.line && q.line !== '2.5' ? `${i === 0 ? 'O' : 'U'} ${q.line}` : undefined;
         return (
           <OddsButton
-            key={o.id} eventId={ev.id} eventName={ev.name} odds={o.odds} label={label} disabled={locked || !o.is_open}
-            outcome={{ id: o.id, marketId: q.market_id, marketName: q.name, label: withTeamNames(o.label, home, away) }}
+            key={o.id} eventId={ev.id} eventName={ev.name} odds={o.odds} label={label} disabled={locked}
+            outcome={{ id: o.id, marketId: q.market_id, marketName: wording.market, label: withTeamNames(wording.labels[i], home, away) }}
           />
         );
       })}

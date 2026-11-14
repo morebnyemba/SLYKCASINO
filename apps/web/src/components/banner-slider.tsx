@@ -46,6 +46,25 @@ function isExternal(href: string): boolean {
   return /^https?:\/\//i.test(href);
 }
 
+/** Which slides have their content mounted: the one on screen and the next one
+ * (so it's ready when it slides in). The rest load only as they come round —
+ * stacked slides sit in the viewport, so `loading="lazy"` alone fetched them all. */
+export function useMountedSlides(index: number, count: number) {
+  const [mounted, setMounted] = useState<Set<number>>(() => new Set([0]));
+  useEffect(() => {
+    if (count === 0) return;
+    // The next slide is fetched once the first one has had its turn to load.
+    const t = setTimeout(() => setMounted((prev) => {
+      const next = (index + 1) % count;
+      if (prev.has(index) && prev.has(next)) return prev;
+      return new Set([...prev, index, next]);
+    }), index === 0 ? 2500 : 0);
+    setMounted((prev) => (prev.has(index) ? prev : new Set([...prev, index])));
+    return () => clearTimeout(t);
+  }, [index, count]);
+  return mounted;
+}
+
 /** Swipe left/right on a touch screen to change slide. Ignores mostly-vertical drags so the page still scrolls. */
 export function useSwipe(onPrev: () => void, onNext: () => void, onHold?: (holding: boolean) => void) {
   const start = useRef<{ x: number; y: number } | null>(null);
@@ -210,6 +229,7 @@ export function BannerSlider({ banners: initial, placement = 'home_hero' }: { ba
   }, [count, holding, reduced]);
 
   const swipe = useSwipe(() => go(index - 1), () => go(index + 1), setHolding);
+  const mountedSlides = useMountedSlides(index, count);
 
   if (count === 0) return null;
 
@@ -221,7 +241,9 @@ export function BannerSlider({ banners: initial, placement = 'home_hero' }: { ba
           className={`absolute inset-0 overflow-hidden rounded-[inherit] transition-opacity duration-700 ${i === index ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
           aria-hidden={i === index ? undefined : true}
         >
-          <PromoSlide b={b} priority={i === 0} active={i === index} secondary={{ href: '/sportsbook?tab=live', label: 'Live betting' }} />
+          {mountedSlides.has(i) && (
+            <PromoSlide b={b} priority={i === 0} active={i === index} secondary={{ href: '/sportsbook?tab=live', label: 'Live betting' }} />
+          )}
         </div>
       ))}
 
@@ -255,6 +277,16 @@ function imageSrc(url: string) {
   return url.startsWith('/api/') ? `${config.apiUrl.replace(/\/api\/?$/, '')}${url}` : url;
 }
 
+/** Our uploaded banners come in smaller WebP widths (`?w=`), so a phone downloads
+ * ~100 KB instead of the 1–2 MB original. Other URLs are used as they are. */
+function imageSrcSet(url: string): string | undefined {
+  if (!url.startsWith('/api/promotions/banner-images/')) return undefined;
+  const base = imageSrc(url);
+  return [480, 828, 1200, 1920].map((w) => `${base}?w=${w} ${w}w`).join(', ');
+}
+// Phones: the strip is the full width; tablets and up: the content column (~1100px).
+const BANNER_SIZES = '(max-width: 639px) 100vw, 1100px';
+
 const FOCUS: Record<NonNullable<Banner['focus']>, string> = { left: '15% 50%', center: '50% 50%', right: '85% 50%' };
 
 const CTA = 'inline-flex min-h-8 items-center rounded-lg bg-win px-3 py-1.5 text-[11px] font-extrabold uppercase tracking-wide text-win-foreground shadow-lg transition-transform hover:scale-105 active:scale-95 sm:min-h-10 sm:px-5 sm:py-2 sm:text-sm';
@@ -283,10 +315,12 @@ export function PromoSlide({ b, secondary, priority = false, active = true }: {
     <>
       {b.image_url ? (
         <picture>
-          {b.mobile_image_url && <source media="(max-width: 639px)" srcSet={imageSrc(b.mobile_image_url)} />}
+          {b.mobile_image_url && (
+            <source media="(max-width: 639px)" srcSet={imageSrcSet(b.mobile_image_url) ?? imageSrc(b.mobile_image_url)} sizes="100vw" />
+          )}
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src={imageSrc(b.image_url)} alt={overlay ? '' : b.title}
+            src={imageSrc(b.image_url)} srcSet={imageSrcSet(b.image_url)} sizes={BANNER_SIZES} alt={overlay ? '' : b.title}
             loading={priority ? 'eager' : 'lazy'} decoding="async" {...(priority ? { fetchPriority: 'high' as const } : {})}
             key={active ? 'on' : 'off'}
             className={`h-full w-full rounded-[inherit] object-cover ${active && b.motion === 'zoom' ? 'banner-zoom' : ''}`} style={{ objectPosition: position }}
@@ -308,7 +342,8 @@ export function PromoSlide({ b, secondary, priority = false, active = true }: {
       )}
 
       {b.video_url && active && videoAllowed && (
-        <BannerVideo src={imageSrc(b.video_url)} poster={b.image_url ? imageSrc(b.image_url) : undefined} position={position} />
+        <BannerVideo src={imageSrc(b.video_url)} position={position}
+          poster={b.image_url ? (imageSrcSet(b.image_url) ? `${imageSrc(b.image_url)}?w=1200` : imageSrc(b.image_url)) : undefined} />
       )}
       {b.motion === 'shine' && <div aria-hidden className="banner-shine pointer-events-none absolute inset-0" />}
 

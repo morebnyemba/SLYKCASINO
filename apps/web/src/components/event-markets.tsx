@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { Fragment, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { BsChevronLeft, BsChevronDown, BsCheckCircleFill, BsLockFill, BsSearch, BsXCircleFill } from 'react-icons/bs';
 import { OddsButton } from '@/components/odds-button';
 import { LiveBadge, TeamBadge, sportMeta } from '@/components/event-row';
@@ -48,6 +48,8 @@ function fmtLine(line: string | null | undefined, signed: boolean) {
   const text = String(n);
   return signed && n > 0 ? `+${text}` : text;
 }
+
+const MARKET_BATCH = 15;
 
 function Collapsible({ title, badge, children, defaultOpen = true, forceOpen = false }: {
   title: string; badge?: React.ReactNode; children: React.ReactNode; defaultOpen?: boolean;
@@ -193,7 +195,23 @@ export function EventMarkets({ ev }: { ev: EventItem }) {
   const resultMatches = searching && tokens.every((t) => normalize(
     `main match result 1x2 winner win full time ft ${resultOutcomes.map((o) => o.label).join(' ')}`,
   ).includes(t));
-  const visible = filtered ?? (tab === 'all' ? blocks : blocks.filter((b) => b.group === tab));
+  const allVisible = filtered ?? (tab === 'all' ? blocks : blocks.filter((b) => b.group === tab));
+  // Big matches carry 150+ markets: the first MARKET_BATCH render, more as the player scrolls
+  // (search results always show in full).
+  const [blockLimit, setBlockLimit] = useState(MARKET_BATCH);
+  useEffect(() => { setBlockLimit(MARKET_BATCH); }, [tab]);
+  const visible = searching ? allVisible : allVisible.slice(0, blockLimit);
+  const moreBlocks = !searching && allVisible.length > blockLimit;
+  const moreRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const el = moreRef.current;
+    if (!el || !moreBlocks) return;
+    const io = new IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting)) setBlockLimit((n) => n + MARKET_BATCH);
+    }, { rootMargin: '900px 0px' });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [moreBlocks, blockLimit]);
   const showResult = searching ? resultMatches : tab === 'all' || tab === 'main';
   const resultCount = visible.length + (showResult ? 1 : 0);
 
@@ -202,6 +220,7 @@ export function EventMarkets({ ev }: { ev: EventItem }) {
     eventName: ev.name,
     odds: o.odds,
     disabled: closed || !m.is_open || !o.is_open,
+    quietLock: closed || !m.is_open,
     move: o.previous_odds != null && Number(o.previous_odds) !== Number(o.odds)
       ? (Number(o.odds) > Number(o.previous_odds) ? 'up' as const : 'down' as const)
       : undefined,
@@ -467,6 +486,16 @@ export function EventMarkets({ ev }: { ev: EventItem }) {
           </Collapsible>
         )}
         {visible.map((b) => (b.type === 'single' ? renderSingle(b.market) : renderLines(b)))}
+        {moreBlocks && (
+          <div ref={moreRef} className="flex justify-center">
+            <button
+              onClick={() => setBlockLimit((n) => n + MARKET_BATCH)}
+              className="rounded-xl border border-border bg-card px-4 py-2.5 text-[13px] font-bold text-muted-foreground hover:text-foreground"
+            >
+              Show more markets ({allVisible.length - blockLimit} more)
+            </button>
+          </div>
+        )}
         {searching && resultCount === 0 && (
           <div className="rounded-2xl border border-dashed border-border px-4 py-8 text-center">
             <p className="mb-1 text-sm font-bold">No betting options match “{query.trim()}”</p>

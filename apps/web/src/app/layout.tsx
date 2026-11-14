@@ -64,6 +64,11 @@ export const viewport: Viewport = {
 const THEME_INIT_SCRIPT = `
 (function () {
   document.documentElement.dataset.theme = 'light';
+  // The splash is for the first open of a session only.
+  try {
+    if (window.sessionStorage.getItem('slyk:splash')) document.documentElement.dataset.splash = 'off';
+    else window.sessionStorage.setItem('slyk:splash', '1');
+  } catch (e) {}
   try {
     var raw = window.localStorage.getItem('slyk:settings');
     var s = raw ? JSON.parse(raw) : null;

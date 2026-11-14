@@ -1,5 +1,5 @@
-import { PageLoader } from '@/components/site-loader';
+import { GamesSkeleton } from '@/components/skeletons';
 
 export default function CasinoLoading() {
-  return <PageLoader caption="Loading games…" />;
+  return <GamesSkeleton />;
 }

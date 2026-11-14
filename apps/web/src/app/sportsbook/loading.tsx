@@ -1,5 +1,5 @@
-import { PageLoader } from '@/components/site-loader';
+import { SportsbookSkeleton } from '@/components/skeletons';
 
 export default function SportsbookLoading() {
-  return <PageLoader caption="Loading matches…" />;
+  return <SportsbookSkeleton />;
 }
