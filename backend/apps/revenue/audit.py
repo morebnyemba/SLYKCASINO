@@ -259,12 +259,15 @@ def match_payouts(week_start: date, rows: list[reports.ReportRow]) -> dict:
 
 def signers() -> list:
     """Everyone whose approval a week or a use of the pool needs: the founder
-    and every partner holding a wallet."""
+    and every holder of at least the co-signing share (5% by default — so a
+    small buyer can't lock the admin by missing an audit)."""
     people = {}
     f = founder()
     if f is not None:
         people[f.pk] = f
-    for w in ShareWallet.objects.filter(holder__isnull=False, holder__is_active=True).select_related('holder'):
+    minimum = RevenueSettings.load().signer_min_percent
+    for w in ShareWallet.objects.filter(holder__isnull=False, holder__is_active=True,
+                                        percent__gte=minimum).select_related('holder'):
         people.setdefault(w.holder_id, w.holder)
     return list(people.values())
 

@@ -28,9 +28,10 @@ from .models import ChangeVote, Decision, SettingsChange
 EXPIRY = timedelta(days=7)
 MAX_BODY = 2 * 1024 * 1024
 
-GOVERNED = [
-    (r'^/api/admin/revenue-share/settings/$', 'Revenue share settings — shares, wallet holders, founder'),
-]
+# Nothing is held for co-signing now: shares are edited directly, and a cut or a
+# transfer of someone's wallet needs that holder's consent instead (revenue.shares).
+# The machinery stays for any setting that should need every partner again.
+GOVERNED: list[tuple[str, str]] = []
 _COMPILED = [(re.compile(p), label) for p, label in GOVERNED]
 
 # Django admin: the revenue-share records can't be edited there at all (it would skip co-signing).

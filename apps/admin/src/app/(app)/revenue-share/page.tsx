@@ -10,6 +10,7 @@ import { useAuth } from '@/lib/auth-context';
 import { authedPost, authedRequest, useApi } from '@/lib/use-api';
 import { PoolLedger, PoolProposals, WeeklyAudits } from '@/components/revenue/pool-audit';
 import { GovernanceBanner } from '@/components/revenue/governance-banner';
+import { SharesPanel } from '@/components/revenue/shares-panel';
 
 interface Withdrawal {
   id: number; slot: number; label: string; amount: string; status: 'requested' | 'paid' | 'rejected'; status_label: string;
@@ -22,7 +23,7 @@ interface Wallet {
   entries: { kind: string; label: string; amount: string; day: string | null; at: string }[];
 }
 interface Day {
-  day: string; ggr: string; bonus_conversions: string; carried_in: string; base: string; carry_out: string; share_percent: string; share_each: string;
+  day: string; ggr: string; bonus_conversions: string; carried_in: string; base: string; carry_out: string; share_percent: string; share_each: string; shared?: string;
   pool: string; affiliate_costs: string;
 }
 interface Option { id: string; label: string }
@@ -31,10 +32,10 @@ interface HolderView { role: 'holder'; wallet: Wallet; withdrawals: Withdrawal[]
 interface BossView {
   role: 'superuser'; own_slot: number | null; is_founder: boolean;
   founder: { id: number; username: string } | null; founder_set: boolean; superusers: { id: number; username: string }[];
-  settings: { share_percent: string; started_on: string | null; locked_start: boolean };
+  settings: { share_percent: string; started_on: string | null; locked_start: boolean; partner_pool_percent?: string };
   wallets: Wallet[];
   pool: Pool;
-  today: { day: string; ggr: string; bonus_conversions: string; carried_in: string; base: string; share_each: string; pool: string };
+  today: { day: string; ggr: string; bonus_conversions: string; carried_in: string; base: string; shared: string; pool: string; held_percent: string };
   days: Day[]; withdrawals: Withdrawal[];
   expenses: { id: number; day: string; category: string; category_label: string; amount: string; note: string; recorded_by: string }[];
   categories: Option[]; methods: Option[]; staff: { id: number; username: string }[];
@@ -54,15 +55,13 @@ export default function RevenueSharePage() {
   return (
     <div className="space-y-6">
       <PageHeader icon={BsPieChart} eyebrow="Money" title="Revenue share"
-        description="Each day’s real-money GGR is shared when the day ends: cash stakes minus cash wins (sports and Aviator). Bonus money doesn’t count until a player unlocks it into Winnings — then it’s deducted that day. Three partner wallets take their share each, and the operating pool keeps the rest to pay affiliates and running costs. A losing day is carried forward and earned back before anything is shared." />
+        description="Each day’s real-money GGR is shared when the day ends: cash stakes minus cash wins (sports and Aviator). Bonus money doesn’t count until a player unlocks it into Winnings — then it’s deducted that day. Each shareholder takes their own share of the partner pool, and the operating pool keeps the rest to pay affiliates and running costs. A losing day is carried forward and earned back before anything is shared." />
       {data && <GovernanceBanner />}
       {notice && <Notice tone={notice.tone} onClose={() => setNotice(null)}>{notice.text}</Notice>}
-      {error && (
-        <Notice tone="red">
-          {error.includes('403') ? 'Revenue share is visible to superusers and the three wallet holders only.' : error}
-        </Notice>
-      )}
+      {error && !error.includes('403') && <Notice tone="red">{error}</Notice>}
       {loading && !data && <div className="h-48 animate-pulse rounded-2xl bg-muted/40" />}
+      {/* Shares: superusers, holders and approved buyers (a buyer without a wallet sees only this). */}
+      <SharesPanel onDone={done} onFail={fail} />
       {data?.role === 'holder' && <HolderPanel view={data} onDone={done} onFail={fail} />}
       {data?.role === 'superuser' && <BossPanel view={data} onDone={done} onFail={fail} />}
     </div>
@@ -210,18 +209,18 @@ function Decide({ w, onDone, onFail }: { w: Withdrawal; onDone: (t: string) => v
 }
 
 function BossPanel({ view, onDone, onFail }: { view: BossView; onDone: (t: string) => void; onFail: (t: string) => void }) {
-  const pct = Number(view.settings.share_percent);
+  const held = Number(view.today.held_percent);
   const own = view.wallets.find((w) => w.slot === view.own_slot);
   return (
     <>
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <StatTile label="Today so far (real-money GGR)" value={money(view.today.ggr)} icon={BsSunrise}
-          hint={`${Number(view.today.bonus_conversions) > 0 ? `After ${money(view.today.bonus_conversions)} of bonus unlocked into Winnings. ` : ''}If the day ended now: ${money(view.today.share_each)} per wallet, ${money(view.today.pool)} to the pool${Number(view.today.carried_in) < 0 ? ` (after ${money(view.today.carried_in)} carried from losing days)` : ''}.`} />
+          hint={`${Number(view.today.bonus_conversions) > 0 ? `After ${money(view.today.bonus_conversions)} of bonus unlocked into Winnings. ` : ''}If the day ended now: ${money(view.today.shared)} to shareholders, ${money(view.today.pool)} to the pool${Number(view.today.carried_in) < 0 ? ` (after ${money(view.today.carried_in)} carried from losing days)` : ''}.`} />
         <StatTile label="In the pool" value={money(view.pool.remaining)} icon={BsPiggyBank} tone={Number(view.pool.remaining) < 0 ? 'red' : 'indigo'}
           hint={`${money(view.pool.earned)} in, less ${money(view.pool.affiliate_costs)} affiliates and ${money(view.pool.expenses)} costs.`} />
-        <StatTile label="Share per wallet" value={`${pct}%`} icon={BsPieChart} hint={`Pool keeps ${(100 - 3 * pct).toFixed(2).replace(/\.00$/, '')}% of each day.`} />
+        <StatTile label="Held by shareholders" value={`${Number(held.toFixed(2))}%`} icon={BsPieChart} hint={`Pool keeps ${Number((100 - held).toFixed(2))}% of each day.`} />
         <StatTile label="Owed to partners" value={money(view.wallets.reduce((s, w) => s + Number(w.balance), 0))} icon={BsCashCoin}
-          hint="Across the three wallets, not yet withdrawn." />
+          hint="Across every shareholder’s wallet, not yet withdrawn." />
       </div>
 
       <div className="grid gap-3 lg:grid-cols-3">
@@ -250,7 +249,7 @@ function BossPanel({ view, onDone, onFail }: { view: BossView; onDone: (t: strin
             <table className={tableClass}>
               <thead><tr>
                 <th className={thClass}>Day</th><th className={thClass}>Real-money GGR</th><th className={thClass}>Bonus unlocked</th><th className={thClass}>Carried in</th>
-                <th className={thClass}>Shared</th><th className={thClass}>Each wallet</th><th className={thClass}>Pool</th>
+                <th className={thClass}>Base</th><th className={thClass}>To shareholders</th><th className={thClass}>Pool</th>
                 <th className={thClass}>Affiliates</th><th className={thClass}>Carried out</th>
               </tr></thead>
               <tbody>
@@ -261,7 +260,7 @@ function BossPanel({ view, onDone, onFail }: { view: BossView; onDone: (t: strin
                     <td className={cx(tdClass, 'tabular-nums text-muted-foreground')}>{Number(d.bonus_conversions) > 0 ? money(-Number(d.bonus_conversions)) : '—'}</td>
                     <td className={cx(tdClass, 'tabular-nums text-muted-foreground')}>{Number(d.carried_in) < 0 ? money(d.carried_in) : '—'}</td>
                     <td className={cx(tdClass, 'tabular-nums')}>{money(d.base)}</td>
-                    <td className={cx(tdClass, 'tabular-nums font-semibold')}>{money(d.share_each)} <span className="text-xs font-normal text-muted-foreground">({Number(d.share_percent)}%)</span></td>
+                    <td className={cx(tdClass, 'tabular-nums font-semibold')}>{money(d.shared ?? Number(d.base) - Number(d.pool))} <span className="text-xs font-normal text-muted-foreground">({Number(d.share_percent)}%)</span></td>
                     <td className={cx(tdClass, 'tabular-nums')}>{money(d.pool)}</td>
                     <td className={cx(tdClass, 'tabular-nums text-muted-foreground')}>{money(d.affiliate_costs)}</td>
                     <td className={cx(tdClass, 'tabular-nums text-muted-foreground')}>{Number(d.carry_out) < 0 ? money(d.carry_out) : '—'}</td>
@@ -296,7 +295,7 @@ function PoolPanel({ view, onDone, onFail }: { view: BossView; onDone: (t: strin
     if (res.error) onFail(res.error); else onDone('Cost deleted.');
   }
   return (
-    <Panel title="Operating pool" description={`The ${(100 - 3 * Number(view.settings.share_percent)).toFixed(2).replace(/\.00$/, '')}% of each day that isn’t shared. Affiliate commissions are taken from it automatically; record every other cost (Claude, hosting, SMS…) here.`}>
+    <Panel title="Operating pool" description={`The ${Number((100 - Number(view.today.held_percent)).toFixed(2))}% of each day that shareholders don’t hold. Affiliate commissions are taken from it automatically; record every other cost (Claude, hosting, SMS…) here.`}>
       <div className="mb-4 grid gap-3 sm:grid-cols-4">
         <Mini label="Into the pool" value={view.pool.earned} />
         <Mini label="Affiliates paid" value={`-${view.pool.affiliate_costs}`} />
@@ -344,32 +343,32 @@ function Mini({ label, value, strong }: { label: string; value: string; strong?:
 
 function SettingsPanel({ view, onDone, onFail }: { view: BossView; onDone: (t: string) => void; onFail: (t: string) => void }) {
   const { accessToken } = useAuth();
-  const [pct, setPct] = useState(view.settings.share_percent);
   const [start, setStart] = useState(view.settings.started_on ?? '');
   const [rows, setRows] = useState(view.wallets.map((w) => ({ slot: w.slot, label: w.label, holder_id: w.holder_id ? String(w.holder_id) : '' })));
   const [founder, setFounder] = useState(view.founder_set && view.founder ? String(view.founder.id) : '');
   const [busy, setBusy] = useState(false);
   useEffect(() => {
     setFounder(view.founder_set && view.founder ? String(view.founder.id) : '');
-    setPct(view.settings.share_percent); setStart(view.settings.started_on ?? '');
+    setStart(view.settings.started_on ?? '');
     setRows(view.wallets.map((w) => ({ slot: w.slot, label: w.label, holder_id: w.holder_id ? String(w.holder_id) : '' })));
   }, [view]);
   async function save() {
     if (!accessToken) return;
     setBusy(true);
     const res = await authedRequest('PUT', '/admin/revenue-share/settings/', accessToken, {
-      share_percent: pct, started_on: start || null, founder_id: founder ? Number(founder) : null,
-      wallets: rows.map((r) => ({ slot: r.slot, label: r.label, holder_id: r.holder_id ? Number(r.holder_id) : null })),
+      started_on: start || null, founder_id: founder ? Number(founder) : null,
+      // A held wallet changes hands only with its holder's consent (Shares › Hand over), so only labels and empty wallets go here.
+      wallets: rows.map((r) => {
+        const held = view.wallets.find((w) => w.slot === r.slot)?.holder_id;
+        return held ? { slot: r.slot, label: r.label } : { slot: r.slot, label: r.label, holder_id: r.holder_id ? Number(r.holder_id) : null };
+      }),
     });
     setBusy(false);
     if (res.error) onFail(res.error); else onDone('Revenue-share settings saved.');
   }
   return (
-    <Panel title="Settings" description="Who holds each wallet (a staff login; they see only their own wallet and ask for its withdrawal), each wallet’s share, the founder and the first day that counts. Saving sends the change to every partner to co-sign (Money › Revenue-share changes); it applies only when all approve.">
+    <Panel title="Settings" description="Wallet names, a holder for any empty wallet, the founder and the first day that counts. Shares and handing over a held wallet are in Shares above (a holder’s share is only cut, or their wallet handed over, with their approval).">
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <Field label="Share per wallet (%)" hint="Applies to days not yet closed. Three wallets, so at most 33.33%.">
-          <TextInput inputMode="decimal" value={pct} onChange={(e) => setPct(e.target.value.replace(/[^0-9.]/g, ''))} />
-        </Field>
         <Field label="First day that counts" hint={view.settings.locked_start ? 'Fixed once a day has been shared.' : 'Days before it are never shared.'}>
           <TextInput type="date" value={start} disabled={view.settings.locked_start} onChange={(e) => setStart(e.target.value)} />
         </Field>
@@ -387,7 +386,8 @@ function SettingsPanel({ view, onDone, onFail }: { view: BossView; onDone: (t: s
               <TextInput value={r.label} onChange={(e) => setRows((x) => x.map((y, j) => (j === i ? { ...y, label: e.target.value } : y)))} />
             </Field>
             <Field label="Held by">
-              <Select value={r.holder_id} onChange={(e) => setRows((x) => x.map((y, j) => (j === i ? { ...y, holder_id: e.target.value } : y)))}>
+              <Select value={r.holder_id} disabled={!!view.wallets.find((w) => w.slot === r.slot)?.holder_id}
+                onChange={(e) => setRows((x) => x.map((y, j) => (j === i ? { ...y, holder_id: e.target.value } : y)))}>
                 <option value="">Nobody yet</option>
                 {view.staff.map((u) => <option key={u.id} value={u.id}>{u.username}</option>)}
               </Select>

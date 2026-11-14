@@ -29,6 +29,13 @@ class RevenueSettings(models.Model):
                                 related_name='+')
     # Weekly audits are due (and missed ones count towards the lock) from this week on.
     audits_from = models.DateField(null=True, blank=True)
+    # Shares: the part of each day's GGR that belongs to shareholders (sold or held),
+    # split by each wallet's own `percent`; whatever isn't held goes to the pool.
+    partner_pool_percent = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal('30.00'))
+    # A share's price = this many months of what it earned over the last 30 days.
+    price_months = models.PositiveSmallIntegerField(default=12)
+    # Holders of at least this share co-sign weekly audits (smaller holders can't lock the admin).
+    signer_min_percent = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal('5.00'))
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -43,9 +50,12 @@ class RevenueSettings(models.Model):
 
 
 class ShareWallet(models.Model):
-    """A partner's 10% wallet, held by one staff login (who sees it and asks for
-    its withdrawal). A slot with no holder still accrues, claimable once assigned."""
+    """A shareholder's wallet, held by one staff login (who sees it and asks for
+    its withdrawal), earning `percent` of every day's GGR. A wallet with no holder
+    still accrues, claimable once assigned. Slots 1–3 are the founding partners';
+    buyers get the next free slot."""
     slot = models.PositiveSmallIntegerField(unique=True)
+    percent = models.DecimalField(max_digits=5, decimal_places=2, default=0)
     holder = models.OneToOneField(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
                                   related_name='share_wallet')
     label = models.CharField(max_length=60, blank=True)
@@ -58,8 +68,14 @@ class ShareWallet(models.Model):
     @classmethod
     def ensure(cls) -> list['ShareWallet']:
         for slot in WALLET_SLOTS:
-            cls.objects.get_or_create(slot=slot, defaults={'label': f'Partner {slot}'})
+            # The founding partners start at 10% each (30% between them).
+            cls.objects.get_or_create(slot=slot, defaults={'label': f'Partner {slot}', 'percent': Decimal('10.00')})
         return list(cls.objects.filter(slot__in=WALLET_SLOTS).select_related('holder'))
+
+    @classmethod
+    def all_wallets(cls) -> list['ShareWallet']:
+        cls.ensure()
+        return list(cls.objects.select_related('holder').order_by('slot'))
 
 
 class RevenueDay(models.Model):
@@ -75,8 +91,11 @@ class RevenueDay(models.Model):
     carried_in = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     base = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     carry_out = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    # Total % held that day, and what all holders got together (each wallet's own
+    # amount is its accrual entry). `share_each` is from the days of equal shares.
     share_percent = models.DecimalField(max_digits=5, decimal_places=2)
     share_each = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    shared = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     pool = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     # Affiliate commissions that became final this day, charged to the pool.
     affiliate_costs = models.DecimalField(max_digits=14, decimal_places=2, default=0)
@@ -328,3 +347,74 @@ class ChangeVote(models.Model):
     class Meta:
         db_table = 'revenue_change_vote'
         constraints = [models.UniqueConstraint(fields=['change', 'user'], name='revenue_one_vote_per_change')]
+
+
+class ShareBuyer(models.Model):
+    """A staff login the founder lets buy shares themselves (they ask; the sale
+    counts once an admin confirms their payment)."""
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='share_buyer')
+    approved_by = models.CharField(max_length=150)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'revenue_share_buyer'
+
+
+class ShareSale(models.Model):
+    """Shares sold out of the unheld part of the partner pool. Payment happens
+    outside the site; a sale only adds to the buyer's wallet once an admin
+    confirms it (an admin recording a sale confirms it at once)."""
+
+    class Status(models.TextChoices):
+        REQUESTED = 'requested', 'Waiting for payment'
+        CONFIRMED = 'confirmed', 'Confirmed'
+        REJECTED = 'rejected', 'Rejected'
+        CANCELLED = 'cancelled', 'Cancelled'
+
+    buyer = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='share_purchases')
+    percent = models.DecimalField(max_digits=5, decimal_places=2)
+    # Agreed price, and the formula's quote at the time (they differ when an admin set the price).
+    price = models.DecimalField(max_digits=14, decimal_places=2)
+    quoted_price = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    quote = models.JSONField(default=dict, blank=True)
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.REQUESTED, db_index=True)
+    payment_method = models.CharField(max_length=40, blank=True)
+    payment_reference = models.CharField(max_length=120, blank=True)
+    note = models.CharField(max_length=500, blank=True)
+    requested_by = models.CharField(max_length=150)
+    decided_by = models.CharField(max_length=150, blank=True)
+    wallet = models.ForeignKey(ShareWallet, null=True, blank=True, on_delete=models.PROTECT, related_name='sales')
+    created_at = models.DateTimeField(auto_now_add=True)
+    decided_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'revenue_share_sale'
+        ordering = ['-created_at']
+
+
+class ShareChange(models.Model):
+    """A cut to someone's share (or handing their wallet to someone else). It only
+    applies when the holder approves — or straight away when the holder asks for it
+    themselves, or the wallet has no holder."""
+
+    class Status(models.TextChoices):
+        PENDING = 'pending', 'Waiting for the holder'
+        APPLIED = 'applied', 'Applied'
+        REJECTED = 'rejected', 'Rejected'
+        CANCELLED = 'cancelled', 'Cancelled'
+
+    wallet = models.ForeignKey(ShareWallet, on_delete=models.PROTECT, related_name='changes')
+    holder = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name='+')
+    from_percent = models.DecimalField(max_digits=5, decimal_places=2)
+    to_percent = models.DecimalField(max_digits=5, decimal_places=2)
+    new_holder = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name='+')
+    reason = models.CharField(max_length=500, blank=True)
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.PENDING, db_index=True)
+    requested_by = models.CharField(max_length=150)
+    decided_note = models.CharField(max_length=500, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    decided_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'revenue_share_change'
+        ordering = ['-created_at']

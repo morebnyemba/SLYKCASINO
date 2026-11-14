@@ -70,10 +70,11 @@ class CloseDayTests(Base):
         self.assertEqual(self.close(['1000', '-300', '200', '500']), 4)
         days = {d.day: d for d in RevenueDay.objects.all()}
         first, losing, short, back = (days[self.today - timedelta(days=n)] for n in (4, 3, 2, 1))
-        self.assertEqual((first.share_each, first.pool), (D('100.00'), D('700.00')))
-        self.assertEqual((losing.share_each, losing.carry_out), (D('0.00'), D('-300.00')))
-        self.assertEqual((short.share_each, short.carry_out), (D('0.00'), D('-100.00')))   # 200 earns back part of it
-        self.assertEqual((back.base, back.share_each, back.pool), (D('400.00'), D('40.00'), D('280.00')))
+        # Three founding wallets at 10% each.
+        self.assertEqual((first.shared, first.pool, first.share_percent), (D('300.00'), D('700.00'), D('30.00')))
+        self.assertEqual((losing.shared, losing.carry_out), (D('0.00'), D('-300.00')))
+        self.assertEqual((short.shared, short.carry_out), (D('0.00'), D('-100.00')))   # 200 earns back part of it
+        self.assertEqual((back.base, back.shared, back.pool), (D('400.00'), D('120.00'), D('280.00')))
         for i in range(3):
             self.assertEqual(self.balance(i), D('140.00'))
         self.assertFalse(RevenueDay.objects.filter(day=self.today).exists())   # today isn't over
@@ -85,16 +86,19 @@ class CloseDayTests(Base):
         self.assertEqual(RevenueDay.objects.order_by('day').first().day, self.today - timedelta(days=4))
 
     def test_an_unassigned_wallet_still_accrues(self):
-        services.update_settings(wallets=[{'slot': 3, 'holder_id': None}], by='boss')
+        ShareWallet.objects.filter(slot=3).update(holder=None)
         self.close(['1000', '0', '0', '0'])
         self.assertEqual(self.balance(2), D('100.00'))
 
-    def test_the_share_percent_applies_to_days_not_yet_closed(self):
+    def test_a_share_change_applies_to_days_not_yet_closed(self):
+        from apps.revenue import shares
         with patch.object(services, 'day_ggr', return_value=D('1000')):
             services.close_days(today=self.today - timedelta(days=2))    # closes 2 days at 10%
-            services.update_settings(share_percent='5', by='boss')
+            shares.set_share(slot=1, percent='5', by_user=self.partners[0])   # the holder cuts their own
             services.close_days(today=self.today)                         # the last 2 at 5%
         self.assertEqual(self.balance(0), D('300.00'))
+        self.assertEqual(self.balance(1), D('400.00'))
+        self.assertEqual(RevenueDay.objects.order_by('-day').first().pool, D('750.00'))   # the 5% given up goes to the pool
 
     def test_ggr_comes_from_the_player_ledger(self):
         from apps.accounts import services as accounts
@@ -104,7 +108,7 @@ class CloseDayTests(Base):
         wallet.debit(player_id=player.id, amount=D('50'), kind='bet_stake', bucket='deposit', idempotency_key='g:s')
         wallet.credit(player_id=player.id, amount=D('20'), kind='bet_payout', bucket='deposit', idempotency_key='g:w')
         self.assertEqual(services.day_ggr(self.today), D('30.00'))
-        self.assertEqual(services.today_so_far()['share_each'], '3.00')
+        self.assertEqual(services.today_so_far()['per_wallet'][1], '3.00')
 
     def test_bonus_money_is_left_out_until_it_becomes_cash(self):
         from apps.accounts import services as accounts
@@ -215,8 +219,7 @@ class AccessTests(Base):
         player_login = User.objects.create_user('punter', 'pu@example.com', 'x')
         self.assertEqual(boss.put(URL + 'settings/', {'wallets': [{'slot': 1, 'holder_id': player_login.id}]}, format='json').status_code, 400)
         self.assertEqual(boss.put(URL + 'settings/', {'wallets': [{'slot': 2, 'holder_id': self.partners[0].id}]}, format='json').status_code, 400)
-        self.assertEqual(boss.put(URL + 'settings/', {'share_percent': '34'}, format='json').status_code, 400)
-        self.assertEqual(boss.put(URL + 'settings/', {'share_percent': '12.5'}, format='json').json()['settings']['share_percent'], '12.50')
+        self.assertEqual(boss.put(URL + 'settings/', {'share_percent': '12.5'}, format='json').status_code, 400)   # per wallet now
         self.close(['1', '1', '1', '1'])
         res = boss.put(URL + 'settings/', {'started_on': (self.today - timedelta(days=30)).isoformat()}, format='json')
         self.assertEqual(res.status_code, 400)                              # locked once days are shared
@@ -233,7 +236,7 @@ class DeployDayTests(TestCase):
             self.assertEqual(services.close_days(today=today), 0)       # not over yet
             self.assertEqual(services.close_days(today=today + timedelta(days=1)), 1)
         ggr.assert_called_once_with(today)                              # the whole deploy day, 00:00-24:00
-        self.assertEqual(RevenueDay.objects.get().share_each, D('50.00'))
+        self.assertEqual(RevenueDay.objects.get().shared, D('150.00'))     # 3 x 10% of 500
 
     def test_migration_keeps_an_existing_start_date(self):
         from importlib import import_module
