@@ -9,6 +9,12 @@ operating pool until it's sold. Rules:
 * Cutting someone's share, or handing their wallet to someone else: only with
   that holder's consent — applied at once when they ask for it themselves or
   the wallet has no holder, otherwise held until they approve.
+* Share controllers (the founder — wallet 1's holder — and the user ids in
+  settings.REVENUE_SHARE_CONTROLLER_IDS, 1 and 2 by default) can raise, cut or
+  hand over anyone's share at once, without consent. A cut they make is still
+  sold for the holder (who gets the seller's part of the price) unless given
+  back to the house. Cutting or handing over another controller's share still
+  needs that controller's consent.
 * Price: `price_per_percent` below, from the last 30 closed days.
 * Resale: share a holder gives up is sold for them (unless they give it back to
   the house). Sales use the oldest released share first, and the releaser gets
@@ -140,6 +146,29 @@ def _staff(user_id):
     return user
 
 
+def is_controller(user) -> bool:
+    """The founder (wallet 1's holder, or the founder set in settings) and the
+    configured controller user ids — they can edit anyone's share at once."""
+    from django.conf import settings
+    from .audit import founder
+    if not (user and user.is_authenticated and user.is_active):
+        return False
+    if user.pk in getattr(settings, 'REVENUE_SHARE_CONTROLLER_IDS', []):
+        return True
+    f = founder()
+    return bool(f and f.pk == user.pk)
+
+
+def controller_names() -> list[str]:
+    from django.conf import settings
+    from .audit import founder
+    users = list(get_user_model().objects.filter(pk__in=getattr(settings, 'REVENUE_SHARE_CONTROLLER_IDS', []), is_active=True))
+    f = founder()
+    if f and f.is_active and all(u.pk != f.pk for u in users):
+        users.insert(0, f)
+    return [u.get_username() for u in users]
+
+
 def _room_for(pct: Decimal, *, wallet: Optional[ShareWallet] = None) -> None:
     cap = RevenueSettings.load().partner_pool_percent
     others = held_percent(exclude=wallet)
@@ -163,8 +192,8 @@ def set_share(*, slot: int, percent, by_user, reason: str = '', for_sale: bool =
         if new == old:
             return {'applied': True, 'change': None}
         if new > old:
-            if not by_user.is_superuser:
-                raise RevenueError('Only a superuser can raise a share.')
+            if not (by_user.is_superuser or is_controller(by_user)):
+                raise RevenueError('Only a superuser or a share controller can raise a share.')
             _room_for(new - old, wallet=wallet)
             wallet.percent = new
             wallet.save(update_fields=['percent'])
@@ -201,10 +230,13 @@ def _name(user) -> Optional[str]:
 def _cut(wallet: ShareWallet, *, to_percent: Decimal, new_holder, by_user, reason: str, request, for_sale: bool = True) -> dict:
     holder = wallet.holder
     own = holder is not None and holder.pk == by_user.pk
-    if not (own or by_user.is_superuser):
-        raise RevenueError('Only the holder or a superuser can change this share.')
-    if new_holder is not None and not by_user.is_superuser:
-        raise RevenueError('Only a superuser can hand a wallet to someone else.')
+    controller = is_controller(by_user)
+    if not (own or by_user.is_superuser or controller):
+        raise RevenueError('Only the holder, a superuser or a share controller can change this share.')
+    if new_holder is not None and not (by_user.is_superuser or controller):
+        raise RevenueError('Only a superuser or a share controller can hand a wallet to someone else.')
+    # A controller's edit applies at once — except to another controller's share.
+    overrides = controller and holder is not None and not own and not is_controller(holder)
     change = ShareChange.objects.create(
         wallet=wallet, holder=holder, from_percent=wallet.percent, to_percent=to_percent, new_holder=new_holder,
         reason=(reason or '').strip()[:500], requested_by=by_user.get_username(),
@@ -213,8 +245,10 @@ def _cut(wallet: ShareWallet, *, to_percent: Decimal, new_holder, by_user, reaso
     accounts_services.audit(None, 'share_change_requested', request, id=change.id, slot=wallet.slot, holder=_name(holder),
                             from_percent=str(change.from_percent), to_percent=str(to_percent),
                             new_holder=_name(new_holder), by=by_user.get_username(), reason=change.reason)
-    if own or holder is None:
-        _apply(change, note='Asked for by the holder' if own else 'Wallet had no holder')
+    if own or holder is None or overrides:
+        note = ('Asked for by the holder' if own else 'Wallet had no holder' if holder is None
+                else f'Applied by share controller {by_user.get_username()} (no consent needed)')
+        _apply(change, note=note)
         return {'applied': True, 'change': change_row(change)}
     return {'applied': False, 'change': change_row(change)}
 
