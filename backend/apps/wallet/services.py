@@ -180,9 +180,13 @@ def _after_new_entry(player_id: int, entry: LedgerEntry) -> None:
         promotions_services.record_wagering(player_id=player_id, amount=abs(entry.amount))
         risk.safely(risk.on_stake, player_id, amount=abs(entry.amount))
     elif entry.kind == 'bonus':
-        # New bonus money starts the rollover count again (wallet.bonus).
+        # New bonus money starts the rollover count again and raises the
+        # conversion cap's base (wallet.bonus).
         from . import bonus
-        bonus.reset(player_id)
+        if entry.bucket == Bucket.BONUS:
+            bonus.credited(player_id, entry.amount)
+        else:
+            bonus.reset(player_id)
     elif entry.kind == 'deposit':
         from apps.affiliates import services as affiliate_services
         from apps.promotions import services as promotions_services

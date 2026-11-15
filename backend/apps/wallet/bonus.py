@@ -6,9 +6,10 @@
   `bonus_min_leg_odds` (1.50). No singles, no cash-out.
 - A winning bonus ticket pays back into the Bonus wallet, not Winnings.
 - After `bonus_wins_to_convert` (2) full-stake bonus tickets win in a row, the
-  Bonus wallet moves to Winnings — up to `bonus_max_conversion` ($500); the
-  rest is forfeited. A losing bonus ticket, or a new bonus credit, starts the
-  count again.
+  Bonus wallet moves to Winnings — up to the lower of `bonus_max_conversion`
+  ($500) and `bonus_conversion_multiple` (5×) the bonus given in this cycle;
+  the rest is forfeited. A losing bonus ticket, or a new bonus credit, starts
+  the count again.
 """
 from __future__ import annotations
 
@@ -49,11 +50,23 @@ def not_for_games(wallet) -> None:
         raise services.WalletRuleError('Bonus money can only be used on sports bets.')
 
 
+def conversion_cap(rules: WalletRules, credited) -> Decimal:
+    """The most that can move to Winnings: the fixed cap, and — when a multiple
+    is set and the bonus given is known — that many times the bonus given."""
+    cap = rules.bonus_max_conversion
+    credited = Decimal(str(credited or 0))
+    if rules.bonus_conversion_multiple > 0 and credited > 0:
+        cap = min(cap, utils.quantize(credited * rules.bonus_conversion_multiple))
+    return cap
+
+
 def progress(player_id: int) -> dict:
     rules = WalletRules.load()
-    wins = BonusRollover.objects.filter(player_id=player_id).values_list('wins', flat=True).first() or 0
-    return {'wins': wins, 'wins_needed': rules.bonus_wins_to_convert,
-            'max_conversion': str(rules.bonus_max_conversion),
+    row = BonusRollover.objects.filter(player_id=player_id).values('wins', 'credited').first() or {}
+    return {'wins': row.get('wins', 0), 'wins_needed': rules.bonus_wins_to_convert,
+            # This player's own limit (the fixed cap, or N× the bonus they were given if lower).
+            'max_conversion': str(conversion_cap(rules, row.get('credited'))),
+            'conversion_multiple': str(rules.bonus_conversion_multiple),
             'min_legs': rules.bonus_min_legs, 'min_leg_odds': str(rules.bonus_min_leg_odds)}
 
 
@@ -129,7 +142,7 @@ def expire_idle(*, now=None) -> dict:
                     services.post_entry(player_id=player_id, amount=-amount, kind='bonus_forfeit', bucket=Bucket.BONUS,
                                         idempotency_key=f'bonus-expiry:{player_id}:{int(start.timestamp())}',
                                         reference='bonus-expired', require_non_negative=True)
-                    reset(player_id)
+                    reset(player_id, cleared=True)
             except services.InsufficientFunds:
                 continue
             notif_services.notify(player_id=player_id, kind='account_alert', title='Bonus expired',
@@ -146,8 +159,23 @@ def expire_idle(*, now=None) -> dict:
     return report
 
 
-def reset(player_id: int) -> None:
-    BonusRollover.objects.filter(player_id=player_id).update(wins=0)
+def reset(player_id: int, *, cleared: bool = False) -> None:
+    """Start the win count again; `cleared` = the Bonus wallet was emptied
+    (expired), so no bonus is left in this cycle either."""
+    if cleared:
+        BonusRollover.objects.filter(player_id=player_id).update(wins=0, credited=Decimal('0.00'))
+    else:
+        BonusRollover.objects.filter(player_id=player_id).update(wins=0)
+
+
+@transaction.atomic
+def credited(player_id: int, amount) -> None:
+    """New bonus money: it starts the win count again and adds to the bonus
+    given in this cycle (the base for the conversion cap)."""
+    row, _ = BonusRollover.objects.select_for_update().get_or_create(player_id=player_id)
+    row.wins = 0
+    row.credited = max(row.credited + utils.quantize(amount), Decimal('0.00'))
+    row.save(update_fields=['wins', 'credited', 'updated_at'])
 
 
 @transaction.atomic
@@ -156,24 +184,29 @@ def ticket_settled(player_id: int, *, won: bool, ticket: str) -> None:
     it again. Enough wins in a row convert the Bonus wallet to Winnings."""
     row, _ = BonusRollover.objects.select_for_update().get_or_create(player_id=player_id)
     if not won:
+        # The ticket staked the whole Bonus wallet, so whatever is in it now was
+        # credited after the bet — that's all the bonus left in this cycle.
         row.wins = 0
-        row.save(update_fields=['wins', 'updated_at'])
+        row.credited = services.get_balances(player_id)[Bucket.BONUS]
+        row.save(update_fields=['wins', 'credited', 'updated_at'])
         return
     row.wins += 1
     rules = WalletRules.load()
     if row.wins < rules.bonus_wins_to_convert:
         row.save(update_fields=['wins', 'updated_at'])
         return
+    cap = conversion_cap(rules, row.credited)
     row.wins = 0
-    row.save(update_fields=['wins', 'updated_at'])
-    _convert(player_id, rules, ticket=ticket)
+    row.credited = Decimal('0.00')          # the whole Bonus wallet converts or is forfeited
+    row.save(update_fields=['wins', 'credited', 'updated_at'])
+    _convert(player_id, rules, ticket=ticket, cap=cap)
 
 
-def _convert(player_id: int, rules: WalletRules, *, ticket: str) -> None:
+def _convert(player_id: int, rules: WalletRules, *, ticket: str, cap: Decimal) -> None:
     balance = services.get_balances(player_id)[Bucket.BONUS]
     if balance <= 0:
         return
-    converted = min(balance, rules.bonus_max_conversion)
+    converted = min(balance, cap)
     forfeited = balance - converted
     key = f'bonus-conversion:{ticket}'
     services.post_entry(player_id=player_id, amount=-converted, kind='bonus_conversion', bucket=Bucket.BONUS,
@@ -187,5 +220,5 @@ def _convert(player_id: int, rules: WalletRules, *, ticket: str) -> None:
     notif_services.notify(
         player_id=player_id, kind='bonus_credited', title='Bonus unlocked',
         body=(f'${converted:.2f} of bonus winnings moved to your Winnings wallet — it’s yours to withdraw.'
-              + (f' ${forfeited:.2f} above the ${rules.bonus_max_conversion:.2f} limit was forfeited.' if forfeited else '')),
+              + (f' ${forfeited:.2f} above your ${cap:.2f} limit was forfeited.' if forfeited else '')),
     )

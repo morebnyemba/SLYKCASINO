@@ -20,6 +20,10 @@ class WalletRules(models.Model):
     # (the rest is forfeited).
     bonus_wins_to_convert = models.PositiveSmallIntegerField(default=2)
     bonus_max_conversion = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('500.00'))
+    # Also never more than this many times the bonus actually given in the
+    # current cycle (a $10 bonus unlocks at most $50 at 5×). 0 = no multiple;
+    # the fixed cap above always applies.
+    bonus_conversion_multiple = models.DecimalField(max_digits=6, decimal_places=2, default=Decimal('5.00'))
     # A Bonus wallet nobody uses for this many hours is forfeited (a warning goes
     # out 24 hours before). Use = a bonus credited, or a bet from or win into the
     # Bonus wallet; a bonus ticket still open keeps it alive. 72 hours by
@@ -55,10 +59,12 @@ class WalletRules(models.Model):
 
 
 class BonusRollover(models.Model):
-    """How many full-stake bonus tickets a player has won in a row. Reset by a
-    losing bonus ticket, a new bonus credit, or a conversion."""
+    """How many full-stake bonus tickets a player has won in a row (reset by a
+    losing bonus ticket, a new bonus credit, or a conversion), and how much
+    bonus they were given in this cycle — the base for the conversion cap."""
     player_id = models.BigIntegerField(unique=True)
     wins = models.PositiveSmallIntegerField(default=0)
+    credited = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

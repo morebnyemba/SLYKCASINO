@@ -65,9 +65,10 @@ function Collapsible({ title, badge, children, defaultOpen = true, forceOpen = f
         aria-expanded={open}
         className="flex w-full items-center gap-2 px-4 py-3 text-left transition-colors hover:bg-muted/30"
       >
+        <span className="h-4 w-1 shrink-0 rounded-full bg-secondary" aria-hidden />
         <h3 className="flex-1 text-sm font-extrabold">{title}</h3>
         {badge}
-        <BsChevronDown size={12} className={`text-muted-foreground transition-transform ${open ? 'rotate-180' : ''}`} />
+        <BsChevronDown size={12} className={`text-secondary transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
       {open && <div className="border-t border-border p-3">{children}</div>}
     </section>
