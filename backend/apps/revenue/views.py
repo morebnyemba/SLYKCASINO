@@ -338,15 +338,20 @@ def _shares_payload(user) -> dict:
     from .models import ShareBuyer, ShareChange, ShareRelease, ShareSale
     cfg = RevenueSettings.load()
     superuser = user.is_superuser
+    controller = shares.is_controller(user)
+    sees_all = superuser or controller
     own = ShareWallet.objects.filter(holder=user).first()
     sales = ShareSale.objects.select_related('buyer', 'wallet')
     changes = ShareChange.objects.select_related('wallet', 'holder', 'new_holder')
     if not superuser:
         sales = sales.filter(buyer=user)
+    if not sees_all:
         changes = changes.filter(holder=user)
     staff = get_user_model().objects.filter(is_staff=True, is_active=True).order_by('username')
     return {
         'can_admin': superuser,
+        'is_controller': controller,
+        'controllers': shares.controller_names(),
         'is_buyer': shares.is_buyer(user),
         'own_slot': own.slot if own else None,
         'settings': {'partner_pool_percent': str(cfg.partner_pool_percent), 'price_months': cfg.price_months,
@@ -354,26 +359,29 @@ def _shares_payload(user) -> dict:
         'agreement': shares.agreement.payload(),
         'released_percent': str(shares.released_percent()),
         'releases': [shares.release_row(r) for r in ShareRelease.objects.select_related('wallet', 'holder')
-                     .filter(remaining__gt=0) if superuser or r.holder_id == user.pk],
+                     .filter(remaining__gt=0) if sees_all or r.holder_id == user.pk],
         'held_percent': str(shares.held_percent()),
         'unsold_percent': str(shares.unsold_percent()),
         'price': shares.price_per_percent(),
         'wallets': [{'slot': w.slot, 'label': w.label or f'Partner {w.slot}', 'holder': w.holder.get_username() if w.holder else None,
-                     'holder_id': w.holder_id, 'percent': str(w.percent)}
-                    for w in ShareWallet.all_wallets() if superuser or w.percent > 0],
+                     'holder_id': w.holder_id, 'percent': str(w.percent),
+                     # Another controller's share: even a controller needs its holder's consent.
+                     'protected': bool(w.holder and shares.is_controller(w.holder))}
+                    for w in ShareWallet.all_wallets() if sees_all or w.percent > 0],
         'sales': [shares.sale_row(s) for s in sales[:50]],
         'changes': [shares.change_row(c) for c in changes[:50]],
         'pending_for_me': [shares.change_row(c) for c in ShareChange.objects.select_related('wallet', 'holder', 'new_holder')
                            .filter(holder=user, status=ShareChange.Status.PENDING)],
         'buyers': ([{'user_id': b.user_id, 'username': b.user.get_username(), 'approved_by': b.approved_by}
                     for b in ShareBuyer.objects.select_related('user')] if superuser else []),
-        'staff': [{'id': u.id, 'username': u.get_username()} for u in staff] if superuser else [],
+        'staff': [{'id': u.id, 'username': u.get_username()} for u in staff] if sees_all else [],
     }
 
 
 def _can_see_shares(user) -> bool:
     from . import shares
-    return user.is_superuser or ShareWallet.objects.filter(holder=user).exists() or shares.is_buyer(user)
+    return (user.is_superuser or ShareWallet.objects.filter(holder=user).exists() or shares.is_buyer(user)
+            or shares.is_controller(user))
 
 
 def _run(fn):

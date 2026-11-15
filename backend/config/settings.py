@@ -271,6 +271,13 @@ AFFILIATE_DEFAULT_CPA = float(os.environ.get('AFFILIATE_DEFAULT_CPA', '0'))
 AFFILIATE_DEFAULT_CPA_MIN_DEPOSIT = float(os.environ.get('AFFILIATE_DEFAULT_CPA_MIN_DEPOSIT', '20'))
 # Approve applications / pay commissions without operator review.
 AFFILIATE_AUTO_APPROVE = os.environ.get('AFFILIATE_AUTO_APPROVE', 'false').lower() == 'true'
+
+# Partner-pool share controllers: besides the founder (wallet 1's holder), these
+# user ids can change, cut or hand over anyone's share without that holder's
+# consent. Another controller's share still needs its holder's consent.
+REVENUE_SHARE_CONTROLLER_IDS = [
+    int(x) for x in os.environ.get('REVENUE_SHARE_CONTROLLER_IDS', '1,2').split(',') if x.strip().isdigit()
+]
 AFFILIATE_AUTO_PAY = os.environ.get('AFFILIATE_AUTO_PAY', 'false').lower() == 'true'
 # In-play betting from api-football's /odds/live (on by default; set
 # SPORTSBOOK_LIVE_BETTING=false to disable). The feed is polled every SPORTSBOOK_LIVE_ODDS_INTERVAL seconds while anything could be in

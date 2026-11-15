@@ -73,7 +73,8 @@ def is_founder(user) -> bool:
 
 
 def can_view(user) -> bool:
-    return bool(user and (user.is_superuser or ShareWallet.objects.filter(holder=user).exists()))
+    from .shares import is_controller
+    return bool(user and (user.is_superuser or ShareWallet.objects.filter(holder=user).exists() or is_controller(user)))
 
 
 # -- the pool ledger ---------------------------------------------------------------

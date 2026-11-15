@@ -8,7 +8,7 @@ Have a lawyer in the operator's jurisdiction review this before relying on it.
 import hashlib
 import json
 
-VERSION = '2026-11-14'
+VERSION = '2026-11-15'
 TITLE = 'Revenue share purchase agreement and risk disclosure'
 
 SECTIONS = [
@@ -44,10 +44,14 @@ SECTIONS = [
         'price (currently 90%) only when, and if, a sale is confirmed.',
     ]),
     ('How changes work', [
-        'Your percentage can only be cut or handed to someone else with your approval, except where this '
-        'agreement or the law allows otherwise (for example fraud, a court order or a regulator’s instruction).',
-        'The operator may change the size of the partner pool, the price formula and other share settings, but '
-        'not in a way that reduces a percentage you already hold without your approval.',
+        'The operator’s share controllers (the founder and the administrators the operator names) may raise, cut '
+        'or hand over your percentage at any time, with immediate effect and without asking for your approval. '
+        'Every change is recorded in the change log you can see.',
+        'When a controller cuts your percentage, the freed part is offered for sale on your behalf and you receive '
+        'the release share of the price (currently 90%) if and when it is sold, unless the cut is made because of '
+        'fraud, a breach of this agreement, a court order or a regulator’s instruction, in which case it may be '
+        'returned to the house. Payouts already credited to your share wallet before a change are not taken back.',
+        'The operator may also change the size of the partner pool, the price formula and other share settings.',
     ]),
     ('Payment and taxes', [
         'You pay outside the platform (EcoCash, bank transfer or another agreed method). The sale counts only '
