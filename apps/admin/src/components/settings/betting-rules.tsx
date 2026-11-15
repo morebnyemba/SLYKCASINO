@@ -47,7 +47,7 @@ function Grid<T extends object>({ fields, form, set, cols = 'xl:grid-cols-3' }: 
 interface BettingRules {
   min_stake: string; max_stake: string; max_selections: number | string;
   deposit_min_odds: string; bonus_min_odds: string; winnings_min_odds: string;
-  bonus_min_legs: number | string; bonus_min_leg_odds: string; bonus_wins_to_convert: number | string; bonus_max_conversion: string;
+  bonus_min_legs: number | string; bonus_min_leg_odds: string; bonus_wins_to_convert: number | string; bonus_max_conversion: string; bonus_conversion_multiple: string;
   bonus_expiry_hours: number | string;
   same_match_bets: boolean; same_match_price_percent: string;
 }
@@ -69,7 +69,8 @@ export function BettingRulesPanel() {
     { key: 'bonus_min_legs', label: 'Bonus ticket — minimum selections', hint: 'Bonus money is staked in full on one multiple of at least this many.' },
     { key: 'bonus_min_leg_odds', label: 'Bonus ticket — minimum odds per selection', hint: 'Every selection on a bonus ticket.' },
     { key: 'bonus_wins_to_convert', label: 'Bonus — wins in a row to unlock', hint: 'Winning bonus tickets pay back into Bonus; after this many in a row it moves to Winnings.' },
-    { key: 'bonus_max_conversion', label: 'Bonus — most that unlocks ($)', hint: 'Anything above this is forfeited when the Bonus wallet unlocks.' },
+    { key: 'bonus_max_conversion', label: 'Bonus — most that unlocks ($)', hint: 'A fixed ceiling for everyone. Anything above the player’s limit is forfeited when the Bonus wallet unlocks.' },
+    { key: 'bonus_conversion_multiple', label: 'Bonus — unlock limit (× bonus given)', hint: 'Also never more than this many times the bonus the player was given: 5 = a $10 bonus unlocks at most $50; 1 = only the bonus amount itself. 0 = off (fixed ceiling only). The lower limit wins.' },
     { key: 'bonus_expiry_hours', label: 'Bonus — expires after (hours unused)', hint: '72 = 3 days (default), 120 = 5 days, 360 = 15 days (the most). Players are warned 24 hours before; an open bonus ticket keeps it.' },
   ];
   const sameMatch: FieldDef<BettingRules>[] = [

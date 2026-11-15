@@ -349,7 +349,7 @@ export function SportsbookBrowser({ events, topMatches = [], awaitingOdds = 0 }:
                   aria-checked={sort === m}
                   onClick={() => update({ sort: m })}
                   className={`flex-1 rounded-lg px-2.5 text-[12.5px] font-bold transition-colors sm:text-sm ${
-                    sort === m ? 'bg-foreground text-background' : 'text-muted-foreground hover:text-foreground'
+                    sort === m ? 'bg-secondary text-secondary-foreground' : 'text-muted-foreground hover:text-secondary'
                   }`}
                 >
                   <span className="hidden sm:inline">By </span>{m === 'time' ? 'Time' : 'League'}
@@ -365,7 +365,7 @@ export function SportsbookBrowser({ events, topMatches = [], awaitingOdds = 0 }:
               className="flex h-11 shrink-0 items-center gap-1.5 rounded-xl border border-border bg-card px-2.5 text-[12.5px] font-semibold min-[400px]:hidden"
             >
               {sort === 'league' ? 'League' : 'Time'}
-              <BsArrowDownUp size={12} className="text-muted-foreground" />
+              <BsArrowDownUp size={12} className="text-secondary" />
             </button>
           )}
           {tab !== 'live' && (
@@ -394,8 +394,8 @@ export function SportsbookBrowser({ events, topMatches = [], awaitingOdds = 0 }:
                 onClick={() => update({ market: m.id })}
                 className={`h-9 shrink-0 rounded-lg border px-3.5 text-[13px] font-bold transition-colors ${
                   market === m.id
-                    ? 'border-secondary bg-secondary/10 text-secondary'
-                    : 'border-transparent text-foreground hover:bg-muted'
+                    ? 'border-secondary bg-secondary text-secondary-foreground shadow-sm'
+                    : 'border-secondary/25 bg-secondary/5 text-secondary hover:bg-secondary/10'
                 }`}
               >
                 {m.id === 'ou' ? 'Over/Under 2.5' : m.label}

@@ -525,7 +525,7 @@ class AdminWalletRulesView(APIView):
     every ticket. Changes apply to the next bet and the bet slip at once."""
     permission_classes = [IsAdminUser]
     FIELDS = ('deposit_min_odds', 'bonus_min_odds', 'winnings_min_odds', 'bonus_min_leg_odds', 'bonus_max_conversion',
-              'min_stake', 'max_stake', 'same_match_price_percent')
+              'bonus_conversion_multiple', 'min_stake', 'max_stake', 'same_match_price_percent')
     INTS = ('bonus_min_legs', 'bonus_wins_to_convert', 'max_selections', 'bonus_expiry_hours')
 
     def _out(self, rules):
@@ -555,6 +555,9 @@ class AdminWalletRulesView(APIView):
             return Response({'detail': 'Minimum odds must be between 1.00 and 1000.'}, status=status.HTTP_400_BAD_REQUEST)
         if not 1 <= rules.bonus_min_legs <= 30 or not 1 <= rules.bonus_wins_to_convert <= 10 or rules.bonus_max_conversion < 0:
             return Response({'detail': 'Selections 1–30, wins to unlock 1–10, and a non-negative unlock limit.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        if not Decimal('0') <= rules.bonus_conversion_multiple <= Decimal('1000'):
+            return Response({'detail': 'The unlock multiple must be between 0 (off) and 1000.'},
                             status=status.HTTP_400_BAD_REQUEST)
         if rules.min_stake <= 0 or rules.max_stake < rules.min_stake:
             return Response({'detail': 'The minimum stake must be above $0 and at most the maximum stake.'},
