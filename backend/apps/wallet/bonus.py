@@ -1,6 +1,8 @@
 """The Bonus wallet's rules, enforced here for every bet and settlement.
 
-- Sportsbook only: never Aviator or casino games.
+- Sportsbook, plus Aviator as fixed `bonus_aviator_stake` ($0.10) bets that pay
+  the profit only into a claimable pot (claimed to Deposit, or to Winnings
+  within the unlock limit). Never other casino games.
 - A bonus ticket stakes the whole Bonus wallet (100% of it) on one multiple of
   at least `bonus_min_legs` selections (10), each priced at least
   `bonus_min_leg_odds` (1.50). No singles, no cash-out.
@@ -45,9 +47,84 @@ def check_ticket(player_id: int, *, stake, leg_odds: Iterable, is_multiple: bool
 
 
 def not_for_games(wallet) -> None:
-    """Aviator and casino games can't be played with bonus money."""
+    """Casino games can't be played with bonus money (Aviator has its own
+    bonus bets: see aviator_stake)."""
     if wallet == Bucket.BONUS:
-        raise services.WalletRuleError('Bonus money can only be used on sports bets.')
+        raise services.WalletRuleError('Bonus money can only be used on sports bets and Aviator bonus bets.')
+
+
+# -- Aviator bonus bets ---------------------------------------------------------
+
+def aviator_stake(rules: WalletRules | None = None) -> Decimal:
+    """What one Aviator bonus bet stakes from the Bonus wallet (0 = not allowed)."""
+    return (rules or WalletRules.load()).bonus_aviator_stake
+
+
+def add_aviator_profit(player_id: int, amount) -> None:
+    """A cashed-out Aviator bonus bet's profit goes into the player's claimable pot."""
+    from django.db.models import F
+    amount = utils.quantize(amount)
+    if amount <= 0:
+        return
+    BonusRollover.objects.get_or_create(player_id=player_id)
+    BonusRollover.objects.filter(player_id=player_id).update(aviator_profit=F('aviator_profit') + amount)
+
+
+def winnings_room(player_id: int, rules: WalletRules | None = None) -> Decimal | None:
+    """How much more bonus profit may go to Winnings: the unlock multiple times
+    all the bonus ever given, less everything bonus play ever moved to Winnings
+    (conversions and earlier claims). None = no multiple set (no limit beyond
+    the per-claim cap)."""
+    from django.db.models import Sum
+    from .models import LedgerEntry
+    rules = rules or WalletRules.load()
+    if rules.bonus_conversion_multiple <= 0:
+        return None
+    entries = LedgerEntry.objects.filter(wallet__player_id=player_id)
+    given = entries.filter(kind='bonus', bucket=Bucket.BONUS, amount__gt=0).aggregate(t=Sum('amount'))['t'] or Decimal('0')
+    moved = (entries.filter(kind__in=('bonus_conversion', 'bonus_profit'), bucket=Bucket.WINNINGS)
+             .aggregate(t=Sum('amount'))['t'] or Decimal('0'))
+    return max(utils.quantize(given * rules.bonus_conversion_multiple) - moved, Decimal('0.00'))
+
+
+def aviator_status(player_id: int) -> dict:
+    rules = WalletRules.load()
+    profit = BonusRollover.objects.filter(player_id=player_id).values_list('aviator_profit', flat=True).first() or Decimal('0')
+    room = winnings_room(player_id, rules)
+    to_winnings = min(profit, rules.bonus_max_conversion, room if room is not None else profit)
+    return {'stake': str(rules.bonus_aviator_stake), 'profit': str(utils.quantize(profit)),
+            'max_to_winnings': str(utils.quantize(max(to_winnings, Decimal('0'))))}
+
+
+@transaction.atomic
+def claim_aviator_profit(player_id: int, *, amount=None, to: str) -> dict:
+    """Move Aviator bonus profit from the pot into Deposit (any amount) or
+    Winnings (at most the per-claim cap and what's left of the unlock limit).
+    `amount` None = as much as allowed. Raises WalletRuleError."""
+    import uuid
+    if to not in (Bucket.DEPOSIT, Bucket.WINNINGS):
+        raise services.WalletRuleError('Claim to your Deposit or Winnings wallet.')
+    rules = WalletRules.load()
+    row = BonusRollover.objects.select_for_update().filter(player_id=player_id).first()
+    pot = row.aviator_profit if row else Decimal('0')
+    if pot <= 0:
+        raise services.WalletRuleError('You have no Aviator bonus profit to claim.')
+    limit = pot
+    if to == Bucket.WINNINGS:
+        room = winnings_room(player_id, rules)
+        limit = min(pot, rules.bonus_max_conversion, room if room is not None else pot)
+        if limit <= 0:
+            raise services.WalletRuleError('You’ve reached the bonus limit for Winnings — claim to your Deposit wallet instead.')
+    want = limit if amount in (None, '') else utils.quantize(amount)
+    if want <= 0:
+        raise services.WalletRuleError('Enter an amount to claim.')
+    if want > limit:
+        raise services.WalletRuleError(f'You can claim up to ${limit:.2f} to your {Bucket(to).label} wallet.')
+    row.aviator_profit = pot - want
+    row.save(update_fields=['aviator_profit', 'updated_at'])
+    services.post_entry(player_id=player_id, amount=want, kind='bonus_profit', bucket=to,
+                        idempotency_key=f'bonus-profit:{player_id}:{uuid.uuid4().hex}', reference='aviator-bonus-profit')
+    return {'claimed': str(want), 'to': to, **aviator_status(player_id)}
 
 
 def conversion_cap(rules: WalletRules, credited) -> Decimal:
@@ -67,12 +144,13 @@ def progress(player_id: int) -> dict:
             # This player's own limit (the fixed cap, or N× the bonus they were given if lower).
             'max_conversion': str(conversion_cap(rules, row.get('credited'))),
             'conversion_multiple': str(rules.bonus_conversion_multiple),
+            'aviator': aviator_status(player_id),
             'min_legs': rules.bonus_min_legs, 'min_leg_odds': str(rules.bonus_min_leg_odds)}
 
 
 # -- expiry -------------------------------------------------------------------------
 
-BONUS_USE_KINDS = ('bonus', 'bet_stake', 'bet_payout', 'bonus_conversion')
+BONUS_USE_KINDS = ('bonus', 'bet_stake', 'bet_payout', 'bonus_conversion', 'casino_debit', 'casino_credit')
 EXPIRY_WARNING = timedelta(hours=24)
 MIN_EXPIRY_HOURS, MAX_EXPIRY_HOURS = 24, 15 * 24
 

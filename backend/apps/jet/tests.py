@@ -561,8 +561,12 @@ class AutoWalletTests(TestCase):
         with self.assertRaises(wallet_services.InsufficientFunds):
             services.place_bet(wallet='auto', player=broke, stake='1', slot=1, now=self.now)
 
-    def test_bonus_still_refused_when_chosen(self):
-        with self.assertRaises(services.JetError):
+    def test_bonus_needs_bonus_money_and_the_setting(self):
+        with self.assertRaises(wallet_services.InsufficientFunds):           # no bonus money
+            services.place_bet(wallet='bonus', player=self.player, stake='1', slot=1, now=self.now)
+        from apps.wallet.models import WalletRules
+        WalletRules.objects.filter(pk=WalletRules.load().pk).update(bonus_aviator_stake=D('0'))
+        with self.assertRaisesMessage(services.JetError, 'only be used on sports'):
             services.place_bet(wallet='bonus', player=self.player, stake='1', slot=1, now=self.now)
 
     def test_ledger_has_a_debit_per_wallet(self):
@@ -570,3 +574,86 @@ class AutoWalletTests(TestCase):
         bet = services.place_bet(wallet='auto', player=self.player, stake='10', slot=1, now=self.now)
         rows = LedgerEntry.objects.filter(reference=f'jet:round:{self.rnd.id}:bet:{bet.id}', kind='casino_debit')
         self.assertEqual(sorted((r.bucket, r.amount) for r in rows), [('deposit', D('-8.00')), ('winnings', D('-2.00'))])
+
+
+
+class AviatorBonusTests(TestCase):
+    """Bonus money in Aviator: fixed $0.10 bets from the Bonus wallet that pay the
+    profit only into a pot, claimed to Deposit (any amount) or Winnings (capped)."""
+
+    def setUp(self):
+        from apps.wallet.models import WalletRules
+        self.player, _ = _player('tari', funds='5')
+        wallet_services.credit(player_id=self.player.id, amount=D('1'), kind='bonus', idempotency_key='seed:tari:bonus')
+        self.now = timezone.now()
+        self.rnd = _round(crash='10.00', now=self.now)
+        self.rules = WalletRules.load()
+
+    def w(self):
+        d = wallet_services.get_balance_dto(self.player.id)
+        return d.deposit, d.bonus, d.winnings
+
+    def bet(self, slot=1, stake='5'):
+        return services.place_bet(wallet='bonus', player=self.player, stake=stake, slot=slot, now=self.now)
+
+    def test_a_bonus_bet_stakes_ten_cents_and_pays_profit_only_into_the_pot(self):
+        from apps.wallet import bonus
+        b = self.bet(stake='5')                                   # the stake asked for is ignored
+        self.assertEqual((b.stake, b.wallet, b.is_free), (D('0.10'), 'bonus', False))
+        self.assertEqual(self.w(), (D('5.00'), D('0.90'), D('0.00')))
+        self.rnd.refresh_from_db()
+        self.assertEqual((self.rnd.total_stake, self.rnd.bet_count), (D('0'), 0))   # not real money
+        services._pay(b, D('2.50'), JetSettings.load(), self.now)
+        b.refresh_from_db()
+        self.assertEqual(b.payout, D('0.15'))                     # 0.25 back, minus the 0.10 stake
+        self.assertEqual(self.w(), (D('5.00'), D('0.90'), D('0.00')))   # nothing lands in a wallet yet
+        self.assertEqual(bonus.aviator_status(self.player.id)['profit'], '0.15')
+        self.rnd.refresh_from_db()
+        self.assertEqual(self.rnd.total_payout, D('0'))
+
+    def test_cancel_returns_the_bonus_stake(self):
+        b = self.bet()
+        services.cancel_bet(player_id=self.player.id, bet_id=b.id, now=self.now)
+        self.assertEqual(self.w()[1], D('1.00'))
+
+    def test_claims_to_deposit_any_amount_and_winnings_within_the_limit(self):
+        from apps.wallet import bonus
+        from apps.wallet.models import BonusRollover, LedgerEntry
+        BonusRollover.objects.filter(player_id=self.player.id).update(aviator_profit=D('8.00'))
+        # Bonus given $1 at 5× → at most $5 may ever reach Winnings from bonus play.
+        self.assertEqual(bonus.aviator_status(self.player.id)['max_to_winnings'], '5.00')
+        with self.assertRaisesMessage(wallet_services.WalletRuleError, 'up to $5.00'):
+            bonus.claim_aviator_profit(self.player.id, amount='6', to='winnings')
+        bonus.claim_aviator_profit(self.player.id, amount='5', to='winnings')
+        with self.assertRaisesMessage(wallet_services.WalletRuleError, 'limit for Winnings'):
+            bonus.claim_aviator_profit(self.player.id, amount='1', to='winnings')
+        out = bonus.claim_aviator_profit(self.player.id, to='deposit')          # the rest, to Deposit
+        self.assertEqual((out['claimed'], out['profit']), ('3.00', '0.00'))
+        self.assertEqual(self.w(), (D('8.00'), D('1.00'), D('5.00')))
+        self.assertEqual(LedgerEntry.objects.filter(kind='bonus_profit').count(), 2)
+        with self.assertRaisesMessage(wallet_services.WalletRuleError, 'no Aviator bonus profit'):
+            bonus.claim_aviator_profit(self.player.id, to='deposit')
+        with self.assertRaises(wallet_services.WalletRuleError):
+            bonus.claim_aviator_profit(self.player.id, to='bonus')
+
+    def test_claims_count_as_bonus_cost_in_revenue(self):
+        from apps.revenue import services as revenue
+        from apps.wallet import bonus
+        from apps.wallet.models import BonusRollover
+        BonusRollover.objects.filter(player_id=self.player.id).update(aviator_profit=D('2.00'))
+        bonus.claim_aviator_profit(self.player.id, to='deposit')
+        figures = revenue.real_money(self.now - timedelta(hours=1), timezone.now() + timedelta(minutes=1))
+        self.assertEqual(figures['bonus_conversions'], D('2.00'))
+
+    def test_claim_api(self):
+        from apps.wallet.models import BonusRollover
+        BonusRollover.objects.filter(player_id=self.player.id).update(aviator_profit=D('0.40'))
+        api = APIClient()
+        api.force_authenticate(self.player.user)
+        res = api.post('/api/wallet/bonus-profit/claim/', {'to': 'winnings'}, format='json')
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(res.json()['claimed'], '0.40')
+        self.assertEqual(api.post('/api/wallet/bonus-profit/claim/', {'to': 'deposit'}, format='json').status_code, 400)
+        state = api.get('/api/jet/state/').json()
+        self.assertEqual(state['settings']['bonus_stake'], '0.10')
+        self.assertEqual(state['bonus_aviator']['profit'], '0.00')

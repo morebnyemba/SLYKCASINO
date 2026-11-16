@@ -70,6 +70,7 @@ class BonusRuleTests(_BonusBase):
         from apps.jet import services as jet
         with self.assertRaisesMessage(services.WalletRuleError, 'only be used on sports'):
             casino.place_crash_bet(player_id=self.player.id, stake=D('10'), wallet='bonus')
+        WalletRules.objects.filter(pk=WalletRules.load().pk).update(bonus_aviator_stake=D('0'))   # Aviator bonus bets off
         with self.assertRaisesMessage(jet.JetError, 'only be used on sports'):
             jet.place_bet(player=self.player, stake='10', wallet='bonus')
 

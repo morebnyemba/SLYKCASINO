@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { BsDash, BsGiftFill, BsPlus } from 'react-icons/bs';
+import { BsDash, BsGiftFill, BsPlus, BsStars } from 'react-icons/bs';
 import { Spinner } from '@slyk/ui/components/spinner';
 import { fmtX, type FreeBet, type JetBet, type JetRound, type JetSettings } from '@/lib/jet';
 
@@ -14,7 +14,7 @@ const money = (v: number) => `$${v.toFixed(2)}`;
  * every round; auto cash-out sends the target with the bet so the server
  * cashes it out even if this tab is closed.
  */
-export function BetPanel({ slot, settings, round, bet, multiplier, loggedIn, freeBet, onPlace, onCancel, onCashOut }: {
+export function BetPanel({ slot, settings, round, bet, multiplier, loggedIn, freeBet, bonusBalance = 0, onPlace, onCancel, onCashOut }: {
   slot: number;
   settings: JetSettings;
   round: JetRound | null;
@@ -23,7 +23,9 @@ export function BetPanel({ slot, settings, round, bet, multiplier, loggedIn, fre
   loggedIn: boolean;
   /** A free bet this slot can use (from a chat rain). */
   freeBet?: FreeBet;
-  onPlace: (stake: string, auto: string | null, freeBetId?: number) => Promise<{ error?: string }>;
+  /** The player's Bonus wallet: each bonus bet stakes settings.bonus_stake from it. */
+  bonusBalance?: number;
+  onPlace: (stake: string, auto: string | null, freeBetId?: number, bonus?: boolean) => Promise<{ error?: string }>;
   onCancel: (id: number) => Promise<{ error?: string }>;
   onCashOut: (id: number) => Promise<{ error?: string }>;
 }) {
@@ -39,17 +41,24 @@ export function BetPanel({ slot, settings, round, bet, multiplier, loggedIn, fre
   const [note, setNote] = useState<{ tone: 'ok' | 'err'; text: string } | null>(null);
   const [useFree, setUseFree] = useState(false);
   const free = useFree && freeBet ? freeBet : undefined;
+  // Bonus bets: a fixed stake from the Bonus wallet, profit only, into the bonus profit pot.
+  const bonusStake = Number(settings.bonus_stake ?? 0);
+  const canBonus = bonusStake > 0 && bonusBalance >= bonusStake;
+  const [useBonus, setUseBonus] = useState(false);
+  const bonus = useBonus && !free && bonusStake > 0;
+  // Bonus money ran out (e.g. during auto bet): back to cash.
+  useEffect(() => { if (useBonus && !canBonus && !bet) setUseBonus(false); }, [useBonus, canBonus, bet]);
   const placedFor = useRef<number | null>(null);
 
   const betting = round?.status === 'betting';
   const flying = round?.status === 'flying';
-  const stakeNum = free ? Number(free.amount) : Number(stake) || 0;
+  const stakeNum = free ? Number(free.amount) : bonus ? bonusStake : Number(stake) || 0;
   const quick = [1, 2, 5, 10, 20, 50, 100].filter((v) => v >= min && v <= max).slice(0, 4);
 
   async function place() {
     if (!round) return;
     setBusy(true); setNote(null);
-    const res = await onPlace(stakeNum.toFixed(2), autoCash ? Number(autoAt).toFixed(2) : null, free?.id);
+    const res = await onPlace(stakeNum.toFixed(2), autoCash ? Number(autoAt).toFixed(2) : null, free?.id, bonus);
     setBusy(false);
     placedFor.current = round.id;
     // A free bet is used once; auto bet carries on with money.
@@ -79,7 +88,7 @@ export function BetPanel({ slot, settings, round, bet, multiplier, loggedIn, fre
       return;
     }
     if (queued) { setQueued(false); return; }
-    if (!free && (stakeNum < min || stakeNum > max)) { setNote({ tone: 'err', text: `Bets are ${money(min)}–${money(max)}.` }); return; }
+    if (!free && !bonus && (stakeNum < min || stakeNum > max)) { setNote({ tone: 'err', text: `Bets are ${money(min)}–${money(max)}.` }); return; }
     if (autoCash && (Number(autoAt) < 1.01 || !Number.isFinite(Number(autoAt)))) { setNote({ tone: 'err', text: 'Auto cash-out must be at least 1.01x.' }); return; }
     if (betting) await place();
     else setQueued(true);
@@ -91,8 +100,8 @@ export function BetPanel({ slot, settings, round, bet, multiplier, loggedIn, fre
   let cls = 'bg-[#28a909] border border-[#b2f2a3] text-white shadow-[inset_0_1px_1px_rgba(255,255,255,0.5)] hover:brightness-110';
   if (active && flying) {
     const gross = Math.min(Number(bet!.stake) * multiplier, Number(settings.max_win));
-    // A free bet pays the winnings only.
-    const value = bet!.is_free ? Math.max(gross - Number(bet!.stake), 0) : gross;
+    // A free bet or a bonus bet pays the profit only.
+    const value = bet!.is_free || bet!.is_bonus ? Math.max(gross - Number(bet!.stake), 0) : gross;
     label = <>Cash out <span className="block text-2xl font-black tabular-nums">{money(value)}</span></>;
     cls = 'bg-[#d07206] border border-[#ffbd71] text-white shadow-[inset_0_1px_1px_rgba(255,255,255,0.5)] hover:brightness-110';
   } else if (active) {
@@ -104,7 +113,7 @@ export function BetPanel({ slot, settings, round, bet, multiplier, loggedIn, fre
     sub = 'Waiting for next round';
     cls = 'bg-[#cb011a] border border-[#ff7d8c] text-white shadow-[inset_0_1px_1px_rgba(255,255,255,0.5)] hover:brightness-110';
   } else {
-    label = <>{free ? 'Free bet' : 'Bet'} <span className="block text-2xl font-black tabular-nums">{money(stakeNum)}</span></>;
+    label = <>{free ? 'Free bet' : bonus ? 'Bonus bet' : 'Bet'} <span className="block text-2xl font-black tabular-nums">{money(stakeNum)}</span></>;
     if (!betting) sub = 'Goes on the next round';
   }
   const locked = active || queued;
@@ -134,8 +143,22 @@ export function BetPanel({ slot, settings, round, bet, multiplier, loggedIn, fre
         </button>
       )}
 
+      {bonusStake > 0 && !free && !active && !queued && (canBonus || useBonus) && (
+        <button onClick={() => setUseBonus((v) => !v)}
+          className={`mb-3 flex w-full items-center gap-2 rounded-xl border px-3 py-2 text-left text-xs font-bold transition-colors ${
+            useBonus ? 'border-[#3b82f6] bg-[#3b82f6]/15 text-[#93c5fd]' : 'border-[#3b82f6]/40 bg-[#141516] text-white/80 hover:border-[#3b82f6]'
+          }`}>
+          <BsStars className="shrink-0 text-[#60a5fa]" />
+          <span className="flex-1">
+            {useBonus ? `Betting ${money(bonusStake)} from Bonus` : `Bet ${money(bonusStake)} from your ${money(bonusBalance)} Bonus`}
+            <span className="block text-[10.5px] font-semibold text-white/50">Profit only (stake not returned) — claim it to Deposit or Winnings</span>
+          </span>
+          <span className="rounded-full bg-[#3b82f6] px-2.5 py-1 text-[10.5px] font-extrabold text-white">{useBonus ? 'Use cash' : 'Use bonus'}</span>
+        </button>
+      )}
+
       <div className="flex gap-3">
-        <div className={`w-[46%] min-w-0 space-y-2 ${free ? 'pointer-events-none opacity-40' : ''}`}>
+        <div className={`w-[46%] min-w-0 space-y-2 ${free || bonus ? 'pointer-events-none opacity-40' : ''}`}>
           <div className="flex items-center rounded-full bg-[#141516] px-1.5 py-1">
             <button disabled={locked} aria-label="Less" onClick={() => setStake((v) => Math.max(min, (Number(v) || 0) - 1).toFixed(2))}
               className="flex h-7 w-7 items-center justify-center rounded-full border border-white/30 text-white/80 disabled:opacity-40"><BsDash /></button>
@@ -187,7 +210,7 @@ export function BetPanel({ slot, settings, round, bet, multiplier, loggedIn, fre
 
       {bet?.status === 'cashed' && (
         <p className="mt-2 text-center text-xs font-bold text-[#22c55e]">
-          Cashed out at {fmtX(bet.cashout_multiplier)} · won {money(Number(bet.payout))}{bet.is_free ? ' (free bet)' : ''}
+          Cashed out at {fmtX(bet.cashout_multiplier)} · won {money(Number(bet.payout))}{bet.is_free ? ' (free bet)' : bet.is_bonus ? ' bonus profit' : ''}
         </p>
       )}
       {active && bet?.auto_cashout && (

@@ -49,7 +49,10 @@ def real_money(start: datetime, end: datetime) -> dict:
     qs = LedgerEntry.objects.filter(created_at__gte=start, created_at__lt=end)
     stakes = -_sum(qs.filter(kind__in=CASH_STAKES, bucket__in=cash))
     wins = _sum(qs.filter(kind__in=CASH_WINS, bucket__in=cash))
-    conversions = _sum(qs.filter(kind='bonus_conversion', bucket=Bucket.WINNINGS))
+    # Bonus becoming real money: sportsbook conversions into Winnings, and Aviator
+    # bonus profit claimed into Deposit or Winnings.
+    conversions = (_sum(qs.filter(kind='bonus_conversion', bucket=Bucket.WINNINGS))
+                   + _sum(qs.filter(kind='bonus_profit', bucket__in=cash)))
     return {'stakes': stakes, 'wins': wins, 'bonus_conversions': conversions, 'ggr': stakes - wins - conversions}
 
 
