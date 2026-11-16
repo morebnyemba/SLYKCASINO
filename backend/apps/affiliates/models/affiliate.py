@@ -167,7 +167,7 @@ class AffiliateProgramme(models.Model):
     default_cpa_cap = models.DecimalField(max_digits=10, decimal_places=2, default=100)
     # A deposit commission is only earned once the referral has staked at
     # least this many times their first deposit (stops deposit-and-withdraw farming).
-    cpa_min_turnover_multiple = models.DecimalField(max_digits=5, decimal_places=2, default=1)
+    cpa_min_turnover_multiple = models.DecimalField(max_digits=5, decimal_places=2, default=3)
     # Carry a losing month (negative net revenue) into the next months'
     # revenue share until it has been earned back.
     negative_carryover = models.BooleanField(default=True)
