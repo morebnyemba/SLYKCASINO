@@ -44,7 +44,7 @@ CLAWBACK_NOTE = 'CPA clawback'
 # How long agents' dashboards explain the audit: everyone, then those affected.
 NOTICE_ALL_DAYS = 30
 NOTICE_AFFECTED_DAYS = 90
-_RESTORED = re.compile(r'^CPA restored \d{4}-\d{2}-\d{2}: ([\d.]+) -> ([\d.]+)(?: of ([\d.]+))?')
+_RESTORED = re.compile(r'^CPA restored \d{4}-\d{2}-\d{2}: ([\d.]+) -> ([\d.]+)(?: of ([\d.]+))?(?: \((.*?)\))?')
 _NOTE = re.compile(r'^CPA clawback (\d{4}-\d{2}-\d{2}): ([\d.]+) -> ([\d.]+) \((.*?)\)(?: by [^|]*)? \|')
 
 
@@ -293,7 +293,8 @@ def notice(affiliate: Affiliate, *, now=None) -> Optional[dict]:
             if not r or not r.group(3) or Decimal(r.group(3)) - Decimal(r.group(2)) < Decimal('0.01'):
                 continue                                   # fully restored: nothing left to explain
             paid, kept = Decimal(r.group(3)), Decimal(r.group(2))
-            reason = 'the flat part of the commission stays reversed; you keep the percentage part'
+            why = r.group(4) or ''
+            reason = (why[0].upper() + why[1:] + '. The rest stays reversed.') if why else 'Partly restored; the rest stays reversed.'
         total += paid - kept
         pid = c.referral.player_id if c.referral else None
         items.append({
@@ -309,6 +310,7 @@ def notice(affiliate: Affiliate, *, now=None) -> Optional[dict]:
     restored = [m for m in (_RESTORED.match(n or '') for n in affiliate.commissions.filter(
         kind=Commission.Kind.CPA, note__startswith='CPA restored').values_list('note', flat=True)) if m]
     restored_total = sum((Decimal(m.group(2)) - Decimal(m.group(1)) for m in restored), ZERO)
+    rate = next((p.group(1) for p in (re.search(r'restored at ([\d.]+)%', m.group(4) or '') for m in restored) if p), '')
     approved = services._sum(affiliate.commissions.filter(status=Commission.Status.APPROVED))
     spent = services._sum(affiliate.payouts.filter(status__in=(Payout.Status.REQUESTED, Payout.Status.PAID)))
     return {
@@ -322,5 +324,6 @@ def notice(affiliate: Affiliate, *, now=None) -> Optional[dict]:
         'still_owed': f'{max(spent - approved, ZERO):.2f}',
         'restored_total': f'{restored_total:.2f}',
         'restored_count': len(restored),
+        'restored_percent': rate,
         'items': items,
     }

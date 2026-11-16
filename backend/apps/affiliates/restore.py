@@ -10,8 +10,9 @@ restored when:
   their first deposit in real money (Deposit and Winnings wallets; bonus money
   doesn't count).
 
-On flat-CPA terms (e.g. 5.00 + 20%) only the percentage part is restored: the
-flat amount (5.20 on a 1.00 deposit) can't pay for itself and stays reversed.
+A restored commission is paid at RESTORE_PERCENT (15%) of the customer's first
+deposit, not the full amount the old terms paid; on flat-CPA terms (e.g. 5.00 +
+20%) the flat amount (5.20 on a 1.00 deposit) stays reversed too.
 
 Restoring undoes what the audit did, for the amount restored:
 
@@ -48,6 +49,9 @@ from .models import Affiliate, Commission, CommissionReversal, Payout
 ZERO = Decimal('0.00')
 RESTORE_NOTE = 'CPA restored'
 OLD_MULTIPLE = Decimal('1')       # play-through in force before the audit
+# Restored commissions are paid at this % of the customer's first deposit
+# (never above the agent's own rate or cap, never above what was paid).
+RESTORE_PERCENT = Decimal('15')
 _NOTE = re.compile(r'^CPA clawback (\d{4}-\d{2}-\d{2}): ([\d.]+) -> ([\d.]+) \((.*?)\)(?: by [^|]*)? \| ?(.*)$', re.S)
 
 
@@ -82,7 +86,7 @@ class AgentResult:
         return sum((r.amount for r in self.rows if r.restore), ZERO)
 
 
-def _review(affiliate: Affiliate) -> list[Row]:
+def _review(affiliate: Affiliate, percent: Decimal = RESTORE_PERCENT) -> list[Row]:
     clawed = list(affiliate.commissions.filter(kind=Commission.Kind.CPA, note__startswith=CLAWBACK_NOTE)
                   .select_related('referral').order_by('created_at'))
     if not clawed:
@@ -114,12 +118,14 @@ def _review(affiliate: Affiliate) -> list[Row]:
         elif turnover < first * OLD_MULTIPLE:
             restore, why = False, f'bet {turnover:.2f} real of {first * OLD_MULTIPLE:.2f} (only bonus money qualified it)'
         else:
-            restore, why = True, f'bet {turnover:.2f} real of the {first * OLD_MULTIPLE:.2f} needed when paid'
-            if affiliate.cpa_amount > 0:
-                target = min(paid, utils.deposit_commission(first, ZERO, affiliate.cpa_percent, affiliate.cpa_cap))
-                why += '; percentage part only, the flat CPA stays reversed'
-                if target - kept < Decimal('0.01'):
-                    restore, why = False, 'flat CPA terms, no percentage part to give back'
+            pct = min(percent, affiliate.cpa_percent)
+            target = min(paid, utils.deposit_commission(first, ZERO, pct, affiliate.cpa_cap))
+            flat = affiliate.cpa_amount > 0
+            restore = target - kept >= Decimal('0.01')
+            why = (f'met the rules in force when you were paid; restored at {pct.normalize():f}% of the '
+                   f'{first:.2f} first deposit' + ('; the flat CPA stays reversed' if flat else ''))
+            if not restore:
+                why = 'nothing to give back at this rate'
         rows.append(Row(commission_id=c.id, player_id=pid, first_deposit=first, real_turnover=turnover,
                         paid=paid, kept=kept, restore=restore, why=why, target=target))
     return rows
@@ -181,7 +187,8 @@ def _apply(affiliate: Affiliate, rows: list[Row], result: AgentResult, *, by: st
                      'when the commission was paid. Open your agent dashboard for the details.')
 
 
-def run(*, affiliate_ids: Optional[list[int]] = None, apply: bool = False, by: str = '') -> list[AgentResult]:
+def run(*, affiliate_ids: Optional[list[int]] = None, apply: bool = False, by: str = '',
+        percent: Decimal = RESTORE_PERCENT) -> list[AgentResult]:
     qs = Affiliate.objects.filter(commissions__note__startswith=CLAWBACK_NOTE).distinct().order_by('pk')
     if affiliate_ids:
         qs = qs.filter(pk__in=affiliate_ids)
@@ -189,7 +196,7 @@ def run(*, affiliate_ids: Optional[list[int]] = None, apply: bool = False, by: s
     for aid in qs.values_list('pk', flat=True):
         with transaction.atomic():
             affiliate = Affiliate.objects.select_for_update().get(pk=aid)
-            rows = _review(affiliate)
+            rows = _review(affiliate, percent)
             if not rows:
                 continue
             result = AgentResult(affiliate_id=affiliate.id, code=affiliate.code, rows=rows)
