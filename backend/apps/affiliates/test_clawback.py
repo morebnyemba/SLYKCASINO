@@ -139,6 +139,24 @@ class ClawbackTests(_Agent):
         c.refresh_from_db()
         self.assertEqual(c.status, Commission.Status.REJECTED)
 
+    def test_deleted_customer_is_listed_and_skipped_unless_asked(self):
+        p = self.customer('gone')
+        c = self.old_cpa(p)
+        self.paid_to_wallet('5.20')
+        services.erase_player_data(p.id)                                           # referral -> NULL
+        out = StringIO()
+        call_command('reverse_cpa_overpayments', '--apply', stdout=out)            # must not crash
+        self.assertIn('deleted customer', out.getvalue())
+        self.assertIn('[customer deleted — skipped]', out.getvalue())
+        c.refresh_from_db()
+        self.assertEqual(c.amount, D('5.20'))
+        call_command('reverse_cpa_overpayments', '--apply', '--include-deleted', stdout=StringIO())
+        c.refresh_from_db()
+        self.assertEqual(c.status, Commission.Status.REJECTED)
+        self.assertEqual(self.winnings(), D('0.00'))
+        n = clawback.notice(Affiliate.objects.get(pk=self.agent.pk))                # notice copes with it too
+        self.assertEqual(n['items'][0]['reversed'], '5.20')
+
 
 class AuditNoticeTests(_Agent):
     """What the agent dashboard says after the audit."""

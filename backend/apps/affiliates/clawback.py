@@ -52,7 +52,7 @@ class Row:
     commission_id: int
     affiliate_id: int
     affiliate_code: str
-    player_id: int
+    player_id: Optional[int]
     status: str
     created_at: object
     first_deposit: Optional[Decimal]
@@ -62,6 +62,7 @@ class Row:
     correct: Decimal
     reason: str
     waived: bool
+    deleted: bool = False
 
     @property
     def excess(self) -> Decimal:
@@ -85,24 +86,36 @@ class AffiliateResult:
 
 def _review(affiliate: Affiliate, *, include_waived: bool) -> list[Row]:
     """Every live CPA commission of this agent whose amount exceeds what the
-    current rules pay (waived ones included in the list, flagged)."""
+    current rules pay (waived ones included in the list, flagged). A commission
+    whose customer has since been deleted can't be re-checked (their ledger is
+    gone): it is listed with `deleted` set and the whole amount as excess."""
     commissions = list(affiliate.commissions.filter(kind=Commission.Kind.CPA)
                        .exclude(status=Commission.Status.REJECTED).select_related('referral'))
     if not commissions:
         return []
-    ids = [c.referral.player_id for c in commissions]
+    ids = [c.referral.player_id for c in commissions if c.referral is not None]
     totals = services._cpa_totals(ids)
-    firsts = wallet_services.first_deposit_amounts(ids)
+    firsts = wallet_services.first_deposit_amounts(ids) if ids else {}
     multiple = AffiliateProgramme.load().cpa_min_turnover_multiple
     links = services._agent_links(affiliate)
     rows = []
     for c in commissions:
+        waived = 'rules waived' in (c.note or '')
+        if c.referral is None:
+            if c.amount >= Decimal('0.01'):
+                rows.append(Row(
+                    commission_id=c.id, affiliate_id=affiliate.id, affiliate_code=affiliate.code, player_id=None,
+                    status=c.status, created_at=c.created_at, first_deposit=c.base_amount, deposits=ZERO,
+                    real_turnover=ZERO, paid=c.amount, correct=ZERO,
+                    reason='the customer’s account has been deleted, so it can’t be checked', waived=waived,
+                    deleted=True,
+                ))
+            continue
         pid = c.referral.player_id
         t = totals.get(pid, {})
         first = firsts.get(pid)
         correct, reason = services._cpa_check(affiliate, t, first, multiple, linked=pid in links)
         correct = min(correct, c.amount)                 # never pay more than was paid
-        waived = 'rules waived' in (c.note or '')
         if c.amount - correct < Decimal('0.01'):
             continue
         rows.append(Row(
@@ -182,8 +195,17 @@ def _apply(affiliate: Affiliate, rows: list[Row], result: AffiliateResult, *, by
                          'been reversed. Open your agent dashboard for the details.')
 
 
+def skipped(r: Row, *, include_waived: bool, include_deleted: bool) -> str:
+    """Why a reviewed row is left alone ('' = it gets reversed)."""
+    if r.waived and not include_waived:
+        return 'staff waived the rules'
+    if r.deleted and not include_deleted:
+        return 'customer deleted'
+    return ''
+
+
 def run(*, affiliate_ids: Optional[list[int]] = None, apply: bool = False, include_waived: bool = False,
-        by: str = '') -> list[AffiliateResult]:
+        include_deleted: bool = False, by: str = '') -> list[AffiliateResult]:
     """Review (and with `apply`, reverse) every over-paid CPA commission since
     the programme started. Each agent is handled in its own transaction."""
     qs = Affiliate.objects.filter(commissions__kind=Commission.Kind.CPA).distinct().order_by('pk')
@@ -200,7 +222,8 @@ def run(*, affiliate_ids: Optional[list[int]] = None, apply: bool = False, inclu
             if not rows:
                 continue
             result = AffiliateResult(affiliate_id=affiliate.id, code=affiliate.code, rows=rows)
-            to_fix = [r for r in rows if include_waived or not r.waived]
+            to_fix = [r for r in rows
+                      if not skipped(r, include_waived=include_waived, include_deleted=include_deleted)]
             if apply and to_fix:
                 fix = AffiliateResult(affiliate_id=affiliate.id, code=affiliate.code, rows=to_fix)
                 _apply(affiliate, to_fix, fix, by=by)
