@@ -12,6 +12,8 @@ export interface AuditNoticeData {
   from_wallet: string;
   from_balance: string;
   still_owed: string;
+  restored_total?: string;
+  restored_count?: number;
   items: { customer: string; earned_on: string; paid: string; kept: string; reversed: string; reason: string }[];
 }
 
@@ -70,11 +72,20 @@ export function AuditNotice({ n }: { n: AuditNoticeData }) {
             <p className="font-semibold text-foreground">All your commissions passed. Nothing on your account has changed.</p>
           ) : (
             <>
-              <p className="text-foreground">
-                Some commissions were paid for customers who hadn’t met these rules, because an earlier version of our system
-                counted bonus money. We have reversed <b>{money(n.reversed_total)}</b>:
-              </p>
-              <ul className="divide-y divide-border rounded-xl border border-border bg-card">
+              {Number(n.restored_total ?? 0) > 0 && (
+                <p className="rounded-xl bg-win/10 px-3 py-2 text-foreground">
+                  Good news: we’ve given back <b>{money(n.restored_total!)}</b> ({n.restored_count} commission
+                  {n.restored_count === 1 ? '' : 's'}) — those customers met the rules in force when you were paid. It’s back
+                  in your agent wallet.
+                </p>
+              )}
+              {n.items.length > 0 && (
+                <p className="text-foreground">
+                  These commissions were paid for customers who hadn’t played their deposit through with their own money (an
+                  earlier version of our system counted bonus money), so they stay reversed: <b>{money(n.reversed_total)}</b>.
+                </p>
+              )}
+              {n.items.length > 0 && <ul className="divide-y divide-border rounded-xl border border-border bg-card">
                 {n.items.map((it, i) => (
                   <li key={i} className="flex items-start justify-between gap-3 px-3 py-2">
                     <div className="min-w-0">
@@ -89,15 +100,15 @@ export function AuditNotice({ n }: { n: AuditNoticeData }) {
                     </div>
                   </li>
                 ))}
-              </ul>
-              <p className="text-muted-foreground">
+              </ul>}
+              {n.items.length > 0 && <p className="text-muted-foreground">
                 How it was recovered:
                 {Number(n.from_balance) > 0 && <> {money(n.from_balance)} from your agent wallet before it was paid out;</>}
                 {Number(n.from_wallet) > 0 && <> {money(n.from_wallet)} from your Winnings wallet;</>}
                 {Number(n.still_owed) > 0
                   ? <> the remaining <b className="text-foreground">{money(n.still_owed)}</b> will come off your next commissions.</>
                   : <> nothing more is owed.</>}
-              </p>
+              </p>}
               <p className="text-muted-foreground">
                 Your lost-ticket and net-loss commissions are not affected. If you think we got a customer wrong, contact support
                 and we’ll review it.

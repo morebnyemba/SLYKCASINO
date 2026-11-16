@@ -44,6 +44,7 @@ CLAWBACK_NOTE = 'CPA clawback'
 # How long agents' dashboards explain the audit: everyone, then those affected.
 NOTICE_ALL_DAYS = 30
 NOTICE_AFFECTED_DAYS = 90
+_RESTORED = re.compile(r'^CPA restored \d{4}-\d{2}-\d{2}: ([\d.]+) -> ([\d.]+)(?: of ([\d.]+))?')
 _NOTE = re.compile(r'^CPA clawback (\d{4}-\d{2}-\d{2}): ([\d.]+) -> ([\d.]+) \((.*?)\)(?: by [^|]*)? \|')
 
 
@@ -274,7 +275,9 @@ def notice(affiliate: Affiliate, *, now=None) -> Optional[dict]:
     if audited is None:
         return None
     now = now or timezone.now()
-    reversed_qs = list(affiliate.commissions.filter(kind=Commission.Kind.CPA, note__startswith=CLAWBACK_NOTE)
+    from django.db.models import Q
+    reversed_qs = list(affiliate.commissions.filter(kind=Commission.Kind.CPA)
+                       .filter(Q(note__startswith=CLAWBACK_NOTE) | Q(note__startswith='CPA restored'))
                        .select_related('referral').order_by('created_at'))
     affected = bool(reversed_qs)
     if now > audited + timedelta(days=NOTICE_AFFECTED_DAYS if affected else NOTICE_ALL_DAYS):
@@ -283,21 +286,29 @@ def notice(affiliate: Affiliate, *, now=None) -> Optional[dict]:
     items, total = [], ZERO
     for c in reversed_qs:
         m = _NOTE.match(c.note or '')
-        if not m:
-            continue
-        paid, kept = Decimal(m.group(2)), Decimal(m.group(3))
+        if m:
+            paid, kept, reason = Decimal(m.group(2)), Decimal(m.group(3)), _reason_for_agent(m.group(4))
+        else:
+            r = _RESTORED.match(c.note or '')
+            if not r or not r.group(3) or Decimal(r.group(3)) - Decimal(r.group(2)) < Decimal('0.01'):
+                continue                                   # fully restored: nothing left to explain
+            paid, kept = Decimal(r.group(3)), Decimal(r.group(2))
+            reason = 'the flat part of the commission stays reversed; you keep the percentage part'
         total += paid - kept
         pid = c.referral.player_id if c.referral else None
         items.append({
             'customer': services._shown(names.get(pid, '?'), True), 'earned_on': c.created_at.date(),
             'paid': f'{paid:.2f}', 'kept': f'{kept:.2f}', 'reversed': f'{paid - kept:.2f}',
-            'reason': _reason_for_agent(m.group(4)),
+            'reason': reason,
         })
     from apps.wallet.models import LedgerEntry
     from django.db.models import Sum
-    from_wallet = -(LedgerEntry.objects.filter(wallet__player_id=affiliate.player_id, kind='adjustment',
-                                               reference__startswith=CLAWBACK_NOTE)
-                    .aggregate(v=Sum('amount'))['v'] or ZERO)
+    from_wallet = max(-(LedgerEntry.objects.filter(wallet__player_id=affiliate.player_id, kind='adjustment',
+                                                   reference__regex=r'^(CPA clawback|CPA restored)')
+                        .aggregate(v=Sum('amount'))['v'] or ZERO), ZERO)
+    restored = [m for m in (_RESTORED.match(n or '') for n in affiliate.commissions.filter(
+        kind=Commission.Kind.CPA, note__startswith='CPA restored').values_list('note', flat=True)) if m]
+    restored_total = sum((Decimal(m.group(2)) - Decimal(m.group(1)) for m in restored), ZERO)
     approved = services._sum(affiliate.commissions.filter(status=Commission.Status.APPROVED))
     spent = services._sum(affiliate.payouts.filter(status__in=(Payout.Status.REQUESTED, Payout.Status.PAID)))
     return {
@@ -309,5 +320,7 @@ def notice(affiliate: Affiliate, *, now=None) -> Optional[dict]:
         'from_wallet': f'{from_wallet:.2f}',
         'from_balance': f'{max(total - from_wallet - max(spent - approved, ZERO), ZERO):.2f}',
         'still_owed': f'{max(spent - approved, ZERO):.2f}',
+        'restored_total': f'{restored_total:.2f}',
+        'restored_count': len(restored),
         'items': items,
     }
