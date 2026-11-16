@@ -14,6 +14,7 @@ export interface AuditNoticeData {
   still_owed: string;
   restored_total?: string;
   restored_count?: number;
+  restored_percent?: string;
   items: { customer: string; earned_on: string; paid: string; kept: string; reversed: string; reason: string }[];
 }
 
@@ -75,8 +76,9 @@ export function AuditNotice({ n }: { n: AuditNoticeData }) {
               {Number(n.restored_total ?? 0) > 0 && (
                 <p className="rounded-xl bg-win/10 px-3 py-2 text-foreground">
                   Good news: we’ve given back <b>{money(n.restored_total!)}</b> ({n.restored_count} commission
-                  {n.restored_count === 1 ? '' : 's'}) — those customers met the rules in force when you were paid. It’s back
-                  in your agent wallet.
+                  {n.restored_count === 1 ? '' : 's'}): those customers met the rules in force when you were paid, so we’ve
+                  restored {n.restored_percent ? `${Number(n.restored_percent)}%` : 'part'} of their first deposit. It’s back in
+                  your agent wallet.
                 </p>
               )}
               {n.items.length > 0 && (

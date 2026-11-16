@@ -32,22 +32,24 @@ class RestoreTests(_Agent):
         self.assertEqual(self.balance()['available'], D('0.00'))
         out = StringIO()
         call_command('restore_cpa', stdout=out)                   # dry run
-        self.assertIn('To restore: 1 commission(s), 0.30', out.getvalue())
+        self.assertIn('To restore: 1 commission(s), 0.15', out.getvalue())
         good.refresh_from_db()
         self.assertEqual(good.status, Commission.Status.REJECTED)
         [res] = restore.run(apply=True, by='ops')
-        self.assertEqual((res.restored, res.to_wallet), (D('0.30'), D('0.00')))
+        self.assertEqual((res.restored, res.to_wallet), (D('0.15'), D('0.00')))
         good.refresh_from_db(); bad.refresh_from_db()
-        self.assertEqual((good.status, good.amount), (Commission.Status.APPROVED, D('0.30')))
+        self.assertEqual((good.status, good.amount), (Commission.Status.APPROVED, D('0.15')))     # 15% of 1.00
         self.assertTrue(good.note.startswith('CPA restored'))
         self.assertEqual(good.decided_at, good.created_at)
         self.assertEqual(bad.status, Commission.Status.REJECTED)
-        self.assertEqual(self.balance()['available'], D('0.30'))
+        self.assertEqual(self.balance()['available'], D('0.15'))
         n = clawback.notice(Affiliate.objects.get(pk=self.agent.pk))
-        self.assertEqual((n['restored_total'], n['restored_count'], len(n['items'])), ('0.30', 1, 1))
+        self.assertEqual((n['restored_total'], n['restored_count'], n['restored_percent']), ('0.15', 1, '15'))
+        self.assertEqual(n['reversed_total'], '0.45')                          # bad 0.30 + the other half of good
+        self.assertIn('Restored at 15%', [i['reason'] for i in n['items']][0].replace('Met the rules in force when you were paid; r', 'R'))
         [again] = restore.run(apply=True)                          # idempotent: only the kept one is left
         self.assertEqual((again.restored, [r.restore for r in again.rows]), (D('0.00'), [False]))
-        self.assertEqual(self.balance()['available'], D('0.30'))
+        self.assertEqual(self.balance()['available'], D('0.15'))
 
     def test_wallet_money_goes_back_to_the_wallet(self):
         self.thirty('good', real_bet='1')
@@ -55,10 +57,10 @@ class RestoreTests(_Agent):
         clawback.run(apply=True)
         self.assertEqual(self.winnings(), D('0.00'))
         [res] = restore.run(apply=True)
-        self.assertEqual(res.to_wallet, D('0.30'))
-        self.assertEqual(self.winnings(), D('0.30'))
+        self.assertEqual(res.to_wallet, D('0.15'))
+        self.assertEqual(self.winnings(), D('0.15'))
         b = self.balance()
-        self.assertEqual((b['available'], b['paid_out']), (D('0.00'), D('0.30')))
+        self.assertEqual((b['available'], b['paid_out']), (D('0.00'), D('0.15')))
 
     def test_flat_terms_get_only_the_percentage_part(self):
         Affiliate.objects.filter(pk=self.agent.pk).update(cpa_amount=D('5'), cpa_percent=D('20'), cpa_cap=D('5'))
@@ -67,13 +69,13 @@ class RestoreTests(_Agent):
         self.old_cpa(self.customer('bonus', real_bet='0', bonus_bet='2'))             # only bonus money
         clawback.run(apply=True)
         [res] = restore.run(apply=True)
-        self.assertEqual(res.restored, D('0.20'))
+        self.assertEqual(res.restored, D('0.15'))                                    # 15% (below the agent's 20%)
         c.refresh_from_db()
-        self.assertEqual((c.status, c.amount), (Commission.Status.APPROVED, D('0.20')))
-        self.assertEqual(self.balance()['available'], D('0.20'))
+        self.assertEqual((c.status, c.amount), (Commission.Status.APPROVED, D('0.15')))
+        self.assertEqual(self.balance()['available'], D('0.15'))
         n = clawback.notice(Affiliate.objects.get(pk=self.agent.pk))
-        self.assertEqual((n['restored_total'], n['reversed_total']), ('0.20', '10.20'))   # 5.00 flat + 5.20
-        self.assertIn('flat part', n['items'][0]['reason'])
+        self.assertEqual((n['restored_total'], n['reversed_total']), ('0.15', '10.25'))   # 5.05 + 5.20
+        self.assertIn('flat CPA stays reversed', n['items'][0]['reason'])
 
     def test_pool_is_charged_again(self):
         from apps.revenue import services as revenue
@@ -91,6 +93,6 @@ class RestoreTests(_Agent):
         self.assertEqual(revenue.pool_summary()['affiliate_costs'], '0.30')
         clawback.run(apply=True)
         restore.run(apply=True)
-        self.assertEqual(sorted(CommissionReversal.objects.values_list('amount', flat=True)), [D('-0.30'), D('0.30')])
+        self.assertEqual(sorted(CommissionReversal.objects.values_list('amount', flat=True)), [D('-0.15'), D('0.30')])
         close(today + timedelta(days=1))
-        self.assertEqual(revenue.pool_summary()['affiliate_costs'], '0.30')   # charged once, as before the audit
+        self.assertEqual(revenue.pool_summary()['affiliate_costs'], '0.15')   # charged only what was restored

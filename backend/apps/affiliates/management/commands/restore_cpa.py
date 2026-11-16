@@ -22,6 +22,8 @@ class Command(BaseCommand):
         parser.add_argument('--affiliate', action='append', default=[], help='Agent code or id (repeatable).')
         parser.add_argument('--apply', action='store_true', help='Restore. Without it nothing changes.')
         parser.add_argument('--by', default='', help='Who ran it (written to the notes).')
+        parser.add_argument('--percent', default=str(restore.RESTORE_PERCENT),
+                            help='Pay restored commissions at this %% of the first deposit (default 15).')
 
     def handle(self, *args, **opts):
         ids = []
@@ -32,9 +34,12 @@ class Command(BaseCommand):
                 raise CommandError(f'no agent {ref!r}')
             ids.append(a.pk)
         apply = opts['apply']
-        results = restore.run(affiliate_ids=ids or None, apply=apply, by=opts['by'])
+        percent = Decimal(opts['percent'])
+        if not Decimal('0') < percent <= Decimal('100'):
+            raise CommandError('--percent must be between 0 and 100')
+        results = restore.run(affiliate_ids=ids or None, apply=apply, by=opts['by'], percent=percent)
         w = self.stdout.write
-        w(('APPLYING' if apply else 'DRY RUN — nothing changed (add --apply)') + '\n')
+        w(('APPLYING' if apply else 'DRY RUN — nothing changed (add --apply)') + f' — restoring at {percent}% of the first deposit\n')
         total, count, wallet, kept = Decimal('0'), 0, Decimal('0'), Decimal('0')
         for res in results:
             due = [r for r in res.rows if r.restore]
