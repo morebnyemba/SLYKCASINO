@@ -25,7 +25,9 @@ Commissions staff paid with the rules waived are reported, not touched, unless
 from __future__ import annotations
 
 import hashlib
+import re
 from dataclasses import dataclass, field
+from datetime import timedelta
 from decimal import Decimal
 from typing import Optional
 
@@ -39,6 +41,10 @@ from .models import Affiliate, AffiliateProgramme, Commission, Payout
 
 ZERO = Decimal('0.00')
 CLAWBACK_NOTE = 'CPA clawback'
+# How long agents' dashboards explain the audit: everyone, then those affected.
+NOTICE_ALL_DAYS = 30
+NOTICE_AFFECTED_DAYS = 90
+_NOTE = re.compile(r'^CPA clawback (\d{4}-\d{2}-\d{2}): ([\d.]+) -> ([\d.]+) \((.*?)\)(?: by [^|]*)? \|')
 
 
 @dataclass
@@ -46,7 +52,7 @@ class Row:
     commission_id: int
     affiliate_id: int
     affiliate_code: str
-    player_id: int
+    player_id: Optional[int]
     status: str
     created_at: object
     first_deposit: Optional[Decimal]
@@ -56,6 +62,7 @@ class Row:
     correct: Decimal
     reason: str
     waived: bool
+    deleted: bool = False
 
     @property
     def excess(self) -> Decimal:
@@ -79,24 +86,36 @@ class AffiliateResult:
 
 def _review(affiliate: Affiliate, *, include_waived: bool) -> list[Row]:
     """Every live CPA commission of this agent whose amount exceeds what the
-    current rules pay (waived ones included in the list, flagged)."""
+    current rules pay (waived ones included in the list, flagged). A commission
+    whose customer has since been deleted can't be re-checked (their ledger is
+    gone): it is listed with `deleted` set and the whole amount as excess."""
     commissions = list(affiliate.commissions.filter(kind=Commission.Kind.CPA)
                        .exclude(status=Commission.Status.REJECTED).select_related('referral'))
     if not commissions:
         return []
-    ids = [c.referral.player_id for c in commissions]
+    ids = [c.referral.player_id for c in commissions if c.referral is not None]
     totals = services._cpa_totals(ids)
-    firsts = wallet_services.first_deposit_amounts(ids)
+    firsts = wallet_services.first_deposit_amounts(ids) if ids else {}
     multiple = AffiliateProgramme.load().cpa_min_turnover_multiple
     links = services._agent_links(affiliate)
     rows = []
     for c in commissions:
+        waived = 'rules waived' in (c.note or '')
+        if c.referral is None:
+            if c.amount >= Decimal('0.01'):
+                rows.append(Row(
+                    commission_id=c.id, affiliate_id=affiliate.id, affiliate_code=affiliate.code, player_id=None,
+                    status=c.status, created_at=c.created_at, first_deposit=c.base_amount, deposits=ZERO,
+                    real_turnover=ZERO, paid=c.amount, correct=ZERO,
+                    reason='the customer’s account has been deleted, so it can’t be checked', waived=waived,
+                    deleted=True,
+                ))
+            continue
         pid = c.referral.player_id
         t = totals.get(pid, {})
         first = firsts.get(pid)
         correct, reason = services._cpa_check(affiliate, t, first, multiple, linked=pid in links)
         correct = min(correct, c.amount)                 # never pay more than was paid
-        waived = 'rules waived' in (c.note or '')
         if c.amount - correct < Decimal('0.01'):
             continue
         rows.append(Row(
@@ -170,16 +189,32 @@ def _apply(affiliate: Affiliate, rows: list[Row], result: AffiliateResult, *, by
                   f'balance, {recovered} from the Winnings wallet, {result.carried} netted off future '
                   f'commissions' + (f' (by {by})' if by else ''))[:500],
         )
+    if excess > 0:
+        services._notify(affiliate, 'Commission audit: some deposit commissions reversed',
+                         f'{excess} in deposit commissions for customers who did not meet the programme rules has '
+                         'been reversed. Open your agent dashboard for the details.')
+
+
+def skipped(r: Row, *, include_waived: bool, include_deleted: bool) -> str:
+    """Why a reviewed row is left alone ('' = it gets reversed)."""
+    if r.waived and not include_waived:
+        return 'staff waived the rules'
+    if r.deleted and not include_deleted:
+        return 'customer deleted'
+    return ''
 
 
 def run(*, affiliate_ids: Optional[list[int]] = None, apply: bool = False, include_waived: bool = False,
-        by: str = '') -> list[AffiliateResult]:
+        include_deleted: bool = False, by: str = '') -> list[AffiliateResult]:
     """Review (and with `apply`, reverse) every over-paid CPA commission since
     the programme started. Each agent is handled in its own transaction."""
     qs = Affiliate.objects.filter(commissions__kind=Commission.Kind.CPA).distinct().order_by('pk')
     if affiliate_ids:
         qs = qs.filter(pk__in=affiliate_ids)
     results = []
+    if apply and not affiliate_ids:      # a full audit: every agent's dashboard explains it
+        AffiliateProgramme.load()
+        AffiliateProgramme.objects.filter(pk=1).update(cpa_audit_at=timezone.now())
     for aid in qs.values_list('pk', flat=True):
         with transaction.atomic():
             affiliate = Affiliate.objects.select_for_update().get(pk=aid)
@@ -187,7 +222,8 @@ def run(*, affiliate_ids: Optional[list[int]] = None, apply: bool = False, inclu
             if not rows:
                 continue
             result = AffiliateResult(affiliate_id=affiliate.id, code=affiliate.code, rows=rows)
-            to_fix = [r for r in rows if include_waived or not r.waived]
+            to_fix = [r for r in rows
+                      if not skipped(r, include_waived=include_waived, include_deleted=include_deleted)]
             if apply and to_fix:
                 fix = AffiliateResult(affiliate_id=affiliate.id, code=affiliate.code, rows=to_fix)
                 _apply(affiliate, to_fix, fix, by=by)
@@ -195,3 +231,63 @@ def run(*, affiliate_ids: Optional[list[int]] = None, apply: bool = False, inclu
                 result.reversed = fix.excess
             results.append(result)
     return results
+
+
+def _reason_for_agent(reason: str) -> str:
+    """The rule a customer missed, as the agent reads it."""
+    if reason.startswith('bet '):
+        return 'the customer ' + reason.replace(' needed', ' needed in their own money (bonus money doesn’t count)')
+    if reason.startswith('deposited '):
+        return 'the customer ' + reason
+    if 'payment number' in reason:
+        return 'the customer’s account shares a payment number with yours'
+    return reason
+
+
+def notice(affiliate: Affiliate, *, now=None) -> Optional[dict]:
+    """What the agent's dashboard says about the CPA audit: to everyone for
+    NOTICE_ALL_DAYS after it ran, and — with exactly what was reversed and how
+    it was recovered — to affected agents for NOTICE_AFFECTED_DAYS. None when
+    there is nothing to say."""
+    programme = AffiliateProgramme.load()
+    audited = programme.cpa_audit_at
+    if audited is None:
+        return None
+    now = now or timezone.now()
+    reversed_qs = list(affiliate.commissions.filter(kind=Commission.Kind.CPA, note__startswith=CLAWBACK_NOTE)
+                       .select_related('referral').order_by('created_at'))
+    affected = bool(reversed_qs)
+    if now > audited + timedelta(days=NOTICE_AFFECTED_DAYS if affected else NOTICE_ALL_DAYS):
+        return None
+    names = services.accounts_services.usernames_for([c.referral.player_id for c in reversed_qs if c.referral])
+    items, total = [], ZERO
+    for c in reversed_qs:
+        m = _NOTE.match(c.note or '')
+        if not m:
+            continue
+        paid, kept = Decimal(m.group(2)), Decimal(m.group(3))
+        total += paid - kept
+        pid = c.referral.player_id if c.referral else None
+        items.append({
+            'customer': services._shown(names.get(pid, '?'), True), 'earned_on': c.created_at.date(),
+            'paid': f'{paid:.2f}', 'kept': f'{kept:.2f}', 'reversed': f'{paid - kept:.2f}',
+            'reason': _reason_for_agent(m.group(4)),
+        })
+    from apps.wallet.models import LedgerEntry
+    from django.db.models import Sum
+    from_wallet = -(LedgerEntry.objects.filter(wallet__player_id=affiliate.player_id, kind='adjustment',
+                                               reference__startswith=CLAWBACK_NOTE)
+                    .aggregate(v=Sum('amount'))['v'] or ZERO)
+    approved = services._sum(affiliate.commissions.filter(status=Commission.Status.APPROVED))
+    spent = services._sum(affiliate.payouts.filter(status__in=(Payout.Status.REQUESTED, Payout.Status.PAID)))
+    return {
+        'audited_on': timezone.localdate(audited),
+        'affected': affected,
+        'turnover_multiple': str(programme.cpa_min_turnover_multiple),
+        'min_deposit': str(affiliate.cpa_min_deposit),
+        'reversed_total': f'{total:.2f}',
+        'from_wallet': f'{from_wallet:.2f}',
+        'from_balance': f'{max(total - from_wallet - max(spent - approved, ZERO), ZERO):.2f}',
+        'still_owed': f'{max(spent - approved, ZERO):.2f}',
+        'items': items,
+    }

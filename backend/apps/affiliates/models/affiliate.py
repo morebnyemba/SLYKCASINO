@@ -194,6 +194,9 @@ class AffiliateProgramme(models.Model):
     # Aviator and other casino games earn agents this % of their customers'
     # net loss on them (sports use each agent's own rate), with its own carry-forward.
     aviator_commission_percent = models.DecimalField(max_digits=5, decimal_places=2, default=1)
+    # When the last CPA audit was applied (manage.py reverse_cpa_overpayments
+    # --apply): every agent's dashboard explains it for a while afterwards.
+    cpa_audit_at = models.DateTimeField(null=True, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

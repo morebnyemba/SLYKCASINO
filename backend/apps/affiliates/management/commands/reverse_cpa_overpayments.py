@@ -5,7 +5,9 @@ affiliate programme started. Dry run unless --apply.
     python manage.py reverse_cpa_overpayments --affiliate AGENT  # one agent (code or id)
     python manage.py reverse_cpa_overpayments --apply --by ops   # reverse
 
-See apps.affiliates.clawback for how the money is recovered.
+A full --apply (no --affiliate) also dates the audit: every agent's dashboard
+explains it for 30 days, and affected agents (who also get a notification)
+see what was reversed and how for 90 days. See apps.affiliates.clawback.
 """
 from decimal import Decimal
 
@@ -24,6 +26,8 @@ class Command(BaseCommand):
         parser.add_argument('--apply', action='store_true', help='Reverse. Without it nothing changes.')
         parser.add_argument('--include-waived', action='store_true',
                             help='Also reverse commissions staff paid with the rules waived.')
+        parser.add_argument('--include-deleted', action='store_true',
+                            help='Also reverse commissions whose customer has been deleted (can\'t be re-checked).')
         parser.add_argument('--by', default='', help='Who ran it (written to the notes).')
 
     def handle(self, *args, **opts):
@@ -36,7 +40,8 @@ class Command(BaseCommand):
             ids.append(a.pk)
         apply = opts['apply']
         results = clawback.run(affiliate_ids=ids or None, apply=apply,
-                               include_waived=opts['include_waived'], by=opts['by'])
+                               include_waived=opts['include_waived'], include_deleted=opts['include_deleted'],
+                               by=opts['by'])
         w = self.stdout.write
         w(('APPLYING' if apply else 'DRY RUN — nothing changed (add --apply)') + '\n')
         totals = {'excess': Decimal('0'), 'balance': Decimal('0'), 'wallet': Decimal('0'), 'carried': Decimal('0')}
@@ -45,8 +50,10 @@ class Command(BaseCommand):
             w(f'Agent {res.code} (#{res.affiliate_id}) — terms now: {a.cpa_amount} flat + {a.cpa_percent}% '
               f'(cap {a.cpa_cap}), minimum deposit {a.cpa_min_deposit}')
             for r in res.rows:
-                tag = ' [staff waived rules — skipped]' if r.waived and not opts['include_waived'] else ''
-                w(f'  commission #{r.commission_id} {r.status:<8} {r.created_at:%Y-%m-%d} player #{r.player_id}: '
+                why = clawback.skipped(r, include_waived=opts['include_waived'], include_deleted=opts['include_deleted'])
+                tag = f' [{why} — skipped]' if why else ''
+                who = f'player #{r.player_id}' if r.player_id else 'deleted customer'
+                w(f'  commission #{r.commission_id} {r.status:<8} {r.created_at:%Y-%m-%d} {who}: '
                   f'first deposit {r.first_deposit}, deposits {r.deposits}, real stakes {r.real_turnover} — '
                   f'paid {r.paid}, rules pay {r.correct}, excess {r.excess} ({r.reason}){tag}')
             if apply:
@@ -55,8 +62,8 @@ class Command(BaseCommand):
                 totals['balance'] += res.from_balance
                 totals['wallet'] += res.from_wallet
                 totals['carried'] += res.carried
-            totals['excess'] += sum((r.excess for r in res.rows
-                                     if r.status != 'pending' and (opts['include_waived'] or not r.waived)), Decimal('0'))
+            totals['excess'] += sum((r.excess for r in res.rows if r.status != 'pending' and not clawback.skipped(
+                r, include_waived=opts['include_waived'], include_deleted=opts['include_deleted'])), Decimal('0'))
         w(f'\n{len(results)} agent(s); over-paid (approved/paid, excluding pending): {totals["excess"]}')
         if apply:
             w(f'recovered from balances {totals["balance"]}, from wallets {totals["wallet"]}, '

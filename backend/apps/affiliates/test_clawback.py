@@ -15,7 +15,7 @@ from apps.wallet import services as wallet
 _k = count()
 
 
-class ClawbackTests(TestCase):
+class _Agent(TestCase):
     def setUp(self):
         services.update_programme(welcome_bonus_percent=0, cpa_min_turnover_multiple=3)
         self.agent_player = accounts.create_player(username='agent')
@@ -55,6 +55,9 @@ class ClawbackTests(TestCase):
     def balance(self):
         return services.balance(Affiliate.objects.get(pk=self.agent.pk))
 
+
+
+class ClawbackTests(_Agent):
     def test_live_rules_no_longer_pay_it(self):
         self.customer('cust')
         self.assertEqual(services.compute_cpa(Affiliate.objects.get(pk=self.agent.pk)), 0)
@@ -135,3 +138,65 @@ class ClawbackTests(TestCase):
         clawback.run(apply=True, include_waived=True)
         c.refresh_from_db()
         self.assertEqual(c.status, Commission.Status.REJECTED)
+
+    def test_deleted_customer_is_listed_and_skipped_unless_asked(self):
+        p = self.customer('gone')
+        c = self.old_cpa(p)
+        self.paid_to_wallet('5.20')
+        services.erase_player_data(p.id)                                           # referral -> NULL
+        out = StringIO()
+        call_command('reverse_cpa_overpayments', '--apply', stdout=out)            # must not crash
+        self.assertIn('deleted customer', out.getvalue())
+        self.assertIn('[customer deleted — skipped]', out.getvalue())
+        c.refresh_from_db()
+        self.assertEqual(c.amount, D('5.20'))
+        call_command('reverse_cpa_overpayments', '--apply', '--include-deleted', stdout=StringIO())
+        c.refresh_from_db()
+        self.assertEqual(c.status, Commission.Status.REJECTED)
+        self.assertEqual(self.winnings(), D('0.00'))
+        n = clawback.notice(Affiliate.objects.get(pk=self.agent.pk))                # notice copes with it too
+        self.assertEqual(n['items'][0]['reversed'], '5.20')
+
+
+class AuditNoticeTests(_Agent):
+    """What the agent dashboard says after the audit."""
+
+    def notice(self, **kw):
+        return clawback.notice(Affiliate.objects.get(pk=self.agent.pk), **kw)
+
+    def test_nothing_before_any_audit(self):
+        self.assertIsNone(self.notice())
+
+    def test_unaffected_agent_is_told_it_passed_for_30_days(self):
+        clawback.run(apply=True)
+        n = self.notice()
+        self.assertFalse(n['affected'])
+        self.assertEqual((n['turnover_multiple'], n['items']), ('3.00', []))
+        from datetime import timedelta
+        from django.utils import timezone
+        self.assertIsNone(self.notice(now=timezone.now() + timedelta(days=31)))
+
+    def test_affected_agent_sees_what_and_how(self):
+        self.old_cpa(self.customer('customer1'))
+        self.paid_to_wallet('5.20')
+        wallet.debit(player_id=self.agent_player.id, amount=D('3.20'), kind='bet_stake', bucket='winnings',
+                     idempotency_key='spent')
+        clawback.run(apply=True, by='ops')
+        n = self.notice()
+        self.assertTrue(n['affected'])
+        self.assertEqual((n['reversed_total'], n['from_wallet'], n['still_owed'], n['from_balance']),
+                         ('5.20', '2.00', '3.20', '0.00'))
+        [item] = n['items']
+        self.assertEqual((item['paid'], item['kept'], item['reversed']), ('5.20', '0.00', '5.20'))
+        self.assertIn('bonus money doesn’t count', item['reason'])
+        self.assertNotEqual(item['customer'], 'customer1')                       # masked
+        from datetime import timedelta
+        from django.utils import timezone
+        self.assertIsNotNone(self.notice(now=timezone.now() + timedelta(days=60)))
+        self.assertIsNone(self.notice(now=timezone.now() + timedelta(days=91)))
+
+    def test_affected_agent_is_notified(self):
+        from apps.notifications.models import Notification
+        self.old_cpa(self.customer('cust'))
+        clawback.run(apply=True)
+        self.assertTrue(Notification.objects.filter(player_id=self.agent_player.id, title__startswith='Commission audit').exists())

@@ -13,6 +13,7 @@ import Link from 'next/link';
 import { PayoutDialog, type PayoutOptions } from '@/components/affiliate/payout-dialog';
 import { PeriodReport } from '@/components/affiliate/period-report';
 import { ShareLink } from '@/components/affiliate/share-link';
+import { AuditNotice, type AuditNoticeData } from '@/components/affiliate/audit-notice';
 
 interface Commission {
   id: number;
@@ -87,6 +88,7 @@ interface Affiliate {
   payouts?: Payout[];
   payout_options?: PayoutOptions;
   commissions?: Commission[];
+  audit_notice?: AuditNoticeData | null;
 }
 
 const money = (v: string | number) =>
@@ -246,12 +248,19 @@ function MoneyChip({ label, value, hint }: { label: string; value: string; hint?
 
 const shortDate = (iso: string) => new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
 
+// Rows the commission audit (CPA clawback) changed carry this note prefix.
+const AUDIT = 'CPA clawback';
+const signedMoney = (v: string | number) => (Number(v) < 0 ? `−${money(Math.abs(Number(v)))}` : money(v));
+
 function commissionText(c: Commission) {
   if (c.kind === 'netloss') {
     return { title: `Customers’ net loss · ${dayLabel(c.period)}`, sub: `${pct(c.rate)} of ${money(c.base_amount)} lost by ${c.active_players} customer${c.active_players === 1 ? '' : 's'}` };
   }
   if (c.kind === 'stake') {
     return { title: `Losing ticket ${c.ticket ?? ''} · ${dayLabel(c.period)}`, sub: `${pct(c.rate)} of the ${money(c.base_amount)} stake` };
+  }
+  if (c.kind === 'cpa' && c.note.startsWith(AUDIT)) {
+    return { title: 'New customer bonus · audited', sub: 'Reversed in the commission audit (see the note at the top)' };
   }
   if (c.kind === 'cpa') {
     return { title: 'New customer bonus', sub: Number(c.rate) > 0 ? `${pct(c.rate)} of their ${money(c.base_amount)} first deposit` : 'A customer made their first deposit' };
@@ -352,7 +361,18 @@ function WithdrawalsList({ min }: { min: number }) {
         <p className="flex items-center gap-2 py-4 text-sm text-muted-foreground"><FaClockRotateLeft /> No withdrawals yet. You can withdraw once your wallet reaches {money(min)}.</p>
       ) : (
         <ul className="divide-y divide-border">
-          {data.results.map((po) => (
+          {data.results.map((po) => po.note.startsWith(AUDIT) ? (
+            <li key={po.id} className="flex items-start justify-between gap-3 py-3">
+              <div className="min-w-0">
+                <p className="text-sm font-semibold">Commission audit correction</p>
+                <p className="text-xs text-muted-foreground">{new Date(po.created_at).toLocaleDateString()} · see the note at the top</p>
+              </div>
+              <div className="shrink-0 text-right">
+                <p className="font-bold tabular-nums">{signedMoney(po.amount)}</p>
+                <Badge variant="secondary">Audit</Badge>
+              </div>
+            </li>
+          ) : (
             <li key={po.id} className="flex items-start justify-between gap-3 py-3">
               <div className="min-w-0">
                 <p className="text-sm font-semibold">
@@ -397,6 +417,8 @@ function Dashboard({ a, refetch }: { a: Affiliate & { stats: Stats }; refetch: (
 
   return (
     <div className="space-y-5">
+      {a.audit_notice && <AuditNotice n={a.audit_notice} />}
+
       {/* My wallet */}
       <section className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-primary via-primary to-[#0B3BB8] p-5 text-white shadow-lg sm:p-6">
         {lockedNow > 0 && unlocksOn && (
