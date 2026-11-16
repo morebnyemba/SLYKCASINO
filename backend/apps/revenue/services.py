@@ -70,6 +70,22 @@ def day_affiliate_costs(day: date) -> Decimal:
                                           decided_at__gte=_aware(day), decided_at__lt=_aware(day + timedelta(days=1))))
 
 
+def credit_affiliate_reversals(day: date) -> Decimal:
+    """Commissions charged to the pool on earlier days and since taken back
+    (affiliates.CommissionReversal, e.g. the CPA audit), up to the end of `day`
+    and not yet credited: credited back on `day`. Call inside the day-closing
+    transaction."""
+    from apps.affiliates.models import CommissionReversal
+    qs = CommissionReversal.objects.select_for_update().filter(
+        counted=True, credited_on__isnull=True, created_at__lt=_aware(day + timedelta(days=1)))
+    ids = list(qs.values_list('pk', flat=True))
+    if not ids:
+        return ZERO
+    total = _sum(CommissionReversal.objects.filter(pk__in=ids))
+    CommissionReversal.objects.filter(pk__in=ids).update(credited_on=day)
+    return total
+
+
 def split(ggr: Decimal, carried_in: Decimal, percent: Decimal, wallets: int = 3) -> dict:
     """One day's maths. A loss carried from earlier days is netted off first;
     a day that ends below zero shares nothing and carries the rest forward.
@@ -114,6 +130,7 @@ def close_days(*, today: Optional[date] = None) -> int:
             record = RevenueDay.objects.create(
                 day=day, ggr=ggr, carried_in=carried, share_percent=held, share_each=ZERO,
                 bonus_conversions=day_bonus_conversions(day), affiliate_costs=day_affiliate_costs(day),
+                affiliate_reversals=credit_affiliate_reversals(day),
                 base=maths['base'], carry_out=maths['carry_out'], shared=maths['shared'], pool=maths['pool'],
             )
             ShareEntry.objects.bulk_create([
@@ -217,12 +234,15 @@ def decide_withdrawal(withdrawal_id: int, *, decision: str, by: str, reference: 
 
 def pool_summary() -> dict:
     """The operating pool: its share of every closed day, less affiliate
-    commissions and the costs staff recorded."""
+    commissions (net of any taken back since) and the costs staff recorded."""
     days = RevenueDay.objects.all()
-    earned, affiliates, expenses = _sum(days, 'pool'), _sum(days, 'affiliate_costs'), _sum(PoolExpense.objects.all())
+    earned, charged, reversed_ = _sum(days, 'pool'), _sum(days, 'affiliate_costs'), _sum(days, 'affiliate_reversals')
+    affiliates = charged - reversed_
+    expenses = _sum(PoolExpense.objects.all())
     by_category = {c: str((v or ZERO).quantize(CENT)) for c, v in PoolExpense.objects.values_list('category').annotate(t=Sum('amount'))}
-    return {'earned': str(earned), 'affiliate_costs': str(affiliates), 'expenses': str(expenses),
-            'remaining': str(earned - affiliates - expenses), 'expenses_by_category': by_category}
+    return {'earned': str(earned), 'affiliate_costs': str(affiliates), 'affiliate_reversals': str(reversed_),
+            'expenses': str(expenses), 'remaining': str(earned - affiliates - expenses),
+            'expenses_by_category': by_category}
 
 
 def record_expense(*, day, category: str, amount, note: str = '', by: str, request=None) -> PoolExpense:

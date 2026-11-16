@@ -37,7 +37,7 @@ from django.utils import timezone
 from apps.wallet import services as wallet_services
 
 from . import services
-from .models import Affiliate, AffiliateProgramme, Commission, Payout
+from .models import Affiliate, AffiliateProgramme, Commission, CommissionReversal, Payout
 
 ZERO = Decimal('0.00')
 CLAWBACK_NOTE = 'CPA clawback'
@@ -127,6 +127,24 @@ def _review(affiliate: Affiliate, *, include_waived: bool) -> list[Row]:
     return rows
 
 
+def charged_to_pool(decided_at, *, at) -> bool:
+    """Whether a commission that became final at `decided_at` was charged to
+    the operating pool by `at`: its day has been closed (revenue days close in
+    order, each charging that day's final commissions)."""
+    if decided_at is None:
+        return False
+    from apps.revenue.models import RevenueDay
+    return RevenueDay.objects.filter(day=timezone.localdate(decided_at), closed_at__lt=at).exists()
+
+
+def record_reversal(c: Commission, amount: Decimal, *, reason: str, at) -> CommissionReversal:
+    """Note money taken back from a final commission, so the pool gets it back."""
+    return CommissionReversal.objects.create(
+        commission=c, affiliate_id=c.affiliate_id, amount=amount, reason=reason[:300], created_at=at,
+        counted=charged_to_pool(c.decided_at or c.created_at, at=at),
+    )
+
+
 def _sum(qs) -> Decimal:
     return services._sum(qs)
 
@@ -151,6 +169,8 @@ def _apply(affiliate: Affiliate, rows: list[Row], result: AffiliateResult, *, by
             legacy_excess += r.excess
         if c.status != Commission.Status.PENDING:
             excess += r.excess
+            # Before decided_at is overwritten: was this amount charged to the pool?
+            record_reversal(c, r.excess, reason=r.reason, at=stamp)
         c.amount = r.correct
         c.note = note
         fields = ['amount', 'note']

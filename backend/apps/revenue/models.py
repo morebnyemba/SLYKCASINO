@@ -101,6 +101,9 @@ class RevenueDay(models.Model):
     pool = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     # Affiliate commissions that became final this day, charged to the pool.
     affiliate_costs = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    # Commissions charged on earlier days and since taken back (e.g. the CPA
+    # audit), credited back to the pool on this day.
+    affiliate_reversals = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     closed_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

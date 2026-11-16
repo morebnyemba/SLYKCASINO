@@ -88,6 +88,8 @@ def pool_ledger(*, start: Optional[date] = None, end: Optional[date] = None) -> 
         moves.append((d.day, 0, 'day', f'Day closed · GGR {_money(d.ggr)}', d.pool, None))
         if d.affiliate_costs:
             moves.append((d.day, 1, 'affiliates', 'Affiliate commissions', -d.affiliate_costs, None))
+        if d.affiliate_reversals:
+            moves.append((d.day, 1, 'affiliates', 'Affiliate commissions taken back (audit)', d.affiliate_reversals, None))
     for e in PoolExpense.objects.order_by('day', 'id'):
         moves.append((e.day, 2, 'expense', f'{e.get_category_display()}{" · " + e.note if e.note else ""} (by {e.recorded_by})',
                       -e.amount, e.id))
@@ -140,7 +142,8 @@ def snapshot(week_start: date) -> dict:
     deposits = _paid_deposits(start, end)
     withdrawals = list(_paid_withdrawals(start, end).values_list('amount', 'fee'))
     days = RevenueDay.objects.filter(day__gte=week_start, day__lte=last)
-    agg = days.aggregate(ggr=Sum('ggr'), pool=Sum('pool'), aff=Sum('affiliate_costs'), share=Sum('share_each'))
+    agg = days.aggregate(ggr=Sum('ggr'), pool=Sum('pool'), aff=Sum('affiliate_costs'), rev=Sum('affiliate_reversals'),
+                         share=Sum('share_each'))
     expenses = PoolExpense.objects.filter(day__gte=week_start, day__lte=last).aggregate(t=Sum('amount'))['t'] or ZERO
     partners = (ShareWithdrawal.objects.filter(status=ShareWithdrawal.Status.PAID, decided_at__gte=start, decided_at__lt=end)
                 .aggregate(t=Sum('amount'))['t'] or ZERO)
@@ -150,7 +153,7 @@ def snapshot(week_start: date) -> dict:
                     'fees': _money(sum((f for _, f in withdrawals), ZERO)),
                     'sent': _money(sum((a - f for a, f in withdrawals), ZERO))},
         'ggr': _money(agg['ggr']), 'days_closed': days.count(),
-        'pool_in': _money(agg['pool']), 'affiliate_costs': _money(agg['aff']), 'expenses': _money(expenses),
+        'pool_in': _money(agg['pool']), 'affiliate_costs': _money((agg['aff'] or ZERO) - (agg['rev'] or ZERO)), 'expenses': _money(expenses),
         'partner_shares': _money((agg['share'] or ZERO) * 3), 'partner_withdrawals': _money(partners),
         'pool_balance_end': pool_ledger(end=last)['closing'],
     }

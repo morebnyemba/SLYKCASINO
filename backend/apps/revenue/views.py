@@ -21,7 +21,8 @@ def _day(d: RevenueDay) -> dict:
     return {'day': d.day.isoformat(), 'ggr': str(d.ggr), 'bonus_conversions': str(d.bonus_conversions), 'carried_in': str(d.carried_in), 'base': str(d.base),
             'carry_out': str(d.carry_out), 'share_percent': str(d.share_percent), 'share_each': str(d.share_each),
             'shared': str(d.shared),
-            'pool': str(d.pool), 'affiliate_costs': str(d.affiliate_costs)}
+            'pool': str(d.pool), 'affiliate_costs': str(d.affiliate_costs - d.affiliate_reversals),
+            'affiliate_reversals': str(d.affiliate_reversals)}
 
 
 class OverviewView(APIView):

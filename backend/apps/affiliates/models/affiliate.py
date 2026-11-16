@@ -140,6 +140,32 @@ class Commission(models.Model):
         return f'{self.kind} {self.amount} for {self.affiliate_id} ({self.status})'
 
 
+class CommissionReversal(models.Model):
+    """Money taken back from a final (approved/paid) commission, e.g. by the CPA
+    audit. Append-only. The operating pool was charged the commission's full
+    amount on the day it became final (revenue.RevenueDay.affiliate_costs, fixed
+    when that day closed), so a reversal is credited back to the pool on the
+    next day to close (`credited_on`). `counted` is False when the original
+    amount was never charged to the pool (its day wasn't closed yet, or was
+    before revenue sharing started): then the pool simply never sees it."""
+
+    commission = models.ForeignKey(Commission, on_delete=models.PROTECT, related_name='reversals')
+    affiliate = models.ForeignKey(Affiliate, on_delete=models.PROTECT, related_name='reversals')
+    amount = models.DecimalField(max_digits=14, decimal_places=2)      # positive: how much was taken back
+    reason = models.CharField(max_length=300, blank=True)
+    counted = models.BooleanField(default=True)
+    credited_on = models.DateField(null=True, blank=True)
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = 'affiliates_commission_reversal'
+        ordering = ['-created_at']
+        indexes = [models.Index(fields=['counted', 'credited_on'])]
+
+    def __str__(self) -> str:
+        return f'reversal {self.amount} of commission {self.commission_id}'
+
+
 class AffiliateProgramme(models.Model):
     """Programme-wide settings (one row, edited in the admin): the welcome
     bonus referred players get on their first deposit, the terms new
