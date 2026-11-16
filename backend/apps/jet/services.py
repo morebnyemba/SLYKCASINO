@@ -86,6 +86,7 @@ def bet_payload(bet: JetBet, *, mine: bool = False) -> dict:
     if mine:
         data['auto_cashout'] = str(bet.auto_cashout) if bet.auto_cashout else None
         data['is_free'] = bet.is_free
+        data['is_bonus'] = bet.wallet == 'bonus' and not bet.is_free
         data['wallet'] = bet.wallet
         data['wallets'] = {k: str(v) for k, v in bet_parts(bet).items()} if not bet.is_free else None
     return data
@@ -100,7 +101,13 @@ def settings_payload(cfg: JetSettings) -> dict:
         'max_multiplier': str(cfg.max_multiplier), 'round_stake_limit': str(cfg.round_stake_limit),
         'betting_seconds': cfg.betting_seconds, 'rate': engine.RATE,
         'bots_enabled': cfg.bots_enabled, 'chat_enabled': cfg.chat_enabled,
+        'bonus_stake': str(_bonus_stake()),
     }
+
+
+def _bonus_stake() -> Decimal:
+    from apps.wallet import bonus as bonus_rules
+    return bonus_rules.aviator_stake()
 
 
 def current_round() -> Optional[JetRound]:
@@ -143,6 +150,12 @@ def _auto_parts(player_id: int, stake: Decimal) -> dict[str, Decimal]:
     return {k: v for k, v in parts.items() if v > 0}
 
 
+def is_promo(bet: JetBet) -> bool:
+    """A free bet or an Aviator bonus bet: promotional, so it pays the profit
+    only and stays out of the round's real-money totals."""
+    return bet.is_free or bet.wallet == 'bonus'
+
+
 def bet_parts(bet: JetBet) -> dict[str, Decimal]:
     """The wallets a bet's stake came from and how much from each."""
     if bet.stake_deposit or bet.stake_winnings:
@@ -177,6 +190,13 @@ def place_bet(*, player, stake=None, slot: int = 1, auto_cashout=None, free_bet_
             raise JetError('That free bet has been used or has expired.')
         stake = free.amount
         wallet = 'bonus'  # a free bet is promotional money
+    # An Aviator bonus bet: always the fixed bonus stake ($0.10) from the Bonus wallet.
+    bonus_play = free is None and wallet == 'bonus'
+    if bonus_play:
+        from apps.wallet import bonus as bonus_rules
+        stake = bonus_rules.aviator_stake()
+        if stake <= 0:
+            raise JetError('Bonus money can only be used on sports bets.')
     stake = _money(stake, 'stake')
     parts: dict[str, Decimal] = {}
     # No wallet named: Deposit then Winnings, picked once the bet rules below pass
@@ -186,12 +206,13 @@ def place_bet(*, player, stake=None, slot: int = 1, auto_cashout=None, free_bet_
         if not auto_pick:
             try:
                 wallet = wallet_services.betting_bucket(wallet)
-                from apps.wallet import bonus
-                bonus.not_for_games(wallet)
+                if not bonus_play:
+                    from apps.wallet import bonus
+                    bonus.not_for_games(wallet)
             except wallet_services.WalletRuleError as exc:
                 raise JetError(str(exc))
             parts = {wallet: stake}
-    if free is None and (stake < cfg.min_bet or stake > cfg.max_bet):
+    if free is None and not bonus_play and (stake < cfg.min_bet or stake > cfg.max_bet):
         raise JetError(f'Bets are ${cfg.min_bet:.2f} to ${cfg.max_bet:.2f}.')
     auto = None
     if auto_cashout not in (None, ''):
@@ -205,7 +226,7 @@ def place_bet(*, player, stake=None, slot: int = 1, auto_cashout=None, free_bet_
         raise JetError('Bets for this round are closed — wait for the next one.')
     if JetBet.objects.filter(round=rnd, player_id=player.id, slot=slot).exists():
         raise JetError('You already have a bet in this slot.')
-    if free is None and rnd.total_stake + stake > cfg.round_stake_limit:
+    if free is None and not bonus_play and rnd.total_stake + stake > cfg.round_stake_limit:
         raise JetError('This round is full — try the next one.')
     if auto_pick:
         parts = _auto_parts(player.id, stake)
@@ -229,7 +250,8 @@ def place_bet(*, player, stake=None, slot: int = 1, auto_cashout=None, free_bet_
                 idempotency_key=f'jet:stake:{bet.id}' + ('' if i == 0 else f':{bucket}'),
                 reference=f'jet:round:{rnd.id}:bet:{bet.id}',
             )
-        JetRound.objects.filter(pk=rnd.pk).update(total_stake=F('total_stake') + stake, bet_count=F('bet_count') + 1)
+        if not bonus_play:   # bonus money isn't real money: the round's totals stay real-money only
+            JetRound.objects.filter(pk=rnd.pk).update(total_stake=F('total_stake') + stake, bet_count=F('bet_count') + 1)
     publish({'type': 'bet', 'bet': bet_payload(bet)})
     return bet
 
@@ -245,7 +267,7 @@ def cancel_bet(*, player_id: int, bet_id: int, now=None) -> JetBet:
     if bet.status != JetBet.Status.ACTIVE or rnd.status != JetRound.Status.BETTING or now >= rnd.betting_ends_at:
         raise JetError('This bet can no longer be cancelled.')
     _refund(bet, now)
-    if not bet.is_free:
+    if not is_promo(bet):
         JetRound.objects.filter(pk=rnd.pk).update(total_stake=F('total_stake') - bet.stake, bet_count=F('bet_count') - 1)
     publish({'type': 'cancel', 'bet': bet.id, 'round': rnd.id})
     return bet
@@ -270,7 +292,13 @@ def _refund(bet: JetBet, now) -> None:
 def _pay(bet: JetBet, multiplier: Decimal, cfg: JetSettings, now) -> JetBet:
     """Cash a riding bet out at `multiplier` (caller holds the row lock)."""
     payout = engine.payout_for(bet.stake, multiplier, cfg.max_win)
-    if bet.is_free:
+    if bet.wallet == 'bonus' and not bet.is_free:
+        # An Aviator bonus bet: stake not returned; the profit goes into the
+        # player's claimable pot (wallet.bonus), not into any wallet yet.
+        payout = max(payout - bet.stake, Decimal('0'))
+        from apps.wallet import bonus as bonus_rules
+        bonus_rules.add_aviator_profit(bet.player_id, payout)
+    elif bet.is_free:
         # Stake not returned: the winnings are paid as a bonus (a promo cost in
         # NGR), never as a casino win, and stay out of the round's totals.
         payout = max(payout - bet.stake, Decimal('0'))
@@ -298,7 +326,7 @@ def _pay(bet: JetBet, multiplier: Decimal, cfg: JetSettings, now) -> JetBet:
     bet.payout = payout
     bet.settled_at = now
     bet.save(update_fields=['status', 'cashout_multiplier', 'payout', 'settled_at'])
-    if not bet.is_free:
+    if not is_promo(bet):
         JetRound.objects.filter(pk=bet.round_id).update(total_payout=F('total_payout') + payout)
     publish({'type': 'cashout', 'bet': bet_payload(bet)})
     return bet

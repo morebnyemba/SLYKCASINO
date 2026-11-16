@@ -1,13 +1,13 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { BsChatDotsFill, BsInfoCircle, BsMusicNoteBeamed, BsVolumeMuteFill, BsVolumeUpFill } from 'react-icons/bs';
+import { BsChatDotsFill, BsInfoCircle, BsMusicNoteBeamed, BsStars, BsVolumeMuteFill, BsVolumeUpFill } from 'react-icons/bs';
 import { BetPanel } from '@/components/jet/bet-panel';
 import { ChatPanel } from '@/components/jet/chat-panel';
 import { FlightScene } from '@/components/jet/flight-scene';
 import { BetsList, HistoryStrip } from '@/components/jet/side-panels';
 import { useAuth } from '@/lib/auth-context';
-import { multiplierAt, useJet, useJetChat, type JetBet, type JetRound } from '@/lib/jet';
+import { multiplierAt, useJet, useJetChat, type BonusAviator, type JetBet, type JetRound } from '@/lib/jet';
 import * as sound from '@/lib/jet-sound';
 import { GAME_WALLET_IDS, WALLET_LABEL } from '@/lib/wallets';
 
@@ -137,7 +137,7 @@ const EMPTY: JetBet[] = [];
 /** The multiplayer crash game (named in the admin; BetBlits Aviator by default). */
 export default function AviatorPage() {
   const { user } = useAuth();
-  const { state, error, now, placeBet, cancelBet, cashOut } = useJet();
+  const { state, error, now, placeBet, cancelBet, cashOut, claimBonusProfit } = useJet();
   const [multiplier, setMultiplier] = useState(1);
   const [rulesOpen, setRulesOpen] = useState(false);
   const chat = useJetChat();
@@ -190,6 +190,7 @@ export default function AviatorPage() {
             </span>
           </div>
         )}
+        {state.bonus_aviator && <BonusProfitChip pot={state.bonus_aviator} onClaim={claimBonusProfit} />}
         <button onClick={() => setRulesOpen((v) => !v)} aria-label="How to play"
           className={`${state.wallets ? '' : 'ml-auto'} flex items-center gap-1.5 rounded-full bg-[#141516] px-3 py-1.5 text-xs font-bold text-white/80 hover:text-white`}>
           <BsInfoCircle size={13} /> <span className="hidden sm:inline">How to play</span>
@@ -219,6 +220,13 @@ export default function AviatorPage() {
           </p>
           {s.bots_enabled && (
             <p className="mt-2 text-white/60">Includes simulated players for atmosphere.</p>
+          )}
+          {Number(s.bonus_stake ?? 0) > 0 && (
+            <p className="mt-2 text-white/60">
+              Bonus bets: use your Bonus wallet {`$${Number(s.bonus_stake).toFixed(2)}`} at a time. A cash-out pays the profit only
+              (stake × multiplier minus the {`$${Number(s.bonus_stake).toFixed(2)}`}) into your bonus profit, which you claim to your
+              Deposit wallet, or to Winnings up to your bonus limit.
+            </p>
           )}
           <p className="mt-2 text-white/60">
             Rain: free bets are dropped on players who are playing or chatting. A free bet pays your stake × the multiplier
@@ -255,9 +263,10 @@ export default function AviatorPage() {
                 key={slot} slot={slot} settings={s} round={round} bet={myBet(slot)} multiplier={multiplier}
                 loggedIn={!!user}
                 freeBet={(state.free_bets ?? [])[slot - 1]}
-                onPlace={async (stake, auto, freeId) => {
-                  // Deposit first, then Winnings — chosen by the server for each bet.
-                  const r = await placeBet(slot, stake, auto, freeId, freeId ? null : 'auto');
+                bonusBalance={Number(state.wallets?.bonus ?? 0)}
+                onPlace={async (stake, auto, freeId, bonus) => {
+                  // Deposit first, then Winnings — chosen by the server for each bet (or the Bonus wallet for a bonus bet).
+                  const r = await placeBet(slot, stake, auto, freeId, freeId ? null : bonus ? 'bonus' : 'auto');
                   if (!r.error) sound.playBet();
                   return r;
                 }}
@@ -282,6 +291,58 @@ export default function AviatorPage() {
           <div className="h-full w-[340px] max-w-full p-2" onClick={(e) => e.stopPropagation()}>
             <ChatPanel messages={chat.messages} enabled={chat.enabled} loggedIn={!!user} onSend={chat.send} onClose={() => setChatOpen(false)} />
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** The bonus-bet profit waiting to be claimed, with the two places it can go. */
+function BonusProfitChip({ pot, onClaim }: {
+  pot: BonusAviator;
+  onClaim: (to: 'deposit' | 'winnings') => Promise<{ error?: string; claimed?: string }>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState<'' | 'deposit' | 'winnings'>('');
+  const [note, setNote] = useState<{ tone: 'ok' | 'err'; text: string } | null>(null);
+  const toWinnings = Number(pot.max_to_winnings);
+  const hasProfit = Number(pot.profit) > 0;
+  // Nothing to claim: hidden, except to show the result of the claim just made.
+  if (!hasProfit && !note) return null;
+  async function claim(to: 'deposit' | 'winnings') {
+    setBusy(to); setNote(null);
+    const r = await onClaim(to);
+    setBusy('');
+    setNote(r.error
+      ? { tone: 'err', text: r.error }
+      : { tone: 'ok', text: `$${Number(r.claimed).toFixed(2)} moved to ${to === 'deposit' ? 'Deposit' : 'Winnings'}.` });
+  }
+  return (
+    <div className="relative">
+      <button onClick={() => setOpen((v) => !v)}
+        className="flex items-center gap-1.5 rounded-full border border-[#3b82f6]/60 bg-[#3b82f6]/15 px-3 py-1.5 text-xs font-bold text-[#93c5fd] hover:bg-[#3b82f6]/25">
+        <BsStars size={12} /> <span className="tabular-nums">${Number(pot.profit).toFixed(2)}</span>
+        <span className="hidden sm:inline">bonus profit · Claim</span>
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full z-50 mt-2 w-72 rounded-2xl border border-[#2c2d30] bg-[#1b1c1d] p-3 text-xs text-white/80 shadow-2xl">
+          <p className="text-sm font-bold text-white">Bonus profit ${Number(pot.profit).toFixed(2)}</p>
+          <p className="mt-1">{hasProfit ? 'From your bonus bets. Claim it into a wallet:' : 'All claimed.'}</p>
+          <div className={`mt-3 grid gap-2 ${hasProfit ? '' : 'hidden'}`}>
+            <button disabled={!!busy} onClick={() => claim('deposit')}
+              className="rounded-xl bg-[#28a909] px-3 py-2 font-extrabold text-white disabled:opacity-60">
+              {busy === 'deposit' ? 'Moving…' : `All $${Number(pot.profit).toFixed(2)} to Deposit`}
+            </button>
+            <button disabled={!!busy || toWinnings <= 0} onClick={() => claim('winnings')}
+              className="rounded-xl border border-[#3b82f6] px-3 py-2 font-extrabold text-[#93c5fd] disabled:opacity-40">
+              {busy === 'winnings' ? 'Moving…' : toWinnings > 0 ? `$${toWinnings.toFixed(2)} to Winnings` : 'Winnings limit reached'}
+            </button>
+          </div>
+          <p className="mt-2 text-[10.5px] text-white/50">
+            Deposit money is played before it can be won back as Winnings. Winnings is withdrawable, up to your bonus limit
+            (a multiple of the bonus you were given, shared with sports bonus unlocks).
+          </p>
+          {note && <p className={`mt-2 font-semibold ${note.tone === 'err' ? 'text-[#f87171]' : 'text-[#22c55e]'}`}>{note.text}</p>}
         </div>
       )}
     </div>

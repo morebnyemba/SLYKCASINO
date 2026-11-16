@@ -41,11 +41,14 @@ ZERO = Decimal('0.00')
 CASH_STAKES = ('bet_stake', 'casino_debit')
 CASH_WINS = ('bet_payout', 'casino_credit', 'bet_reversal')   # a reversal is negative: winnings taken back
 # Two tallies, each with its own rate and carry-forward: sports (the agent's
-# rate) and Aviator / casino (the programme's Aviator rate). Bonus money only
-# plays sports, so bonus turned into Winnings is a sports cost.
+# rate) and Aviator / casino (the programme's Aviator rate). Bonus turned into
+# real money is a cost on the side it was played: sportsbook conversions, and
+# Aviator bonus profit claimed into Deposit or Winnings.
 GAMES = {
-    'sports': {'stakes': ('bet_stake',), 'wins': ('bet_payout', 'bet_reversal'), 'conversions': True},
-    'casino': {'stakes': ('casino_debit',), 'wins': ('casino_credit',), 'conversions': False},
+    'sports': {'stakes': ('bet_stake',), 'wins': ('bet_payout', 'bet_reversal'), 'conversions': 'bonus_conversion'},
+    # Aviator bonus bets pay profit into a pot the player claims into Deposit or
+    # Winnings: that claim is the casino side's bonus cost.
+    'casino': {'stakes': ('casino_debit',), 'wins': ('casino_credit',), 'conversions': 'bonus_profit'},
 }
 MAX_DAYS_PER_RUN = 62
 HEARTBEAT_KEY = 'affiliates:net-loss:last-close'
@@ -89,15 +92,17 @@ def ledger_money(player_ids: Iterable[int], start: datetime, end: datetime, game
     g = GAMES[game]
     cash = (Bucket.DEPOSIT, Bucket.WINNINGS)
     wanted = Q(kind__in=g['stakes'] + g['wins'], bucket__in=cash)
-    if g['conversions']:
+    if g['conversions'] == 'bonus_conversion':
         wanted |= Q(kind='bonus_conversion', bucket=Bucket.WINNINGS)
+    elif g['conversions']:
+        wanted |= Q(kind=g['conversions'], bucket__in=cash)
     rows = (LedgerEntry.objects.filter(wallet__player_id__in=ids, created_at__gte=start, created_at__lt=end)
             .filter(wanted).values('wallet__player_id', 'kind').annotate(total=Sum('amount')))
     for row in rows:
         m, total = out[row['wallet__player_id']], row['total'] or ZERO
         if row['kind'] in CASH_STAKES:
             m.stakes += -total
-        elif row['kind'] == 'bonus_conversion':
+        elif row['kind'] in ('bonus_conversion', 'bonus_profit'):
             m.conversions += total
         else:
             m.wins += total

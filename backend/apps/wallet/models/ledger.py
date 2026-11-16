@@ -67,6 +67,9 @@ class LedgerEntry(models.Model):
         BET_REVERSAL = 'bet_reversal', 'Winnings reversed'
         BONUS_CONVERSION = 'bonus_conversion', 'Bonus converted to winnings'
         BONUS_FORFEIT = 'bonus_forfeit', 'Bonus forfeited'
+        # Profit from Aviator bonus bets ($0.10 from the Bonus wallet, profit
+        # only), claimed by the player into Deposit or (capped) Winnings.
+        BONUS_PROFIT = 'bonus_profit', 'Bonus profit claimed'
 
     wallet = models.ForeignKey(
         'wallet.Wallet', on_delete=models.CASCADE, related_name='entries',
@@ -104,6 +107,10 @@ class LedgerEntry(models.Model):
                 check=~Q(kind='bonus_conversion') | Q(bucket='bonus', amount__lte=0) | Q(bucket='winnings', amount__gte=0),
                 name='ledger_bonus_conversion_direction'),
             models.CheckConstraint(check=~Q(kind='bonus_forfeit') | Q(amount__lte=0), name='ledger_bonus_forfeit_is_debit'),
+            # Claimed bonus profit only ever lands in Deposit or Winnings, as a credit.
+            models.CheckConstraint(
+                check=~Q(kind='bonus_profit') | (Q(bucket__in=['deposit', 'winnings']) & Q(amount__gte=0)),
+                name='ledger_bonus_profit_to_cash'),
         ]
 
     def __str__(self) -> str:

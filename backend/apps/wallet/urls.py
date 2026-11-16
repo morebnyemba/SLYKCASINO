@@ -2,13 +2,14 @@ from django.urls import path
 
 from .views import (
     AdminLedgerViewSet, AdminPaymentGatewayTestView, AdminPaymentGatewayView, AdminPaymentMethodViewSet,
-    AdminDepositRefundView, AdminWalletRulesView, AdminWithdrawalSettingsView, AdminWithdrawalsView, DepositView, LedgerView, MyWithdrawalsView, PaymentMethodsView,
+    AdminDepositRefundView, AdminWalletRulesView, BonusProfitClaimView, AdminWithdrawalSettingsView, AdminWithdrawalsView, DepositView, LedgerView, MyWithdrawalsView, PaymentMethodsView,
     PaymentStatusView, PaynowResultView, PSPWebhookView, WalletView, WithdrawQuoteView, WithdrawView,
 )
 
 urlpatterns = [
     path('wallet/', WalletView.as_view(), name='wallet'),
     path('wallet/ledger/', LedgerView.as_view(), name='wallet-ledger'),
+    path('wallet/bonus-profit/claim/', BonusProfitClaimView.as_view(), name='wallet-bonus-profit-claim'),
     path('wallet/deposit/', DepositView.as_view(), name='wallet-deposit'),
     path('wallet/withdraw/', WithdrawView.as_view(), name='wallet-withdraw'),
     path('wallet/withdraw/quote/', WithdrawQuoteView.as_view(), name='wallet-withdraw-quote'),

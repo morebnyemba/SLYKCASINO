@@ -24,6 +24,11 @@ class WalletRules(models.Model):
     # current cycle (a $10 bonus unlocks at most $50 at 5×). 0 = no multiple;
     # the fixed cap above always applies.
     bonus_conversion_multiple = models.DecimalField(max_digits=6, decimal_places=2, default=Decimal('5.00'))
+    # Aviator with bonus money: each bet stakes exactly this from the Bonus
+    # wallet and a cash-out pays the profit only (stake not returned) into a
+    # pot the player claims to Deposit, or to Winnings within the unlock limit.
+    # 0 = bonus money can't be played in Aviator.
+    bonus_aviator_stake = models.DecimalField(max_digits=6, decimal_places=2, default=Decimal('0.10'))
     # A Bonus wallet nobody uses for this many hours is forfeited (a warning goes
     # out 24 hours before). Use = a bonus credited, or a bet from or win into the
     # Bonus wallet; a bonus ticket still open keeps it alive. 72 hours by
@@ -65,6 +70,8 @@ class BonusRollover(models.Model):
     player_id = models.BigIntegerField(unique=True)
     wins = models.PositiveSmallIntegerField(default=0)
     credited = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    # Profit from Aviator bonus bets, waiting to be claimed (not yet money in a wallet).
+    aviator_profit = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

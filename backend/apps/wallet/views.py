@@ -58,6 +58,21 @@ def wallets_payload(player_id: int) -> dict:
     }
 
 
+class BonusProfitClaimView(APIView):
+    """POST /api/wallet/bonus-profit/claim/ {to: deposit|winnings, amount?} —
+    move Aviator bonus-bet profit into Deposit (any amount) or Winnings (capped)."""
+
+    def post(self, request):
+        player, err = _get_player_or_404(request)
+        if err:
+            return err
+        try:
+            out = bonus.claim_aviator_profit(player.id, amount=request.data.get('amount'), to=str(request.data.get('to') or ''))
+        except (services.WalletRuleError, InvalidOperation, ValueError, TypeError) as exc:
+            return Response({'detail': str(exc) or 'Enter a valid amount.'}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({**out, 'wallet': wallets_payload(player.id)})
+
+
 class WalletView(APIView):
     """GET /api/wallet/ -> current player's three balances (deposit, bonus,
     winnings), their betting rules, and the deposit options."""
@@ -525,7 +540,7 @@ class AdminWalletRulesView(APIView):
     every ticket. Changes apply to the next bet and the bet slip at once."""
     permission_classes = [IsAdminUser]
     FIELDS = ('deposit_min_odds', 'bonus_min_odds', 'winnings_min_odds', 'bonus_min_leg_odds', 'bonus_max_conversion',
-              'bonus_conversion_multiple', 'min_stake', 'max_stake', 'same_match_price_percent')
+              'bonus_conversion_multiple', 'bonus_aviator_stake', 'min_stake', 'max_stake', 'same_match_price_percent')
     INTS = ('bonus_min_legs', 'bonus_wins_to_convert', 'max_selections', 'bonus_expiry_hours')
 
     def _out(self, rules):
@@ -555,6 +570,9 @@ class AdminWalletRulesView(APIView):
             return Response({'detail': 'Minimum odds must be between 1.00 and 1000.'}, status=status.HTTP_400_BAD_REQUEST)
         if not 1 <= rules.bonus_min_legs <= 30 or not 1 <= rules.bonus_wins_to_convert <= 10 or rules.bonus_max_conversion < 0:
             return Response({'detail': 'Selections 1–30, wins to unlock 1–10, and a non-negative unlock limit.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        if not Decimal('0') <= rules.bonus_aviator_stake <= Decimal('10'):
+            return Response({'detail': 'The Aviator bonus stake must be between $0 (off) and $10.'},
                             status=status.HTTP_400_BAD_REQUEST)
         if not Decimal('0') <= rules.bonus_conversion_multiple <= Decimal('1000'):
             return Response({'detail': 'The unlock multiple must be between 0 (off) and 1000.'},

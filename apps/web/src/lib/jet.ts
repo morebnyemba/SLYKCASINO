@@ -22,6 +22,8 @@ export interface JetSettings {
   /** Simulated players appear in the live bets list (display only). */
   bots_enabled?: boolean;
   chat_enabled?: boolean;
+  /** What one Aviator bonus bet stakes from the Bonus wallet ("0.00" = off). */
+  bonus_stake?: string;
 }
 
 export interface JetRound {
@@ -48,9 +50,15 @@ export interface JetBet {
   payout: string;
   auto_cashout?: string | null;
   is_free?: boolean;
+  /** Staked from the Bonus wallet: pays the profit only, into the bonus profit pot. */
+  is_bonus?: boolean;
 }
 
 export interface FreeBet { id: number; amount: string; expires_at: string }
+
+/** Aviator bonus bets: the fixed stake, the profit waiting to be claimed, and
+ *  how much of it may go to Winnings right now (the rest can go to Deposit). */
+export interface BonusAviator { stake: string; profit: string; max_to_winnings: string }
 
 export interface ChatMessage { id: number; kind: 'chat' | 'bot' | 'win' | 'rain' | 'system'; name: string; body: string; at: string }
 
@@ -65,6 +73,7 @@ interface JetState {
   /** The player's three balances (deposit / bonus / winnings). */
   wallets?: Record<WalletId, string> | null;
   free_bets?: FreeBet[];
+  bonus_aviator?: BonusAviator | null;
 }
 
 /** Multiplier after `seconds` of flight — the same curve the server pays on. */
@@ -222,9 +231,10 @@ export function useJet() {
 
   const act = useCallback(async (path: string, body: unknown = {}) => {
     if (!accessToken) return { error: 'Log in to play.' };
-    const res = await authedPost<{ bet: JetBet; balance: string; wallets?: Record<WalletId, string>; free_bets?: FreeBet[] }>(path, body, accessToken);
+    const res = await authedPost<{ bet: JetBet; balance: string; wallets?: Record<WalletId, string>; free_bets?: FreeBet[];
+      bonus_aviator?: BonusAviator }>(path, body, accessToken);
     if (res.data) {
-      const { bet, balance, wallets, free_bets: freeBets } = res.data;
+      const { bet, balance, wallets, free_bets: freeBets, bonus_aviator: bonusAviator } = res.data;
       setState((prev) => {
         if (!prev) return prev;
         const upsert = (list: JetBet[]) => (list.some((b) => b.id === bet.id)
@@ -233,6 +243,7 @@ export function useJet() {
         const drop = bet.status === 'refunded';
         return {
           ...prev, balance, wallets: wallets ?? prev.wallets, free_bets: freeBets ?? prev.free_bets,
+          bonus_aviator: bonusAviator ?? prev.bonus_aviator,
           my_bets: drop ? prev.my_bets.filter((b) => b.id !== bet.id) : upsert(prev.my_bets),
           bets: drop ? prev.bets.filter((b) => b.id !== bet.id) : upsert(prev.bets),
         };
@@ -252,6 +263,19 @@ export function useJet() {
       }),
     cancelBet: (id: number) => act(`/jet/bets/${id}/cancel/`),
     cashOut: (id: number) => act(`/jet/bets/${id}/cashout/`),
+    /** Move bonus-bet profit into Deposit (any amount) or Winnings (capped). */
+    claimBonusProfit: async (to: 'deposit' | 'winnings'): Promise<{ error?: string; claimed?: string }> => {
+      if (!accessToken) return { error: 'Log in to claim.' };
+      const res = await authedPost<BonusAviator & { claimed: string }>('/wallet/bonus-profit/claim/', { to }, accessToken);
+      if (res.data) {
+        const { stake, profit, max_to_winnings: maxToWinnings } = res.data;
+        setState((prev) => (prev ? { ...prev, bonus_aviator: { stake, profit, max_to_winnings: maxToWinnings } } : prev));
+        void load();
+        window.dispatchEvent(new Event('slyk:wallet-changed'));
+        if (window.parent !== window) window.parent.postMessage({ type: 'slyk:wallet-changed' }, window.location.origin);
+      }
+      return { error: res.error, claimed: res.data?.claimed };
+    },
   };
 }
 

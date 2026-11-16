@@ -25,6 +25,11 @@ def _balance(player_id: int) -> str:
     return str(get_balance_dto(player_id).balance)
 
 
+def _bonus_aviator(player_id: int) -> dict:
+    from apps.wallet import bonus
+    return bonus.aviator_status(player_id)
+
+
 def _wallets(player_id: int) -> dict:
     dto = get_balance_dto(player_id)
     return {'deposit': str(dto.deposit), 'bonus': str(dto.bonus), 'winnings': str(dto.winnings)}
@@ -55,6 +60,7 @@ class StateView(APIView):
             'balance': _balance(player.id) if player else None,
             'wallets': _wallets(player.id) if player else None,
             'free_bets': social.free_bets_for(player.id) if player else [],
+            'bonus_aviator': _bonus_aviator(player.id) if player else None,
         })
 
 
@@ -84,7 +90,7 @@ class BetView(APIView):
         except (services.JetError, InsufficientFunds) as exc:
             return _error(exc)
         return Response({'bet': services.bet_payload(bet, mine=True), 'balance': _balance(player.id), 'wallets': _wallets(player.id),
-                         'free_bets': social.free_bets_for(player.id)},
+                         'free_bets': social.free_bets_for(player.id), 'bonus_aviator': _bonus_aviator(player.id)},
                         status=status.HTTP_201_CREATED)
 
 
@@ -103,7 +109,7 @@ class BetActionView(APIView):
         except services.JetError as exc:
             return _error(exc)
         return Response({'bet': services.bet_payload(bet, mine=True), 'balance': _balance(player.id), 'wallets': _wallets(player.id),
-                         'free_bets': social.free_bets_for(player.id)})
+                         'free_bets': social.free_bets_for(player.id), 'bonus_aviator': _bonus_aviator(player.id)})
 
 
 class ChatView(APIView):
@@ -352,7 +358,7 @@ class AdminPlayerBetsView(APIView):
         all_bets = JetBet.objects.filter(player_id=player_id)
         total = all_bets.count()
         bets = all_bets.select_related('round').order_by('-id')[(page - 1) * size:page * size]
-        agg = JetBet.objects.filter(player_id=player_id, is_free=False).aggregate(
+        agg = JetBet.objects.filter(player_id=player_id, is_free=False).exclude(wallet='bonus').aggregate(
             n=Count('id'), staked=Sum('stake'), won=Sum('payout'))
         staked, won = agg['staked'] or Decimal('0'), agg['won'] or Decimal('0')
         return Response({

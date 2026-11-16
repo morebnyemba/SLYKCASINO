@@ -17,7 +17,7 @@ export const WALLET_LABEL: Record<WalletId, string> = {
 
 export const WALLET_HINT: Record<WalletId, string> = {
   deposit: 'Money you deposited. Bet it, or withdraw it at a high fee.',
-  bonus: 'Promotional money for sports bets. Win it into Winnings — it can’t be withdrawn as it is.',
+  bonus: 'Promotional money for sports bets and Aviator bonus bets. Win it into Winnings — it can’t be withdrawn as it is.',
   winnings: 'What you’ve won. Withdraw it at a small fee.',
 };
 
@@ -30,6 +30,8 @@ export interface WalletInfo {
 /** The Bonus wallet's rules and the player's progress towards unlocking it. */
 export interface BonusRules {
   wins: number; wins_needed: number; max_conversion: string; min_legs: number; min_leg_odds: string;
+  /** Aviator bonus bets: fixed stake, profit waiting to be claimed, and how much may go to Winnings now. */
+  aviator?: { stake: string; profit: string; max_to_winnings: string };
 }
 
 export interface WalletsResponse {
@@ -43,7 +45,7 @@ export interface WalletsResponse {
   bonus_rules?: BonusRules;
 }
 
-/** Wallets a game (Aviator, casino) can be played from: never Bonus. */
+/** Wallets a game is played from with cash (Aviator also takes fixed bonus bets — see BonusRules.aviator). */
 export const GAME_WALLET_IDS: WalletId[] = ['deposit', 'winnings'];
 
 /** Whether a slip may be paid from the Bonus wallet (the server checks the same). */

@@ -5,6 +5,7 @@ import { FaDownload, FaWallet } from 'react-icons/fa';
 import { Card, CardContent, CardHeader, CardTitle } from '@slyk/ui/components/card';
 import { Badge } from '@slyk/ui/components/badge';
 import { useApi } from '@/lib/use-api';
+import { BonusProfitCard } from '@/components/bonus-profit-card';
 import { useWallets, WALLET_HINT, WALLET_IDS, WALLET_LABEL, type WalletsResponse } from '@/lib/wallets';
 import { WithdrawPanel } from '@/components/withdraw-panel';
 import { DepositBonuses } from '@/components/deposit-bonuses';
@@ -34,6 +35,7 @@ const KIND_LABEL: Record<string, string> = {
   deposit_refund: 'Deposit refund',
   migration: 'Wallet split',
   bonus_conversion: 'Bonus unlocked',
+  bonus_profit: 'Aviator bonus profit claimed',
   bonus_forfeit: 'Bonus over the limit (forfeited)',
   bet_stake: 'Sports bet',
   bet_payout: 'Sports win',
@@ -132,6 +134,9 @@ export default function WalletPage() {
           )}
         </div>
         <CardContent className="pt-6">
+          <div className="mb-4">
+            <BonusProfitCard status={wallet?.bonus_rules?.aviator} onClaimed={() => { refetchWallet(); refetchLedger(); }} />
+          </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <p className="text-sm font-medium">Deposit</p>
