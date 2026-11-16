@@ -200,3 +200,80 @@ class AuditNoticeTests(_Agent):
         self.old_cpa(self.customer('cust'))
         clawback.run(apply=True)
         self.assertTrue(Notification.objects.filter(player_id=self.agent_player.id, title__startswith='Commission audit').exists())
+
+
+class PoolCreditTests(_Agent):
+    """Reversed commissions go back to the house's operating pool."""
+
+    def setUp(self):
+        super().setUp()
+        from datetime import timedelta
+        from django.utils import timezone
+        from apps.revenue.models import RevenueSettings
+        self.today = timezone.localdate()
+        cfg = RevenueSettings.load()
+        cfg.started_on = self.today - timedelta(days=3)
+        cfg.save()
+
+    def close(self, today):
+        from unittest.mock import patch
+        from apps.revenue import services as revenue
+        with patch.object(revenue, 'day_ggr', return_value=D('0')):
+            revenue.close_days(today=today)
+
+    def pool(self):
+        from apps.revenue import services as revenue
+        return revenue.pool_summary()
+
+    def cpa_decided(self, name, days_ago):
+        from datetime import timedelta
+        from django.utils import timezone
+        c = self.old_cpa(self.customer(name))
+        when = timezone.now() - timedelta(days=days_ago)
+        Commission.objects.filter(pk=c.pk).update(created_at=when, decided_at=when)
+        return c
+
+    def test_charged_commission_is_credited_back_on_the_next_close(self):
+        from datetime import timedelta
+        from apps.affiliates.models import CommissionReversal
+        from apps.revenue.models import RevenueDay
+        self.cpa_decided('cust', days_ago=2)
+        self.close(self.today)                                                   # charges 5.20 to the pool
+        self.assertEqual(self.pool()['affiliate_costs'], '5.20')
+        clawback.run(apply=True)
+        r = CommissionReversal.objects.get()
+        self.assertEqual((r.amount, r.counted, r.credited_on), (D('5.20'), True, None))
+        self.close(self.today + timedelta(days=1))                               # today closes: credited back
+        self.assertEqual(RevenueDay.objects.get(day=self.today).affiliate_reversals, D('5.20'))
+        self.assertEqual(self.pool()['affiliate_costs'], '0.00')
+        self.assertEqual(self.pool()['affiliate_reversals'], '5.20')
+        r.refresh_from_db()
+        self.assertEqual(r.credited_on, self.today)
+        from apps.revenue import audit
+        self.assertIn('Affiliate commissions taken back (audit)', [m['label'] for m in audit.pool_ledger()['rows']])
+
+    def test_not_charged_yet_means_no_credit(self):
+        from datetime import timedelta
+        from apps.affiliates.models import CommissionReversal
+        self.cpa_decided('cust', days_ago=0)                                     # today: not charged yet
+        clawback.run(apply=True)
+        self.assertFalse(CommissionReversal.objects.get().counted)
+        self.close(self.today + timedelta(days=1))                               # rejected: never charged
+        self.assertEqual((self.pool()['affiliate_costs'], self.pool()['affiliate_reversals']), ('0.00', '0.00'))
+
+    def test_backfill_of_an_audit_run_before_reversals_existed(self):
+        import importlib
+        from datetime import timedelta
+        from django.apps import apps as registry
+        from apps.affiliates.models import CommissionReversal
+        self.cpa_decided('cust', days_ago=2)
+        self.close(self.today)
+        clawback.run(apply=True)
+        CommissionReversal.objects.all().delete()                                # as on production
+        backfill = importlib.import_module('apps.affiliates.migrations.0015_backfill_cpa_reversals').backfill
+        backfill(registry, None)
+        backfill(registry, None)                                                 # idempotent
+        r = CommissionReversal.objects.get()
+        self.assertEqual((r.amount, r.counted), (D('5.20'), True))
+        self.close(self.today + timedelta(days=1))
+        self.assertEqual(self.pool()['affiliate_costs'], '0.00')
