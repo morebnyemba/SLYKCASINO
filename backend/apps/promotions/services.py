@@ -226,8 +226,9 @@ def on_deposit(*, player_id: int, amount: Decimal, deposit_id: int) -> Promotion
     from apps.notifications import services as notif_services
     notif_services.notify(
         player_id=player_id, kind='bonus_credited', title=f'{tier.name}: {bonus} bonus',
-        body=(f'You got {bonus} ({tier.percent.normalize():f}% of your {utils.quantize(amount)} deposit). '
-              + (f'Bet {required} in total to make it withdrawable.' if required > 0 else 'It’s yours to use now.')),
+        body=(f'You got {bonus} ({tier.percent.normalize():f}% of your {utils.quantize(amount)} deposit) in your '
+              'Bonus wallet. Bet it on a sports multiple; win the bonus bets in a row shown on your wallet page and '
+              'it moves to your Winnings.'),
     )
     return claim
 

@@ -149,10 +149,14 @@ class AffiliateProgramme(models.Model):
     # Referred players: bonus of this % of their first deposit, capped, as
     # bonus money that must be wagered `welcome_bonus_wagering` times before
     # it can be withdrawn. 0% = off.
-    welcome_bonus_percent = models.DecimalField(max_digits=5, decimal_places=2, default=30)
+    welcome_bonus_percent = models.DecimalField(max_digits=5, decimal_places=2, default=10)
     welcome_bonus_cap = models.DecimalField(max_digits=10, decimal_places=2, default=100)
     welcome_bonus_wagering = models.DecimalField(max_digits=5, decimal_places=2, default=5)
     welcome_bonus_min_deposit = models.DecimalField(max_digits=10, decimal_places=2, default=1)
+    # Referred players get deposit bonuses on their FIRST deposit only: the
+    # welcome bonus (or, if it gives nothing, the usual promo code / deposit
+    # promotion). Their later deposits earn no deposit bonus or promo code.
+    referral_first_deposit_only = models.BooleanField(default=True)
     # Terms a new affiliate starts with (each affiliate can be changed after).
     # `revshare_percent` is the % of the stake on each losing ticket a referred
     # player places.
@@ -163,7 +167,7 @@ class AffiliateProgramme(models.Model):
     default_cpa_cap = models.DecimalField(max_digits=10, decimal_places=2, default=100)
     # A deposit commission is only earned once the referral has staked at
     # least this many times their first deposit (stops deposit-and-withdraw farming).
-    cpa_min_turnover_multiple = models.DecimalField(max_digits=5, decimal_places=2, default=1)
+    cpa_min_turnover_multiple = models.DecimalField(max_digits=5, decimal_places=2, default=3)
     # Carry a losing month (negative net revenue) into the next months'
     # revenue share until it has been earned back.
     negative_carryover = models.BooleanField(default=True)

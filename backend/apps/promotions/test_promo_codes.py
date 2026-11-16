@@ -17,7 +17,7 @@ from apps.wallet.models import PaymentTransaction
 D = Decimal
 
 
-class PromoCodeTests(TestCase):
+class _PromoBase(TestCase):
     def setUp(self):
         self.staff = APIClient()
         self.staff.force_authenticate(User.objects.create_user('promo_admin', 'p@example.com', 'x', is_staff=True))
@@ -38,6 +38,8 @@ class PromoCodeTests(TestCase):
     def bonus(self):
         return wallet_services.get_balances(self.player.id)['bonus']
 
+
+class PromoCodeTests(_PromoBase):
     def test_staff_create_and_the_code_is_stored_upper_case(self):
         res = self.create()
         self.assertEqual((res.status_code, res.json()['code']), (201, 'WELCOME50'))
@@ -112,3 +114,48 @@ class PromoCodeTests(TestCase):
         codes = [self.api.post('/api/promo-codes/check/', {'code': f'GUESS{i}'}, format='json').status_code
                  for i in range(21)]
         self.assertEqual(codes[-1], 429)
+
+
+class ReferredPlayerPromoTests(_PromoBase):
+    """Referred players: the welcome bonus on their first deposit, never stacked
+    with a promo code, and no deposit bonus or code on later deposits."""
+
+    def refer(self):
+        from apps.affiliates import services as aff
+        from apps.affiliates.models import Affiliate
+        agent = account_services.create_player(username='agentx')
+        a = aff.apply(player_id=agent.id, code='AGX')
+        aff.set_status(a.id, Affiliate.Status.ACTIVE)
+        aff.attach_referral(player_id=self.player.id, code='AGX')
+
+    def refused_notices(self):
+        from apps.notifications.models import Notification
+        return list(Notification.objects.filter(player_id=self.player.id, title='Promo code not applied')
+                    .values_list('body', flat=True))
+
+    def test_welcome_bonus_is_not_stacked_with_a_code_and_later_codes_are_refused(self):
+        self.create(per_player_limit=0)
+        self.refer()
+        self.deposit('20', 'WELCOME50')            # welcome 10% = 2.00 — the code's 10.00 isn't added
+        self.assertEqual(self.bonus(), D('2.00'))
+        self.deposit('20', 'WELCOME50')            # a later deposit: no code for referred players
+        self.assertEqual(self.bonus(), D('2.00'))
+        notes = self.refused_notices()
+        self.assertEqual(len(notes), 2)
+        self.assertTrue(any('already got your welcome bonus' in n for n in notes))
+        self.assertTrue(any('first deposit only' in n for n in notes))
+
+    def test_switch_off_lets_later_deposits_use_codes(self):
+        from apps.affiliates import services as aff
+        self.create(per_player_limit=0)
+        self.refer()
+        aff.update_programme(referral_first_deposit_only=False)
+        self.deposit('20')                         # welcome 2.00
+        self.deposit('20', 'WELCOME50')            # code: 10.00
+        self.assertEqual(self.bonus(), D('12.00'))
+
+    def test_players_who_were_not_referred_are_unaffected(self):
+        self.create(per_player_limit=0)
+        self.deposit('20', 'WELCOME50')
+        self.deposit('20', 'WELCOME50')
+        self.assertEqual(self.bonus(), D('20.00'))

@@ -78,7 +78,7 @@ class FreshProgrammeTests(TestCase):
         services.attach_referral(player_id=kid.id, code='FRESH')
         AffiliateProgramme.objects.all().delete()
         wallet_services.deposit(player_id=kid.id, amount=D('50'), idempotency_key='fresh')
-        self.assertEqual(wallet_services.get_balance_dto(kid.id).balance, D('65.00'))
+        self.assertEqual(wallet_services.get_balance_dto(kid.id).balance, D('55.00'))   # 10% welcome bonus
 
 
 class WelcomeBonusTests(ProgrammeBase):
