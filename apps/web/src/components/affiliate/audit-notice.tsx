@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { FaCircleCheck, FaScaleBalanced, FaXmark } from 'react-icons/fa6';
+import { HonestNumbers, type AuditEconomics } from './honest-numbers';
 
 export interface AuditNoticeData {
   audited_on: string;
@@ -15,6 +16,7 @@ export interface AuditNoticeData {
   restored_total?: string;
   restored_count?: number;
   restored_percent?: string;
+  economics?: AuditEconomics;
   items: { customer: string; earned_on: string; paid: string; kept: string; reversed: string; reason: string }[];
 }
 
@@ -69,6 +71,7 @@ export function AuditNotice({ n }: { n: AuditNoticeData }) {
             this commission only once they:
           </p>
           <div className="text-muted-foreground">{rules}</div>
+          {n.economics && <HonestNumbers e={n.economics} />}
           {!n.affected ? (
             <p className="font-semibold text-foreground">All your commissions passed. Nothing on your account has changed.</p>
           ) : (

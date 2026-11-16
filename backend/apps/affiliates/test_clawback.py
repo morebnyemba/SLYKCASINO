@@ -277,3 +277,18 @@ class PoolCreditTests(_Agent):
         self.assertEqual((r.amount, r.counted), (D('5.20'), True))
         self.close(self.today + timedelta(days=1))
         self.assertEqual(self.pool()['affiliate_costs'], '0.00')
+
+
+class EconomicsTests(_Agent):
+    """The worked example agents see: fixed illustration, never real figures."""
+
+    def test_fixed_example_independent_of_the_ledger(self):
+        before = clawback.economics()
+        p = accounts.create_player(username='punter')
+        wallet.deposit(player_id=p.id, amount=D('100'), idempotency_key='e-dep')
+        wallet.debit(player_id=p.id, amount=D('100'), kind='bet_stake', bucket='deposit', idempotency_key='e-stake')
+        e = clawback.economics()
+        self.assertEqual(e, before)                                            # no real data leaks in
+        self.assertEqual((e['agent_cents'], e['example_kept_cents'], e['example_winnings_cents']), ('60', '10', '90'))
+        self.assertEqual((e['example_fee_cents'], e['example_result_cents']), ('3', '-53'))
+        self.assertFalse({'stakes_30d', 'winnings_30d', 'house_kept_cents'} & set(e))

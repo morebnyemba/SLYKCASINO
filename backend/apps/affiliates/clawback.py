@@ -265,6 +265,35 @@ def _reason_for_agent(reason: str) -> str:
     return reason
 
 
+OLD_DEPOSIT_PERCENT = Decimal('30')     # the old terms: 30% of a customer's first deposit…
+OLD_LOST_PERCENT = Decimal('30')        # …plus 30% of every losing stake
+
+
+# An illustration for agents, deliberately NOT the house's real figures:
+# winners are paid back 90c of every 1.00 staked, and the payment provider
+# takes a few cents of a deposit.
+EXAMPLE_HOUSE_KEEPS_CENTS = Decimal('10')
+EXAMPLE_PAYMENT_FEE_CENTS = Decimal('3')
+
+
+def _c(v: Decimal) -> str:
+    return f'{v.normalize():f}'
+
+
+def economics() -> dict:
+    """The worked example behind the audit, for agents: what the old terms paid
+    on a customer who deposits 1.00 and loses it, against an illustrative house
+    margin and payment charge. Fixed numbers, labelled as an example: nothing
+    here is read from the ledger or reveals the house's real margin or costs."""
+    agent = OLD_DEPOSIT_PERCENT + OLD_LOST_PERCENT                     # cents per 1.00
+    kept, fee = EXAMPLE_HOUSE_KEEPS_CENTS, EXAMPLE_PAYMENT_FEE_CENTS
+    return {
+        'deposit_percent': _c(OLD_DEPOSIT_PERCENT), 'lost_percent': _c(OLD_LOST_PERCENT), 'agent_cents': _c(agent),
+        'example_kept_cents': _c(kept), 'example_winnings_cents': _c(Decimal('100') - kept),
+        'example_fee_cents': _c(fee), 'example_result_cents': _c(kept - agent - fee),
+    }
+
+
 def notice(affiliate: Affiliate, *, now=None) -> Optional[dict]:
     """What the agent's dashboard says about the CPA audit: to everyone for
     NOTICE_ALL_DAYS after it ran, and — with exactly what was reversed and how
@@ -325,5 +354,6 @@ def notice(affiliate: Affiliate, *, now=None) -> Optional[dict]:
         'restored_total': f'{restored_total:.2f}',
         'restored_count': len(restored),
         'restored_percent': rate,
+        'economics': economics(),
         'items': items,
     }
