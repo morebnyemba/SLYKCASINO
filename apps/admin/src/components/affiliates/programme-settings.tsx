@@ -10,10 +10,10 @@ interface Programme {
   welcome_bonus_percent: string; welcome_bonus_cap: string; welcome_bonus_wagering: string; welcome_bonus_min_deposit: string;
   default_revshare_percent: string; default_cpa_amount: string; default_cpa_min_deposit: string; default_cpa_percent: string;
   default_cpa_cap: string; cpa_min_turnover_multiple: string; negative_carryover: boolean; min_payout: string;
-  external_payouts: boolean; auto_payout: boolean; auto_approve_commissions: boolean; lock_until_month_end: boolean; updated_at: string;
+  external_payouts: boolean; auto_payout: boolean; auto_approve_commissions: boolean; lock_until_month_end: boolean; referral_first_deposit_only: boolean; updated_at: string;
   net_loss_since: string | null; net_loss_review_above: string; aviator_commission_percent: string;
 }
-type NumKey = Exclude<keyof Programme, 'negative_carryover' | 'external_payouts' | 'auto_payout' | 'auto_approve_commissions' | 'lock_until_month_end' | 'updated_at'
+type NumKey = Exclude<keyof Programme, 'negative_carryover' | 'external_payouts' | 'auto_payout' | 'auto_approve_commissions' | 'lock_until_month_end' | 'referral_first_deposit_only' | 'updated_at'
   | 'net_loss_since'>;
 
 const n = (v: string) => Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 });
@@ -50,17 +50,28 @@ export function ProgrammeSettings() {
   return (
     <div className="space-y-6">
       {notice && <Notice tone={notice.tone} onClose={() => setNotice(null)}>{notice.text}</Notice>}
-      <Panel title="Referred players’ welcome bonus" description="Credited automatically on a referred player’s first deposit, as bonus money that must be bet before it can be withdrawn."
+      <Panel title="Referred players’ welcome bonus" description="Credited automatically on a referred player’s first deposit, into their Bonus wallet (sports multiples only; it reaches Winnings through the Bonus wallet rules in Betting rules)."
         actions={<BsGift className="text-gold" />}>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {num('welcome_bonus_percent', 'Bonus (% of first deposit)', '0 turns the bonus off.')}
           {num('welcome_bonus_cap', 'Maximum bonus ($)', '0 = no maximum.')}
-          {num('welcome_bonus_wagering', 'Wagering (× bonus)', 'Total to bet before the bonus can be withdrawn.')}
+          {num('welcome_bonus_wagering', 'Wagering (× bonus)', 'Tracked on the bonus claim for reports. The money itself reaches Winnings only through the Bonus wallet rules.')}
           {num('welcome_bonus_min_deposit', 'Minimum first deposit ($)', 'Smaller first deposits get no bonus.')}
         </div>
         <p className="mt-3 text-xs text-muted-foreground">
-          Example: a $50 first deposit gets a ${n(String(bonusExample))} bonus, withdrawable after ${n(String(bonusExample * Number(form.welcome_bonus_wagering)))} has been bet.
+          Example: a $50 first deposit gets a ${n(String(bonusExample))} bonus.
         </p>
+        <div className="mt-4 flex items-start justify-between gap-4 border-t border-border pt-4">
+          <div className="text-sm">
+            <p className="font-semibold">Deposit bonus on the first deposit only</p>
+            <p className="mt-1 text-muted-foreground">
+              On: a referred player’s first deposit gets the welcome bonus (never stacked with a promo code); their later deposits get no
+              deposit promotion or promo code. Off: later deposits get running deposit promotions and promo codes like everyone else.
+            </p>
+          </div>
+          <Switch checked={form.referral_first_deposit_only} onChange={(v) => setForm({ ...form, referral_first_deposit_only: v })}
+            label="Referred players: deposit bonus on the first deposit only" />
+        </div>
       </Panel>
 
       <Panel title="New affiliates’ terms" description="What an affiliate starts on when they join. Change any affiliate’s own terms from the Affiliates tab."

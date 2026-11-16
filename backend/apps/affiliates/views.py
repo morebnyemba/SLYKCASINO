@@ -244,6 +244,7 @@ def _public_programme() -> dict:
         'welcome_bonus_percent': str(p.welcome_bonus_percent), 'welcome_bonus_cap': str(p.welcome_bonus_cap),
         'welcome_bonus_wagering': str(p.welcome_bonus_wagering), 'welcome_bonus_min_deposit': str(p.welcome_bonus_min_deposit),
         'cpa_min_turnover_multiple': str(p.cpa_min_turnover_multiple), 'negative_carryover': p.negative_carryover,
+        'referral_first_deposit_only': p.referral_first_deposit_only,
     }
 
 
@@ -274,8 +275,7 @@ class AdminProgrammeView(APIView):
         return Response(ProgrammeSerializer(services.get_programme()).data)
 
     def put(self, request):
-        fields = [*services.PROGRAMME_FIELDS, 'negative_carryover', 'external_payouts', 'auto_payout',
-                  'auto_approve_commissions', 'lock_until_month_end']
+        fields = [*services.PROGRAMME_FIELDS, *services.PROGRAMME_FLAGS]
         try:
             programme = services.update_programme(**{f: request.data.get(f) for f in fields})
         except (services.AffiliateError, ArithmeticError, ValueError) as exc:

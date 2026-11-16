@@ -194,13 +194,25 @@ def _after_new_entry(player_id: int, entry: LedgerEntry) -> None:
         payment = _deposit_payment(entry.reference)
         # Checked first, so a deposit from another account's number blocks its bonus.
         risk.safely(risk.on_deposit, player_id, amount=entry.amount, phone=payment.phone if payment else '')
+        # One bonus per deposit: a referred player's welcome bonus, else a promo
+        # code, else the best running deposit promotion — except that referred
+        # players get deposit bonuses on their first deposit only (programme switch).
         welcomed = affiliate_services.on_deposit(player_id=player_id, amount=entry.amount)
-        if payment is not None and payment.promo_code:
-            # A promo code replaces the automatic deposit promotion (one bonus per deposit).
+        blocked = not welcomed and affiliate_services.deposit_bonus_blocked(player_id)
+        code = payment.promo_code if payment is not None else ''
+        if welcomed or blocked:
+            if code:
+                from apps.notifications import services as notif_services
+                notif_services.notify(
+                    player_id=player_id, kind='account_alert', title='Promo code not applied',
+                    body=(f'Your deposit is in your wallet, but {code} wasn’t applied: '
+                          + ('this deposit already got your welcome bonus.' if welcomed
+                             else 'referred players get a deposit bonus on their first deposit only.')))
+        elif code:
             from apps.promotions import promo_codes
-            promo_codes.apply_to_deposit(player_id=player_id, code=payment.promo_code, amount=entry.amount,
+            promo_codes.apply_to_deposit(player_id=player_id, code=code, amount=entry.amount,
                                          deposit_entry_id=entry.id)
-        elif not welcomed:
+        else:
             promotions_services.on_deposit(player_id=player_id, amount=entry.amount, deposit_id=entry.id)
 
 
@@ -279,6 +291,19 @@ def recompute_balances(player_id: int) -> dict[str, Decimal]:
             .values('bucket').annotate(t=Sum('amount')))
     totals = {r['bucket']: r['t'] for r in rows}
     return {b: utils.quantize(totals.get(b) or 0) for b in Bucket.values}
+
+
+def real_money_turnover(player_ids: list[int]) -> dict[int, Decimal]:
+    """Read-only: each player's total stakes from the Deposit and Winnings
+    wallets (sports and games) — Bonus-wallet play excluded."""
+    from django.db.models import Sum
+
+    if not player_ids:
+        return {}
+    rows = (LedgerEntry.objects.filter(wallet__player_id__in=player_ids, kind__in=('bet_stake', 'casino_debit'),
+                                       bucket__in=(Bucket.DEPOSIT, Bucket.WINNINGS))
+            .values('wallet__player_id').annotate(total=Sum('amount')))
+    return {r['wallet__player_id']: -(r['total'] or Decimal('0')) for r in rows}
 
 
 def totals_by_kind(

@@ -161,6 +161,31 @@ class CommissionTests(Base):
         self.assertEqual(services.compute_cpa(self.affiliate), 0)
         self.assertEqual(Commission.objects.get(kind='cpa').amount, D('15'))
 
+    def test_cpa_play_through_counts_real_money_only(self):
+        services.update_programme(cpa_min_turnover_multiple=1)
+        a = self.referred('alice', self.affiliate)
+        wallet_services.credit(player_id=a.id, amount=D('60'), kind='deposit', idempotency_key='rt-d')
+        wallet_services.credit(player_id=a.id, amount=D('60'), kind='bonus', idempotency_key='rt-b')
+        wallet_services.debit(player_id=a.id, amount=D('60'), kind='bet_stake', bucket='bonus', idempotency_key='rt-s1')
+        self.assertEqual(services.compute_cpa(self.affiliate), 0)          # bonus stakes don't qualify
+        row = services.cpa_audit(self.affiliate)['customers'][0]
+        self.assertEqual((row['turnover'], row['state']), (D('0'), 'not_yet'))
+        wallet_services.debit(player_id=a.id, amount=D('60'), kind='bet_stake', bucket='deposit', idempotency_key='rt-s2')
+        self.assertEqual(services.compute_cpa(self.affiliate), 1)
+
+    def test_no_cpa_for_a_customer_sharing_the_agents_payment_number(self):
+        from apps.wallet.models import PaymentTransaction
+        a = self.referred('alice', self.affiliate)
+        for ref, pid in (('LNK1', self.partner.id), ('LNK2', a.id)):
+            PaymentTransaction.objects.create(reference=ref, player_id=pid, method='ecocash', phone='0771234567',
+                                              amount=D('60'), status=PaymentTransaction.Status.PAID)
+        wallet_services.credit(player_id=a.id, amount=D('60'), kind='deposit', idempotency_key='lnk-d')
+        self.assertEqual(services.compute_cpa(self.affiliate), 0)
+        row = services.cpa_audit(self.affiliate)['customers'][0]
+        self.assertEqual(row['reason'], 'shares a payment number with the agent')
+        # Staff can still pay it by hand, waiving the rules.
+        self.assertEqual(services.pay_cpa(self.affiliate.id, player_ids=[a.id], override=True)['created'], 1)
+
     def test_run_no_longer_pays_a_monthly_share(self):
         # Agents earn on losing tickets instead (see test_agent_tickets).
         a = self.referred('alice', self.affiliate)

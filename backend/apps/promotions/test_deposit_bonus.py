@@ -72,7 +72,10 @@ class DepositBonusTests(TestCase):
         affiliates.attach_referral(player_id=friend.id, code='AGENT')
         self.deposit('100', friend)            # first deposit: welcome bonus 30, not the 25 promo
         self.assertEqual(self.bonus_total(friend), D('30.00'))
-        self.deposit('100', friend)            # later deposits: the promotion
+        self.deposit('100', friend)            # later deposits: nothing (first deposit only)
+        self.assertEqual(self.bonus_total(friend), D('30.00'))
+        affiliates.update_programme(referral_first_deposit_only=False)
+        self.deposit('100', friend)            # switch off: later deposits get the promotion again
         self.assertEqual(self.bonus_total(friend), D('55.00'))
 
     def test_admin_api_and_public_list(self):
