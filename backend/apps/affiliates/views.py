@@ -70,6 +70,9 @@ class MyAffiliateView(APIView):
             data['stats'] = services.dashboard(affiliate, mask=not impersonation.is_impersonated(request))
             data['commissions'] = CommissionSerializer(affiliate.commissions.all()[:50], many=True).data
         if affiliate.status in (Affiliate.Status.ACTIVE, Affiliate.Status.SUSPENDED):
+            from . import clawback
+            data['audit_notice'] = clawback.notice(affiliate)
+        if affiliate.status in (Affiliate.Status.ACTIVE, Affiliate.Status.SUSPENDED):
             data['balance'] = {k: str(v) for k, v in services.balance(affiliate).items()}
             data['payouts'] = PayoutSerializer(affiliate.payouts.all()[:50], many=True).data
             data['payout_options'] = services.payout_options(affiliate)

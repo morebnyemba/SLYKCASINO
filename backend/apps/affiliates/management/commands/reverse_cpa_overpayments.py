@@ -5,7 +5,9 @@ affiliate programme started. Dry run unless --apply.
     python manage.py reverse_cpa_overpayments --affiliate AGENT  # one agent (code or id)
     python manage.py reverse_cpa_overpayments --apply --by ops   # reverse
 
-See apps.affiliates.clawback for how the money is recovered.
+A full --apply (no --affiliate) also dates the audit: every agent's dashboard
+explains it for 30 days, and affected agents (who also get a notification)
+see what was reversed and how for 90 days. See apps.affiliates.clawback.
 """
 from decimal import Decimal
 

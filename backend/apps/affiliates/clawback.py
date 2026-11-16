@@ -25,7 +25,9 @@ Commissions staff paid with the rules waived are reported, not touched, unless
 from __future__ import annotations
 
 import hashlib
+import re
 from dataclasses import dataclass, field
+from datetime import timedelta
 from decimal import Decimal
 from typing import Optional
 
@@ -39,6 +41,10 @@ from .models import Affiliate, AffiliateProgramme, Commission, Payout
 
 ZERO = Decimal('0.00')
 CLAWBACK_NOTE = 'CPA clawback'
+# How long agents' dashboards explain the audit: everyone, then those affected.
+NOTICE_ALL_DAYS = 30
+NOTICE_AFFECTED_DAYS = 90
+_NOTE = re.compile(r'^CPA clawback (\d{4}-\d{2}-\d{2}): ([\d.]+) -> ([\d.]+) \((.*?)\)(?: by [^|]*)? \|')
 
 
 @dataclass
@@ -170,6 +176,10 @@ def _apply(affiliate: Affiliate, rows: list[Row], result: AffiliateResult, *, by
                   f'balance, {recovered} from the Winnings wallet, {result.carried} netted off future '
                   f'commissions' + (f' (by {by})' if by else ''))[:500],
         )
+    if excess > 0:
+        services._notify(affiliate, 'Commission audit: some deposit commissions reversed',
+                         f'{excess} in deposit commissions for customers who did not meet the programme rules has '
+                         'been reversed. Open your agent dashboard for the details.')
 
 
 def run(*, affiliate_ids: Optional[list[int]] = None, apply: bool = False, include_waived: bool = False,
@@ -180,6 +190,9 @@ def run(*, affiliate_ids: Optional[list[int]] = None, apply: bool = False, inclu
     if affiliate_ids:
         qs = qs.filter(pk__in=affiliate_ids)
     results = []
+    if apply and not affiliate_ids:      # a full audit: every agent's dashboard explains it
+        AffiliateProgramme.load()
+        AffiliateProgramme.objects.filter(pk=1).update(cpa_audit_at=timezone.now())
     for aid in qs.values_list('pk', flat=True):
         with transaction.atomic():
             affiliate = Affiliate.objects.select_for_update().get(pk=aid)
@@ -195,3 +208,63 @@ def run(*, affiliate_ids: Optional[list[int]] = None, apply: bool = False, inclu
                 result.reversed = fix.excess
             results.append(result)
     return results
+
+
+def _reason_for_agent(reason: str) -> str:
+    """The rule a customer missed, as the agent reads it."""
+    if reason.startswith('bet '):
+        return 'the customer ' + reason.replace(' needed', ' needed in their own money (bonus money doesn’t count)')
+    if reason.startswith('deposited '):
+        return 'the customer ' + reason
+    if 'payment number' in reason:
+        return 'the customer’s account shares a payment number with yours'
+    return reason
+
+
+def notice(affiliate: Affiliate, *, now=None) -> Optional[dict]:
+    """What the agent's dashboard says about the CPA audit: to everyone for
+    NOTICE_ALL_DAYS after it ran, and — with exactly what was reversed and how
+    it was recovered — to affected agents for NOTICE_AFFECTED_DAYS. None when
+    there is nothing to say."""
+    programme = AffiliateProgramme.load()
+    audited = programme.cpa_audit_at
+    if audited is None:
+        return None
+    now = now or timezone.now()
+    reversed_qs = list(affiliate.commissions.filter(kind=Commission.Kind.CPA, note__startswith=CLAWBACK_NOTE)
+                       .select_related('referral').order_by('created_at'))
+    affected = bool(reversed_qs)
+    if now > audited + timedelta(days=NOTICE_AFFECTED_DAYS if affected else NOTICE_ALL_DAYS):
+        return None
+    names = services.accounts_services.usernames_for([c.referral.player_id for c in reversed_qs if c.referral])
+    items, total = [], ZERO
+    for c in reversed_qs:
+        m = _NOTE.match(c.note or '')
+        if not m:
+            continue
+        paid, kept = Decimal(m.group(2)), Decimal(m.group(3))
+        total += paid - kept
+        pid = c.referral.player_id if c.referral else None
+        items.append({
+            'customer': services._shown(names.get(pid, '?'), True), 'earned_on': c.created_at.date(),
+            'paid': f'{paid:.2f}', 'kept': f'{kept:.2f}', 'reversed': f'{paid - kept:.2f}',
+            'reason': _reason_for_agent(m.group(4)),
+        })
+    from apps.wallet.models import LedgerEntry
+    from django.db.models import Sum
+    from_wallet = -(LedgerEntry.objects.filter(wallet__player_id=affiliate.player_id, kind='adjustment',
+                                               reference__startswith=CLAWBACK_NOTE)
+                    .aggregate(v=Sum('amount'))['v'] or ZERO)
+    approved = services._sum(affiliate.commissions.filter(status=Commission.Status.APPROVED))
+    spent = services._sum(affiliate.payouts.filter(status__in=(Payout.Status.REQUESTED, Payout.Status.PAID)))
+    return {
+        'audited_on': timezone.localdate(audited),
+        'affected': affected,
+        'turnover_multiple': str(programme.cpa_min_turnover_multiple),
+        'min_deposit': str(affiliate.cpa_min_deposit),
+        'reversed_total': f'{total:.2f}',
+        'from_wallet': f'{from_wallet:.2f}',
+        'from_balance': f'{max(total - from_wallet - max(spent - approved, ZERO), ZERO):.2f}',
+        'still_owed': f'{max(spent - approved, ZERO):.2f}',
+        'items': items,
+    }
