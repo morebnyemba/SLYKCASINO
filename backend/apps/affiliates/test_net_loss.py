@@ -27,7 +27,7 @@ def at(day, hour=12):
 
 class Base(TestCase):
     def setUp(self):
-        services.update_programme(welcome_bonus_percent=0)
+        services.update_programme(welcome_bonus_percent=0, default_revshare_percent=30)   # amounts below at 30%
         AffiliateProgramme.objects.update(net_loss_since=at(D1, 0), net_loss_review_above=0)
         agent = accounts.create_player(username='agent')
         self.agent_player = agent

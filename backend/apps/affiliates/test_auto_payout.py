@@ -24,7 +24,7 @@ pytestmark = pytest.mark.affiliate_auto
 
 class AutoPayoutBase(TestCase):
     def setUp(self):
-        services.update_programme(welcome_bonus_percent=0, default_cpa_percent=30, default_cpa_cap=100,
+        services.update_programme(welcome_bonus_percent=0, default_cpa_percent=30, default_cpa_cap=100, default_revshare_percent=30,
                                   cpa_min_turnover_multiple=1)
         self.partner = account_services.create_player(username='partner')
         self.affiliate = services.apply(player_id=self.partner.id, code='PARTNER')

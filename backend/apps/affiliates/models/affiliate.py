@@ -186,7 +186,7 @@ class AffiliateProgramme(models.Model):
     # Terms a new affiliate starts with (each affiliate can be changed after).
     # `revshare_percent` is the % of the stake on each losing ticket a referred
     # player places.
-    default_revshare_percent = models.DecimalField(max_digits=5, decimal_places=2, default=30)
+    default_revshare_percent = models.DecimalField(max_digits=5, decimal_places=2, default=20)
     default_cpa_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     default_cpa_min_deposit = models.DecimalField(max_digits=10, decimal_places=2, default=20)
     default_cpa_percent = models.DecimalField(max_digits=5, decimal_places=2, default=10)
@@ -232,7 +232,7 @@ class AffiliateProgramme(models.Model):
     def load(cls) -> 'AffiliateProgramme':
         from django.conf import settings
         obj, created = cls.objects.get_or_create(pk=1, defaults={
-            'default_revshare_percent': getattr(settings, 'AFFILIATE_DEFAULT_REVSHARE', 30),
+            'default_revshare_percent': getattr(settings, 'AFFILIATE_DEFAULT_REVSHARE', 20),
             'default_cpa_amount': getattr(settings, 'AFFILIATE_DEFAULT_CPA', 0),
             'default_cpa_min_deposit': getattr(settings, 'AFFILIATE_DEFAULT_CPA_MIN_DEPOSIT', 20),
             'net_loss_since': timezone.now(),

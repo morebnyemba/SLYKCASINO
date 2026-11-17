@@ -32,7 +32,9 @@ class Base(TestCase):
     def make_agent(self, username, code):
         player = accounts.create_player(username=username)
         agent = services.apply(player_id=player.id, code=code)
+        Affiliate.objects.filter(pk=agent.pk).update(revshare_percent=30)   # amounts below are at 30%
         services.set_status(agent.id, Affiliate.Status.ACTIVE)
+        agent.refresh_from_db()
         return agent
 
     def lose(self, stake, settled_ago, player=None, slip=False):

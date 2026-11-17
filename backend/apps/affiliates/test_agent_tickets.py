@@ -85,6 +85,9 @@ class LosingTicketCommissionTests(TestCase):
     def setUp(self):
         self.agent = accounts.register_player(username='agent', email='a@example.com', password=PASSWORD)
         self.affiliate = services.apply(player_id=self.agent.id, code='AGENT')
+        self.default_rate = self.affiliate.revshare_percent
+        # The amounts below are worked out at 30% (the mechanics, not the default rate).
+        Affiliate.objects.filter(pk=self.affiliate.pk).update(revshare_percent=D('30'))
         services.set_status(self.affiliate.id, Affiliate.Status.ACTIVE)
         self.affiliate.refresh_from_db()
         self.customer = accounts.register_player(username='customer', email='c@example.com', password=PASSWORD)
@@ -106,8 +109,8 @@ class LosingTicketCommissionTests(TestCase):
         self.slip = BetSlip.objects.create(wallet='deposit', player_id=self.customer.id, stake=D('5'), combined_odds=D('4'),
                                            status='lost', settled_at=ago(4))
 
-    def test_new_agents_get_thirty_percent(self):
-        self.assertEqual(self.affiliate.revshare_percent, D('30'))
+    def test_new_agents_get_twenty_percent(self):
+        self.assertEqual(self.default_rate, D('20'))
 
     def test_credited_automatically_once_three_minutes_after_settling(self):
         self.assertEqual(services.credit_losing_tickets(), 2)
