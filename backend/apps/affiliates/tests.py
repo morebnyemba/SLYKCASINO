@@ -50,6 +50,7 @@ class Base(TestCase):
         # off here and covered in test_programme.py.
         services.update_programme(
             welcome_bonus_percent=0, default_cpa_percent=0, cpa_min_turnover_multiple=0, negative_carryover=False,
+            default_revshare_percent=30,   # the maths below is worked out at 30%
         )
 
     def make_affiliate(self, **terms):
@@ -84,7 +85,7 @@ class MembershipTests(Base):
         self.assertEqual(a.status, Affiliate.Status.PENDING)
         self.assertTrue(a.code.startswith('PARTNE'))
         self.assertEqual(services.apply(player_id=self.partner.id).pk, a.pk)
-        self.assertEqual(a.revshare_percent, D('30'))
+        self.assertEqual(a.revshare_percent, D('30'))   # the programme default (pinned in Base)
 
     @override_settings(AFFILIATE_AUTO_APPROVE=True)
     def test_auto_approve(self):

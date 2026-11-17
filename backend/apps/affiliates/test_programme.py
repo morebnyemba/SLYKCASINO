@@ -174,6 +174,8 @@ class CarryOverTests(ProgrammeBase):
     def setUp(self):
         super().setUp()
         services.update_programme(welcome_bonus_percent=0)  # keep the maths to stakes and wins
+        Affiliate.objects.filter(pk=self.affiliate.pk).update(revshare_percent=D('30'))   # amounts below at 30%
+        self.affiliate.refresh_from_db()
         self.player = self.referred('alice')
         wallet_services.credit(player_id=self.player.id, amount=D('10000'), kind='deposit', idempotency_key='bank')
 

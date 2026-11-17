@@ -70,3 +70,24 @@ class RepriceTests(TestCase):
         self.agent.refresh_from_db()
         self.assertEqual(services.utils.deposit_commission(D('1'), self.agent.cpa_amount, self.agent.cpa_percent,
                                                            self.agent.cpa_cap), D('0.10'))
+
+
+class NetLossRateMigrationTests(TestCase):
+    """Migration 0017: every agent's net-loss commission is 20% from now on;
+    commissions already earned are untouched."""
+
+    def test_moves_every_agent_to_twenty_and_keeps_earned_commissions(self):
+        import importlib
+        from django.apps import apps as dj_apps
+        mig = importlib.import_module('apps.affiliates.migrations.0017_net_loss_twenty_percent')
+        p = accounts.create_player(username='agent2')
+        a = services.apply(player_id=p.id, code='AG2')
+        Affiliate.objects.filter(pk=a.pk).update(revshare_percent=D('30'))
+        earned = Commission.objects.create(affiliate=a, kind=Commission.Kind.NET_LOSS, base_amount=D('19.23'),
+                                           rate=D('30'), amount=D('5.76'), status=Commission.Status.APPROVED)
+        mig.every_agent_twenty_percent(dj_apps, None)
+        a.refresh_from_db()
+        earned.refresh_from_db()
+        self.assertEqual(a.revshare_percent, D('20.00'))
+        self.assertEqual(AffiliateProgramme.load().default_revshare_percent, D('20.00'))
+        self.assertEqual((earned.rate, earned.amount), (D('30.00'), D('5.76')))
