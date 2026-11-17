@@ -473,7 +473,7 @@ class AdminLiveTradingSettingsView(APIView):
     review (a price jump with no goal, a burst of money on one pick). Also
     lists the matches held right now."""
     permission_classes = [IsAdminUser]
-    FIELDS = ('lock_minute', 'price_jump_percent', 'burst_minutes', 'live_price_grace_seconds')
+    FIELDS = ('lock_minute', 'price_jump_percent', 'burst_minutes', 'live_price_grace_seconds', 'near_win_percent')
     FLAGS = ('hold_on_bad_feed', 'suspend_on_feed_pause', 'keep_markets_open')
 
     def _payload(self):
@@ -484,6 +484,7 @@ class AdminLiveTradingSettingsView(APIView):
         return {
             **{f: getattr(cfg, f) for f in (*self.FIELDS, *self.FLAGS)}, 'burst_amount': f'{cfg.burst_amount:.2f}',
             'live_min_odds': f'{cfg.live_min_odds:.2f}',
+            'near_win_goals_per_90': f'{cfg.near_win_goals_per_90:.2f}',
             'held': [{'id': e.id, 'name': e.name, 'status': e.status, 'elapsed': e.elapsed,
                       'reason': e.live_hold_reason, 'held_at': e.live_hold_at} for e in held],
         }
@@ -509,10 +510,17 @@ class AdminLiveTradingSettingsView(APIView):
                 cfg.burst_amount = Decimal(str(request.data['burst_amount'])).quantize(Decimal('0.01'))
             if 'live_min_odds' in request.data:
                 cfg.live_min_odds = Decimal(str(request.data['live_min_odds'])).quantize(Decimal('0.01'))
+            if 'near_win_goals_per_90' in request.data:
+                cfg.near_win_goals_per_90 = Decimal(str(request.data['near_win_goals_per_90'])).quantize(Decimal('0.01'))
         except (InvalidOperation, ValueError, TypeError):
             return Response({'detail': 'Enter whole numbers (and an amount).'}, status=status.HTTP_400_BAD_REQUEST)
         if cfg.live_min_odds != 0 and not Decimal('1') <= cfg.live_min_odds <= Decimal('3'):
             return Response({'detail': 'The shortest live price is 1.00–3.00 (0 = off).'}, status=status.HTTP_400_BAD_REQUEST)
+        if cfg.near_win_percent != 0 and not 50 <= cfg.near_win_percent <= 99:
+            return Response({'detail': 'Refuse picks at 50–99% likely to win (0 = off).'}, status=status.HTTP_400_BAD_REQUEST)
+        if not Decimal('0.5') <= cfg.near_win_goals_per_90 <= Decimal('6'):
+            return Response({'detail': 'Goals per 90 minutes for the near-win guard: 0.50–6.00.'},
+                            status=status.HTTP_400_BAD_REQUEST)
         if not 15 <= cfg.live_price_grace_seconds <= 600:
             return Response({'detail': 'A selection the live feed stops pricing stays open 15–600 seconds.'},
                             status=status.HTTP_400_BAD_REQUEST)
@@ -525,5 +533,6 @@ class AdminLiveTradingSettingsView(APIView):
             from . import live_guard
             live_guard.release_locks(cfg.lock_minute)  # a later (or no) lock reopens matches the old one closed
         accounts_services.audit(None, 'live_trading_settings', request,
-                                **{f: str(getattr(cfg, f)) for f in (*self.FIELDS, *self.FLAGS, 'burst_amount', 'live_min_odds')})
+                                **{f: str(getattr(cfg, f)) for f in (*self.FIELDS, *self.FLAGS, 'burst_amount', 'live_min_odds',
+                                                                   'near_win_goals_per_90')})
         return Response(self._payload())

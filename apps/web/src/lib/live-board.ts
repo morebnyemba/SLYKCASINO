@@ -28,6 +28,7 @@ export interface BoardFrame {
   in_play?: boolean;
   bettable?: boolean;
   main_open?: boolean;
+  main_blocked?: ('home' | 'draw' | 'away')[];
 }
 
 type Listener = () => void;

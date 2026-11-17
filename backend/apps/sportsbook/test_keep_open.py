@@ -1,6 +1,6 @@
 """The operator's rule: every market on every upcoming and live match stays open
-until the lock minute (75'), then everything locks. Nothing suspends a market
-by itself before then; only what play has already decided stays shut."""
+all match (or until a lock minute, if staff set one). Nothing suspends a market
+by itself; only what play has decided (or as good as decided) stays shut."""
 from __future__ import annotations
 
 from datetime import timedelta

@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { BsLockFill, BsXLg, BsReceipt, BsTrash3 } from 'react-icons/bs';
+import { BsXLg, BsReceipt, BsTrash3 } from 'react-icons/bs';
 import { LoadCodeForm, ShareSlip } from '@/components/booking-code';
 import { useAuth } from '@/lib/auth-context';
 import { useBetslip, keyOf, type BetLeg, type Selection } from '@/lib/betslip-context';
@@ -299,8 +299,9 @@ export function SlipBody({ onClose, variant = 'card' }: {
                       )}
                     </div>
                     {l.suspended ? (
-                      <span className="flex items-center gap-1 rounded-md bg-muted px-2 py-1 text-[11px] font-extrabold uppercase text-muted-foreground">
-                        <BsLockFill size={9} /> Suspended
+                      <span className="flex flex-col items-end" title="Can’t be played right now">
+                        <span className="rounded-md bg-muted px-2 py-1 text-sm font-extrabold tabular-nums text-muted-foreground/60">{fmt(l.odds)}</span>
+                        <span className="mt-0.5 text-[10px] font-bold text-muted-foreground">Not available now</span>
                       </span>
                     ) : (
                       <span className="flex flex-col items-end">

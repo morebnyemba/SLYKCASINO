@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-import { BsChevronLeft, BsChevronDown, BsCheckCircleFill, BsLockFill, BsSearch, BsXCircleFill } from 'react-icons/bs';
+import { BsChevronLeft, BsChevronDown, BsCheckCircleFill, BsSearch, BsXCircleFill } from 'react-icons/bs';
 import { OddsButton } from '@/components/odds-button';
 import { LiveBadge, TeamBadge, sportMeta } from '@/components/event-row';
 import { useLiveOdds } from '@/lib/use-live-odds';
@@ -211,9 +211,7 @@ function TotalBttsCard({ title, markets, forceOpen, renderOutcome }: {
 function StatusBadge({ market }: { market: Market }) {
   if (market.settled) return <span className="rounded bg-muted px-2 py-0.5 text-[10.5px] font-bold text-muted-foreground">Settled</span>;
   if (!market.is_open) return (
-    <span className="flex items-center gap-1 rounded bg-muted px-2 py-0.5 text-[10.5px] font-bold text-muted-foreground">
-      <BsLockFill size={9} /> Suspended
-    </span>
+    <span className="rounded bg-muted px-2 py-0.5 text-[10.5px] font-bold text-muted-foreground">Not available now</span>
   );
   return null;
 }
@@ -224,7 +222,7 @@ export function EventMarkets({ ev }: { ev: EventItem }) {
     odds_draw: ev.odds_draw != null ? Number(ev.odds_draw) : null,
     odds_away: ev.odds_away != null ? Number(ev.odds_away) : null,
     in_play: ev.in_play, bettable: ev.bettable, main_open: ev.main_open, live_closed: ev.live_closed,
-    score_home: ev.score_home, score_away: ev.score_away, elapsed: ev.elapsed, status: ev.status,
+    main_blocked: ev.main_blocked, score_home: ev.score_home, score_away: ev.score_away, elapsed: ev.elapsed, status: ev.status,
   });
   const initialMarkets = useMemo(() => ev.markets ?? [], [ev.markets]);
   const liveMarkets = useLiveMarkets(ev.id, initialMarkets);
@@ -243,6 +241,7 @@ export function EventMarkets({ ev }: { ev: EventItem }) {
     ...Object.fromEntries(Object.entries({
       score_home: live.score_home, score_away: live.score_away, elapsed: live.elapsed, status: live.status,
       in_play: live.in_play, bettable: live.bettable, main_open: live.main_open, live_closed: live.live_closed,
+      main_blocked: live.main_blocked,
     }).filter(([, v]) => v !== undefined)),
   };
   const inPlay = isLive(cur);
@@ -329,7 +328,6 @@ export function EventMarkets({ ev }: { ev: EventItem }) {
     eventName: ev.name,
     odds: o.odds,
     disabled: closed || !m.is_open || !o.is_open,
-    quietLock: closed || !m.is_open,
     move: o.previous_odds != null && Number(o.previous_odds) !== Number(o.odds)
       ? (Number(o.odds) > Number(o.previous_odds) ? 'up' as const : 'down' as const)
       : undefined,
@@ -606,9 +604,9 @@ export function EventMarkets({ ev }: { ev: EventItem }) {
           <Collapsible forceOpen={searching} title={hasDraw ? 'Match result (1X2)' : 'Match winner'} badge={finalResult ? (
             <span className="rounded bg-muted px-2 py-0.5 text-[10.5px] font-bold text-muted-foreground">Settled</span>
           ) : closed ? (
-            <span className="flex items-center gap-1 rounded bg-muted px-2 py-0.5 text-[10.5px] font-bold text-muted-foreground"><BsLockFill size={9} /> Closed</span>
+            <span className="rounded bg-muted px-2 py-0.5 text-[10.5px] font-bold text-muted-foreground">Closed</span>
           ) : mainClosed ? (
-            <span className="flex items-center gap-1 rounded bg-muted px-2 py-0.5 text-[10.5px] font-bold text-muted-foreground"><BsLockFill size={9} /> Suspended</span>
+            <span className="rounded bg-muted px-2 py-0.5 text-[10.5px] font-bold text-muted-foreground">Not available now</span>
           ) : undefined}>
             <div className={`grid gap-2 ${resultOutcomes.length === 3 ? 'grid-cols-3' : resultOutcomes.length === 2 ? 'grid-cols-2' : 'grid-cols-1'}`}>
               {finalResult ? resultOutcomes.map((o) => (
@@ -628,7 +626,7 @@ export function EventMarkets({ ev }: { ev: EventItem }) {
                   label={o.label}
                   move={o.move}
                   size="lg"
-                  disabled={closed || mainClosed}
+                  disabled={closed || mainClosed || !!cur.main_blocked?.includes(o.selection)}
                   stackOnMobile={resultOutcomes.length === 3}
                 />
               ))}

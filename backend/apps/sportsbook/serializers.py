@@ -108,6 +108,8 @@ class EventSerializer(serializers.ModelSerializer):
     bettable = serializers.SerializerMethodField()
     main_open = serializers.SerializerMethodField()
     live_closed = serializers.SerializerMethodField()
+    # 1X2 picks the near-win guard refuses right now (greyed out).
+    main_blocked = serializers.SerializerMethodField()
     # O/U, double chance and GG/NG prices for the list's market chips (list view only).
     quick_markets = serializers.SerializerMethodField()
 
@@ -134,13 +136,16 @@ class EventSerializer(serializers.ModelSerializer):
     def get_live_closed(self, obj):
         return self._state(obj)['live_closed']
 
+    def get_main_blocked(self, obj) -> list:
+        return self._state(obj)['main_blocked']
+
     class Meta:
         model = Event
         fields = [
             'id', 'name', 'sport', 'odds', 'odds_draw', 'odds_away', 'previous_odds', 'has_odds',
             'featured', 'is_open', 'starts_at', 'home_team', 'away_team', 'league',
             'status', 'elapsed', 'score_home', 'score_away', 'ht_score_home', 'ht_score_away',
-            'markets_count', 'in_play', 'bettable', 'main_open', 'live_closed', 'quick_markets',
+            'markets_count', 'in_play', 'bettable', 'main_open', 'live_closed', 'main_blocked', 'quick_markets',
         ]
         read_only_fields = ['status', 'elapsed', 'score_home', 'score_away', 'ht_score_home', 'ht_score_away']
 

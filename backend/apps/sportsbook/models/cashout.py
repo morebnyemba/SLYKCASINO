@@ -64,6 +64,12 @@ class LiveTradingSettings(models.Model):
     # a selection when it is decided or about to be, so its last price must not
     # stay on offer. (A whole-match pause doesn't count against it.)
     live_price_grace_seconds = models.PositiveSmallIntegerField(default=60)
+    # Near-win guard (near_win.py): no in-play bets on a pick with at least this
+    # chance of winning from the current score and clock, e.g. "under 2.5" at
+    # 1-0 in the 85th minute (0 = off). The model assumes this many goals per 90
+    # minutes; a higher figure refuses fewer picks.
+    near_win_percent = models.PositiveSmallIntegerField(default=90)
+    near_win_goals_per_90 = models.DecimalField(max_digits=4, decimal_places=2, default=Decimal('2.70'))
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

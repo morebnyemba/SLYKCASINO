@@ -136,6 +136,8 @@ export function EventRow({ ev: snapshot, showLeague = false, market = '1x2' }: {
   // Pre-match betting closes at kick-off; in play the prices stay locked unless
   // the match is trading live.
   const closed = !isMainOpen(ev);
+  // A pick the match has as good as decided (near-win guard) is greyed out on its own.
+  const blocked = (s: 'home' | 'draw' | 'away') => !!ev.main_blocked?.includes(s);
   const href = `/sportsbook/${ev.id}`;
 
   return (
@@ -182,9 +184,9 @@ export function EventRow({ ev: snapshot, showLeague = false, market = '1x2' }: {
       </Link>
       {market === '1x2' ? (
         <div className={oddsCols(3)}>
-          <OddsButton eventId={ev.id} eventName={ev.name} selection="home" odds={priced ? ev.odds : null} move={moves.home ?? homeMove(ev)} disabled={closed} />
-          <OddsButton eventId={ev.id} eventName={ev.name} selection="draw" odds={priced && shape === '1x2' ? ev.odds_draw : null} move={moves.draw} disabled={closed} />
-          <OddsButton eventId={ev.id} eventName={ev.name} selection="away" odds={priced && shape !== 'single' ? ev.odds_away : null} move={moves.away} disabled={closed} />
+          <OddsButton eventId={ev.id} eventName={ev.name} selection="home" odds={priced ? ev.odds : null} move={moves.home ?? homeMove(ev)} disabled={closed || blocked('home')} />
+          <OddsButton eventId={ev.id} eventName={ev.name} selection="draw" odds={priced && shape === '1x2' ? ev.odds_draw : null} move={moves.draw} disabled={closed || blocked('draw')} />
+          <OddsButton eventId={ev.id} eventName={ev.name} selection="away" odds={priced && shape !== 'single' ? ev.odds_away : null} move={moves.away} disabled={closed || blocked('away')} />
         </div>
       ) : (
         <QuickOdds ev={ev} market={market} />

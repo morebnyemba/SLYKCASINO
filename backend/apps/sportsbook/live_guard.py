@@ -299,11 +299,16 @@ def below_live_floor(odds) -> bool:
     return floor > 0 and Decimal(str(odds)) < floor
 
 
+NEAR_WIN_BOARD_MAX_ODDS = Decimal('2.00')
+
+
 def close_decided(event: Event) -> int:
-    """Shut the open outcomes play has decided, priced below the live floor, or
-    no longer quoted by the live feed (pre-match prices included), so boards
-    show them closed (new bets on them are refused regardless — see services).
-    The feed quoting one again reopens it. Returns how many."""
+    """Shut the open outcomes play has decided or as good as decided (near_win),
+    priced below the live floor, or no longer quoted by the live feed (pre-match
+    prices included), so boards show them greyed out (new bets on them are
+    refused regardless — see services). The feed quoting one again reopens it.
+    Returns how many."""
+    from . import near_win
     from .models import MarketOutcome
     closed = 0
     floor = LiveTradingSettings.load().live_min_odds
@@ -312,7 +317,10 @@ def close_decided(event: Event) -> int:
     ).select_related('market')
     for outcome in outcomes:
         if (outcome_decided(event, outcome.market, outcome) or (floor > 0 and outcome.odds < floor)
-                or not live_price_fresh(event, outcome.live_priced_at)):
+                or not live_price_fresh(event, outcome.live_priced_at)
+                # A near-won pick the feed still prices above 2.00 would be a grossly stale
+                # price: placement refuses it anyway; the boards skip the model for it (speed).
+                or (outcome.odds <= NEAR_WIN_BOARD_MAX_ODDS and near_win.outcome_near_won(event, outcome.market, outcome))):
             outcome.is_open = False
             outcome.save(update_fields=['is_open'])
             closed += 1
