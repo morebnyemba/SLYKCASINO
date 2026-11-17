@@ -15,7 +15,7 @@ from apps.wallet.models import BonusRollover, WithdrawalRequest
 
 
 @override_settings(REVENUE_SHARE_CONTROLLER_IDS=[])   # user ids depend on creation order
-class LiabilitiesTests(TestCase):
+class _Base(TestCase):
     def setUp(self):
         self.p1 = accounts.create_player(username='p1')
         self.p2 = accounts.create_player(username='p2')
@@ -29,6 +29,9 @@ class LiabilitiesTests(TestCase):
         WithdrawalRequest.objects.create(player_id=self.p1.id, amount=D('10'), fee=D('0.50'))
         BonusRollover.objects.filter(player_id=self.p1.id).update(aviator_profit=D('1.25'))
 
+
+@override_settings(REVENUE_SHARE_CONTROLLER_IDS=[])
+class LiabilitiesTests(_Base):
     def test_players(self):
         p = liabilities.players()
         self.assertEqual((p['winnings'], p['deposit'], p['withdrawals_waiting'], p['withdrawals_waiting_count']),
@@ -70,3 +73,39 @@ class LiabilitiesTests(TestCase):
         body = boss.get('/api/admin/liabilities/').json()
         self.assertEqual((body['partners']['total'], body['total']), ('40.00', '88.50'))
         self.assertEqual(APIClient().get('/api/admin/liabilities/').status_code, 401)
+
+
+@override_settings(REVENUE_SHARE_CONTROLLER_IDS=[])
+class OwedDetailTests(_Base):
+    """Who is owed, person by person, and how many people."""
+
+    def test_players_list_biggest_first_with_headcount_and_search(self):
+        self.assertEqual(liabilities.players()['people'], 2)
+        out = liabilities.player_rows()
+        self.assertEqual((out['count'], out['total']), (2, '48.50'))
+        first = out['results'][0]
+        self.assertEqual((first['username'], first['winnings'], first['deposit'], first['withdrawals_waiting'],
+                          first['total'], first['bonus'], first['aviator_bonus_profit']),
+                         ('p1', '25.00', '10.00', '9.50', '44.50', '3.00', '1.25'))
+        self.assertEqual(out['results'][1]['username'], 'p2')
+        self.assertEqual(liabilities.player_rows(q='p2')['count'], 1)
+        self.assertEqual(len(liabilities.player_rows(page=2, size=1)['results']), 1)
+
+    def test_agents_and_partners_lists_and_access(self):
+        ag = accounts.create_player(username='agent')
+        a = affiliates.apply(player_id=ag.id, code='AGT1')
+        Commission.objects.create(affiliate=a, kind=Commission.Kind.NET_LOSS, amount=D('6'), status=Commission.Status.APPROVED)
+        idle = accounts.create_player(username='idle')
+        affiliates.apply(player_id=idle.id, code='IDLE1')                       # owed nothing: not listed
+        out = liabilities.agent_rows()
+        self.assertEqual((out['count'], out['total'], [r['code'] for r in out['results']]), (1, '6.00', ['AGT1']))
+        self.assertEqual(out['results'][0]['username'], 'agent')
+        staff = APIClient()
+        staff.force_authenticate(User.objects.create_user('ops', 'o@example.com', 'x', is_staff=True))
+        self.assertEqual(staff.get('/api/admin/liabilities/players/?q=p1').json()['count'], 1)
+        self.assertEqual(staff.get('/api/admin/liabilities/agents/').json()['count'], 1)
+        self.assertEqual(staff.get('/api/admin/liabilities/partners/').status_code, 403)
+        self.assertEqual(staff.get('/api/admin/liabilities/nope/').status_code, 404)
+        boss = APIClient()
+        boss.force_authenticate(User.objects.create_superuser('boss', 'b@example.com', 'x'))
+        self.assertEqual(boss.get('/api/admin/liabilities/partners/').json()['count'], 0)

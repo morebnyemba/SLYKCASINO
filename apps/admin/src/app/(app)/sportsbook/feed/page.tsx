@@ -9,6 +9,7 @@ import {
 import {
   Badge, Btn, Field, Notice, PageHeader, Panel, StatTile, TextInput, cx,
 } from '@/components/console/ui';
+import { FeedBudgetPanel, type FeedBudget } from '@/components/feed-budget-panel';
 import { useAuth } from '@/lib/auth-context';
 import { authedRequest, useApi } from '@/lib/use-api';
 import { LoadingState } from '@slyk/ui/components/spinner';
@@ -29,6 +30,7 @@ interface Feed {
     locked: number; leagues_enabled: number; leagues_total: number; markets_to_review: number;
   };
   last_live_odds_at: string | null;
+  budget?: FeedBudget | null;
   schedules: { task: string; label: string; enabled: boolean; last_run_at: string | null; every: string }[];
   jobs: { id: string; label: string }[];
 }
@@ -196,7 +198,7 @@ export default function FeedPage() {
           <dl className="divide-y divide-border/60 text-sm">
             {[
               ['Live betting', feed.live_betting ? <Badge tone="green" dot>On</Badge> : <Badge tone="slate">Off</Badge>],
-              ['Live odds refresh', feed.live_odds_interval ? `every ${feed.live_odds_interval}s` : '—'],
+              ['Live odds refresh', feed.live_odds_interval ? `every ${feed.live_odds_interval}s or slower (see API budget)` : '—'],
               ['Suspend when prices are older than', feed.live_odds_stale ? `${feed.live_odds_stale}s` : '—'],
               ['In-play bet delay', feed.live_bet_delay ? `${feed.live_bet_delay}s` : '—'],
               ['Last live price received', ago(feed.last_live_odds_at)],
@@ -212,9 +214,11 @@ export default function FeedPage() {
         </Panel>
       </div>
 
+      <FeedBudgetPanel budget={feed.budget} />
+
       <Panel
         title={<span className="flex items-center gap-2"><BsArrowRepeat size={14} />Feed jobs</span>}
-        description="These run automatically on a schedule. Run one now after changing the key or enabling leagues."
+        description="The feed manager runs these automatically (see API budget for the pace right now). Run one now after changing the key or enabling leagues — a manual run always goes ahead."
         padded={false}
       >
         <div className="divide-y divide-border/60">

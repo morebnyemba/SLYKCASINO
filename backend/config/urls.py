@@ -27,6 +27,7 @@ api_patterns = [
     path('admin/analytics/', views.admin_analytics),
     path('admin/profit/', views.admin_profit),
     path('admin/liabilities/', views.admin_liabilities),
+    path('admin/liabilities/<str:kind>/', views.admin_liabilities_detail),
     path('admin/lock-status/', views.admin_lock_status),
 ]
 

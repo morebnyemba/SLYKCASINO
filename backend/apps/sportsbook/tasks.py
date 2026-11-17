@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from celery import shared_task
 
-from . import services
+from . import feed_manager, services
 from .recovery import RecoveryManager
 
 
@@ -13,23 +13,34 @@ def reconcile_orphaned_bets(dry_run: bool = False) -> dict:
 
 
 @shared_task(name='apps.sportsbook.tasks.sync_live_fixtures')
-def sync_live_fixtures() -> int:
+def sync_live_fixtures(force: bool = False) -> int:
     """Live scores: poll api-football for in-play fixtures (score, clock,
-    status) every SPORTSBOOK_LIVE_SCORES_INTERVAL seconds, skipping the call
-    while nothing could be live. No-op if API_FOOTBALL_KEY unset."""
-    return services.sync_live_fixtures()
+    status) when the feed manager says it's due (every SPORTSBOOK_LIVE_SCORES_INTERVAL
+    seconds, once a minute while live odds carry the scores, longer if the day's
+    quota is tight), skipping the call while nothing could be live."""
+    with feed_manager.job('live_scores', force=force) as go:
+        return services.sync_live_fixtures() if go else 0
 
 
 @shared_task(name='apps.sportsbook.tasks.sync_fixture_odds')
-def sync_fixture_odds() -> int:
+def sync_fixture_odds(force: bool = False) -> int:
     """Refresh odds + markets for upcoming fixtures (per configured league, or
     today and the next API_FOOTBALL_ODDS_DAYS days) and apply them to linked,
-    still-open events. No-op if API_FOOTBALL_KEY unset."""
-    return services.sync_upcoming_odds()
+    still-open events. Today and tomorrow refresh hourly, later days every few
+    hours (api-football itself updates pre-match odds every 3 hours) — as the
+    feed manager allows."""
+    total = 0
+    with feed_manager.job('odds', force=force) as go:
+        if go:
+            total += services.sync_upcoming_odds(near=True, ahead=False)
+    with feed_manager.job('odds_ahead', force=force) as go:
+        if go:
+            total += services.sync_upcoming_odds(near=False, ahead=True)
+    return total
 
 
 @shared_task(name='apps.sportsbook.tasks.import_upcoming_fixtures')
-def import_upcoming_fixtures() -> int:
+def import_upcoming_fixtures(force: bool = False) -> int:
     """Pull upcoming fixtures from api-football and create an Event for any
     that aren't linked yet — this is what actually populates the sportsbook
     with bettable events; sync_live_fixtures/sync_fixture_odds only keep
@@ -44,31 +55,41 @@ def import_upcoming_fixtures() -> int:
     leagues = getattr(settings, 'API_FOOTBALL_LEAGUES', [])
     season = getattr(settings, 'API_FOOTBALL_SEASON', None)
     next_count = getattr(settings, 'API_FOOTBALL_IMPORT_NEXT', 20)
-    if not leagues:
-        return services.import_all_current_leagues(next_count=next_count)
-    total = 0
-    for league in leagues:
-        total += services.sync_provider_events(league=league, season=season, next_count=next_count)
-    return total
+    with feed_manager.job('import', force=force) as go:
+        if not go:
+            return 0
+        if not leagues:
+            # One request per day ahead covers every league (was one per league).
+            return services.import_upcoming_by_date()
+        total = 0
+        for league in leagues:
+            total += services.sync_provider_events(league=league, season=season, next_count=next_count)
+        return total
 
 
 @shared_task(name='apps.sportsbook.tasks.settle_finished_fixtures')
-def settle_finished_fixtures() -> int:
+def settle_finished_fixtures(force: bool = False) -> int:
     """Settle recently finished fixtures end to end: 1X2, score markets, and
     corners/cards/goalscorer markets once api-football publishes the match
     statistics and events. The live poll can't do this on its own because a
     fixture drops out of `live=all` as soon as it finishes. Retries every run
     until everything on the fixture is settled (bounded to the last few days).
-    No-op if API_FOOTBALL_KEY is unset."""
-    return services.settle_finished_fixtures()
+    No-op if API_FOOTBALL_KEY is unset. Critical: may use the quota's reserve."""
+    with feed_manager.job('settle', force=force) as go:
+        return services.settle_finished_fixtures() if go else 0
 
 
 @shared_task(name='apps.sportsbook.tasks.sync_live_odds')
-def sync_live_odds() -> int:
+def sync_live_odds(force: bool = False) -> int:
     """In-play: refresh live prices/suspensions every few seconds, then resolve
     in-play bets whose acceptance delay has passed. No-op unless
-    SPORTSBOOK_LIVE_BETTING is on (and skips the API call when nothing is live)."""
-    fetched = services.sync_live_odds()
+    SPORTSBOOK_LIVE_BETTING is on (and skips the API call when nothing is live).
+    The feed call runs when the feed manager says it's due; accepting in-play
+    bets runs on every tick."""
+    fetched = 0
+    with feed_manager.job('live_odds', force=force) as go:
+        if go:
+            fetched = services.sync_live_odds()
     services.confirm_accepting_bets()
     return fetched
 
@@ -105,8 +126,9 @@ def clear_old_matches() -> dict:
 
 
 @shared_task(name='apps.sportsbook.tasks.check_overdue_live_matches')
-def check_overdue_live_matches() -> dict:
+def check_overdue_live_matches(force: bool = False) -> dict:
     """Every 2 min: ask the provider about matches still marked live after they
     should be over, apply full time, end the hopeless ones as NR
-    (see services.check_overdue_live_matches)."""
-    return services.check_overdue_live_matches()
+    (see services.check_overdue_live_matches). Critical: may use the reserve."""
+    with feed_manager.job('overdue', force=force) as go:
+        return services.check_overdue_live_matches() if go else {'skipped': True}

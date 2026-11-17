@@ -236,6 +236,22 @@ API_FOOTBALL_IMPORT_NEXT = int(os.environ.get('API_FOOTBALL_IMPORT_NEXT', '20'))
 # days ahead; every page is followed up to the page cap (10 fixtures per page).
 API_FOOTBALL_ODDS_DAYS = int(os.environ.get('API_FOOTBALL_ODDS_DAYS', '2'))
 API_FOOTBALL_ODDS_MAX_PAGES = int(os.environ.get('API_FOOTBALL_ODDS_MAX_PAGES', '20'))
+# The feed manager (apps.sportsbook.feed_manager) paces every api-football fetch
+# so the daily quota lasts until it resets at 00:00 UTC. Each job has a base
+# interval (used on a quiet day) and a share of what's left; on a busy day the
+# intervals stretch automatically. API_FOOTBALL_DAILY_LIMIT is only used until
+# the provider reports the real limit in its response headers; the reserve is
+# kept for settling bets and operator checks.
+API_FOOTBALL_DAILY_LIMIT = int(os.environ.get('API_FOOTBALL_DAILY_LIMIT', '7500'))
+API_FOOTBALL_RESERVE_PERCENT = float(os.environ.get('API_FOOTBALL_RESERVE_PERCENT', '5'))
+# Pre-match odds: api-football updates them about every 3 hours, so today and
+# tomorrow refresh hourly and later days every 6 hours.
+API_FOOTBALL_ODDS_INTERVAL = float(os.environ.get('API_FOOTBALL_ODDS_INTERVAL', '3600'))
+API_FOOTBALL_ODDS_AHEAD_INTERVAL = float(os.environ.get('API_FOOTBALL_ODDS_AHEAD_INTERVAL', '21600'))
+# Fixture import: one request per day for today + API_FOOTBALL_IMPORT_DAYS days
+# (every league at once), every API_FOOTBALL_IMPORT_INTERVAL seconds.
+API_FOOTBALL_IMPORT_DAYS = int(os.environ.get('API_FOOTBALL_IMPORT_DAYS', '3'))
+API_FOOTBALL_IMPORT_INTERVAL = float(os.environ.get('API_FOOTBALL_IMPORT_INTERVAL', '10800'))
 # Every bet type api-football offers is imported, pre-match and in play. The
 # ones the importer recognises (goals, handicaps, halves, corners, cards,
 # goalscorers, combos…) settle automatically from the match facts; the rest
@@ -281,15 +297,18 @@ REVENUE_SHARE_CONTROLLER_IDS = [
 AFFILIATE_AUTO_PAY = os.environ.get('AFFILIATE_AUTO_PAY', 'false').lower() == 'true'
 # In-play betting from api-football's /odds/live (on by default; set
 # SPORTSBOOK_LIVE_BETTING=false to disable). The feed is polled every SPORTSBOOK_LIVE_ODDS_INTERVAL seconds while anything could be in
-# play (~10k requests/day at 8s); a match whose prices are older than
+# play (base interval; the feed manager stretches it if the quota is tight); a match whose prices are older than
 # SPORTSBOOK_LIVE_ODDS_STALE seconds is suspended; in-play bets are confirmed
 # after SPORTSBOOK_LIVE_BET_DELAY seconds, re-checking price, suspension and score.
 SPORTSBOOK_LIVE_BETTING = os.environ.get('SPORTSBOOK_LIVE_BETTING', 'true').lower() == 'true'
-SPORTSBOOK_LIVE_ODDS_INTERVAL = float(os.environ.get('SPORTSBOOK_LIVE_ODDS_INTERVAL', '8'))
+SPORTSBOOK_LIVE_ODDS_INTERVAL = float(os.environ.get('SPORTSBOOK_LIVE_ODDS_INTERVAL', '10'))
 # Live scores (score, clock, status for every match in play: one request per
-# poll, skipped while nothing could be live). api-football refreshes live data
-# about every 15s, so faster gains nothing: 15s is ~240 requests per hour of play.
-SPORTSBOOK_LIVE_SCORES_INTERVAL = float(os.environ.get('SPORTSBOOK_LIVE_SCORES_INTERVAL', '15'))
+# poll, skipped while nothing could be live). Base interval; while the live odds
+# feed is flowing (it carries scores and clocks) it relaxes to once a minute.
+SPORTSBOOK_LIVE_SCORES_INTERVAL = float(os.environ.get('SPORTSBOOK_LIVE_SCORES_INTERVAL', '20'))
+# How often the live jobs wake up to ask the feed manager whether a call is due
+# (a wake-up with nothing due costs no API request).
+SPORTSBOOK_FEED_TICK = float(os.environ.get('SPORTSBOOK_FEED_TICK', '5'))
 SPORTSBOOK_LIVE_ODDS_STALE = int(os.environ.get('SPORTSBOOK_LIVE_ODDS_STALE', '60'))
 SPORTSBOOK_LIVE_BET_DELAY = int(os.environ.get('SPORTSBOOK_LIVE_BET_DELAY', '6'))
 
@@ -338,9 +357,10 @@ CELERY_BEAT_SCHEDULE = {
     },
     'sportsbook-sync-live-fixtures': {
         'task': 'apps.sportsbook.tasks.sync_live_fixtures',
-        'schedule': SPORTSBOOK_LIVE_SCORES_INTERVAL,
+        # Wakes every few seconds; the feed manager decides when a call is due.
+        'schedule': SPORTSBOOK_FEED_TICK,
         # A backed-up worker drops a stale run instead of queueing a pile of them.
-        'options': {'expires': SPORTSBOOK_LIVE_SCORES_INTERVAL},
+        'options': {'expires': SPORTSBOOK_FEED_TICK},
     },
     'sportsbook-settle-finished-fixtures': {
         'task': 'apps.sportsbook.tasks.settle_finished_fixtures',
@@ -373,9 +393,11 @@ CELERY_BEAT_SCHEDULE = {
     },
     'sportsbook-sync-live-odds': {
         'task': 'apps.sportsbook.tasks.sync_live_odds',
-        # No-op (no API call) unless SPORTSBOOK_LIVE_BETTING is on and a match
-        # could be in play.
-        'schedule': SPORTSBOOK_LIVE_ODDS_INTERVAL,
+        # No API call unless SPORTSBOOK_LIVE_BETTING is on, a match could be in
+        # play and the feed manager says it's due; in-play bets are confirmed
+        # on every tick.
+        'schedule': SPORTSBOOK_FEED_TICK,
+        'options': {'expires': SPORTSBOOK_FEED_TICK},
     },
     'affiliates-run-commissions': {
         'task': 'apps.affiliates.tasks.run_commissions',
@@ -422,13 +444,15 @@ CELERY_BEAT_SCHEDULE = {
     },
     'sportsbook-sync-fixture-odds': {
         'task': 'apps.sportsbook.tasks.sync_fixture_odds',
+        # Wakes every 5 min; the feed manager refreshes today/tomorrow hourly and
+        # later days every 6 hours.
         'schedule': 300.0,
     },
     'sportsbook-import-upcoming-fixtures': {
         'task': 'apps.sportsbook.tasks.import_upcoming_fixtures',
-        # Every 30 min. Imports API_FOOTBALL_LEAGUES if set, else auto-discovers
-        # every currently-active league — no-op either way if API_FOOTBALL_KEY
-        # is unset.
+        # Wakes every 30 min; imports every API_FOOTBALL_IMPORT_INTERVAL (3h):
+        # API_FOOTBALL_LEAGUES if set, else every league's fixtures by date (one
+        # request per day ahead). No-op if API_FOOTBALL_KEY is unset.
         'schedule': 1800.0,
     },
     'casino-retry-debits': {

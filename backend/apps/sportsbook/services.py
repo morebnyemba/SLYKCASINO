@@ -164,6 +164,11 @@ def _live_setting(name: str, default: int) -> int:
     return int(getattr(settings, name, default))
 
 
+def _live_stale_seconds() -> int:
+    from . import feed_manager
+    return feed_manager.live_odds_stale_seconds()
+
+
 def in_play_bettable(event: Event, *, now=None) -> bool:
     """Whether `event` is trading in play right now: live betting is on, the
     match is in a traded period, an operator hasn't closed it, and the live feed
@@ -186,7 +191,7 @@ def in_play_bettable(event: Event, *, now=None) -> bool:
         # last prices until the lock. New bets are still only accepted once the
         # feed confirms the price after placement (_live_recheck).
         return True
-    return event.live_odds_at >= now - timedelta(seconds=_live_setting('SPORTSBOOK_LIVE_ODDS_STALE', 60))
+    return event.live_odds_at >= now - timedelta(seconds=_live_stale_seconds())
 
 
 def _started(event: Event) -> bool:
@@ -906,7 +911,7 @@ def confirm_live_bet(kind: str, obj_id: int, *, now=None) -> str:
     ]
     reason = next((r for r in reasons if r not in (None, _WAIT)), None)
     if reason is None and _WAIT in reasons:
-        stale = timedelta(seconds=_live_setting('SPORTSBOOK_LIVE_ODDS_STALE', 60))
+        stale = timedelta(seconds=_live_stale_seconds())
         if now - obj.placed_at < delay + stale:
             return obj.status
         reason = 'the live price could not be confirmed'
@@ -1663,6 +1668,32 @@ def import_all_current_leagues(*, next_count: Optional[int] = None) -> int:
     return total
 
 
+def import_upcoming_by_date(*, days: Optional[int] = None) -> int:
+    """Import every enabled league's fixtures for today and the next `days`
+    days: one /fixtures?date= request per day returns every competition at
+    once, instead of one request per league (hundreds) like
+    import_all_current_leagues. Leagues are added (enabled) on first sight from
+    the fixtures themselves; a disabled league's fixtures are skipped. Returns
+    the number of fixtures fetched."""
+    from datetime import timedelta
+    from django.conf import settings
+
+    days = int(getattr(settings, 'API_FOOTBALL_IMPORT_DAYS', 3) if days is None else days)
+    client = ApiFootballClient()
+    today = timezone.localdate()
+    disabled = set(LeagueSetting.objects.filter(provider=ApiFootballClient.provider_name, enabled=False)
+                   .values_list('league_id', flat=True))
+    total = 0
+    for d in range(days + 1):
+        fixtures = client.fetch_fixtures(date=(today + timedelta(days=d)).isoformat())
+        total += len(fixtures)
+        for fixture in fixtures:
+            if fixture.league is not None and fixture.league.external_id in disabled:
+                continue
+            _create_event_from_fixture(fixture)
+    return total
+
+
 @transaction.atomic
 def sync_fixture_odds(odds: OddsSnapshot) -> Optional[Event]:
     """Apply an odds snapshot (1X2 + every other market) to its linked,
@@ -1703,23 +1734,26 @@ def sync_provider_odds(
     return len(snapshots)
 
 
-def sync_upcoming_odds() -> int:
+def sync_upcoming_odds(*, near: bool = True, ahead: bool = True) -> int:
     """Refresh odds for the fixtures players can bet on. With API_FOOTBALL_LEAGUES
     configured, pulls each league's odds (every upcoming fixture api-football
-    prices, a page or two per league); otherwise pulls by date for today and the
-    next API_FOOTBALL_ODDS_DAYS days. Returns the number of snapshots fetched."""
+    prices, a page or two per league); otherwise pulls by date: `near` is today
+    and tomorrow, `ahead` the days after that up to API_FOOTBALL_ODDS_DAYS (the
+    feed manager refreshes them on different schedules). Returns the number of
+    snapshots fetched."""
     from datetime import timedelta
     from django.conf import settings
 
     leagues = getattr(settings, 'API_FOOTBALL_LEAGUES', [])
     if leagues:
+        if not near:
+            return 0
         season = getattr(settings, 'API_FOOTBALL_SEASON', None)
         return sum(sync_provider_odds(league=league, season=season) for league in leagues)
     days = int(getattr(settings, 'API_FOOTBALL_ODDS_DAYS', 2))
     today = timezone.localdate()
-    return sum(
-        sync_provider_odds(date=(today + timedelta(days=d)).isoformat()) for d in range(days + 1)
-    )
+    wanted = [d for d in range(days + 1) if (near and d <= 1) or (ahead and d > 1)]
+    return sum(sync_provider_odds(date=(today + timedelta(days=d)).isoformat()) for d in wanted)
 
 
 # Live feed status names -> the fixtures feed's short codes.
@@ -1773,7 +1807,7 @@ def apply_live_odds(snapshot: LiveOddsSnapshot, *, now=None) -> Optional[Event]:
     # on every pause; a match that was never priced live can't ride one out.
     cfg = LiveTradingSettings.load()
     paused = snapshot.blocked or snapshot.main_suspended
-    stale = timedelta(seconds=_live_setting('SPORTSBOOK_LIVE_ODDS_STALE', 60))
+    stale = timedelta(seconds=_live_stale_seconds())
     # Kept-open markets ride out a pause however long it lasts (until the lock).
     ride_out = (paused and event.live_odds_at is not None
                 and (cfg.keep_markets_open
@@ -1873,7 +1907,7 @@ def sync_live_odds(*, now=None) -> int:
     if live_guard.keep_markets_open():
         return len(snapshots)  # nothing is suspended by the feed going quiet
     priced = {s.external_id for s in snapshots}
-    stale = timedelta(seconds=_live_setting('SPORTSBOOK_LIVE_ODDS_STALE', 60))
+    stale = timedelta(seconds=_live_stale_seconds())
     for event in Event.objects.filter(
         provider=ApiFootballClient.provider_name, live_odds_at__lt=now - stale,
     ).exclude(external_id__in=priced):

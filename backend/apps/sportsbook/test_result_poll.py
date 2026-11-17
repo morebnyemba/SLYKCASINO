@@ -111,7 +111,7 @@ class LiveScoresPollTests(TestCase):
             services.sync_live_fixtures()
             fetch.assert_called_once_with(date=None, live='all')
 
-    def test_beat_runs_it_every_15_seconds(self):
+    def test_beat_wakes_it_every_few_seconds(self):
         from django.conf import settings
         entry = settings.CELERY_BEAT_SCHEDULE['sportsbook-sync-live-fixtures']
-        self.assertEqual((entry['schedule'], entry['options']['expires']), (15.0, 15.0))
+        self.assertEqual((entry['schedule'], entry['options']['expires']), (5.0, 5.0))   # the feed manager paces the calls

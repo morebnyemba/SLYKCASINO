@@ -7,7 +7,7 @@ import type { IconType } from 'react-icons';
 import {
   BsActivity, BsBroadcast, BsCalendar2Week, BsCashStack, BsChatDots, BsClockHistory, BsGift, BsGrid1X2,
   BsImages, BsList, BsMoonStars, BsPalette, BsPeople, BsPersonBadge, BsBoxArrowRight, BsSun, BsTicketPerforated,
-  BsTrophy, BsXLg, BsDiagram3, BsDatabase, BsCreditCard2Front, BsAirplane, BsPieChart, BsBank, BsShieldExclamation, BsTicket, BsSliders, BsChatSquareText, BsShieldCheck,
+  BsTrophy, BsXLg, BsDiagram3, BsDatabase, BsCreditCard2Front, BsAirplane, BsPieChart, BsBank, BsShieldExclamation, BsTicket, BsSliders, BsChatSquareText, BsShieldCheck, BsJournalText,
 } from 'react-icons/bs';
 import { useAuth } from '@/lib/auth-context';
 import { useSiteIdentity } from '@/lib/identity-context';
@@ -46,6 +46,7 @@ export const NAV: NavSection[] = [
   { title: 'Money', items: [
     { href: '/withdrawals', label: 'Withdrawals', icon: BsBank, badge: 'payouts' },
     { href: '/transactions', label: 'Transactions', icon: BsCashStack },
+    { href: '/money-owed', label: 'Money owed', icon: BsJournalText },
     { href: '/payment-methods', label: 'Payment methods', icon: BsCreditCard2Front },
     { href: '/affiliates', label: 'Affiliates', icon: BsDiagram3, badge: 'commissions' },
     { href: '/revenue-share', label: 'Revenue share', icon: BsPieChart },

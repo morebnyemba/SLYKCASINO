@@ -101,6 +101,113 @@ function SettledOutcome({ outcome, label, stack = false }: {
   );
 }
 
+const RESULT_COLS = ['home', 'draw', 'away'] as const;
+
+/** A combined-market grid: 1 · X · 2 across (with the team names), one row per
+ *  second leg (both score / not both, over / under, half-time result). */
+function ComboGrid({ home, away, rows, cell }: {
+  home: string; away: string | null;
+  rows: { key: string; label: React.ReactNode }[];
+  cell: (row: string, col: (typeof RESULT_COLS)[number]) => React.ReactNode;
+}) {
+  const head = { home: ['1', home], draw: ['X', 'Draw'], away: ['2', away ?? 'Away'] } as const;
+  return (
+    <div className="grid grid-cols-[minmax(68px,0.8fr)_repeat(3,minmax(0,1fr))] items-center gap-x-2 gap-y-1.5">
+      <span />
+      {RESULT_COLS.map((c) => (
+        <span key={c} className="min-w-0 px-0.5 text-center leading-tight">
+          <b className="block text-[13px] text-foreground">{head[c][0]}</b>
+          <span className="block truncate text-[10.5px] font-semibold text-muted-foreground">{head[c][1]}</span>
+        </span>
+      ))}
+      {rows.map((r) => (
+        <Fragment key={r.key}>
+          <span className="text-[12px] font-extrabold leading-tight">{r.label}</span>
+          {RESULT_COLS.map((c) => <Fragment key={c}>{cell(r.key, c)}</Fragment>)}
+        </Fragment>
+      ))}
+    </div>
+  );
+}
+
+const EMPTY_CELL = <span className="flex h-11 items-center justify-center rounded-lg bg-odds/40 text-muted-foreground/50">—</span>;
+
+/** A combined market with goal lines: every line in one card — pick the line, see its grid. */
+function LineComboCard({ title, markets, forceOpen, children }: {
+  title: string; markets: Market[]; forceOpen: boolean; children: (m: Market, line: string) => React.ReactNode;
+}) {
+  const lines = markets.map((m) => Number(m.line));
+  const target = markets[0]?.period === '1h' ? 1.5 : 2.5;
+  const defaultIdx = lines.reduce((best, l, i) => (Math.abs(l - target) < Math.abs(lines[best] - target) ? i : best), 0);
+  const [idx, setIdx] = useState(defaultIdx);
+  const m = markets[Math.min(idx, markets.length - 1)];
+  const anyOpen = markets.some((x) => x.is_open && !x.settled);
+  return (
+    <Collapsible title={title} badge={!anyOpen ? <StatusBadge market={markets[0]} /> : undefined} forceOpen={forceOpen}>
+      {markets.length > 1 && (
+        <div className="no-scrollbar -mt-1 mb-3 flex gap-1.5 overflow-x-auto" role="tablist" aria-label="Goal line">
+          {markets.map((x, i) => (
+            <button key={x.id} role="tab" aria-selected={i === idx} onClick={() => setIdx(i)}
+              className={`h-8 shrink-0 rounded-lg border px-3 text-[12.5px] font-extrabold tabular-nums transition-colors ${
+                i === idx ? 'border-secondary bg-secondary text-secondary-foreground' : 'border-secondary/25 bg-secondary/5 text-secondary hover:bg-secondary/10'
+              }`}>
+              {Number(x.line)} goals
+            </button>
+          ))}
+        </div>
+      )}
+      {children(m, String(Number(m.line)))}
+    </Collapsible>
+  );
+}
+
+/** Result & total goals: 1 · X · 2 across, over / under down the side. */
+function ResultTotalCard({ title, markets, home, away, forceOpen, renderOutcome }: {
+  title: string; markets: Market[]; home: string; away: string | null; forceOpen: boolean;
+  renderOutcome: (m: Market, o: MarketOutcome) => React.ReactNode;
+}) {
+  return (
+    <LineComboCard title={title} markets={markets} forceOpen={forceOpen}>
+      {(m, line) => (
+        <ComboGrid home={home} away={away}
+          rows={[{ key: 'over', label: <>Over {line}</> }, { key: 'under', label: <>Under {line}</> }]}
+          cell={(row, col) => {
+            const o = m.outcomes.find((x) => x.key === `${col}/${row}`);
+            return o ? renderOutcome(m, o) : EMPTY_CELL;
+          }} />
+      )}
+    </LineComboCard>
+  );
+}
+
+/** Total goals & both teams to score: over / under across, GG / NG down the side. */
+function TotalBttsCard({ title, markets, forceOpen, renderOutcome }: {
+  title: string; markets: Market[]; forceOpen: boolean;
+  renderOutcome: (m: Market, o: MarketOutcome) => React.ReactNode;
+}) {
+  return (
+    <LineComboCard title={title} markets={markets} forceOpen={forceOpen}>
+      {(m, line) => (
+        <div className="grid grid-cols-[minmax(68px,0.8fr)_repeat(2,minmax(0,1fr))] items-center gap-x-2 gap-y-1.5">
+          <span />
+          {['over', 'under'].map((side) => (
+            <b key={side} className="text-center text-[13px]">{side === 'over' ? 'Over' : 'Under'} {line}</b>
+          ))}
+          {[['yes', 'Both score', 'GG'], ['no', 'Not both', 'NG']].map(([btts, text, code]) => (
+            <Fragment key={btts}>
+              <span className="text-[12px] font-extrabold leading-tight">{text} <span className="text-muted-foreground">{code}</span></span>
+              {['over', 'under'].map((side) => {
+                const o = m.outcomes.find((x) => x.key === `${side}/${btts}`);
+                return <Fragment key={side}>{o ? renderOutcome(m, o) : EMPTY_CELL}</Fragment>;
+              })}
+            </Fragment>
+          ))}
+        </div>
+      )}
+    </LineComboCard>
+  );
+}
+
 function StatusBadge({ market }: { market: Market }) {
   if (market.settled) return <span className="rounded bg-muted px-2 py-0.5 text-[10.5px] font-bold text-muted-foreground">Settled</span>;
   if (!market.is_open) return (
@@ -164,13 +271,14 @@ export function EventMarkets({ ev }: { ev: EventItem }) {
     : null;
 
   const blocks = useMemo(() => buildBlocks(markets), [markets]);
+  // Badges count cards, not markets: a market with several lines is one card.
   const counts = useMemo(() => {
     const c: Record<string, number> = {};
-    for (const m of markets) c[m.group] = (c[m.group] ?? 0) + 1;
+    for (const b of blocks) c[b.group] = (c[b.group] ?? 0) + 1;
     return c;
-  }, [markets]);
+  }, [blocks]);
   const tabs: { id: Tab; label: string; count: number }[] = [
-    { id: 'all', label: 'All', count: markets.length + 1 },
+    { id: 'all', label: 'All', count: blocks.length + 1 },
     ...MARKET_GROUPS.filter((g) => counts[g.id]).map((g) => ({
       id: g.id, label: g.label, count: (counts[g.id] ?? 0) + (g.id === 'main' ? 1 : 0),
     })),
@@ -228,8 +336,37 @@ export function EventMarkets({ ev }: { ev: EventItem }) {
     outcome: { id: o.id, marketId: m.id, marketName: names(m.name), label: names(o.label) },
   });
 
+  /** One price cell of a combined market (or its settled result). */
+  function comboOutcome(m: Market, o: MarketOutcome) {
+    return m.settled
+      ? <SettledOutcome key={o.id} outcome={o} label="" />
+      : <OddsButton key={o.id} {...outcomeProps(m, o)} title={names(o.label)} size="sm" />;
+  }
+
+  function renderComboGrid(m: Market) {
+    const rows = m.kind === 'result_btts'
+      ? [{ key: 'yes', label: <>Both score <span className="text-muted-foreground">GG</span></> },
+        { key: 'no', label: <>Not both <span className="text-muted-foreground">NG</span></> }]
+      // Half time / full time: half-time result down the side, full time across.
+      : [{ key: 'home', label: <>HT 1</> }, { key: 'draw', label: <>HT X</> }, { key: 'away', label: <>HT 2</> }];
+    return (
+      <Collapsible key={m.id} title={names(m.name)} badge={<StatusBadge market={m} />} forceOpen={searching}>
+        {m.kind === 'ht_ft' && <p className="-mt-1 mb-2 text-[11px] font-semibold text-muted-foreground">Half-time result (rows) and full-time result (columns).</p>}
+        <ComboGrid home={home} away={away} rows={rows} cell={(row, col) => {
+          const key = m.kind === 'ht_ft' ? `${row}/${col}` : `${col}/${row}`;
+          const o = m.outcomes.find((x) => x.key === key);
+          return o ? comboOutcome(m, o) : EMPTY_CELL;
+        }} />
+      </Collapsible>
+    );
+  }
+
   function renderSingle(m: Market) {
     if (m.group === 'scorers') return renderScorers(m);
+    if ((m.kind === 'result_btts' || m.kind === 'ht_ft') && away
+        && m.outcomes.every((o) => /^(home|draw|away)\/(yes|no|home|draw|away)$/.test(o.key))) {
+      return renderComboGrid(m);
+    }
     const many = m.outcomes.length > 3;
     // Many-option markets use shop shorthand ("1 & GG", "1X", "1/X") — full team
     // names can't fit — with a key under the title. The slip and ticket keep the full wording.
@@ -269,6 +406,18 @@ export function EventMarkets({ ev }: { ev: EventItem }) {
   }
 
   function renderLines(block: Block & { type: 'lines' }) {
+    if (block.markets[0].kind === 'total_btts') {
+      return (
+        <TotalBttsCard key={block.id} title={names(block.name)} markets={block.markets}
+          forceOpen={searching} renderOutcome={comboOutcome} />
+      );
+    }
+    if (block.markets[0].kind === 'result_total') {
+      return (
+        <ResultTotalCard key={block.id} title={names(block.name)} markets={block.markets} home={home} away={away}
+          forceOpen={searching} renderOutcome={comboOutcome} />
+      );
+    }
     // Column order comes from the first line (Over/Under, Home/Away, Home/Draw/Away).
     const columns = block.markets[0].outcomes.map((o) => o.key);
     const colLabel = (key: string) => names(({ over: 'Over', under: 'Under', home: 'Home', draw: 'Draw', away: 'Away' } as Record<string, string>)[key] ?? key);
