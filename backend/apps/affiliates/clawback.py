@@ -150,9 +150,12 @@ def _sum(qs) -> Decimal:
     return services._sum(qs)
 
 
-def _apply(affiliate: Affiliate, rows: list[Row], result: AffiliateResult, *, by: str) -> None:
+def _apply(affiliate: Affiliate, rows: list[Row], result: AffiliateResult, *, by: str, label: str = CLAWBACK_NOTE,
+           notify: Optional[tuple[str, str]] = None) -> None:
     """Correct the commissions and recover the money. Caller holds the
-    affiliate row lock (the same lock the automatic payout sweep takes)."""
+    affiliate row lock (the same lock the automatic payout sweep takes).
+    `label` starts every note and wallet reference (the audit's by default);
+    `notify` is the agent's (title, body), `{excess}` filled in."""
     stamp = timezone.now()
     spent = _sum(affiliate.payouts.filter(status__in=(Payout.Status.REQUESTED, Payout.Status.PAID)))
     left_before = _sum(affiliate.commissions.filter(status=Commission.Status.APPROVED)) - spent
@@ -164,7 +167,7 @@ def _apply(affiliate: Affiliate, rows: list[Row], result: AffiliateResult, *, by
         if c.amount != r.paid or c.status != r.status:   # changed under us; the next run sees it
             continue
         applied.append(r)
-        note = (f'{CLAWBACK_NOTE} {stamp:%Y-%m-%d}: {r.paid} -> {r.correct} ({r.reason})'
+        note = (f'{label} {stamp:%Y-%m-%d}: {r.paid} -> {r.correct} ({r.reason})'
                 + (f' by {by}' if by else '') + f' | {c.note}')[:500]
         if c.status == Commission.Status.PAID:
             legacy_excess += r.excess
@@ -195,7 +198,7 @@ def _apply(affiliate: Affiliate, rows: list[Row], result: AffiliateResult, *, by
             wallet_services.debit(
                 player_id=affiliate.player_id, amount=recovered, kind='adjustment', bucket='winnings',
                 idempotency_key=f'affiliate-cpa-clawback:{affiliate.id}:{key}',
-                reference=f'{CLAWBACK_NOTE}: commissions {",".join(str(r.commission_id) for r in applied)}'[:255],
+                reference=f'{label}: commissions {",".join(str(r.commission_id) for r in applied)}'[:255],
             )
     result.from_wallet = recovered
     result.carried = max(owed - recovered, ZERO)
@@ -206,14 +209,15 @@ def _apply(affiliate: Affiliate, rows: list[Row], result: AffiliateResult, *, by
         Payout.objects.create(
             affiliate=affiliate, amount=correction, method=Payout.Method.WALLET, status=Payout.Status.PAID,
             decided_at=stamp,
-            note=(f'{CLAWBACK_NOTE}: {excess} reversed — {result.from_balance} from the affiliate '
+            note=(f'{label}: {excess} reversed — {result.from_balance} from the affiliate '
                   f'balance, {recovered} from the Winnings wallet, {result.carried} netted off future '
                   f'commissions' + (f' (by {by})' if by else ''))[:500],
         )
     if excess > 0:
-        services._notify(affiliate, 'Commission audit: some deposit commissions reversed',
-                         f'{excess} in deposit commissions for customers who did not meet the programme rules has '
-                         'been reversed. Open your agent dashboard for the details.')
+        title, body = notify or ('Commission audit: some deposit commissions reversed',
+                                 '{excess} in deposit commissions for customers who did not meet the programme rules has '
+                                 'been reversed. Open your agent dashboard for the details.')
+        services._notify(affiliate, title, body.format(excess=excess))
 
 
 def skipped(r: Row, *, include_waived: bool, include_deleted: bool) -> str:
