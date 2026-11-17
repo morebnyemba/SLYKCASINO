@@ -216,6 +216,10 @@ def normalize_facts(raw: dict[str, Any]) -> Optional[dict]:
     return facts
 
 
+class QuotaHeld(requests.RequestException):
+    """The feed manager held a request back to save the day's quota."""
+
+
 class ApiFootballClient:
     """Thin client for api-football.com v3 — fetches fixtures (live scores,
     statuses, results) used to keep linked Events and bets in sync.
@@ -248,6 +252,20 @@ class ApiFootballClient:
             return ProviderCredential.objects.filter(provider=self.provider_name).first()
         except Exception:  # noqa: BLE001 — table may not exist yet (pre-migrate)
             return None
+
+    def _get(self, path: str, *, params: Optional[dict] = None, timeout: int = 10):
+        """Every quota-counted request: the feed manager may hold it back (only
+        the reserve left), and counts it and the quota the provider reports."""
+        from . import feed_manager
+        try:
+            feed_manager.before_request()
+        except feed_manager.QuotaHold as exc:
+            raise QuotaHeld(str(exc)) from exc
+        resp = requests.get(
+            f'{self.base_url}{path}', params=params, timeout=timeout, headers={'x-apisports-key': self.api_key},
+        )
+        feed_manager.after_request(resp)
+        return resp
 
     def fetch_status(self) -> dict:
         """Account, plan and today's request quota (api-football /status).
@@ -304,10 +322,7 @@ class ApiFootballClient:
         if next_count:
             params['next'] = next_count
         try:
-            resp = requests.get(
-                f'{self.base_url}/fixtures', params=params, timeout=5,
-                headers={'x-apisports-key': self.api_key},
-            )
+            resp = self._get('/fixtures', params=params, timeout=5)
             resp.raise_for_status()
             payload = resp.json()
         except (requests.RequestException, ValueError):
@@ -327,10 +342,7 @@ class ApiFootballClient:
         for start in range(0, len(ids), 20):
             chunk = [i for i in ids[start:start + 20] if i]
             try:
-                resp = requests.get(
-                    f'{self.base_url}/fixtures', params={'ids': '-'.join(chunk)}, timeout=10,
-                    headers={'x-apisports-key': self.api_key},
-                )
+                resp = self._get('/fixtures', params={'ids': '-'.join(chunk)}, timeout=10)
                 resp.raise_for_status()
                 payload = resp.json()
             except (requests.RequestException, ValueError):
@@ -371,10 +383,7 @@ class ApiFootballClient:
         page, total = 1, 1
         while page <= min(total, max_pages):
             try:
-                resp = requests.get(
-                    f'{self.base_url}/odds', params={**params, 'page': page}, timeout=10,
-                    headers={'x-apisports-key': self.api_key},
-                )
+                resp = self._get('/odds', params={**params, 'page': page}, timeout=10)
                 resp.raise_for_status()
                 payload = resp.json()
             except (requests.RequestException, ValueError):
@@ -401,9 +410,7 @@ class ApiFootballClient:
         if not self.api_key:
             return None
         try:
-            resp = requests.get(
-                f'{self.base_url}/odds/live', timeout=5, headers={'x-apisports-key': self.api_key},
-            )
+            resp = self._get('/odds/live', timeout=5)
             resp.raise_for_status()
             payload = resp.json()
         except (requests.RequestException, ValueError):
@@ -517,10 +524,7 @@ class ApiFootballClient:
         if not self.api_key:
             return []
         try:
-            resp = requests.get(
-                f'{self.base_url}/leagues', params={'current': 'true'}, timeout=10,
-                headers={'x-apisports-key': self.api_key},
-            )
+            resp = self._get('/leagues', params={'current': 'true'}, timeout=10)
             resp.raise_for_status()
             payload = resp.json()
         except (requests.RequestException, ValueError):

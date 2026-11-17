@@ -46,6 +46,19 @@ SYNC_JOBS = {
 }
 
 
+def _budget():
+    from . import feed_manager
+    try:
+        return feed_manager.status()
+    except Exception:  # noqa: BLE001 — never break the page over the budget panel
+        return None
+
+
+def _stale():
+    from . import feed_manager
+    return feed_manager.live_odds_stale_seconds()
+
+
 def _feed_summary() -> dict:
     from django.conf import settings
 
@@ -77,8 +90,9 @@ def _feed_summary() -> dict:
         'base_url_source': 'console' if db_url else 'environment',
         'live_betting': bool(getattr(settings, 'SPORTSBOOK_LIVE_BETTING', False)),
         'live_odds_interval': getattr(settings, 'SPORTSBOOK_LIVE_ODDS_INTERVAL', None),
-        'live_odds_stale': getattr(settings, 'SPORTSBOOK_LIVE_ODDS_STALE', None),
+        'live_odds_stale': _stale(),
         'live_bet_delay': getattr(settings, 'SPORTSBOOK_LIVE_BET_DELAY', None),
+        'budget': _budget(),
         'counts': {
             'feed_events': events.filter(provider=PROVIDER).count(),
             'manual_events': events.exclude(provider=PROVIDER).count(),
@@ -146,7 +160,8 @@ class FeedSyncView(APIView):
             return Response({'detail': 'Unknown job.'}, status=status.HTTP_400_BAD_REQUEST)
         from config.celery import app
         try:
-            result = app.send_task(job[0])
+            # An operator's 'run now' goes ahead even if the feed manager wouldn't schedule it yet.
+            result = app.send_task(job[0], kwargs={'force': True})
         except Exception as exc:  # noqa: BLE001 — broker down
             return Response({'detail': f'Could not queue the job: {exc.__class__.__name__}'},
                             status=status.HTTP_503_SERVICE_UNAVAILABLE)

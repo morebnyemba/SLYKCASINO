@@ -70,7 +70,7 @@ class FeedSettingsTests(AdminApiBase):
             send.return_value.id = 'task-1'
             res = self.api.post('/api/admin/sportsbook/feed/sync/', {'job': 'sync_odds'}, format='json')
         self.assertEqual(res.status_code, 202)
-        send.assert_called_once_with('apps.sportsbook.tasks.sync_fixture_odds')
+        send.assert_called_once_with('apps.sportsbook.tasks.sync_fixture_odds', kwargs={'force': True})
 
 
 class LeagueTests(AdminApiBase):
