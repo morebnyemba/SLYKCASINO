@@ -9,19 +9,21 @@ import { useApi } from '@/lib/use-api';
 interface Owed {
   total: string;
   players: {
-    total: string; winnings: string; deposit: string; deposit_after_fee: string; deposit_fee_percent: string;
+    total: string; people: number; winnings: string; deposit: string; deposit_after_fee: string; deposit_fee_percent: string;
     withdrawals_waiting: string; withdrawals_waiting_count: number; players_with_cash: number;
     bonus: string; aviator_bonus_profit: string;
   };
   agents: {
-    total: string; available: string; locked: string; in_payout: string; pending_approval: string;
+    total: string; people: number; available: string; locked: string; in_payout: string; pending_approval: string;
     owed_by_agents: string; agents_with_money: number;
   };
   partners: null | {
-    total: string; balances: string; withdrawals_waiting: string;
+    total: string; people: number; balances: string; withdrawals_waiting: string;
     wallets: { slot: number; label: string; holder: string | null; balance: string; withdrawal_waiting: string }[];
   };
 }
+
+const people = (n: number) => `${n.toLocaleString()} ${n === 1 ? 'person' : 'people'}`;
 
 function Row({ label, value, hint, muted }: { label: string; value: string; hint?: string; muted?: boolean }) {
   return (
@@ -67,16 +69,16 @@ export function MoneyOwedPanel() {
     >
       {loading && !o ? <p className="text-sm text-muted-foreground">Loading…</p> : o && p && a && (
         <div className={cx('grid gap-4', part ? 'lg:grid-cols-3' : 'lg:grid-cols-2')}>
-          <OwedCard icon={BsPeople} title="Players" total={p.total} href="/withdrawals"
-            sub={p.players_with_cash === 1 ? '1 player holds cash' : `${p.players_with_cash.toLocaleString()} players hold cash`}
+          <OwedCard icon={BsPeople} title="Players" total={p.total} href="/money-owed?tab=players"
+            sub={`Owed to ${people(p.people)}`}
             footer={<>Not cash yet: Bonus {money(p.bonus)} · unclaimed Aviator bonus profit {money(p.aviator_bonus_profit)}</>}>
             <Row label="Winnings wallets" value={p.winnings} hint="withdrawable" />
             <Row label="Deposit wallets" value={p.deposit} hint={`${money(p.deposit_after_fee)} after the ${Number(p.deposit_fee_percent)}% fee`} />
             <Row label="Withdrawals waiting" value={p.withdrawals_waiting}
               hint={`${p.withdrawals_waiting_count} to send, after fees`} />
           </OwedCard>
-          <OwedCard icon={BsDiagram3} title="Agents" total={a.total} href="/affiliates"
-            sub={a.agents_with_money === 1 ? '1 agent has unpaid commission' : `${a.agents_with_money.toLocaleString()} agents have unpaid commission`}
+          <OwedCard icon={BsDiagram3} title="Agents" total={a.total} href="/money-owed?tab=agents"
+            sub={`Owed to ${people(a.people)}`}
             footer={<>
               Waiting for approval: {money(a.pending_approval)}
               {Number(a.owed_by_agents) > 0 && <> · Agents owe back {money(a.owed_by_agents)} (netted off future commissions)</>}
@@ -86,8 +88,8 @@ export function MoneyOwedPanel() {
             <Row label="Payouts being sent" value={a.in_payout} />
           </OwedCard>
           {part && (
-            <OwedCard icon={BsPieChart} title="Partners" total={part.total} href="/revenue-share"
-              sub="Revenue-share wallets"
+            <OwedCard icon={BsPieChart} title="Partners" total={part.total} href="/money-owed?tab=partners"
+              sub={`Owed to ${people(part.people)}`}
               footer={part.wallets.length > 0 && (
                 <span>{part.wallets.map((w) => `${w.holder ?? w.label} ${money(Number(w.balance) + Number(w.withdrawal_waiting))}`).join(' · ')}</span>
               )}>

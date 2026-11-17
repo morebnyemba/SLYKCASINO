@@ -279,3 +279,22 @@ def admin_liabilities(request):
     for people who may see the revenue share, partners (wallet balances)."""
     from apps.revenue import audit, liabilities
     return Response(liabilities.summary(include_partners=audit.can_view(request.user)))
+
+
+@api_view(['GET'])
+@permission_classes([IsAdminUser])
+def admin_liabilities_detail(request, kind):
+    """GET /admin/liabilities/<players|agents|partners>/ — who is owed, how much
+    each, biggest first. Players are paged and searchable (?q=&page=)."""
+    from apps.revenue import audit, liabilities
+    if kind == 'players':
+        from apps.wallet.views import _page_args
+        size, page = _page_args(request, default=50)
+        return Response(liabilities.player_rows(q=str(request.query_params.get('q') or ''), page=page, size=size))
+    if kind == 'agents':
+        return Response(liabilities.agent_rows())
+    if kind == 'partners':
+        if not audit.can_view(request.user):
+            return Response({'detail': 'Only people who may see the revenue share can see partners.'}, status=403)
+        return Response(liabilities.partner_rows())
+    return Response({'detail': 'Unknown list.'}, status=404)
