@@ -16,6 +16,8 @@ export interface League {
   sort_order?: number;
 }
 
+export type Selection1x2 = 'home' | 'draw' | 'away';
+
 export interface EventItem {
   id: string | number;
   name: string;
@@ -48,6 +50,8 @@ export interface EventItem {
   bettable?: boolean;
   /** The 1X2 buttons are live (in play the feed can suspend them on their own). */
   main_open?: boolean;
+  /** In play: 1X2 picks the near-win guard refuses right now (as good as decided), greyed out. */
+  main_blocked?: Selection1x2[];
   /** Open secondary markets (list endpoint). */
   markets_count?: number;
   /** O/U, double chance and GG/NG prices for the list's market chips (list endpoint). */
@@ -280,7 +284,7 @@ export interface LeagueGroup {
 const LIST_FIELDS = [
   'id', 'name', 'sport', 'odds', 'odds_draw', 'odds_away', 'previous_odds', 'has_odds', 'featured', 'is_open',
   'starts_at', 'status', 'elapsed', 'score_home', 'score_away', 'markets_count', 'in_play', 'bettable', 'main_open',
-  'live_closed', 'quick_markets',
+  'live_closed', 'main_blocked', 'quick_markets',
 ] as const;
 
 export function slimEvent(ev: EventItem): EventItem {

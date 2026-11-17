@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { BsLockFill } from 'react-icons/bs';
 import { useBetslip, type Selection } from '@/lib/betslip-context';
 import { formatOdds, useSettings } from '@/lib/settings-context';
 
@@ -11,11 +10,8 @@ import { formatOdds, useSettings } from '@/lib/settings-context';
  */
 export function OddsButton({
   eventId, eventName, selection = 'home', odds, label, move, size = 'md', disabled = false, className = '', outcome,
-  stackOnMobile = false, title, quietLock = false,
+  stackOnMobile = false, title,
 }: {
-  /** The whole market/match is closed and says so above: show the price greyed, no padlock per button
-   * (a locked match drew ~1,700 padlock icons — 700 KB of page). */
-  quietLock?: boolean;
   /** Full wording for a shortened label (tooltip / screen readers). */
   title?: string;
   eventId: string | number;
@@ -58,16 +54,18 @@ export function OddsButton({
   const sizing = size === 'lg' ? 'min-h-14 px-3 text-base' : size === 'sm' ? 'min-h-11 px-3 py-2 text-[13.5px]' : 'min-h-11 px-2 text-[13.5px]';
 
   if (!available) {
-    // Suspended/closed: keep the caption so the market still reads, with a lock instead of a price.
+    // Can't be played right now: the price stays on screen, greyed out and not tappable (no padlocks).
     return (
       <span
-        className={`flex items-center rounded-lg bg-odds/50 text-muted-foreground/60 ${
+        title="Not available right now"
+        className={`flex cursor-not-allowed select-none items-center rounded-lg bg-odds/40 text-muted-foreground/50 ${
           label ? (stackOnMobile ? 'flex-col justify-center gap-0.5 sm:flex-row sm:justify-between' : 'justify-between gap-2') : 'justify-center'
         } ${sizing} ${className}`}
-        aria-label={label ? `${label}: price unavailable` : 'Price unavailable'}
+        aria-disabled="true"
+        aria-label={`${label ? `${label}: ` : ''}${Number.isFinite(price) ? `${formatOdds(price, oddsFormat)}, ` : ''}not available right now`}
       >
         {label && <span className="line-clamp-2 max-w-full break-words text-[11px] font-bold leading-tight">{label}</span>}
-        {!Number.isFinite(price) ? '—' : quietLock ? <span className="tabular-nums">{formatOdds(price, oddsFormat)}</span> : <BsLockFill size={11} />}
+        {!Number.isFinite(price) || price <= 1 ? '—' : <span className="font-extrabold tabular-nums">{formatOdds(price, oddsFormat)}</span>}
       </span>
     );
   }

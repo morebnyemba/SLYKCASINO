@@ -3,7 +3,7 @@ stay open unless the feed or staff genuinely suspend them — and each can be
 switched on in LiveTradingSettings.
 
 - **Lock:** a match stops trading in play for good once its clock reaches
-  LiveTradingSettings.lock_minute (75' by default). By the match clock, not
+  LiveTradingSettings.lock_minute (off by default: 0 = never). By the match clock, not
   the wall clock: half-time doesn't count. Set once and never cleared, so a
   feed that later reports an earlier minute can't reopen it. If the feed goes
   silent the clock can't be read, so a wall-clock cut-off (kick-off + lock
@@ -63,6 +63,23 @@ def closed_reason(event: Event, *, now=None) -> Optional[str]:
     if event.live_hold_reason:
         return 'In-play betting is suspended'
     return None
+
+
+def release_locks(minute: int) -> int:
+    """Reopen matches in play that an earlier lock minute closed: all of
+    them when there is no lock minute now (0), else those whose clock hasn't
+    reached the new minute. Returns how many reopened (their markets trade again
+    on the next live price)."""
+    from .services import IN_PLAY_STATUSES
+    locked = Event.objects.filter(status__in=IN_PLAY_STATUSES, is_open=True, live_locked_at__isnull=False)
+    if minute:
+        locked = locked.filter(elapsed__lt=minute)
+    reopened = 0
+    for event in locked:  # save() so post_save publishes the reopened state
+        event.live_locked_at = None
+        event.save(update_fields=['live_locked_at'])
+        reopened += 1
+    return reopened
 
 
 def check_clock(event: Event, *, now=None) -> list[str]:
@@ -282,11 +299,16 @@ def below_live_floor(odds) -> bool:
     return floor > 0 and Decimal(str(odds)) < floor
 
 
+NEAR_WIN_BOARD_MAX_ODDS = Decimal('2.00')
+
+
 def close_decided(event: Event) -> int:
-    """Shut the open outcomes play has decided, priced below the live floor, or
-    no longer quoted by the live feed (pre-match prices included), so boards
-    show them closed (new bets on them are refused regardless — see services).
-    The feed quoting one again reopens it. Returns how many."""
+    """Shut the open outcomes play has decided or as good as decided (near_win),
+    priced below the live floor, or no longer quoted by the live feed (pre-match
+    prices included), so boards show them greyed out (new bets on them are
+    refused regardless — see services). The feed quoting one again reopens it.
+    Returns how many."""
+    from . import near_win
     from .models import MarketOutcome
     closed = 0
     floor = LiveTradingSettings.load().live_min_odds
@@ -295,7 +317,10 @@ def close_decided(event: Event) -> int:
     ).select_related('market')
     for outcome in outcomes:
         if (outcome_decided(event, outcome.market, outcome) or (floor > 0 and outcome.odds < floor)
-                or not live_price_fresh(event, outcome.live_priced_at)):
+                or not live_price_fresh(event, outcome.live_priced_at)
+                # A near-won pick the feed still prices above 2.00 would be a grossly stale
+                # price: placement refuses it anyway; the boards skip the model for it (speed).
+                or (outcome.odds <= NEAR_WIN_BOARD_MAX_ODDS and near_win.outcome_near_won(event, outcome.market, outcome))):
             outcome.is_open = False
             outcome.save(update_fields=['is_open'])
             closed += 1

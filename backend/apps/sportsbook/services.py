@@ -219,7 +219,14 @@ def trading_state(event: Event, *, now=None) -> dict:
                       or pre_match_bettable(event)),
         # Why a match in play isn't taking bets (past the lock minute, or held).
         'live_closed': closed_reason(event, now=now) if event.status in IN_PLAY_STATUSES else None,
+        # 1X2 picks the near-win guard refuses right now (greyed out on the boards).
+        'main_blocked': _main_blocked(event) if live else [],
     }
+
+
+def _main_blocked(event: Event) -> list[str]:
+    from . import near_win
+    return near_win.main_blocked(event)
 
 
 def _main_price(event: Event, selection: str) -> Optional[Decimal]:
@@ -260,6 +267,9 @@ def _check_event_bettable(event_id: int, selection: str = Selection.HOME, odds: 
             raise SelectionUnavailable(f'{event.name} — match result is suspended.')
         if live_guard.below_live_floor(current):
             raise SelectionUnavailable(f'{event.name} — that price is too short to take in play.')
+        from . import near_win
+        if near_win.main_near_won(event, selection):
+            raise SelectionUnavailable(f'{event.name} — that result is as good as decided, so it can’t be backed now.')
         if odds is not None and utils.quantize(odds) != utils.quantize(current):
             raise OddsChanged(
                 f'{event.name} — {selection}', utils.quantize(odds), current,
@@ -306,6 +316,9 @@ def _lock_bettable_outcome(outcome_id: int, odds: Decimal) -> tuple[MarketOutcom
             raise SelectionUnavailable(f'{market.name} — {outcome.label} is already decided.')
         if live_guard.below_live_floor(outcome.odds):
             raise SelectionUnavailable(f'{market.name} — {outcome.label} is too short a price to take in play.')
+        from . import near_win
+        if near_win.outcome_near_won(event, market, outcome):
+            raise SelectionUnavailable(f'{market.name} — {outcome.label} is as good as decided, so it can’t be backed now.')
         if not live_guard.live_price_fresh(event, outcome.live_priced_at):
             # A pre-match price, or one the live feed has stopped quoting.
             raise SelectionUnavailable(f'{market.name} — {outcome.label} is suspended.')
@@ -842,11 +855,17 @@ def _live_recheck(
         from . import live_guard
         if live_guard.outcome_decided(event, outcome.market, outcome):
             return 'the selection was decided'
+        from . import near_win
+        if near_win.outcome_near_won(event, outcome.market, outcome):
+            return 'the selection was as good as decided'
         current, quoted_at = outcome.odds, outcome.live_priced_at
     else:
         current = _main_price(event, selection) if event.live_main_open else None
         if current is None:
             return 'the selection was suspended'
+        from . import near_win
+        if near_win.main_near_won(event, selection):
+            return 'the selection was as good as decided'
         quoted_at = event.live_main_at
     if utils.quantize(current) != utils.quantize(odds):
         return 'the price changed'
@@ -1929,15 +1948,18 @@ def current_prices(*, event_ids: list[int], outcome_ids: list[int]) -> dict:
         }
         for e in Event.objects.filter(pk__in=event_ids)
     }
+    from . import near_win
     outcomes = {}
     for o in MarketOutcome.objects.filter(pk__in=outcome_ids).select_related('market', 'market__event'):
         event = o.market.event
-        event_ok = in_play_bettable(event) if _started(event) else event.is_open
+        in_play = _started(event)
+        event_ok = in_play_bettable(event) if in_play else event.is_open
         outcomes[o.id] = {
             'odds': str(o.odds),
             'open': bool(
                 event_ok and o.market.is_open and not o.market.settled
                 and o.is_open and o.result == MarketOutcome.Result.PENDING
+                and not (in_play and near_win.outcome_near_won(event, o.market, o))
             ),
         }
     return {'events': events, 'outcomes': outcomes}

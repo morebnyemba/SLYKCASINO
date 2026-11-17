@@ -16,7 +16,7 @@ from django.utils import timezone
 
 UPCOMING = ('', 'NS', 'TBD')
 IN_PLAY = ('1H', 'HT', '2H')
-DEFAULT_LOCK_MINUTE = 75
+DEFAULT_LOCK_MINUTE = 0   # no lock minute (in-play stays open all match)
 WALL_CLOCK_ALLOWANCE = timedelta(minutes=18)
 
 

@@ -26,12 +26,12 @@ class CashoutSettings(models.Model):
 class LiveTradingSettings(models.Model):
     """Operator controls for in-play markets (one row). See live_guard.
 
-    The operator's rule: in-play betting stays open from kick-off until the
-    75th minute of every live match, when all its markets lock for good.
+    The operator's rule: in-play betting stays open for the whole match (no
+    lock minute by default; set lock_minute to close it at a minute).
     Every other automatic hold is OFF by default (markets stay open unless the
     feed or staff suspend them); each can be switched on here."""
     # In-play betting on a match closes for good at this match minute (0 = never).
-    lock_minute = models.PositiveSmallIntegerField(default=75)
+    lock_minute = models.PositiveSmallIntegerField(default=0)
     # A match-result price moving at least this much in one update with no goal
     # suspends the match for review (0 = off).
     price_jump_percent = models.PositiveSmallIntegerField(default=0)
@@ -64,6 +64,12 @@ class LiveTradingSettings(models.Model):
     # a selection when it is decided or about to be, so its last price must not
     # stay on offer. (A whole-match pause doesn't count against it.)
     live_price_grace_seconds = models.PositiveSmallIntegerField(default=60)
+    # Near-win guard (near_win.py): no in-play bets on a pick with at least this
+    # chance of winning from the current score and clock, e.g. "under 2.5" at
+    # 1-0 in the 85th minute (0 = off). The model assumes this many goals per 90
+    # minutes; a higher figure refuses fewer picks.
+    near_win_percent = models.PositiveSmallIntegerField(default=90)
+    near_win_goals_per_90 = models.DecimalField(max_digits=4, decimal_places=2, default=Decimal('2.70'))
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

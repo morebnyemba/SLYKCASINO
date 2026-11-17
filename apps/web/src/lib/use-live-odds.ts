@@ -12,13 +12,14 @@ export interface LiveOdds {
   bettable?: boolean;
   main_open?: boolean;
   live_closed?: string | null;
+  main_blocked?: ('home' | 'draw' | 'away')[];
   score_home?: number | null;
   score_away?: number | null;
   elapsed?: number | null;
   status?: string;
 }
 
-const STATE_KEYS = ['in_play', 'bettable', 'main_open', 'live_closed', 'score_home', 'score_away', 'elapsed', 'status'] as const;
+const STATE_KEYS = ['in_play', 'bettable', 'main_open', 'live_closed', 'main_blocked', 'score_home', 'score_away', 'elapsed', 'status'] as const;
 
 /**
  * Subscribes to an event's realtime odds channel (`odds:<id>`) and returns the

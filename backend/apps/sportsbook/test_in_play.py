@@ -134,7 +134,7 @@ class LiveFeedTests(InPlayBase):
         self.assertTrue(sb.in_play_bettable(self.event))
         self.assertTrue(Market.objects.get(event=self.event, key='btts:ft').is_open)
         self.assertFalse(Market.objects.get(event=self.event, key='correct_score:1h').is_open)
-        self.assertEqual(sb.trading_state(self.event), {'in_play': True, 'bettable': True, 'main_open': True, 'live_closed': None})
+        self.assertEqual(sb.trading_state(self.event), {'in_play': True, 'bettable': True, 'main_open': True, 'live_closed': None, 'main_blocked': []})
 
     def test_blocked_feed_suspends_when_the_operator_asks_and_goals_are_stamped(self):
         from apps.sportsbook.models import LiveTradingSettings

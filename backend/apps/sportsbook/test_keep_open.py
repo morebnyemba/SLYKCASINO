@@ -1,6 +1,6 @@
 """The operator's rule: every market on every upcoming and live match stays open
-until the lock minute (75'), then everything locks. Nothing suspends a market
-by itself before then; only what play has already decided stays shut."""
+all match (or until a lock minute, if staff set one). Nothing suspends a market
+by itself; only what play has decided (or as good as decided) stays shut."""
 from __future__ import annotations
 
 from datetime import timedelta
@@ -49,11 +49,25 @@ class KeepOpenTests(InPlayBase):
         self.event.refresh_from_db()
         return self.event
 
-    def test_default_is_on_and_lock_is_75(self):
+    def lock_at_75(self):
+        LiveTradingSettings.objects.filter(pk=1).update(lock_minute=75)
+
+    def test_default_is_on_and_there_is_no_lock_minute(self):
         LiveTradingSettings.objects.all().delete()
         cfg = LiveTradingSettings.load()
         self.assertTrue(cfg.keep_markets_open)
-        self.assertEqual(cfg.lock_minute, 75)
+        self.assertEqual(cfg.lock_minute, 0)
+
+    def test_with_no_lock_minute_in_play_stays_open_all_match(self):
+        LiveTradingSettings.objects.filter(pk=1).update(lock_minute=0)
+        self.apply(0, elapsed=75)
+        self.apply(5, elapsed=89)
+        event = self.refreshed()
+        self.assertIsNone(event.live_locked_at)
+        self.assertTrue(sb.in_play_bettable(event, now=self.now + timedelta(seconds=6)))
+        self.assertIsNone(live_guard.closed_reason(event))
+        # A silent feed clock can't close it either: no wall-clock lock without a lock minute.
+        self.assertFalse(live_guard.wall_clock_locked(event, now=event.starts_at + timedelta(minutes=120)))
 
     def test_markets_the_feed_stops_offering_stay_open_at_their_last_price(self):
         self.apply()
@@ -119,7 +133,44 @@ class KeepOpenTests(InPlayBase):
         live_guard.hold(self.refreshed(), 'Red card not in the feed', by='staff')
         self.assertFalse(sb.in_play_bettable(self.refreshed(), now=self.now))
 
+    def test_removing_or_raising_the_lock_in_admin_reopens_locked_matches(self):
+        from django.contrib.auth.models import User
+        from rest_framework.test import APIClient
+        staff = APIClient()
+        staff.force_authenticate(User.objects.create_user('lockops', 'l@example.com', 'x', is_staff=True))
+        url = '/api/admin/sportsbook/live-trading/'
+        self.assertEqual(staff.put(url, {'lock_minute': 75}, format='json').status_code, 200)
+        self.apply(0, elapsed=78)
+        self.assertIsNotNone(self.refreshed().live_locked_at)
+        # A later lock that the clock has already passed keeps it closed.
+        staff.put(url, {'lock_minute': 77}, format='json')
+        self.assertIsNotNone(self.refreshed().live_locked_at)
+        staff.put(url, {'lock_minute': 85}, format='json')
+        self.assertIsNone(self.refreshed().live_locked_at)
+        self.apply(5, elapsed=79)
+        self.assertTrue(sb.in_play_bettable(self.refreshed(), now=self.now + timedelta(seconds=6)))
+        staff.put(url, {'lock_minute': 75}, format='json')
+        self.apply(10, elapsed=80)
+        self.assertIsNotNone(self.refreshed().live_locked_at)
+        staff.put(url, {'lock_minute': 0}, format='json')               # no lock at all
+        self.assertIsNone(self.refreshed().live_locked_at)
+        self.apply(15, elapsed=81)
+        self.assertTrue(sb.in_play_bettable(self.refreshed(), now=self.now + timedelta(seconds=16)))
+
+    def test_migration_turns_the_lock_off_and_reopens_locked_matches(self):
+        import importlib
+
+        from django.apps import apps as django_apps
+        mig = importlib.import_module('apps.sportsbook.migrations.0033_no_lock_minute')
+        LiveTradingSettings.objects.filter(pk=1).update(lock_minute=75)
+        self.apply(0, elapsed=76)
+        self.assertIsNotNone(self.refreshed().live_locked_at)
+        mig.no_lock_minute(django_apps, None)
+        self.assertEqual(LiveTradingSettings.load().lock_minute, 0)
+        self.assertIsNone(self.refreshed().live_locked_at)
+
     def test_open_until_74_then_locked_at_75(self):
+        self.lock_at_75()
         self.apply(0, elapsed=74)
         self.assertTrue(sb.in_play_bettable(self.refreshed(), now=self.now))
         self.apply(5, elapsed=75)
@@ -131,6 +182,7 @@ class KeepOpenTests(InPlayBase):
         self.assertFalse(sb.in_play_bettable(self.refreshed(), now=self.now))
 
     def test_a_silent_feed_cannot_keep_a_match_open_past_the_lock(self):
+        self.lock_at_75()
         self.apply()
         event = self.refreshed()
         # starts_at is 60 minutes ago: lock minute + half-time and stoppage allowance is 93.

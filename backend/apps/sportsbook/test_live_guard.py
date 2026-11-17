@@ -108,11 +108,25 @@ class GuardTests(InPlayBase):
 
 @LIVE
 class DefaultsTests(InPlayBase):
-    """Out of the box every live match trades from kick-off to the 75th minute
-    and then locks; nothing else locks or holds automatically."""
+    """Out of the box every live match trades from kick-off to the final whistle;
+    nothing locks or holds automatically. A lock minute set by staff (e.g. 75')
+    closes every market on the match at that minute."""
 
-    def test_open_until_75_then_locked_and_nothing_else_holds(self):
+    def test_out_of_the_box_nothing_locks_or_holds_all_match(self):
         LiveTradingSettings.objects.all().delete()
+        now = timezone.now()
+        sb.apply_live_odds(snap(elapsed=30, home='1.50'), now=now)
+        sb.apply_live_odds(snap(elapsed=74, home='4.00'), now=now + timedelta(seconds=5))   # big jump, no goal
+        sb.apply_live_odds(snap(elapsed=89), now=now + timedelta(seconds=10))
+        self.event.refresh_from_db()
+        self.assertEqual(self.event.live_hold_reason, '')
+        self.assertIsNone(self.event.live_locked_at)
+        self.assertTrue(sb.in_play_bettable(self.event, now=now + timedelta(seconds=11)))
+        self.assertIsNone(sb.trading_state(self.event)['live_closed'])
+
+    def test_a_lock_minute_of_75_closes_everything_then_and_nothing_else_holds(self):
+        LiveTradingSettings.objects.all().delete()
+        LiveTradingSettings.objects.filter(pk=LiveTradingSettings.load().pk).update(lock_minute=75)
         now = timezone.now()
         sb.apply_live_odds(snap(elapsed=30, home='1.50'), now=now)
         sb.apply_live_odds(snap(elapsed=74, home='4.00'), now=now + timedelta(seconds=5))   # big jump, no goal

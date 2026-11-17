@@ -286,7 +286,7 @@ export function BetslipProvider({ children }: { children: React.ReactNode }) {
         const res = await fetch(`${config.apiUrl}${query}`, { cache: 'no-store' });
         if (!res.ok || cancelled) return;
         const data = (await res.json()) as {
-          events: Record<string, { odds: string; odds_draw: string | null; odds_away: string | null; main_open: boolean }>;
+          events: Record<string, { odds: string; odds_draw: string | null; odds_away: string | null; main_open: boolean; main_blocked?: string[] }>;
           outcomes: Record<string, { odds: string; open: boolean }>;
         };
         if (cancelled) return;
@@ -303,7 +303,7 @@ export function BetslipProvider({ children }: { children: React.ReactNode }) {
               if (e) {
                 const raw = l.selection === 'home' ? e.odds : l.selection === 'draw' ? e.odds_draw : e.odds_away;
                 price = raw != null ? Number(raw) : null;
-                open = e.main_open && price != null;
+                open = e.main_open && price != null && !(e.main_blocked ?? []).includes(l.selection);
               }
             }
             if (price == null || !Number.isFinite(price)) {

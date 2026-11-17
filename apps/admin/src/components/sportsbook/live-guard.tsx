@@ -9,7 +9,7 @@ import { authedPost, authedRequest, useApi } from '@/lib/use-api';
 
 interface LiveSettings {
   lock_minute: number | string; price_jump_percent: number | string; burst_amount: string; burst_minutes: number | string;
-  live_price_grace_seconds: number | string;
+  live_price_grace_seconds: number | string; near_win_percent: number | string; near_win_goals_per_90: string;
   hold_on_bad_feed: boolean; suspend_on_feed_pause: boolean; keep_markets_open: boolean; live_min_odds: string;
   held: { id: number; name: string; status: string; elapsed: number | null; reason: string; held_at: string }[];
 }
@@ -66,11 +66,17 @@ export function LiveGuardPanel() {
         </div>
       )}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        <Field label="Close in-play betting at minute" hint="75 by default. 0 = never.">
+        <Field label="Close in-play betting at minute" hint="0 = never (the default): in-play stays open all match. Set a minute (e.g. 75) to close it then.">
           <TextInput inputMode="numeric" value={form?.lock_minute ?? ''} onChange={set('lock_minute')} />
         </Field>
         <Field label="Shortest live price accepted" hint="In play, selections priced below this are closed: they're as good as won. 1.05 by default. 0 = off.">
           <TextInput inputMode="decimal" value={form?.live_min_odds ?? ''} onChange={set('live_min_odds')} />
+        </Field>
+        <Field label="Refuse picks at least this likely to win (%)" hint="Near-win guard: from the score and minutes left, e.g. under 2.5 at 1-0 in the 80th minute (~93%). Greyed out for players. 90 by default. 0 = off.">
+          <TextInput inputMode="numeric" value={form?.near_win_percent ?? ''} onChange={set('near_win_percent')} />
+        </Field>
+        <Field label="Near-win guard: goals per 90 minutes" hint="The scoring rate the guard assumes. Higher refuses fewer picks. 2.70 by default.">
+          <TextInput inputMode="decimal" value={form?.near_win_goals_per_90 ?? ''} onChange={set('near_win_goals_per_90')} />
         </Field>
         <Field label="Close a selection the feed stops pricing after (seconds)" hint="In play, only prices the live feed is quoting can be taken. Pre-match prices close at kick-off. 60 by default.">
           <TextInput inputMode="numeric" value={form?.live_price_grace_seconds ?? ''} onChange={set('live_price_grace_seconds')} />
