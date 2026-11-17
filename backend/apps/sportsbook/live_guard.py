@@ -3,7 +3,7 @@ stay open unless the feed or staff genuinely suspend them — and each can be
 switched on in LiveTradingSettings.
 
 - **Lock:** a match stops trading in play for good once its clock reaches
-  LiveTradingSettings.lock_minute (75' by default). By the match clock, not
+  LiveTradingSettings.lock_minute (off by default: 0 = never). By the match clock, not
   the wall clock: half-time doesn't count. Set once and never cleared, so a
   feed that later reports an earlier minute can't reopen it. If the feed goes
   silent the clock can't be read, so a wall-clock cut-off (kick-off + lock
@@ -63,6 +63,23 @@ def closed_reason(event: Event, *, now=None) -> Optional[str]:
     if event.live_hold_reason:
         return 'In-play betting is suspended'
     return None
+
+
+def release_locks(minute: int) -> int:
+    """Reopen matches in play that an earlier lock minute closed: all of
+    them when there is no lock minute now (0), else those whose clock hasn't
+    reached the new minute. Returns how many reopened (their markets trade again
+    on the next live price)."""
+    from .services import IN_PLAY_STATUSES
+    locked = Event.objects.filter(status__in=IN_PLAY_STATUSES, is_open=True, live_locked_at__isnull=False)
+    if minute:
+        locked = locked.filter(elapsed__lt=minute)
+    reopened = 0
+    for event in locked:  # save() so post_save publishes the reopened state
+        event.live_locked_at = None
+        event.save(update_fields=['live_locked_at'])
+        reopened += 1
+    return reopened
 
 
 def check_clock(event: Event, *, now=None) -> list[str]:

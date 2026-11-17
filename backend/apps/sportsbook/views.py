@@ -497,6 +497,7 @@ class AdminLiveTradingSettingsView(APIView):
         from apps.accounts import services as accounts_services
         from .models import LiveTradingSettings
         cfg = LiveTradingSettings.load()
+        old_lock = cfg.lock_minute
         try:
             for f in self.FIELDS:
                 if f in request.data:
@@ -520,6 +521,9 @@ class AdminLiveTradingSettingsView(APIView):
                                        'a window of at least a minute, and a non-negative amount (0 = off).'},
                             status=status.HTTP_400_BAD_REQUEST)
         cfg.save()
+        if cfg.lock_minute != old_lock and (cfg.lock_minute == 0 or cfg.lock_minute > old_lock):
+            from . import live_guard
+            live_guard.release_locks(cfg.lock_minute)  # a later (or no) lock reopens matches the old one closed
         accounts_services.audit(None, 'live_trading_settings', request,
                                 **{f: str(getattr(cfg, f)) for f in (*self.FIELDS, *self.FLAGS, 'burst_amount', 'live_min_odds')})
         return Response(self._payload())

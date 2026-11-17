@@ -66,7 +66,7 @@ export function LiveGuardPanel() {
         </div>
       )}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        <Field label="Close in-play betting at minute" hint="75 by default. 0 = never.">
+        <Field label="Close in-play betting at minute" hint="0 = never (the default): in-play stays open all match. Set a minute (e.g. 75) to close it then.">
           <TextInput inputMode="numeric" value={form?.lock_minute ?? ''} onChange={set('lock_minute')} />
         </Field>
         <Field label="Shortest live price accepted" hint="In play, selections priced below this are closed: they're as good as won. 1.05 by default. 0 = off.">

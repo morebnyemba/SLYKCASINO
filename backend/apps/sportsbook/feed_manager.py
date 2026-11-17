@@ -231,7 +231,8 @@ def interval(kind: str, *, now=None, row=None, job_row=None) -> Optional[float]:
         return None
     job_row = job_row or _job_row(kind, provider_day(now))
     cost = max(job_row.cost, 0.5)
-    return max(base, cost * seconds_left_today(now) / alloc)
+    # Rounded: an allocation sized to exactly the base need must give the base back, not base + 1e-12.
+    return max(base, round(cost * seconds_left_today(now) / alloc, 3))
 
 
 def due(kind: str, *, now=None) -> bool:
