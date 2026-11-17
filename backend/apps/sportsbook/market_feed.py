@@ -170,6 +170,22 @@ def _result_total(value: str) -> Parsed:
     return f'{res}/{side}', f'{res.title()} & {side.title()} {format(line.normalize(), "f")}', line
 
 
+def _total_btts(value: str) -> Parsed:
+    """Total goals & both teams to score: 'o/yes 2.5', 'Over/Yes 2.5', 'Yes/Over 2.5'…"""
+    text = value.strip().lower()
+    m = (re.fullmatch(rf'(o|over|u|under)\s*/\s*(yes|no)\s+{_NUM}', text)
+         or re.fullmatch(rf'(yes|no)\s*/\s*(o|over|u|under)\s+{_NUM}', text))
+    if not m:
+        return None
+    a, b, num = m.group(1), m.group(2), m.group(3)
+    side, btts = (a, b) if a in ('o', 'over', 'u', 'under') else (b, a)
+    side = 'over' if side.startswith('o') else 'under'
+    line = _dec(num)
+    if line is None or (line * 2) % 1 != 0:
+        return None
+    return f'{side}/{btts}', f'{side.title()} {format(line.normalize(), "f")} & {"Yes" if btts == "yes" else "No"}', line
+
+
 def _scorer(value: str) -> Parsed:
     """Goalscorer markets: the value is a player's name (or "No goal")."""
     name = value.strip()
@@ -228,6 +244,10 @@ SPECS: dict[str, _Spec] = {
     # Result combos and first/last goal
     'Results/Both Teams Score': _Spec('result_btts', 'main', 'ft', 'Result & both teams to score', _result_btts),
     'Result/Total Goals': _Spec('result_total', 'main', 'ft', 'Result & total goals', _result_total, True),
+    'Total Goals/Both Teams To Score': _Spec('total_btts', 'main', 'ft', 'Total goals & both teams to score', _total_btts, True),
+    # Half-time combos: both legs are first-half (settled from the half-time score).
+    'Halftime Result/Both Teams Score': _Spec('result_btts', 'main', '1h', '1st half result & both teams to score', _result_btts),
+    'Halftime Result/Total Goals': _Spec('result_total', 'main', '1h', '1st half result & total goals', _result_total, True),
     'Team To Score First': _Spec('first_team_to_score', 'goals', 'ft', 'Team to score first', _team_first),
     'Team To Score Last': _Spec('last_team_to_score', 'goals', 'ft', 'Team to score last', _team_first),
     'Own Goal': _Spec('own_goal', 'goals', 'ft', 'Own goal in the match', _yes_no),
@@ -273,6 +293,10 @@ SPECS: dict[str, _Spec] = {
 ALIASES = {
     'Both Teams Score - Second Half': 'Both Teams To Score - Second Half',
     'Result/Both Teams Score': 'Results/Both Teams Score',
+    'Total Goals/Both Teams Score': 'Total Goals/Both Teams To Score',
+    'Half Time Result/Both Teams Score': 'Halftime Result/Both Teams Score',
+    'Halftime Result/Both Teams To Score': 'Halftime Result/Both Teams Score',
+    'Half Time Result/Total Goals': 'Halftime Result/Total Goals',
     'Red Card': 'RCARD',
     'Total Cards': 'Cards Over/Under',
     'Total Corners': 'Corners Over Under',

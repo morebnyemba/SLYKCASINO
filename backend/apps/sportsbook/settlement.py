@@ -24,6 +24,7 @@ Outcome keys (normalised by market_feed.py when importing a feed):
   highest_scoring_half                         : '1h' | '2h' | 'draw'
   result_btts                                  : '<home|draw|away>/<yes|no>'
   result_total                                 : '<home|draw|away>/<over|under>'  (line on market)
+  total_btts                                   : '<over|under>/<yes|no>'  (line on market)
   first_team_to_score / last_team_to_score     : 'home' | 'away' | 'none'
   anytime_scorer / first_scorer / last_scorer  : a player key (name in the label) or 'none'
 
@@ -323,6 +324,18 @@ def settle_outcome(
         if total_result is None:
             return None
         if res != _result(home, away):
+            return LOST
+        return total_result  # includes VOID on a whole line landing exactly
+
+    if kind == 'total_btts':
+        try:
+            side, btts = key.split('/')
+        except ValueError:
+            return None
+        total_result = _over_under(side, total, line)
+        if total_result is None:
+            return None
+        if (btts == 'yes') != (home > 0 and away > 0):
             return LOST
         return total_result  # includes VOID on a whole line landing exactly
 

@@ -414,3 +414,46 @@ class MarketApiTests(TestCase):
         )
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
         self.assertTrue(all(o.result == 'void' for o in corners.outcomes.all()))
+
+
+class MoreComboTests(SimpleTestCase):
+    """Combined bet types the importer used to leave as manual 'specials'."""
+
+    def s(self, kind, key, score, line=None, period='ft'):
+        return settle_outcome(kind=kind, period=period, line=line, key=key, score=score)
+
+    def test_parses_the_half_time_and_total_btts_combos(self):
+        markets = parse_markets([
+            {'name': 'Total Goals/Both Teams To Score', 'values': [
+                {'value': 'o/yes 2.5', 'odd': '2.4'}, {'value': 'o/no 2.5', 'odd': '4.1'},
+                {'value': 'u/yes 2.5', 'odd': '6.0'}, {'value': 'u/no 2.5', 'odd': '2.2'},
+                {'value': 'Over/Yes 3.5', 'odd': '3.4'}, {'value': 'Under/No 3.5', 'odd': '1.9'},
+            ]},
+            {'name': 'Halftime Result/Both Teams Score', 'values': [
+                {'value': 'Home/Yes', 'odd': '9'}, {'value': 'Home/No', 'odd': '3.2'}, {'value': 'Draw/No', 'odd': '2.6'},
+            ]},
+            {'name': 'Half Time Result/Total Goals', 'values': [
+                {'value': 'Home/Over 1.5', 'odd': '5'}, {'value': 'Draw/Under 1.5', 'odd': '2.4'},
+            ]},
+        ])
+        by_key = {m.key: m for m in markets}
+        tb = by_key['total_btts:ft:2.5']
+        self.assertEqual((tb.kind, tb.group), ('total_btts', 'main'))
+        self.assertEqual([o.key for o in tb.outcomes], ['over/yes', 'over/no', 'under/yes', 'under/no'])
+        self.assertEqual(tb.outcomes[0].label, 'Over 2.5 & Yes')
+        self.assertIn('total_btts:ft:3.5', by_key)
+        ht = by_key['result_btts:1h']
+        self.assertEqual((ht.kind, ht.period, ht.name), ('result_btts', '1h', '1st half result & both teams to score'))
+        self.assertIn('result_total:1h:1.5', by_key)
+        self.assertFalse(any(m.kind == 'manual' for m in markets))
+
+    def test_settles_total_btts_and_first_half_combos(self):
+        self.assertEqual(self.s('total_btts', 'over/yes', Score(2, 1), D('2.5')), 'won')
+        self.assertEqual(self.s('total_btts', 'over/no', Score(2, 1), D('2.5')), 'lost')
+        self.assertEqual(self.s('total_btts', 'under/no', Score(2, 0), D('2.5')), 'won')
+        self.assertEqual(self.s('total_btts', 'over/yes', Score(2, 1), D('3')), 'void')   # whole line lands exactly
+        half = Score(2, 1, ht_home=1, ht_away=0)
+        self.assertEqual(self.s('result_btts', 'home/no', half, period='1h'), 'won')     # 1-0 at half time
+        self.assertEqual(self.s('result_btts', 'home/yes', half, period='1h'), 'lost')
+        self.assertEqual(self.s('result_total', 'home/under', half, D('1.5'), period='1h'), 'won')
+        self.assertIsNone(self.s('result_btts', 'home/no', Score(2, 1), period='1h'))    # half-time score unknown

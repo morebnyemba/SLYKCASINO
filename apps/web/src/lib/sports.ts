@@ -116,7 +116,8 @@ export interface Market {
 }
 
 /** Combined bets ("1 & GG", "Draw & Over 2.5") get their own Combo tab on the match page. */
-const COMBO_KINDS = new Set(['result_btts', 'result_total']);
+// Combined bets: result & BTTS, result & total (full time or first half), total & BTTS, HT/FT.
+const COMBO_KINDS = new Set(['result_btts', 'result_total', 'total_btts', 'ht_ft']);
 export function displayGroup(m: Pick<Market, 'kind' | 'group'>): MarketGroup {
   return COMBO_KINDS.has(m.kind) ? 'combo' : m.group;
 }

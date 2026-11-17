@@ -132,17 +132,16 @@ function ComboGrid({ home, away, rows, cell }: {
 
 const EMPTY_CELL = <span className="flex h-11 items-center justify-center rounded-lg bg-odds/40 text-muted-foreground/50">—</span>;
 
-/** Result & total goals: every line in one card — pick the line, see 1 · X · 2 × over / under. */
-function ResultTotalCard({ title, markets, home, away, forceOpen, renderOutcome }: {
-  title: string; markets: Market[]; home: string; away: string | null; forceOpen: boolean;
-  renderOutcome: (m: Market, o: MarketOutcome) => React.ReactNode;
+/** A combined market with goal lines: every line in one card — pick the line, see its grid. */
+function LineComboCard({ title, markets, forceOpen, children }: {
+  title: string; markets: Market[]; forceOpen: boolean; children: (m: Market, line: string) => React.ReactNode;
 }) {
   const lines = markets.map((m) => Number(m.line));
-  const defaultIdx = lines.reduce((best, l, i) => (Math.abs(l - 2.5) < Math.abs(lines[best] - 2.5) ? i : best), 0);
+  const target = markets[0]?.period === '1h' ? 1.5 : 2.5;
+  const defaultIdx = lines.reduce((best, l, i) => (Math.abs(l - target) < Math.abs(lines[best] - target) ? i : best), 0);
   const [idx, setIdx] = useState(defaultIdx);
   const m = markets[Math.min(idx, markets.length - 1)];
   const anyOpen = markets.some((x) => x.is_open && !x.settled);
-  const line = String(Number(m.line));
   return (
     <Collapsible title={title} badge={!anyOpen ? <StatusBadge market={markets[0]} /> : undefined} forceOpen={forceOpen}>
       {markets.length > 1 && (
@@ -157,13 +156,55 @@ function ResultTotalCard({ title, markets, home, away, forceOpen, renderOutcome 
           ))}
         </div>
       )}
-      <ComboGrid home={home} away={away}
-        rows={[{ key: 'over', label: <>Over {line}</> }, { key: 'under', label: <>Under {line}</> }]}
-        cell={(row, col) => {
-          const o = m.outcomes.find((x) => x.key === `${col}/${row}`);
-          return o ? renderOutcome(m, o) : EMPTY_CELL;
-        }} />
+      {children(m, String(Number(m.line)))}
     </Collapsible>
+  );
+}
+
+/** Result & total goals: 1 · X · 2 across, over / under down the side. */
+function ResultTotalCard({ title, markets, home, away, forceOpen, renderOutcome }: {
+  title: string; markets: Market[]; home: string; away: string | null; forceOpen: boolean;
+  renderOutcome: (m: Market, o: MarketOutcome) => React.ReactNode;
+}) {
+  return (
+    <LineComboCard title={title} markets={markets} forceOpen={forceOpen}>
+      {(m, line) => (
+        <ComboGrid home={home} away={away}
+          rows={[{ key: 'over', label: <>Over {line}</> }, { key: 'under', label: <>Under {line}</> }]}
+          cell={(row, col) => {
+            const o = m.outcomes.find((x) => x.key === `${col}/${row}`);
+            return o ? renderOutcome(m, o) : EMPTY_CELL;
+          }} />
+      )}
+    </LineComboCard>
+  );
+}
+
+/** Total goals & both teams to score: over / under across, GG / NG down the side. */
+function TotalBttsCard({ title, markets, forceOpen, renderOutcome }: {
+  title: string; markets: Market[]; forceOpen: boolean;
+  renderOutcome: (m: Market, o: MarketOutcome) => React.ReactNode;
+}) {
+  return (
+    <LineComboCard title={title} markets={markets} forceOpen={forceOpen}>
+      {(m, line) => (
+        <div className="grid grid-cols-[minmax(68px,0.8fr)_repeat(2,minmax(0,1fr))] items-center gap-x-2 gap-y-1.5">
+          <span />
+          {['over', 'under'].map((side) => (
+            <b key={side} className="text-center text-[13px]">{side === 'over' ? 'Over' : 'Under'} {line}</b>
+          ))}
+          {[['yes', 'Both score', 'GG'], ['no', 'Not both', 'NG']].map(([btts, text, code]) => (
+            <Fragment key={btts}>
+              <span className="text-[12px] font-extrabold leading-tight">{text} <span className="text-muted-foreground">{code}</span></span>
+              {['over', 'under'].map((side) => {
+                const o = m.outcomes.find((x) => x.key === `${side}/${btts}`);
+                return <Fragment key={side}>{o ? renderOutcome(m, o) : EMPTY_CELL}</Fragment>;
+              })}
+            </Fragment>
+          ))}
+        </div>
+      )}
+    </LineComboCard>
   );
 }
 
@@ -230,13 +271,14 @@ export function EventMarkets({ ev }: { ev: EventItem }) {
     : null;
 
   const blocks = useMemo(() => buildBlocks(markets), [markets]);
+  // Badges count cards, not markets: a market with several lines is one card.
   const counts = useMemo(() => {
     const c: Record<string, number> = {};
-    for (const m of markets) c[m.group] = (c[m.group] ?? 0) + 1;
+    for (const b of blocks) c[b.group] = (c[b.group] ?? 0) + 1;
     return c;
-  }, [markets]);
+  }, [blocks]);
   const tabs: { id: Tab; label: string; count: number }[] = [
-    { id: 'all', label: 'All', count: markets.length + 1 },
+    { id: 'all', label: 'All', count: blocks.length + 1 },
     ...MARKET_GROUPS.filter((g) => counts[g.id]).map((g) => ({
       id: g.id, label: g.label, count: (counts[g.id] ?? 0) + (g.id === 'main' ? 1 : 0),
     })),
@@ -364,6 +406,12 @@ export function EventMarkets({ ev }: { ev: EventItem }) {
   }
 
   function renderLines(block: Block & { type: 'lines' }) {
+    if (block.markets[0].kind === 'total_btts') {
+      return (
+        <TotalBttsCard key={block.id} title={names(block.name)} markets={block.markets}
+          forceOpen={searching} renderOutcome={comboOutcome} />
+      );
+    }
     if (block.markets[0].kind === 'result_total') {
       return (
         <ResultTotalCard key={block.id} title={names(block.name)} markets={block.markets} home={home} away={away}
