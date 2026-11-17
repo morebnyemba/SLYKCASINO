@@ -189,7 +189,7 @@ class AffiliateProgramme(models.Model):
     default_revshare_percent = models.DecimalField(max_digits=5, decimal_places=2, default=30)
     default_cpa_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     default_cpa_min_deposit = models.DecimalField(max_digits=10, decimal_places=2, default=20)
-    default_cpa_percent = models.DecimalField(max_digits=5, decimal_places=2, default=30)
+    default_cpa_percent = models.DecimalField(max_digits=5, decimal_places=2, default=10)
     default_cpa_cap = models.DecimalField(max_digits=10, decimal_places=2, default=100)
     # A deposit commission is only earned once the referral has staked at
     # least this many times their first deposit (stops deposit-and-withdraw farming).
