@@ -180,8 +180,6 @@ def _room_for(pct: Decimal, *, wallet: Optional[ShareWallet] = None) -> None:
 def set_share(*, slot: int, percent, by_user, reason: str = '', for_sale: bool = True, request=None) -> dict:
     """Set one wallet's share. A raise comes out of the unsold part (superuser);
     a cut needs the holder's consent (see module docstring)."""
-    from .audit import assert_unlocked
-    assert_unlocked()
     new = _pct(percent)
     with transaction.atomic():
         RevenueSettings.objects.select_for_update().get(pk=RevenueSettings.load().pk)
@@ -207,8 +205,6 @@ def set_share(*, slot: int, percent, by_user, reason: str = '', for_sale: bool =
 def transfer_wallet(*, slot: int, new_holder_id, by_user, reason: str = '', request=None) -> dict:
     """Hand a wallet (its share and future earnings) to another staff login —
     the current holder's consent is needed, as for a cut."""
-    from .audit import assert_unlocked
-    assert_unlocked()
     with transaction.atomic():
         wallet = ShareWallet.objects.select_for_update(of=('self',)).select_related('holder').filter(slot=slot).first()
         if wallet is None:
@@ -378,8 +374,6 @@ def record_sale(*, buyer_id, percent, price=None, payment_method: str = '', paym
     if not by_user.is_superuser:
         raise RevenueError('Only a superuser can record a sale.')
     signed = _agreement_fields(accepted_agreement, by_user, 'The buyer')
-    from .audit import assert_unlocked
-    assert_unlocked()
     pct = _pct(percent)
     if pct <= 0:
         raise RevenueError('Choose how much is sold.')
@@ -409,8 +403,6 @@ def confirm_sale(sale_id: int, *, by_user, payment_method: str = '', payment_ref
     """A superuser confirms a buyer's payment arrived: the share is added."""
     if not by_user.is_superuser:
         raise RevenueError('Only a superuser can confirm a payment.')
-    from .audit import assert_unlocked
-    assert_unlocked()
     if not (payment_reference or '').strip():
         raise RevenueError('Enter the payment reference (EcoCash/bank/receipt number).')
     with transaction.atomic():
@@ -564,8 +556,6 @@ def release_row(r: ShareRelease) -> dict:
 def reclaim_release(release_id: int, *, by_user, request=None) -> ShareRelease:
     """The holder takes back released share that hasn't sold (all that's left of it),
     unless it's promised to a buyer who is waiting to pay."""
-    from .audit import assert_unlocked
-    assert_unlocked()
     with transaction.atomic():
         RevenueSettings.objects.select_for_update().get(pk=RevenueSettings.load().pk)
         lot = ShareRelease.objects.select_for_update(of=('self',)).select_related('wallet').filter(pk=release_id).first()

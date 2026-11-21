@@ -128,7 +128,7 @@ interface System {
 }
 interface Signature { user: string; decision: 'approve' | 'reject'; note: string; at: string }
 interface Audit {
-  week_start: string; week_end: string; due: string; counted: boolean; overdue: boolean;
+  week_start: string; week_end: string;
   status: 'open' | 'submitted' | 'disputed' | 'approved'; status_label: string; system: System;
   paynow: MatchResult | null; payouts: MatchResult | null; paynow_file: boolean; payouts_file: boolean;
   payouts_source: string; payouts_source_label: string;
@@ -327,39 +327,31 @@ function Cosign({ a, onChanged }: { a: Audit; onChanged: (n: Tone) => void }) {
 }
 
 /** The deadline is midnight at the end of Tuesday: show it as that Tuesday. */
-const due = (iso: string) => `end of ${new Date(Date.parse(iso) - 1).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })}`;
-
-/** Each finished week: the founder submits Paynow's report, the payouts statement and the pool's real balance;
- *  every partner co-signs. Due by the end of Tuesday. */
+/** Optional record for any finished week: the founder submits Paynow's report, the payouts statement and the
+ *  pool's real balance; every partner co-signs. Nothing is due and an unaudited week locks nothing. */
 export function WeeklyAudits() {
   const { data, refetch } = useApi<AuditsView>('/admin/revenue-share/audits/');
   const [notice, setNotice] = useState<Tone>(null);
   const [openWeek, setOpenWeek] = useState<string | null>(null);
   const changed = (n: Tone) => { setNotice(n); refetch(); };
-  const waiting = data?.audits.filter((a) => a.status !== 'approved' && a.counted).length ?? 0;
 
   return (
-    <Panel title="Weekly pool audit"
-      description={`Every week (Monday to Sunday) is due by the end of the following Tuesday. ${data?.founder ?? 'The founder'} uploads Paynow’s report of money received and the EcoCash/bank statement of money paid to players, and states what the pool actually holds after the costs they claim. Every line is matched against the platform, then every partner (${data?.signers.join(', ') ?? '…'}) co-signs or disputes. Two missed weeks in a row make the whole admin read-only until they are approved.`}
-      actions={waiting ? <Badge tone="gold" dot>{waiting} week{waiting === 1 ? '' : 's'} to finish</Badge> : undefined}>
+    <Panel title="Weekly pool audit (optional)"
+      description={`Optional: audit any finished week (Monday to Sunday) when you want a signed record. ${data?.founder ?? 'The founder'} uploads Paynow’s report of money received and the EcoCash/bank statement of money paid to players, and states what the pool actually holds. Every line is matched against the platform, then every partner (${data?.signers.join(', ') ?? '…'}) co-signs or disputes. Nothing is due and an unaudited week locks nothing.`}>
       {notice && <div className="mb-4"><Notice tone={notice.tone} onClose={() => setNotice(null)}>{notice.text}</Notice></div>}
       {!data ? <div className="h-24 animate-pulse rounded-xl bg-muted/30" /> : data.audits.length === 0 ? (
-        <EmptyState icon={BsShieldCheck} title="No finished weeks yet">The first week opens for audit on the Monday after it ends, due that Tuesday.</EmptyState>
+        <EmptyState icon={BsShieldCheck} title="No finished weeks yet">A week can be audited once it has ended.</EmptyState>
       ) : (
         <div className="space-y-3">
           {data.audits.map((a) => {
-            const isOpen = openWeek === a.week_start || (openWeek === null && a === data.audits.find((x) => x.status !== 'approved'));
+            const isOpen = openWeek === a.week_start;
             const s = a.system;
             const editable = data.is_founder && (a.status === 'open' || a.status === 'disputed');
             return (
-              <div key={a.week_start} className={cx('rounded-xl border', a.overdue ? 'border-live/50' : 'border-border/70')}>
+              <div key={a.week_start} className="rounded-xl border border-border/70">
                 <button onClick={() => setOpenWeek(isOpen ? '' : a.week_start)} className="flex w-full flex-wrap items-center gap-3 px-4 py-3 text-left">
                   <span className="font-semibold">{a.week_start} – {a.week_end}</span>
                   <Badge tone={STATUS_TONE[a.status]} dot>{a.status_label}</Badge>
-                  {a.status !== 'approved' && a.counted && (
-                    <Badge tone={a.overdue ? 'red' : 'slate'}>{a.overdue ? 'Overdue — was due by the' : 'Due by the'} {due(a.due)}</Badge>
-                  )}
-                  {!a.counted && a.status !== 'approved' && <Badge tone="slate">Before audits started (optional)</Badge>}
                   <span className="ml-auto text-xs text-muted-foreground tabular-nums">
                     Deposits {money(s.deposits.total)} · Payouts {money(s.payouts.sent)} · Pool at week end {money(s.pool_balance_end)}
                   </span>

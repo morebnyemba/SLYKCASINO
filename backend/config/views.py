@@ -264,15 +264,6 @@ def admin_profit(request):
 
 @api_view(['GET'])
 @permission_classes([IsAdminUser])
-def admin_lock_status(request):
-    """Any staff login: is the admin read-only because pool audits were missed?"""
-    from apps.revenue.audit import lock_state
-    state = lock_state()
-    return Response({'locked': state['locked'], 'lock_weeks': state['lock_weeks'], 'message': state['message']})
-
-
-@api_view(['GET'])
-@permission_classes([IsAdminUser])
 def admin_liabilities(request):
     """GET /admin/liabilities/ — what the business owes right now: players
     (Winnings, Deposit, withdrawals waiting), agents (unpaid commissions) and,

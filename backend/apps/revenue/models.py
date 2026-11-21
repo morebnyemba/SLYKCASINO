@@ -27,14 +27,14 @@ class RevenueSettings(models.Model):
     # Unset: whoever holds Partner 1's wallet.
     founder = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
                                 related_name='+')
-    # Weekly audits are due (and missed ones count towards the lock) from this week on.
+    # Optional weekly audits are listed from this week on (nothing is due; nothing locks).
     audits_from = models.DateField(null=True, blank=True)
     # Shares: the part of each day's GGR that belongs to shareholders (sold or held),
     # split by each wallet's own `percent`; whatever isn't held goes to the pool.
     partner_pool_percent = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal('30.00'))
     # A share's price = this many months of what it earned over the last 30 days.
     price_months = models.PositiveSmallIntegerField(default=12)
-    # Holders of at least this share co-sign weekly audits (smaller holders can't lock the admin).
+    # Holders of at least this share co-sign weekly audits and pool proposals.
     signer_min_percent = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal('5.00'))
     # When share a holder released is sold, they get this much of the price; the house keeps the rest.
     seller_percent = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal('90.00'))
@@ -207,13 +207,12 @@ class PoolExpense(models.Model):
 
 
 class PoolAudit(models.Model):
-    """One week (Monday to Sunday) of the pool, due by the end of the next
-    Tuesday. The founder submits Paynow's report of money received, the
+    """One week (Monday to Sunday) of the pool, audited only if the partners
+    want a signed record (optional: nothing is due, nothing locks). The founder submits Paynow's report of money received, the
     EcoCash/bank statement of money paid to players, and the pool balance they
     actually hold after the costs they claim; each report is matched line by
     line against the platform. Every partner then co-signs or disputes. Once
-    all have approved, the week's figures are frozen and its costs locked. Two
-    missed weeks in a row lock the money controls until the audits catch up."""
+    all have approved, the week's figures are frozen and its costs locked."""
 
     class Status(models.TextChoices):
         OPEN = 'open', 'Waiting for the founder'

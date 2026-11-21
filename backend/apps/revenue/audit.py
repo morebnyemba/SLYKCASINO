@@ -1,6 +1,7 @@
-"""The pool, open to inspection: a ledger with a running balance, and a weekly
-audit where the founder's outside reports are matched line by line against
-what the platform recorded.
+"""The pool, open to inspection: a ledger with a running balance, and an
+optional weekly audit where the founder's outside reports are matched line by
+line against what the platform recorded. Audits are a record, not a
+requirement: there are no deadlines and a week left unaudited locks nothing.
 
 Deposits — Paynow's report of money received vs. Paynow payments the platform
 credited that week:
@@ -280,17 +281,7 @@ def is_signer(user) -> bool:
     return bool(user and any(u.pk == user.pk for u in signers()))
 
 
-# -- the weekly audit ------------------------------------------------------------------
-
-def deadline(week_start: date) -> datetime:
-    """Due by the end of the Tuesday after the week."""
-    return _aware(week_start + timedelta(days=9))
-
-
-def counted(week_start: date) -> bool:
-    cfg = RevenueSettings.load()
-    return bool(cfg.audits_from and week_start >= cfg.audits_from)
-
+# -- the weekly audit (optional: no deadlines, nothing locks) ------------------------------------------------------------------
 
 def ensure_weeks(*, today: Optional[date] = None) -> int:
     """One audit per completed week since revenue sharing started. Idempotent."""
@@ -328,8 +319,6 @@ def audit_row(a: PoolAudit, *, user=None) -> dict:
     mine = a.signatures.filter(user=user).first() if user else None
     return {
         'week_start': a.week_start.isoformat(), 'week_end': (a.week_start + timedelta(days=6)).isoformat(),
-        'due': deadline(a.week_start).isoformat(), 'counted': counted(a.week_start),
-        'overdue': live and counted(a.week_start) and timezone.now() >= deadline(a.week_start),
         'status': a.status, 'status_label': a.get_status_display(), 'system': system,
         'paynow': a.paynow_result or None, 'payouts': a.payouts_result or None,
         'paynow_file': bool(a.paynow_file), 'payouts_file': bool(a.payouts_file),
@@ -390,7 +379,6 @@ def upload(week_start: date, kind: str, *, user, file=None, total=None, request=
     setattr(audit, f'{kind}_result', result)
     audit.uploaded_by = user.get_username()[:150]
     audit.save()
-    _clear_lock_cache()
     accounts_services.audit(None, 'pool_audit_report', request, week=week_start.isoformat(), report=kind,
                             report_total=result['report_total'], system_total=result['system_total'],
                             balanced=result['balanced'], by=user.get_username())
@@ -423,7 +411,6 @@ def submit(week_start: date, *, user, declared_balance, payouts_source: str, not
     audit.submitted_by, audit.submitted_at = user.get_username()[:150], timezone.now()
     audit.save()
     AuditSignature.objects.create(audit=audit, user=user, decision=Decision.APPROVE, note='Submitted')
-    transaction.on_commit(_clear_lock_cache)
     accounts_services.audit(None, 'pool_audit_submitted', request, week=week_start.isoformat(), by=user.get_username(),
                             declared=_money(declared), expected=_money(expected), issues=issues, note=audit.note)
     _maybe_approve(audit)
@@ -462,96 +449,11 @@ def _maybe_approve(audit: PoolAudit) -> None:
         audit.snapshot = snapshot(audit.week_start)
         audit.status, audit.approved_at = PoolAudit.Status.APPROVED, timezone.now()
         audit.save()
-        transaction.on_commit(_clear_lock_cache)
-
+    
 
 def locked(day: date) -> bool:
     """A pool cost on a day in an approved week can't be added or removed."""
     return PoolAudit.objects.filter(week_start=week_of(day), status=PoolAudit.Status.APPROVED).exists()
-
-
-# -- governance: deadlines, warnings, the lock ----------------------------------------------
-
-def governance(*, now: Optional[datetime] = None) -> dict:
-    """Which weeks are due or missed, who is holding them up, and whether the
-    money controls are locked (two missed weeks in a row, until they're done)."""
-    now = now or timezone.now()
-    ensure_weeks(today=timezone.localdate(now))
-    cfg = RevenueSettings.load()
-    audits = list(PoolAudit.objects.filter(week_start__gte=cfg.audits_from).order_by('week_start')) if cfg.audits_from else []
-    missed, due, run, lock_weeks = [], [], [], []
-    for a in audits:
-        pending = a.status != PoolAudit.Status.APPROVED
-        late = pending and now >= deadline(a.week_start)
-        if late:
-            missed.append(a)
-            run.append(a)
-            if len(run) >= 2 and not lock_weeks:
-                lock_weeks = [x.week_start.isoformat() for x in run[-2:]]
-        else:
-            run = []
-            if pending:
-                due.append(a)
-    def entry(a):
-        return {'week_start': a.week_start.isoformat(), 'due': deadline(a.week_start).isoformat(),
-                'status': a.status, 'waiting_for': outstanding(a)}
-    # Who has missed two in a row (by name), for the warning.
-    streak: dict[str, int] = defaultdict(int)
-    worst: dict[str, int] = defaultdict(int)
-    for a in audits:
-        if now < deadline(a.week_start):
-            continue
-        late_names = set(outstanding(a)) if a.status != PoolAudit.Status.APPROVED else set()
-        for name in set(streak) | late_names:
-            streak[name] = streak[name] + 1 if name in late_names else 0
-            worst[name] = max(worst[name], streak[name])
-    return {
-        'locked': bool(lock_weeks), 'lock_weeks': lock_weeks,
-        'missed': [entry(a) for a in missed], 'due': [entry(a) for a in due],
-        'repeat_offenders': sorted(n for n, v in worst.items() if v >= 2),
-        'warning': bool(missed or due),
-    }
-
-
-LOCK_CACHE_KEY = 'revenue:audit-lock'
-
-
-def lock_state() -> dict:
-    """Is the admin locked? Cached for 30 seconds (it's asked on every staff
-    change); any audit action clears the cache so an approval unlocks at once."""
-    from django.core.cache import cache
-    try:
-        state = cache.get(LOCK_CACHE_KEY)
-    except Exception:  # noqa: BLE001
-        state = None
-    if state is None:
-        g = governance()
-        state = {'locked': g['locked'], 'lock_weeks': g['lock_weeks'],
-                 'message': ('The admin is read-only: the weekly pool audits for the weeks of '
-                             f'{" and ".join(g["lock_weeks"])} were both missed. Every change is blocked until the '
-                             'founder submits and every partner co-signs the missed weeks (Revenue share).')
-                 if g['locked'] else ''}
-        try:
-            cache.set(LOCK_CACHE_KEY, state, 30)
-        except Exception:  # noqa: BLE001
-            pass
-    return state
-
-
-def _clear_lock_cache() -> None:
-    from django.core.cache import cache
-    try:
-        cache.delete(LOCK_CACHE_KEY)
-    except Exception:  # noqa: BLE001
-        pass
-
-
-def assert_unlocked() -> None:
-    from .services import RevenueError
-    g = governance()
-    if g['locked']:
-        raise RevenueError('Locked: two weekly pool audits in a row were missed '
-                           f'({", ".join(g["lock_weeks"])}). Money controls reopen once every missed week is approved.')
 
 
 # -- using the pool ------------------------------------------------------------------
@@ -578,7 +480,6 @@ def propose(*, user, kind: str, amount, note: str, request=None) -> PoolProposal
     from .services import RevenueError
     if not is_signer(user):
         raise RevenueError('Only the founder and the partners holding a wallet can propose using the pool.')
-    assert_unlocked()
     if kind not in PoolProposal.Kind.values:
         raise RevenueError('Choose a promotion or an equal payout to partners.')
     value = reports.parse_amount(amount)
@@ -634,7 +535,6 @@ def _maybe_execute(p: PoolProposal) -> None:
     approved = set(p.votes.filter(decision=Decision.APPROVE).values_list('user_id', flat=True))
     if not all(u.pk in approved for u in signers()):
         return
-    assert_unlocked()
     if p.amount > pool_available():
         raise RevenueError(f'The pool now holds only {_money(pool_available())} — propose a smaller amount.')
     today = timezone.localdate()
