@@ -934,7 +934,8 @@ def commission_summary(affiliate: Affiliate, today: date) -> dict:
     credited_today = earned.filter(kind__in=by_day, period=today)
     estimate = netloss.today_estimate(affiliate)
     on_its_way = estimate['commission']          # today's net loss so far, paid after midnight
-    if not AffiliateProgramme.load().net_loss_since:   # per-ticket terms: tickets inside the 3-minute delay
+    net_loss_terms = bool(AffiliateProgramme.load().net_loss_since)
+    if not net_loss_terms:                       # per-ticket terms: tickets inside the 3-minute delay
         credited_stake = _sum_field(credited_today.filter(kind=Commission.Kind.STAKE), 'base_amount')
         on_its_way = utils.commission_for(stake - credited_stake, affiliate.revshare_percent)
     first = utils.month_start(today)
@@ -942,9 +943,12 @@ def commission_summary(affiliate: Affiliate, today: date) -> dict:
                                | (~Q(kind__in=by_day) & Q(created_at__gte=_aware(first)))))
     return {
         'commission_rate': affiliate.revshare_percent,
-        'commission_basis': 'net_loss',
+        # What today's commission is worked out on, so the dashboard explains the right formula.
+        'commission_basis': 'net_loss' if net_loss_terms else 'stake',
         'aviator_commission_rate': AffiliateProgramme.load().aviator_commission_percent,
         'net_loss_today': estimate['net_loss'],
+        # Losses or wins carried in from earlier days (net-loss terms), so the dashboard's sum adds up.
+        'carried_in': estimate['carried_in'],
         'lost_stakes_today': stake,
         'losing_tickets_today': tickets,
         'commission_today': _sum(credited_today) + on_its_way,

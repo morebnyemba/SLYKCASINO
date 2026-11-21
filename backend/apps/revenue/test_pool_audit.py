@@ -232,55 +232,43 @@ class CosignTests(Base):
         self.assertEqual(APIClient().get(url).status_code, 401)
 
 
-class GovernanceTests(Base):
+class NoAuditRequirementTests(Base):
+    """Weekly audits are optional: weeks left unaudited for as long as you like
+    lock nothing, warn nobody and block no money action or staff change."""
+
     def setUp(self):
         super().setUp()
         cfg = RevenueSettings.load()
-        cfg.started_on = cfg.audits_from = WEEK - timedelta(days=14)
+        cfg.started_on = cfg.audits_from = WEEK - timedelta(days=28)
         cfg.save()
-        audit.ensure_weeks()
+        audit.ensure_weeks()                    # four finished weeks, none audited
 
-    def test_one_missed_week_warns_two_in_a_row_lock_the_money_controls(self):
-        first = WEEK - timedelta(days=14)
-        g = audit.governance(now=audit.deadline(first) + timedelta(hours=1))
-        self.assertEqual((g['locked'], len(g['missed']), g['warning']), (False, 1, True))
-        self.assertIn('boss (submit)', g['missed'][0]['waiting_for'])
-        g = audit.governance()
-        self.assertTrue(g['locked'])
-        self.assertIn('boss (submit)', g['repeat_offenders'])
-        with self.assertRaisesMessage(services.RevenueError, 'Locked'):
-            services.record_expense(day=timezone.localdate(), category='ai', amount='5', by='boss')
-        with self.assertRaisesMessage(services.RevenueError, 'Locked'):
-            services.request_withdrawal(user=self.partner, method='ecocash', account='0771234567')
-        with self.assertRaisesMessage(services.RevenueError, 'Locked'):
-            services.update_settings(share_percent='20', by='boss')
-        with self.assertRaisesMessage(services.RevenueError, 'Locked'):
-            audit.propose(user=self.boss, kind='promotion', amount='1', note='Weekend promo')
-        # Audits can always be caught up; once the missed weeks are approved, it unlocks.
-        for week in (first, first + timedelta(days=7)):
-            audit.upload(week, 'paynow', user=self.boss, total='0')
-            audit.upload(week, 'payouts', user=self.boss, total='0')
-            audit.submit(week, user=self.boss, declared_balance='0', payouts_source='ecocash')
-            audit.cosign(week, user=self.partner, decision='approve')
-            audit.cosign(week, user=self.partner3, decision='approve')
-        self.assertFalse(audit.governance()['locked'])
+    def test_money_actions_still_work_with_every_week_unaudited(self):
+        self.assertTrue(PoolAudit.objects.exclude(status=PoolAudit.Status.APPROVED).count() >= 3)
+        services.record_expense(day=timezone.localdate(), category='ai', amount='5', by='boss')
+        RevenueDay.objects.create(day=WEEK, ggr=D('100'), base=D('100'), share_percent=D('10'), share_each=D('10'), pool=D('70'))
+        self.assertEqual(audit.propose(user=self.boss, kind='promotion', amount='1', note='Weekend promo').status, 'open')
 
-    def test_a_partner_not_cosigning_counts_against_them(self):
-        first = WEEK - timedelta(days=14)
-        for week in (first, first + timedelta(days=7)):
-            audit.upload(week, 'paynow', user=self.boss, total='0')
-            audit.upload(week, 'payouts', user=self.boss, total='0')
-            audit.submit(week, user=self.boss, declared_balance='0', payouts_source='ecocash')
-            audit.cosign(week, user=self.partner, decision='approve')
-        g = audit.governance()
-        self.assertTrue(g['locked'])
-        self.assertEqual(g['repeat_offenders'], ['partner3'])
+    def test_staff_changes_are_never_blocked_and_the_lock_endpoints_are_gone(self):
+        from rest_framework_simplejwt.tokens import RefreshToken
+        boss = APIClient()
+        boss.credentials(HTTP_AUTHORIZATION=f'Bearer {RefreshToken.for_user(self.boss).access_token}')
+        res = boss.post('/api/admin/revenue-share/expenses/', {'day': str(timezone.localdate()), 'category': 'ai', 'amount': '1'},
+                        format='json')
+        self.assertEqual(res.status_code, 201, res.content)
+        self.assertEqual(boss.get('/api/admin/lock-status/').status_code, 404)
+        self.assertEqual(boss.get('/api/admin/revenue-share/governance/').status_code, 404)
+        body = boss.get('/api/admin/revenue-share/audits/').json()
+        self.assertNotIn('governance', body)
+        self.assertFalse({'due', 'overdue', 'counted'} & set(body['audits'][0]))
 
-    def test_weeks_before_audits_started_never_count(self):
-        cfg = RevenueSettings.load()
-        cfg.audits_from = audit.week_of(timezone.localdate())
-        cfg.save()
-        self.assertEqual((audit.governance()['locked'], audit.governance()['missed']), (False, []))
+    def test_an_old_week_can_still_be_audited_if_wanted(self):
+        first = WEEK - timedelta(days=28)
+        audit.upload(first, 'paynow', user=self.boss, total='0')
+        audit.upload(first, 'payouts', user=self.boss, total='0')
+        audit.submit(first, user=self.boss, declared_balance='0', payouts_source='ecocash')
+        audit.cosign(first, user=self.partner, decision='approve')
+        self.assertEqual(audit.cosign(first, user=self.partner3, decision='approve').status, PoolAudit.Status.APPROVED)
 
 
 class ProposalTests(Base):
@@ -322,61 +310,3 @@ class ProposalTests(Base):
         self.assertEqual(listing['proposals'][0]['waiting_for'], ['boss', 'partner3'])
         res = self.api(self.partner).post(f'/api/admin/revenue-share/proposals/{pid}/', {'cancel': True}, format='json')
         self.assertEqual(res.json()['status'], 'cancelled')
-
-
-class WholeAdminLockTests(Base):
-    """Two missed weeks in a row make every staff change fail, everywhere."""
-
-    def api(self, user):
-        from rest_framework_simplejwt.tokens import RefreshToken
-        c = APIClient()                     # a real token: the lock reads it before DRF does
-        c.credentials(HTTP_AUTHORIZATION=f'Bearer {RefreshToken.for_user(user).access_token}')
-        return c
-
-    def lock(self):
-        cfg = RevenueSettings.load()
-        cfg.started_on = cfg.audits_from = WEEK - timedelta(days=14)
-        cfg.save()
-        audit.ensure_weeks()
-        from django.core.cache import cache
-        cache.clear()
-
-    def test_staff_changes_are_refused_reads_and_audits_still_work(self):
-        boss = self.api(self.boss)
-        self.lock()
-        res = boss.post('/api/admin/revenue-share/expenses/', {'day': str(timezone.localdate()), 'category': 'ai', 'amount': '1'}, format='json')
-        self.assertEqual(res.status_code, 423)
-        self.assertIn('read-only', res.json()['detail'])
-        self.assertEqual(boss.post('/api/events/', {'name': 'X v Y'}, format='json').status_code, 423)   # outside /admin/ too
-        self.assertEqual(boss.get('/api/admin/revenue-share/').status_code, 200)                     # reading is fine
-        self.assertTrue(self.api(self.clerk).get('/api/admin/lock-status/').json()['locked'])
-        # The way out stays open: upload, submit, co-sign.
-        first = WEEK - timedelta(days=14)
-        for week in (first, first + timedelta(days=7)):
-            for kind in ('paynow', 'payouts'):
-                self.assertEqual(boss.post(f'/api/admin/revenue-share/audits/{week}/upload/', {'kind': kind, 'total': '0'},
-                                           format='json').status_code, 200)
-            self.assertEqual(boss.post(f'/api/admin/revenue-share/audits/{week}/submit/',
-                                       {'declared_balance': '0', 'payouts_source': 'ecocash'}, format='json').status_code, 200)
-            for partner in (self.partner, self.partner3):
-                self.api(partner).post(f'/api/admin/revenue-share/audits/{week}/cosign/', {'decision': 'approve'}, format='json')
-        self.assertFalse(self.api(self.clerk).get('/api/admin/lock-status/').json()['locked'])
-        res = boss.post('/api/admin/revenue-share/expenses/', {'day': str(timezone.localdate()), 'category': 'ai', 'amount': '1'}, format='json')
-        self.assertEqual(res.status_code, 201, res.content)
-
-    def test_players_are_not_affected(self):
-        from apps.accounts import services as accounts
-        self.lock()
-        player = accounts.register_player(username='punter', email='pu@example.com', password=PW)
-        res = self.api(player.user).post('/api/notifications/read-all/')
-        self.assertNotEqual(res.status_code, 423)
-
-    def test_django_admin_is_read_only_too(self):
-        from django.test import Client
-        self.lock()
-        c = Client()
-        c.force_login(self.boss)
-        res = c.post(f'/django-admin/auth/user/{self.clerk.id}/change/', {'username': 'renamed'})
-        self.assertEqual(res.status_code, 423)
-        self.clerk.refresh_from_db()
-        self.assertEqual(self.clerk.username, 'clerk')

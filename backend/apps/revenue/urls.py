@@ -2,7 +2,7 @@ from django.urls import path
 
 from .views import (
     AuditCosignView, AuditFileView, AuditsView, AuditSubmitView, AuditUploadView, DecideWithdrawalView, ExpensesView,
-    ExpenseView, GovernanceView, OverviewView, PoolDayView, PoolLedgerView, ProposalsView, ProposalVoteView, SettingsChangesView,
+    ExpenseView, OverviewView, PoolDayView, PoolLedgerView, ProposalsView, ProposalVoteView, SettingsChangesView,
     SettingsChangeView, SettingsView, ShareActionView, ShareChangeDecideView, SharesView, ShareQuoteView,
     ShareSaleDecideView, WithdrawView,
 )
@@ -25,7 +25,6 @@ urlpatterns = [
     path('admin/revenue-share/audits/<str:week>/upload/', AuditUploadView.as_view(), name='revenue-audit-upload'),
     path('admin/revenue-share/audits/<str:week>/submit/', AuditSubmitView.as_view(), name='revenue-audit-submit'),
     path('admin/revenue-share/audits/<str:week>/cosign/', AuditCosignView.as_view(), name='revenue-audit-cosign'),
-    path('admin/revenue-share/governance/', GovernanceView.as_view(), name='revenue-governance'),
     path('admin/revenue-share/proposals/', ProposalsView.as_view(), name='revenue-proposals'),
     path('admin/revenue-share/proposals/<int:pk>/', ProposalVoteView.as_view(), name='revenue-proposal'),
     path('admin/settings-changes/', SettingsChangesView.as_view(), name='settings-changes'),

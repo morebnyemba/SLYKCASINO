@@ -181,8 +181,6 @@ def request_withdrawal(*, user, method: str, account: str = '', request=None) ->
     wallet = ShareWallet.objects.select_for_update().filter(holder=user).first()
     if wallet is None:
         raise RevenueError('You don’t hold a revenue-share wallet.')
-    from .audit import assert_unlocked
-    assert_unlocked()
     if method not in ShareWithdrawal.Method.values:
         raise RevenueError('Choose how you want to be paid.')
     account = (account or '').strip()[:120]
@@ -216,9 +214,6 @@ def decide_withdrawal(withdrawal_id: int, *, decision: str, by: str, reference: 
         raise RevenueError(f'This withdrawal is already {withdrawal.get_status_display().lower()}.')
     if decision not in ('paid', 'rejected'):
         raise RevenueError('Choose paid or rejected.')
-    if decision == 'paid':              # rejecting (money back to the wallet) stays open
-        from .audit import assert_unlocked
-        assert_unlocked()
     withdrawal.status = decision
     withdrawal.reference = (reference or '').strip()[:100]
     withdrawal.note = (note or '').strip()[:500]
@@ -260,8 +255,7 @@ def record_expense(*, day, category: str, amount, note: str = '', by: str, reque
         raise RevenueError('The amount must be above zero.')
     if day > timezone.localdate():
         raise RevenueError('That date is in the future.')
-    from .audit import assert_unlocked, locked
-    assert_unlocked()
+    from .audit import locked
     if locked(day):
         raise RevenueError('That week is approved by every partner — its costs are locked. Record it in the current week instead.')
     expense = PoolExpense.objects.create(day=day, category=category, amount=amount, note=(note or '').strip()[:300],
@@ -275,8 +269,7 @@ def delete_expense(expense_id: int, *, by: str, request=None) -> None:
     expense = PoolExpense.objects.filter(pk=expense_id).first()
     if expense is None:
         raise RevenueError('Expense not found.')
-    from .audit import assert_unlocked, locked
-    assert_unlocked()
+    from .audit import locked
     if locked(expense.day):
         raise RevenueError('That week is approved by every partner — its costs are locked.')
     if hasattr(expense, 'proposal'):
@@ -296,8 +289,6 @@ def update_settings(*, share_percent=None, started_on=None, wallets=None, founde
     consent — both in revenue.shares."""
     from django.contrib.auth import get_user_model
 
-    from .audit import assert_unlocked
-    assert_unlocked()
     with transaction.atomic():
         cfg = RevenueSettings.objects.select_for_update().get(pk=RevenueSettings.load().pk)
         if share_percent is not None:

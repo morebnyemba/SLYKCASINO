@@ -2,10 +2,8 @@
 
 import { useState } from 'react';
 import { FaHandshake } from 'react-icons/fa';
-import { FaArrowRight, FaClockRotateLeft, FaLock, FaLockOpen } from 'react-icons/fa6';
-import { BsLink45Deg } from 'react-icons/bs';
-import { Card, CardContent, CardHeader } from '@slyk/ui/components/card';
-import { Badge } from '@slyk/ui/components/badge';
+import { FaArrowRight, FaCheck, FaClockRotateLeft, FaCopy } from 'react-icons/fa6';
+import { Card, CardContent } from '@slyk/ui/components/card';
 import { useAuth } from '@/lib/auth-context';
 import { authedPost, useApi } from '@/lib/use-api';
 import { LoadingState, Spinner } from '@slyk/ui/components/spinner';
@@ -13,7 +11,6 @@ import Link from 'next/link';
 import { PayoutDialog, type PayoutOptions } from '@/components/affiliate/payout-dialog';
 import { PeriodReport } from '@/components/affiliate/period-report';
 import { ShareLink } from '@/components/affiliate/share-link';
-import { AuditNotice, type AuditNoticeData } from '@/components/affiliate/audit-notice';
 
 interface Commission {
   id: number;
@@ -48,9 +45,11 @@ interface Stats {
   ngr_this_month: string;
   estimated_commission: string;
   commission_rate: string;
+  commission_basis?: 'net_loss' | 'stake';
   lost_stakes_today: string;
   losing_tickets_today: number;
   net_loss_today?: string;
+  carried_in?: string;
   aviator_commission_rate?: string;
   commission_today: string;
   commission_month: string;
@@ -88,7 +87,6 @@ interface Affiliate {
   payouts?: Payout[];
   payout_options?: PayoutOptions;
   commissions?: Commission[];
-  audit_notice?: AuditNoticeData | null;
 }
 
 const money = (v: string | number) =>
@@ -105,14 +103,8 @@ function dayLabel(period: string | null) {
   return new Date(`${period}T00:00:00`).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
 }
 
-const STATUS_BADGE: Record<Commission['status'], 'default' | 'secondary' | 'destructive'> = {
-  pending: 'secondary', approved: 'default', paid: 'default', rejected: 'destructive',
-};
 const STATUS_LABEL: Record<Commission['status'], string> = {
   pending: 'Being checked', approved: 'In your balance', paid: 'Paid to you', rejected: 'Not approved',
-};
-const PAYOUT_BADGE: Record<Payout['status'], 'default' | 'secondary' | 'destructive'> = {
-  requested: 'secondary', paid: 'default', rejected: 'destructive',
 };
 const PAYOUT_LABEL: Record<Payout['status'], string> = { requested: 'On its way', paid: 'Sent', rejected: 'Declined' };
 
@@ -236,20 +228,10 @@ function Apply({ onDone }: { onDone: () => void }) {
   );
 }
 
-function MoneyChip({ label, value, hint }: { label: string; value: string; hint?: string }) {
-  return (
-    <div className="rounded-xl bg-white/10 px-3 py-2.5 backdrop-blur-sm">
-      <p className="text-[11px] font-semibold uppercase tracking-wide text-white/60">{label}</p>
-      <p className="mt-0.5 text-base font-extrabold tabular-nums sm:text-lg">{value}</p>
-      {hint && <p className="text-[10.5px] text-white/55">{hint}</p>}
-    </div>
-  );
-}
+const shortDate = (iso: string) => new Date(`${iso.slice(0, 10)}T00:00:00`).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
 
-const shortDate = (iso: string) => new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
-
-// Rows the commission audit (CPA clawback) changed carry this note prefix.
-const AUDIT = 'CPA clawback';
+// Commissions reversed by the old deposit-commission check carry this note prefix.
+const REVERSED = 'CPA clawback';
 const signedMoney = (v: string | number) => (Number(v) < 0 ? `−${money(Math.abs(Number(v)))}` : money(v));
 
 function commissionText(c: Commission) {
@@ -259,8 +241,8 @@ function commissionText(c: Commission) {
   if (c.kind === 'stake') {
     return { title: `Losing ticket ${c.ticket ?? ''} · ${dayLabel(c.period)}`, sub: `${pct(c.rate)} of the ${money(c.base_amount)} stake` };
   }
-  if (c.kind === 'cpa' && c.note.startsWith(AUDIT)) {
-    return { title: 'New customer bonus · audited', sub: 'Reversed in the commission audit (see the note at the top)' };
+  if (c.kind === 'cpa' && c.note.startsWith(REVERSED)) {
+    return { title: 'New customer bonus · reversed', sub: 'The customer didn’t play their first deposit through with their own money' };
   }
   if (c.kind === 'cpa') {
     return { title: 'New customer bonus', sub: Number(c.rate) > 0 ? `${pct(c.rate)} of their ${money(c.base_amount)} first deposit` : 'A customer made their first deposit' };
@@ -268,7 +250,7 @@ function commissionText(c: Commission) {
   return { title: `Share for ${monthLabel(c.period)}`, sub: `Customers lost ${money(c.base_amount)} · your ${pct(c.rate)}` };
 }
 
-type Tab = 'customers' | 'transactions' | 'withdrawals';
+type Tab = 'earnings' | 'customers' | 'withdrawals' | 'reports';
 
 interface Paged<T> { count: number; results: T[] }
 interface Customer { player: string; joined: string; campaign: string; deposited: boolean }
@@ -289,6 +271,10 @@ function PagerBar({ page, count, onPage }: { page: number; count: number; onPage
   );
 }
 
+function Empty({ children }: { children: React.ReactNode }) {
+  return <p className="flex items-center gap-2 py-6 text-sm text-muted-foreground">{children}</p>;
+}
+
 /** Every customer linked to the agent, a page at a time (nobody hidden). */
 function CustomersList() {
   const [page, setPage] = useState(1);
@@ -298,9 +284,9 @@ function CustomersList() {
   return (
     <div className="space-y-3">
       <input value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }} placeholder="Find a customer"
-        className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm" />
+        className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring" />
       {loading && !data ? <LoadingState className="py-4" label="Loading customers…" /> : !data?.results.length ? (
-        <p className="py-4 text-sm text-muted-foreground">{q ? 'No customer matches.' : 'Nobody has joined with your link yet. Share it below.'}</p>
+        <Empty>{q ? 'No customer matches.' : 'Nobody has joined with your link yet.'}</Empty>
       ) : (
         <ul className="divide-y divide-border">
           {data.results.map((r, i) => (
@@ -309,7 +295,9 @@ function CustomersList() {
                 <p className="truncate text-sm font-semibold">{r.player}</p>
                 <p className="text-xs text-muted-foreground">Joined {new Date(r.joined).toLocaleDateString()}{r.campaign && ` · via ${r.campaign}`}</p>
               </div>
-              <Badge variant={r.deposited ? 'default' : 'secondary'}>{r.deposited ? 'Deposited' : 'No deposit yet'}</Badge>
+              <span className={`shrink-0 text-xs font-bold ${r.deposited ? 'text-win' : 'text-muted-foreground'}`}>
+                {r.deposited ? 'Deposited' : 'No deposit yet'}
+              </span>
             </li>
           ))}
         </ul>
@@ -326,11 +314,12 @@ function EarningsList() {
   return (
     <div className="space-y-3">
       {loading && !data ? <LoadingState className="py-4" label="Loading earnings…" /> : !data?.results.length ? (
-        <p className="py-4 text-sm text-muted-foreground">Nothing yet. Your commission shows here each morning for the day before.</p>
+        <Empty>Nothing yet. Each day’s commission appears here the next morning.</Empty>
       ) : (
         <ul className="divide-y divide-border">
           {data.results.map((c) => {
             const t = commissionText(c);
+            const rejected = c.status === 'rejected';
             return (
               <li key={c.id} className="flex items-start justify-between gap-3 py-3">
                 <div className="min-w-0">
@@ -338,8 +327,10 @@ function EarningsList() {
                   <p className="text-xs text-muted-foreground">{t.sub}</p>
                 </div>
                 <div className="shrink-0 text-right">
-                  <p className="font-bold tabular-nums text-win">+{money(c.amount)}</p>
-                  <Badge variant={STATUS_BADGE[c.status]}>{STATUS_LABEL[c.status]}</Badge>
+                  <p className={`font-bold tabular-nums ${rejected ? 'text-muted-foreground line-through' : 'text-win'}`}>
+                    {rejected ? money(c.amount) : `+${money(c.amount)}`}
+                  </p>
+                  <p className="text-[11px] font-semibold text-muted-foreground">{STATUS_LABEL[c.status]}</p>
                 </div>
               </li>
             );
@@ -358,36 +349,31 @@ function WithdrawalsList({ min }: { min: number }) {
   return (
     <div className="space-y-3">
       {loading && !data ? <LoadingState className="py-4" label="Loading withdrawals…" /> : !data?.results.length ? (
-        <p className="flex items-center gap-2 py-4 text-sm text-muted-foreground"><FaClockRotateLeft /> No withdrawals yet. You can withdraw once your wallet reaches {money(min)}.</p>
+        <Empty><FaClockRotateLeft /> No withdrawals yet. You can withdraw once your balance reaches {money(min)}.</Empty>
       ) : (
         <ul className="divide-y divide-border">
-          {data.results.map((po) => po.note.startsWith(AUDIT) ? (
-            <li key={po.id} className="flex items-start justify-between gap-3 py-3">
-              <div className="min-w-0">
-                <p className="text-sm font-semibold">Commission audit correction</p>
-                <p className="text-xs text-muted-foreground">{new Date(po.created_at).toLocaleDateString()} · see the note at the top</p>
-              </div>
-              <div className="shrink-0 text-right">
-                <p className="font-bold tabular-nums">{signedMoney(po.amount)}</p>
-                <Badge variant="secondary">Audit</Badge>
-              </div>
-            </li>
-          ) : (
-            <li key={po.id} className="flex items-start justify-between gap-3 py-3">
-              <div className="min-w-0">
-                <p className="text-sm font-semibold">
-                  {po.method === 'wallet' ? 'Moved to your Winnings wallet' : <>To {po.method_label}{po.account_number && <span className="ml-1.5 font-mono text-xs text-muted-foreground">···{po.account_number.slice(-4)}</span>}</>}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {new Date(po.created_at).toLocaleDateString()}{(po.reference || po.note) && ` · ${po.status === 'paid' ? `Ref ${po.reference}` : po.note}`}
-                </p>
-              </div>
-              <div className="shrink-0 text-right">
-                <p className="font-bold tabular-nums">{money(po.amount)}</p>
-                <Badge variant={PAYOUT_BADGE[po.status]}>{PAYOUT_LABEL[po.status]}</Badge>
-              </div>
-            </li>
-          ))}
+          {data.results.map((po) => {
+            const correction = po.note.startsWith(REVERSED);
+            return (
+              <li key={po.id} className="flex items-start justify-between gap-3 py-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold">
+                    {correction ? 'Commission correction'
+                      : po.method === 'wallet' ? 'Moved to your Winnings wallet'
+                        : <>To {po.method_label}{po.account_number && <span className="ml-1.5 font-mono text-xs text-muted-foreground">···{po.account_number.slice(-4)}</span>}</>}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {new Date(po.created_at).toLocaleDateString()}
+                    {!correction && (po.reference || po.note) && ` · ${po.status === 'paid' ? `Ref ${po.reference}` : po.note}`}
+                  </p>
+                </div>
+                <div className="shrink-0 text-right">
+                  <p className="font-bold tabular-nums">{signedMoney(po.amount)}</p>
+                  <p className="text-[11px] font-semibold text-muted-foreground">{correction ? 'Correction' : PAYOUT_LABEL[po.status]}</p>
+                </div>
+              </li>
+            );
+          })}
         </ul>
       )}
       <PagerBar page={page} count={data?.count ?? 0} onPage={setPage} />
@@ -395,162 +381,170 @@ function WithdrawalsList({ min }: { min: number }) {
   );
 }
 
+function Figure({ label, value, hint }: { label: string; value: string | number; hint?: string }) {
+  return (
+    <div className="min-w-0">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="mt-0.5 truncate text-lg font-extrabold tabular-nums">{typeof value === 'number' ? value.toLocaleString() : value}</p>
+      {hint && <p className="text-[11px] text-muted-foreground">{hint}</p>}
+    </div>
+  );
+}
+
+function CopyCode({ code }: { code: string }) {
+  const [copied, setCopied] = useState(false);
+  async function copy() {
+    try { await navigator.clipboard.writeText(code); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { /* no clipboard */ }
+  }
+  return (
+    <button onClick={copy} className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-1.5 text-sm" aria-label={`Copy your code ${code}`}>
+      <span className="text-muted-foreground">Code</span>
+      <span className="font-mono font-extrabold">{code}</span>
+      {copied ? <FaCheck size={11} className="text-win" /> : <FaCopy size={11} className="text-muted-foreground" />}
+    </button>
+  );
+}
+
 function Dashboard({ a, refetch }: { a: Affiliate & { stats: Stats }; refetch: () => void }) {
   const s = a.stats;
   const b = a.balance ?? { available: '0', pending: '0', in_payout: '0', paid_out: '0', carryover: '0' };
   const [payOpen, setPayOpen] = useState(false);
-  const [tab, setTab] = useState<Tab>('customers');
+  const [tab, setTab] = useState<Tab>('earnings');
   const p = a.programme;
   const welcome = p && Number(p.welcome_bonus_percent) > 0
     ? `${Number(p.welcome_bonus_percent)}%${Number(p.welcome_bonus_cap) > 0 ? ` (up to ${money(p.welcome_bonus_cap)})` : ''}` : undefined;
   const rate = Number(s.commission_rate ?? a.revshare_percent);
   const min = Number(a.payout_options?.min_payout ?? MIN_WITHDRAWAL);
   const canWithdraw = Number(b.available) >= min && !!a.payout_options;
-  const lockedNow = Number(b.locked ?? 0);
-  const unlocksOn = b.unlocks_on ?? null;
-  const daysLeft = unlocksOn
-    ? Math.max(0, Math.ceil((Date.parse(`${unlocksOn}T00:00:00Z`) - Date.now()) / 86_400_000)) : null;
-  // With automatic payout, final earnings are already in the Winnings wallet:
-  // what is left here is only money still being checked or held.
+  const held = Number(b.locked ?? 0);
+  const netLoss = Number(s.net_loss_today ?? 0);
+  const perTicket = s.commission_basis === 'stake';
+  const aviatorRate = Number(s.aviator_commission_rate ?? 0);
+  // With automatic payout, final earnings go straight to the Winnings wallet.
   const auto = !!a.payout_options?.auto_payout && Number(b.available) < 0.01;
 
-
   return (
-    <div className="space-y-5">
-      {a.audit_notice && <AuditNotice n={a.audit_notice} />}
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-bold">Agent dashboard</h1>
+        <CopyCode code={a.code} />
+      </div>
 
-      {/* My wallet */}
-      <section className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-primary via-primary to-[#0B3BB8] p-5 text-white shadow-lg sm:p-6">
-        {lockedNow > 0 && unlocksOn && (
-          <>
-            {/* A big faint padlock behind the balance, and a badge saying when it opens. */}
-            <FaLock aria-hidden className="pointer-events-none absolute -right-6 -top-6 h-40 w-40 text-white/[0.07] sm:h-52 sm:w-52" />
-            <div className="relative mb-4 flex items-center gap-3 rounded-2xl bg-black/20 px-3 py-2.5 ring-1 ring-white/15 sm:absolute sm:right-6 sm:top-6 sm:mb-0">
-              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-gold text-gold-foreground shadow-md">
-                <FaLock size={18} />
-              </span>
-              <div className="leading-tight">
-                <p className="text-sm font-extrabold">{money(lockedNow)} locked</p>
-                <p className="text-xs text-white/75">
-                  Opens {shortDate(unlocksOn)}{daysLeft != null && ` · ${daysLeft === 0 ? 'today' : daysLeft === 1 ? 'tomorrow' : `in ${daysLeft} days`}`}
+      {/* Balance */}
+      <Card className="rounded-2xl">
+        <CardContent className="space-y-5 pt-5">
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <p className="text-sm text-muted-foreground">{auto ? 'Paid to your Winnings wallet' : 'Available to withdraw'}</p>
+              <p className="mt-1 text-4xl font-extrabold tabular-nums">{money(auto ? b.paid_out : b.available)}</p>
+              {!auto && held > 0 && b.unlocks_on && (
+                <p className="mt-1 text-sm text-muted-foreground">
+                  + {money(held)} earned this month, available from {shortDate(b.unlocks_on)}
                 </p>
-              </div>
+              )}
+              {auto && <p className="mt-1 text-sm text-muted-foreground">Each commission is paid to your wallet as soon as it’s final.</p>}
             </div>
-          </>
-        )}
-        <div className="relative flex flex-wrap items-end justify-between gap-4">
-          <div>
             {auto ? (
-              <>
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/60">Paid to your wallet · code {a.code}</p>
-                <p className="mt-1 text-4xl font-extrabold tabular-nums sm:text-5xl">{money(b.paid_out)}</p>
-                <p className="mt-1 text-sm text-white/75">Every commission goes into your Winnings wallet as soon as it’s final. Withdraw it from your wallet any day.</p>
-              </>
+              <Link href="/account/wallet" className="inline-flex items-center gap-2 rounded-lg bg-win px-5 py-2.5 text-sm font-extrabold text-win-foreground">
+                Go to wallet <FaArrowRight size={12} />
+              </Link>
             ) : (
-              <>
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/60">Agent wallet · code {a.code}</p>
-                <p className="mt-1 flex items-center gap-3 text-4xl font-extrabold tabular-nums sm:text-5xl">
-                  {money(Number(b.available) + lockedNow)}
-                  {lockedNow > 0 && Number(b.available) < 0.01 && <FaLock aria-label="locked" className="h-7 w-7 text-gold sm:h-8 sm:w-8" />}
-                </p>
-                <div className="mt-2 flex flex-wrap gap-2 text-sm">
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-win/25 px-3 py-1 font-bold">
-                    <FaLockOpen size={11} /> {money(b.available)} available now
-                  </span>
-                  {Number(b.locked ?? 0) > 0 && b.unlocks_on && (
-                    <span className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1 font-bold">
-                      <FaLock size={11} /> {money(b.locked!)} unlocks on {shortDate(b.unlocks_on)}
-                    </span>
-                  )}
-                </div>
-                <p className="mt-2 text-sm text-white/75">
-                  {Number(b.locked ?? 0) > 0
-                    ? <>This month’s earnings stay locked until the month ends. From the 1st, move them to your Winnings wallet or withdraw them (minimum {money(min)}).</>
-                    : <>Move it to your Winnings wallet or withdraw it (minimum {money(min)}).</>}
-                </p>
-              </>
+              <div className="text-right">
+                <button onClick={() => setPayOpen(true)} disabled={!canWithdraw}
+                  className="inline-flex items-center gap-2 rounded-lg bg-win px-5 py-2.5 text-sm font-extrabold text-win-foreground disabled:opacity-50">
+                  Withdraw <FaArrowRight size={12} />
+                </button>
+                {!canWithdraw && <p className="mt-1 text-[11px] text-muted-foreground">Minimum {money(min)}</p>}
+              </div>
             )}
           </div>
-          {auto ? (
-            <Link
-              href="/account/wallet"
-              className="flex items-center gap-2 rounded-xl bg-win px-5 py-3 text-sm font-extrabold text-win-foreground shadow transition-transform hover:scale-[1.02]"
-            >
-              Withdraw from wallet <FaArrowRight size={12} />
-            </Link>
-          ) : (
-            <button
-              onClick={() => setPayOpen(true)}
-              disabled={!canWithdraw}
-              className="flex items-center gap-2 rounded-xl bg-win px-5 py-3 text-sm font-extrabold text-win-foreground shadow transition-transform hover:scale-[1.02] disabled:opacity-50 disabled:hover:scale-100"
-            >
-              {canWithdraw ? <>Move or withdraw <FaArrowRight size={12} /></>
-                : Number(b.locked ?? 0) > 0 && b.unlocks_on ? <><FaLock size={11} /> Unlocks {shortDate(b.unlocks_on)}</>
-                  : <>Move or withdraw <FaArrowRight size={12} /></>}
-            </button>
-          )}
-        </div>
-        <div className="mt-5 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
-          <MoneyChip label="Today so far" value={money(s.commission_today ?? 0)} hint="added after midnight" />
-          <MoneyChip label="This month" value={money(s.commission_month ?? 0)} />
-          <MoneyChip label="On its way" value={money(b.in_payout)} hint={Number(b.pending) > 0 ? `${money(b.pending)} being checked` : undefined} />
-          <MoneyChip label={auto ? 'Paid to wallet' : 'Moved or withdrawn'} value={money(b.paid_out)} />
-        </div>
-      </section>
-
-      {/* My commission */}
-      <Card className="rounded-2xl">
-        <CardContent className="space-y-3 pt-5">
-          <div className="flex flex-wrap items-end justify-between gap-3">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">My commission today</p>
-              <p className="text-3xl font-extrabold tabular-nums text-win">{money(s.commission_today ?? 0)}</p>
-            </div>
-            <div className="flex gap-5 text-right">
-              <div><p className="text-xs text-muted-foreground">This month</p><p className="font-extrabold tabular-nums">{money(s.commission_month ?? 0)}</p></div>
-              <div><p className="text-xs text-muted-foreground">All time</p><p className="font-extrabold tabular-nums">{money(s.commission_total ?? 0)}</p></div>
-            </div>
+          <div className="grid grid-cols-2 gap-4 border-t border-border pt-4 sm:grid-cols-4">
+            <Figure label="Today so far" value={money(s.commission_today ?? 0)} hint={perTicket ? undefined : 'added after midnight'} />
+            <Figure label="This month" value={money(s.commission_month ?? 0)} />
+            <Figure label="Being sent" value={money(b.in_payout)} hint={Number(b.pending) > 0 ? `${money(b.pending)} being checked` : undefined} />
+            <Figure label="Paid to you, all time" value={money(b.paid_out)} />
           </div>
-          <p className="text-sm text-muted-foreground">
-            You get <b className="text-foreground">{pct(rate)} of what your customers lose on sports</b>
-            {s.aviator_commission_rate != null && <> and <b className="text-foreground">{pct(Number(s.aviator_commission_rate))} on Aviator and casino games</b></>}
-            {' '}— their stakes minus their winnings, added up each day.
-            {' '}Today so far they’re {Number(s.net_loss_today ?? 0) >= 0 ? <>down <b className="text-foreground">{money(s.net_loss_today ?? 0)}</b></> : <>up <b className="text-foreground">{money(Math.abs(Number(s.net_loss_today)))}</b></>}.
-            {' '}Today’s commission is added to your agent wallet after midnight; a day your customers win overall is earned back from the next days first.
+        </CardContent>
+      </Card>
+
+      {/* How today's commission is worked out */}
+      <Card className="rounded-2xl">
+        <CardContent className="pt-5">
+          <p className="text-sm font-bold">How your commission is worked out</p>
+          <dl className="mt-3 divide-y divide-border text-sm">
+            {perTicket ? (
+              <div className="flex items-center justify-between gap-3 py-2">
+                <dt className="shrink-0 text-muted-foreground">Losing tickets today</dt>
+                <dd className="text-right font-semibold tabular-nums">
+                  {s.losing_tickets_today} ticket{s.losing_tickets_today === 1 ? '' : 's'} · {money(s.lost_stakes_today)} staked
+                </dd>
+              </div>
+            ) : (
+              <div className="flex items-center justify-between gap-3 py-2">
+                <dt className="shrink-0 text-muted-foreground">Your customers’ result today</dt>
+                <dd className="font-semibold tabular-nums">{netLoss >= 0 ? `lost ${money(netLoss)}` : `won ${money(Math.abs(netLoss))}`}</dd>
+              </div>
+            )}
+            {!perTicket && Number(s.carried_in ?? 0) !== 0 && (
+              <div className="flex items-center justify-between gap-3 py-2">
+                <dt className="shrink-0 text-muted-foreground">{Number(s.carried_in) < 0 ? 'Customers’ wins still to earn back' : 'Carried from earlier days'}</dt>
+                <dd className="font-semibold tabular-nums">{signedMoney(s.carried_in ?? 0)}</dd>
+              </div>
+            )}
+            <div className="flex items-center justify-between gap-3 py-2">
+              <dt className="shrink-0 text-muted-foreground">Your share</dt>
+              <dd className="text-right font-semibold">
+                {perTicket ? <>{pct(rate)} of each losing stake</> : <>{pct(rate)} on sports</>}
+                {aviatorRate > 0 && <> · {pct(aviatorRate)} on Aviator & casino</>}
+              </dd>
+            </div>
+            <div className="flex items-center justify-between gap-3 py-2">
+              <dt className="shrink-0 font-semibold">Your commission today so far</dt>
+              <dd className="font-extrabold tabular-nums text-win">{money(s.commission_today ?? 0)}</dd>
+            </div>
+          </dl>
+          <p className="mt-2 text-xs text-muted-foreground">
+            {perTicket
+              ? 'Each losing ticket is credited a few minutes after it settles. Winning tickets cost you nothing.'
+              : 'Net loss = stakes minus winnings, added up each day and credited after midnight. If your customers win overall on a day, that amount comes off the next days’ commission first.'}
           </p>
         </CardContent>
       </Card>
 
-      {/* Deposits, tickets, clicks and sign-ups for any day or date range */}
-      <PeriodReport />
-
+      {/* Customers */}
       <Card className="rounded-2xl">
-        <CardHeader className="pb-0">
-          <div className="-mx-1 flex gap-1 overflow-x-auto px-1" role="tablist">
-            {([['customers', `My customers (${s.signups})`], ['transactions', 'Earnings'],
-              ['withdrawals', 'Withdrawals']] as [Tab, string][]).map(([id, label]) => (
-              <button key={id} role="tab" aria-selected={tab === id} onClick={() => setTab(id)}
-                className={`shrink-0 border-b-2 px-3 py-2 text-sm font-bold transition-colors ${tab === id ? 'border-secondary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}>
-                {label}
-              </button>
-            ))}
-          </div>
-        </CardHeader>
-        <CardContent className="pt-4">
-          {tab === 'customers' && <CustomersList />}
-          {tab === 'transactions' && <EarningsList />}
-          {tab === 'withdrawals' && <WithdrawalsList min={min} />}
+        <CardContent className="grid grid-cols-3 gap-4 pt-5">
+          <Figure label="Signed up" value={s.signups} />
+          <Figure label="Deposited" value={s.depositors} />
+          <Figure label="Active this month" value={s.active_this_month} />
         </CardContent>
       </Card>
 
-      {/* Kept so the agent can still bring in customers. */}
-      <details className="group rounded-2xl border border-border bg-card">
-        <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-5 py-4 text-sm font-bold">
-          My link to share
-          <BsLink45Deg size={14} className="text-muted-foreground" />
-        </summary>
-        <div className="border-t border-border p-4"><ShareLink code={a.code} welcome={welcome} /></div>
-      </details>
+      {/* Activity */}
+      <Card className="rounded-2xl">
+        <div className="-mb-px flex gap-1 overflow-x-auto border-b border-border px-3 pt-2" role="tablist">
+          {([['earnings', 'Earnings'], ['customers', 'Customers'], ['withdrawals', 'Withdrawals'], ['reports', 'Reports']] as [Tab, string][]).map(([id, label]) => (
+            <button key={id} role="tab" aria-selected={tab === id} onClick={() => setTab(id)}
+              className={`shrink-0 border-b-2 px-3 py-2.5 text-sm font-bold transition-colors ${tab === id ? 'border-secondary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}>
+              {label}
+            </button>
+          ))}
+        </div>
+        <CardContent className="pt-4">
+          {tab === 'earnings' && <EarningsList />}
+          {tab === 'customers' && <CustomersList />}
+          {tab === 'withdrawals' && <WithdrawalsList min={min} />}
+          {tab === 'reports' && <PeriodReport />}
+        </CardContent>
+      </Card>
+
+      {/* Bring in customers */}
+      <Card className="rounded-2xl">
+        <CardContent className="space-y-3 pt-5">
+          <p className="text-sm font-bold">Share your link</p>
+          <ShareLink code={a.code} welcome={welcome} />
+        </CardContent>
+      </Card>
 
       {a.payout_options && (
         <PayoutDialog open={payOpen} onClose={() => setPayOpen(false)} available={b.available} options={a.payout_options} onDone={refetch} />
@@ -565,7 +559,7 @@ export default function AffiliatePage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">Agent dashboard</h1>
+      {!(data?.status === 'active' && data.stats) && <h1 className="text-2xl font-bold">Agent dashboard</h1>}
       {loading && !data ? (
         <LoadingState />
       ) : notJoined ? (
