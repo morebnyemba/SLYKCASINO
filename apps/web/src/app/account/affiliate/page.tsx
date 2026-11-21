@@ -2,7 +2,8 @@
 
 import { useState } from 'react';
 import { FaHandshake } from 'react-icons/fa';
-import { FaArrowRight, FaCheck, FaClockRotateLeft, FaCopy } from 'react-icons/fa6';
+import { FaArrowRight, FaCheck, FaClockRotateLeft, FaCopy, FaLock, FaLockOpen } from 'react-icons/fa6';
+import { BsCashStack, BsGraphDownArrow, BsLink45Deg, BsPeople, BsPersonCheck, BsPersonPlus, BsTicketPerforated, BsTrophy } from 'react-icons/bs';
 import { Card, CardContent } from '@slyk/ui/components/card';
 import { useAuth } from '@/lib/auth-context';
 import { authedPost, useApi } from '@/lib/use-api';
@@ -53,7 +54,11 @@ interface Stats {
   aviator_commission_rate?: string;
   commission_today: string;
   commission_month: string;
+  commission_last_month?: string;
   commission_total: string;
+  deposits_this_month?: string;
+  depositors_this_month?: number;
+  signups_this_month?: number;
   tickets_today: { played: number; won: number; lost: number; open: number };
   pending: string;
   paid: string;
@@ -381,12 +386,25 @@ function WithdrawalsList({ min }: { min: number }) {
   );
 }
 
-function Figure({ label, value, hint }: { label: string; value: string | number; hint?: string }) {
+function HeroChip({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
-    <div className="min-w-0">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="mt-0.5 truncate text-lg font-extrabold tabular-nums">{typeof value === 'number' ? value.toLocaleString() : value}</p>
-      {hint && <p className="text-[11px] text-muted-foreground">{hint}</p>}
+    <div className="min-w-0 rounded-xl bg-white/10 px-3 py-2.5">
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-white/60">{label}</p>
+      <p className="mt-0.5 truncate text-base font-extrabold tabular-nums sm:text-lg">{value}</p>
+      {hint && <p className="text-[10.5px] text-white/55">{hint}</p>}
+    </div>
+  );
+}
+
+function Kpi({ icon, label, value, sub }: { icon: React.ReactNode; label: string; value: string | number; sub?: string }) {
+  return (
+    <div className="min-w-0 rounded-xl border border-border bg-card p-3">
+      <div className="flex items-center gap-1.5 text-muted-foreground">
+        <span className="text-secondary">{icon}</span>
+        <span className="truncate text-xs font-semibold">{label}</span>
+      </div>
+      <p className="mt-1.5 truncate text-xl font-extrabold tabular-nums">{typeof value === 'number' ? value.toLocaleString() : value}</p>
+      {sub && <p className="truncate text-[11px] text-muted-foreground">{sub}</p>}
     </div>
   );
 }
@@ -422,6 +440,13 @@ function Dashboard({ a, refetch }: { a: Affiliate & { stats: Stats }; refetch: (
   const aviatorRate = Number(s.aviator_commission_rate ?? 0);
   // With automatic payout, final earnings go straight to the Winnings wallet.
   const auto = !!a.payout_options?.auto_payout && Number(b.available) < 0.01;
+  const daysLeft = b.unlocks_on
+    ? Math.max(0, Math.ceil((Date.parse(`${b.unlocks_on.slice(0, 10)}T00:00:00`) - Date.now()) / 86_400_000)) : null;
+  const monthName = new Date().toLocaleDateString(undefined, { month: 'long' });
+  const lastMonth = Number(s.commission_last_month ?? 0);
+  const trend = lastMonth > 0 ? Math.round(((Number(s.commission_month ?? 0) - lastMonth) / lastMonth) * 100) : null;
+  const conversion = s.signups > 0 ? Math.round((s.depositors / s.signups) * 100) : null;
+  const perActive = s.active_this_month > 0 ? Number(s.commission_month ?? 0) / s.active_this_month : null;
 
   return (
     <div className="space-y-4">
@@ -430,42 +455,95 @@ function Dashboard({ a, refetch }: { a: Affiliate & { stats: Stats }; refetch: (
         <CopyCode code={a.code} />
       </div>
 
-      {/* Balance */}
-      <Card className="rounded-2xl">
-        <CardContent className="space-y-5 pt-5">
-          <div className="flex flex-wrap items-end justify-between gap-4">
-            <div>
-              <p className="text-sm text-muted-foreground">{auto ? 'Paid to your Winnings wallet' : 'Available to withdraw'}</p>
-              <p className="mt-1 text-4xl font-extrabold tabular-nums">{money(auto ? b.paid_out : b.available)}</p>
-              {!auto && held > 0 && b.unlocks_on && (
-                <p className="mt-1 text-sm text-muted-foreground">
-                  + {money(held)} earned this month, available from {shortDate(b.unlocks_on)}
-                </p>
-              )}
-              {auto && <p className="mt-1 text-sm text-muted-foreground">Each commission is paid to your wallet as soon as it’s final.</p>}
-            </div>
-            {auto ? (
-              <Link href="/account/wallet" className="inline-flex items-center gap-2 rounded-lg bg-win px-5 py-2.5 text-sm font-extrabold text-win-foreground">
-                Go to wallet <FaArrowRight size={12} />
-              </Link>
-            ) : (
-              <div className="text-right">
-                <button onClick={() => setPayOpen(true)} disabled={!canWithdraw}
-                  className="inline-flex items-center gap-2 rounded-lg bg-win px-5 py-2.5 text-sm font-extrabold text-win-foreground disabled:opacity-50">
-                  Withdraw <FaArrowRight size={12} />
-                </button>
-                {!canWithdraw && <p className="mt-1 text-[11px] text-muted-foreground">Minimum {money(min)}</p>}
-              </div>
+      {/* Balance: this month's earnings first, and when they unlock */}
+      <section className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-primary via-primary to-[#0B3BB8] p-5 text-white shadow-lg sm:p-6">
+        {held > 0 && (
+          <FaLock aria-hidden className="pointer-events-none absolute -right-8 -top-8 h-44 w-44 text-white/[0.06] sm:h-56 sm:w-56" />
+        )}
+        <div className="relative flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-white/65">Earned in {monthName}</p>
+            <p className="mt-1 text-4xl font-extrabold tabular-nums sm:text-5xl">{money(s.commission_month ?? 0)}</p>
+            {lastMonth > 0 && (
+              <p className="mt-1 text-sm text-white/75">
+                {money(lastMonth)} last month
+                {trend != null && <span className={`ml-2 rounded-full px-2 py-0.5 text-xs font-bold ${trend >= 0 ? 'bg-win/30' : 'bg-white/15'}`}>
+                  {trend >= 0 ? '▲' : '▼'} {Math.abs(trend)}%</span>}
+              </p>
             )}
           </div>
-          <div className="grid grid-cols-2 gap-4 border-t border-border pt-4 sm:grid-cols-4">
-            <Figure label="Today so far" value={money(s.commission_today ?? 0)} hint={perTicket ? undefined : 'added after midnight'} />
-            <Figure label="This month" value={money(s.commission_month ?? 0)} />
-            <Figure label="Being sent" value={money(b.in_payout)} hint={Number(b.pending) > 0 ? `${money(b.pending)} being checked` : undefined} />
-            <Figure label="Paid to you, all time" value={money(b.paid_out)} />
+          {held > 0 && b.unlocks_on && (
+            <div className="flex items-center gap-3 rounded-2xl bg-black/20 px-3 py-2.5 ring-1 ring-white/15">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gold text-gold-foreground shadow-md">
+                <FaLock size={16} />
+              </span>
+              <div className="leading-tight">
+                <p className="text-sm font-extrabold">{money(held)} locked</p>
+                <p className="text-xs text-white/75">
+                  Opens {shortDate(b.unlocks_on)}{daysLeft != null && ` · ${daysLeft === 0 ? 'today' : daysLeft === 1 ? 'tomorrow' : `in ${daysLeft} days`}`}
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="relative mt-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap gap-2 text-sm">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-win/25 px-3 py-1 font-bold">
+              <FaLockOpen size={11} /> {money(b.available)} available now
+            </span>
           </div>
-        </CardContent>
-      </Card>
+          {auto ? (
+            <Link href="/account/wallet" className="inline-flex items-center gap-2 rounded-xl bg-win px-5 py-2.5 text-sm font-extrabold text-win-foreground shadow">
+              Go to wallet <FaArrowRight size={12} />
+            </Link>
+          ) : (
+            <button onClick={() => setPayOpen(true)} disabled={!canWithdraw}
+              className="inline-flex items-center gap-2 rounded-xl bg-win px-5 py-2.5 text-sm font-extrabold text-win-foreground shadow disabled:opacity-60">
+              {canWithdraw ? <>Withdraw <FaArrowRight size={12} /></>
+                : held > 0 && b.unlocks_on ? <><FaLock size={11} /> Opens {shortDate(b.unlocks_on)}</>
+                  : <>Withdraw · min {money(min)}</>}
+            </button>
+          )}
+        </div>
+        <p className="relative mt-3 text-xs text-white/70">
+          {auto
+            ? 'Once unlocked, your commission is paid straight into your Winnings wallet.'
+            : held > 0
+              ? `This month’s earnings stay locked until the month ends. From ${b.unlocks_on ? shortDate(b.unlocks_on) : 'the 1st'} you can move them to your Winnings wallet or withdraw (minimum ${money(min)}).`
+              : `Move it to your Winnings wallet or withdraw it (minimum ${money(min)}).`}
+        </p>
+
+        <div className="relative mt-4 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+          <HeroChip label="Today so far" value={money(s.commission_today ?? 0)} hint={perTicket ? undefined : 'added after midnight'} />
+          <HeroChip label="Being sent" value={money(b.in_payout)} hint={Number(b.pending) > 0 ? `${money(b.pending)} being checked` : undefined} />
+          <HeroChip label="Paid to you" value={money(b.paid_out)} hint="all time" />
+          <HeroChip label="Earned all time" value={money(s.commission_total ?? 0)} />
+        </div>
+      </section>
+
+      {/* KPIs */}
+      <section>
+        <h2 className="mb-2 text-sm font-bold">Your numbers this month</h2>
+        <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4">
+          <Kpi icon={<BsGraphDownArrow size={15} />} label="Customers’ net loss" value={money(s.ngr_this_month ?? 0)}
+            sub={`you earn ${pct(rate)} on sports`} />
+          <Kpi icon={<BsCashStack size={15} />} label="Customer deposits" value={money(s.deposits_this_month ?? 0)}
+            sub={`${s.depositors_this_month ?? 0} customer${s.depositors_this_month === 1 ? '' : 's'} deposited`} />
+          <Kpi icon={<BsPeople size={15} />} label="Active customers" value={s.active_this_month}
+            sub={`of ${s.signups.toLocaleString()} total`} />
+          <Kpi icon={<BsPersonPlus size={15} />} label="New sign-ups" value={s.signups_this_month ?? 0}
+            sub={`${s.signups.toLocaleString()} all time`} />
+          <Kpi icon={<BsPersonCheck size={15} />} label="Deposit rate" value={conversion != null ? `${conversion}%` : '—'}
+            sub={`${s.depositors} of ${s.signups} sign-ups deposited`} />
+          <Kpi icon={<BsLink45Deg size={15} />} label="Link clicks (30 days)" value={s.clicks_30d}
+            sub={`${s.clicks_total.toLocaleString()} all time`} />
+          <Kpi icon={<BsTicketPerforated size={15} />} label="Tickets today" value={s.tickets_today?.played ?? 0}
+            sub={s.tickets_today ? `${s.tickets_today.won} won · ${s.tickets_today.lost} lost · ${s.tickets_today.open} open` : undefined} />
+          <Kpi icon={<BsTrophy size={15} />} label="Per active customer" value={perActive != null ? money(perActive) : '—'}
+            sub="your commission this month" />
+        </div>
+      </section>
 
       {/* How today's commission is worked out */}
       <Card className="rounded-2xl">
@@ -508,15 +586,6 @@ function Dashboard({ a, refetch }: { a: Affiliate & { stats: Stats }; refetch: (
               ? 'Each losing ticket is credited a few minutes after it settles. Winning tickets cost you nothing.'
               : 'Net loss = stakes minus winnings, added up each day and credited after midnight. If your customers win overall on a day, that amount comes off the next days’ commission first.'}
           </p>
-        </CardContent>
-      </Card>
-
-      {/* Customers */}
-      <Card className="rounded-2xl">
-        <CardContent className="grid grid-cols-3 gap-4 pt-5">
-          <Figure label="Signed up" value={s.signups} />
-          <Figure label="Deposited" value={s.depositors} />
-          <Figure label="Active this month" value={s.active_this_month} />
         </CardContent>
       </Card>
 
