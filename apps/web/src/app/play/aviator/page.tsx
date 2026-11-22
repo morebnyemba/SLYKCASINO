@@ -215,7 +215,8 @@ export default function AviatorPage() {
           </ol>
           <p className="mt-2 text-white/60">
             Bets {`$${s.min_bet}`}–{`$${s.max_bet}`} · max win ${Number(s.max_win).toLocaleString()} per bet (paid automatically when reached) ·
-            the plane can reach up to {Number(s.max_multiplier).toLocaleString()}x · return to player {s.rtp_percent}%.
+            the plane can reach up to {Number(s.max_multiplier).toLocaleString()}x · return to player {s.rtp_percent}%
+            {s.edge_scheduled ? ' right now (it can change at set times of day; each round shows its own in its details)' : ''}.
             Every round is provably fair — tap any result above the game to check it.
           </p>
           {s.bots_enabled && (

@@ -55,6 +55,8 @@ export interface AdminLeague {
   flag_url: string;
   enabled: boolean;
   sort_order: number;
+  /** Ticked: the league's matches appear on the sportsbook's Top Events tab. */
+  top_events: boolean;
   upcoming_count: number;
 }
 

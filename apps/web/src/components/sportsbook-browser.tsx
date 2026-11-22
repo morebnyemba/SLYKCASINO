@@ -8,7 +8,7 @@ import { SPORT_CATEGORIES } from '@/components/sports-sidebar';
 import { Carousel, CarouselItem } from '@/components/carousel';
 import { EventRow, FeaturedMatchCard, MarketHeader, sportMeta } from '@/components/event-row';
 import { LeagueSection } from '@/components/league-section';
-import { LIST_MARKETS, groupByLeague, isLive, sortEvents, type EventItem, type ListMarket } from '@/lib/sports';
+import { LIST_MARKETS, groupByLeague, isLive, sortEvents, type EventItem, type ListMarket, isTopEvent } from '@/lib/sports';
 
 type Tab = 'live' | 'top' | 'leagues' | 'upcoming' | 'countries';
 type SortMode = 'league' | 'time';
@@ -134,8 +134,8 @@ export function SportsbookBrowser({ events, topMatches = [], awaitingOdds = 0 }:
     if (tab === 'live') return list.filter(isLive);
     if (tab === 'upcoming') list = list.filter((ev) => !isLive(ev));
     if (tab === 'top') {
-      // Featured matches and featured competitions (leagues ranked in the admin).
-      const top = list.filter((ev) => ev.featured || (ev.league?.sort_order ?? 1000) < 1000);
+      // Featured matches and the leagues ticked for Top Events in the admin.
+      const top = list.filter(isTopEvent);
       list = top.length > 0 ? top : list.slice(0, 30);
     }
     if (mounted && day) list = list.filter((ev) => !isLive(ev) && !!ev.starts_at && localDay(ev.starts_at) === day);

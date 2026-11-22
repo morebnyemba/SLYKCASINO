@@ -583,3 +583,6 @@ WHATSAPP_GRAPH_VERSION = os.environ.get('WHATSAPP_GRAPH_VERSION', '')  # default
 WHATSAPP_DISPLAY_NUMBER = os.environ.get('WHATSAPP_DISPLAY_NUMBER', '')
 # Kick-off times in chat are written in the players' local time (the server runs on UTC).
 CHATBOT_TIME_ZONE = os.environ.get('CHATBOT_TIME_ZONE', '')  # default Africa/Harare (apps.chatbot.config)
+
+# Players' local time zone, for time-of-day settings such as the Aviator house edge schedule.
+PLAYER_TIME_ZONE = os.environ.get('PLAYER_TIME_ZONE', 'Africa/Harare')

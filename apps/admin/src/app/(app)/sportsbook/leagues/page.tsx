@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { BsPencil, BsPlusLg, BsSearch, BsToggleOff, BsToggleOn, BsTrash3, BsTrophy } from 'react-icons/bs';
+import { BsPencil, BsPlusLg, BsSearch, BsStar, BsStarFill, BsToggleOff, BsToggleOn, BsTrash3, BsTrophy } from 'react-icons/bs';
 import {
   Badge, Btn, Drawer, EmptyState, Field, Notice, PageHeader, Pager, Panel, Select, Switch, Tabs, TextInput,
   cx, inputClass, tableClass, tdClass, thClass, trClass,
@@ -12,7 +12,7 @@ import type { AdminLeague, Paged } from '@/lib/sportsbook';
 import { LoadingState } from '@slyk/ui/components/spinner';
 
 const PAGE_SIZE = 50;
-type Filter = 'all' | 'enabled' | 'disabled';
+type Filter = 'all' | 'enabled' | 'disabled' | 'top';
 const EMPTY = { name: '', country: '', logo_url: '', flag_url: '', sort_order: '1000', enabled: true };
 
 function LeagueDrawer({ league, open, onClose, onSaved }: {
@@ -97,7 +97,8 @@ export default function LeaguesPage() {
   useEffect(() => { setPage(1); setSelected(new Set()); }, [filter, country, q]);
 
   const query = new URLSearchParams({ page: String(page), page_size: String(PAGE_SIZE) });
-  if (filter !== 'all') query.set('enabled', String(filter === 'enabled'));
+  if (filter === 'top') query.set('top', 'true');
+  else if (filter !== 'all') query.set('enabled', String(filter === 'enabled'));
   if (country) query.set('country', country);
   if (q) query.set('search', q);
   const { data, loading, refetch } = useApi<Paged<AdminLeague>>(`/admin/sportsbook/leagues/?${query}`);
@@ -111,10 +112,13 @@ export default function LeaguesPage() {
     setNotice(res.error ? { tone: 'red', text: res.error } : { tone: 'green', text });
     refetch();
   }
-  async function bulk(enabled: boolean) {
+  async function bulk(change: { enabled: boolean } | { top_events: boolean }) {
     if (!accessToken || selected.size === 0) return;
-    const res = await authedRequest<{ updated: number }>('POST', '/admin/sportsbook/leagues/bulk/', accessToken, { ids: [...selected], enabled });
-    setNotice(res.error ? { tone: 'red', text: res.error } : { tone: 'green', text: `${res.data?.updated ?? 0} league(s) ${enabled ? 'enabled' : 'disabled'}.` });
+    const res = await authedRequest<{ updated: number }>('POST', '/admin/sportsbook/leagues/bulk/', accessToken, { ids: [...selected], ...change });
+    const n = res.data?.updated ?? 0;
+    const what = 'enabled' in change ? (change.enabled ? 'enabled' : 'disabled')
+      : change.top_events ? 'added to Top events' : 'removed from Top events';
+    setNotice(res.error ? { tone: 'red', text: res.error } : { tone: 'green', text: `${n} league(s) ${what}.` });
     setSelected(new Set());
     refetch();
   }
@@ -131,12 +135,12 @@ export default function LeaguesPage() {
         icon={BsTrophy}
         eyebrow="Sportsbook"
         title="Leagues"
-        description="Which competitions are imported from the feed and the order they appear in. Disabled leagues aren't fetched at all."
+        description="Which competitions are imported from the feed and the order they appear in. Disabled leagues aren't fetched at all. Tick ★ Top events on a league to show its matches on the sportsbook's Top Events tab."
         actions={<Btn variant="primary" icon={BsPlusLg} onClick={() => { setEditing(null); setDrawer(true); }}>Add league</Btn>}
       />
 
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-        <Tabs value={filter} onChange={setFilter} items={[{ id: 'all', label: 'All' }, { id: 'enabled', label: 'Enabled' }, { id: 'disabled', label: 'Disabled' }]} />
+        <Tabs value={filter} onChange={setFilter} items={[{ id: 'all', label: 'All' }, { id: 'enabled', label: 'Enabled' }, { id: 'disabled', label: 'Disabled' }, { id: 'top', label: '★ Top events' }]} />
         <div className="flex flex-1 gap-2 lg:justify-end">
           <div className="relative min-w-0 flex-1 sm:max-w-sm">
             <BsSearch className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={13} />
@@ -156,8 +160,10 @@ export default function LeaguesPage() {
       {selected.size > 0 && (
         <div className="flex flex-wrap items-center gap-3 rounded-xl border border-secondary/40 bg-secondary/10 px-4 py-2.5 text-sm">
           <span className="font-semibold">{selected.size} selected</span>
-          <Btn size="sm" variant="success" icon={BsToggleOn} onClick={() => bulk(true)}>Enable</Btn>
-          <Btn size="sm" icon={BsToggleOff} onClick={() => bulk(false)}>Disable</Btn>
+          <Btn size="sm" variant="success" icon={BsToggleOn} onClick={() => bulk({ enabled: true })}>Enable</Btn>
+          <Btn size="sm" icon={BsToggleOff} onClick={() => bulk({ enabled: false })}>Disable</Btn>
+          <Btn size="sm" icon={BsStarFill} onClick={() => bulk({ top_events: true })}>Add to Top events</Btn>
+          <Btn size="sm" icon={BsStar} onClick={() => bulk({ top_events: false })}>Remove from Top events</Btn>
           <button onClick={() => setSelected(new Set())} className="ml-auto text-xs font-semibold text-muted-foreground hover:text-foreground">Clear selection</button>
         </div>
       )}
@@ -187,6 +193,7 @@ export default function LeaguesPage() {
                   <th className={thClass}>Source</th>
                   <th className={cx(thClass, 'text-center')}>Upcoming</th>
                   <th className={thClass}>Order</th>
+                  <th className={cx(thClass, 'text-center')}>Top events</th>
                   <th className={cx(thClass, 'text-center')}>Enabled</th>
                   <th className={thClass} />
                 </tr>
@@ -228,6 +235,19 @@ export default function LeaguesPage() {
                           onBlur={(e) => { const v = Number(e.target.value); if (v !== l.sort_order) void patch(l, { sort_order: v }, `${l.name} moved to position ${v}.`); }}
                           className="h-8 w-20 rounded-lg border border-border bg-input/60 px-2 text-center font-mono text-xs outline-none focus:border-secondary"
                         />
+                      </td>
+                      <td className={cx(tdClass, 'text-center')}>
+                        <label className="inline-flex cursor-pointer items-center gap-1.5" title={l.top_events ? 'On Top Events' : 'Not on Top Events'}>
+                          <input
+                            type="checkbox"
+                            checked={l.top_events}
+                            aria-label={`Show ${l.name} in Top events`}
+                            onChange={(e) => patch(l, { top_events: e.target.checked },
+                              `${l.name} ${e.target.checked ? 'added to' : 'removed from'} Top events.`)}
+                            className="h-4 w-4 accent-[var(--gold)]"
+                          />
+                          {l.top_events && <BsStarFill size={12} className="text-gold" />}
+                        </label>
                       </td>
                       <td className={cx(tdClass, 'text-center')}>
                         <Switch checked={l.enabled} onChange={(v) => patch(l, { enabled: v }, `${l.name} ${v ? 'enabled' : 'disabled'}.`)} label={`${l.name} enabled`} />

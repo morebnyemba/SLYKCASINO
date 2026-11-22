@@ -14,6 +14,13 @@ export interface League {
   flag_url?: string;
   /** Lower shows first (featured competitions are seeded low). */
   sort_order?: number;
+  /** Ticked in the admin: the league's matches appear on Top Events. */
+  top_events?: boolean;
+}
+
+/** On the Top Events tab: a featured match, or a match in a league ticked for Top Events. */
+export function isTopEvent(ev: { featured?: boolean; league?: League | null }): boolean {
+  return !!ev.featured || !!ev.league?.top_events;
 }
 
 export type Selection1x2 = 'home' | 'draw' | 'away';
@@ -298,7 +305,8 @@ export function slimEvent(ev: EventItem): EventItem {
   if (ev.away_team) out.away_team = team(ev.away_team);
   if (ev.league) {
     const { id, name, country, logo_url, flag_url, sort_order } = ev.league;
-    out.league = Object.fromEntries(Object.entries({ id, name, country, logo_url, flag_url, sort_order })
+    const top_events = ev.league.top_events || undefined;   // only sent when ticked (bytes ×600)
+    out.league = Object.fromEntries(Object.entries({ id, name, country, logo_url, flag_url, sort_order, top_events })
       .filter(([, v]) => v !== null && v !== undefined && v !== ''));
   }
   return out as unknown as EventItem;

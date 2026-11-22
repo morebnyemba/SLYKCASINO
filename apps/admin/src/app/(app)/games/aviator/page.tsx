@@ -8,6 +8,7 @@ import {
   Badge, Btn, Field, Notice, PageHeader, Panel, StatTile, TextInput, cx, money, tableClass, tdClass, thClass, trClass,
 } from '@/components/console/ui';
 import { useAuth } from '@/lib/auth-context';
+import { EdgeSchedulePanel } from '@/components/jet/edge-schedule';
 import { config } from '@/lib/config';
 import { authedRequest, useApi } from '@/lib/use-api';
 
@@ -160,7 +161,7 @@ export default function CrashGameAdminPage() {
           </p>
         </Panel>
 
-        <Panel title="Name, limits & house edge" description="Shown to players in the game’s rules. Changes apply from the next round.">
+        <Panel title="Name, limits & house edge" description="Shown to players in the game’s rules. Changes apply from the next round. The house edge here is the standard one; the schedule below can set others at chosen times.">
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Game name" hint="Shown in the game header and page title, e.g. “BetBlits Aviator”." className="sm:col-span-2">
               <TextInput value={name} maxLength={40} onChange={(e) => setName(e.target.value)} />
@@ -186,6 +187,8 @@ export default function CrashGameAdminPage() {
           </div>
         </Panel>
       </div>
+
+      <EdgeSchedulePanel />
 
       <Panel
         title="Simulated players"
