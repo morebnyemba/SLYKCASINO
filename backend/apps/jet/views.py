@@ -388,13 +388,22 @@ def _schedule_payload() -> dict:
     from . import edge_schedule
     from .models import JetEdgeRule
     cfg = JetSettings.load()
-    edge, rule = edge_schedule.edge_at(cfg=cfg)
+    edge, source = edge_schedule.current(cfg=cfg)
+    try:
+        steps = edge_schedule.parse_steps(cfg.edge_rotation_steps)
+    except ValueError:
+        steps = []
+    active = [Decimal(st['edge']) for st in steps if st['on']]
+    avg = (sum(active) / len(active)).quantize(Decimal('0.01')) if active else None
     return {
         'enabled': cfg.edge_schedule_enabled, 'time_zone': str(edge_schedule.tz()),
         'standard_edge_percent': str(cfg.house_edge_percent),
-        'now': {'house_edge_percent': str(edge), 'rtp_percent': str(Decimal('100') - edge),
-                'rule': (rule.name or str(rule)) if rule else ''},
-        'next_change': edge_schedule.next_change(cfg=cfg),
+        'rotation': {'enabled': cfg.edge_rotation_enabled, 'minutes': cfg.edge_rotation_minutes, 'steps': steps,
+                     'active': len(active),
+                     'average_edge_percent': str(avg) if avg is not None else None,
+                     'average_rtp_percent': str(Decimal('100') - avg) if avg is not None else None},
+        'now': {'house_edge_percent': str(edge), 'rtp_percent': str(Decimal('100') - edge), 'rule': source},
+        'next_change': edge_schedule.upcoming(cfg=cfg),
         'rules': [_rule_row(r) for r in JetEdgeRule.objects.all()],
     }
 
@@ -445,12 +454,40 @@ class AdminEdgeScheduleView(APIView):
         return Response(_schedule_payload())
 
     def put(self, request):
+        """{enabled} switches the time windows; {rotation: {enabled, minutes, values}} the rotation."""
+        from . import edge_schedule
         cfg = JetSettings.load()
+        fields = []
         if 'enabled' in request.data:
             cfg.edge_schedule_enabled = bool(request.data['enabled'])
+            fields.append('edge_schedule_enabled')
+        rot = request.data.get('rotation')
+        if isinstance(rot, dict):
+            if 'steps' in rot or 'values' in rot:
+                try:
+                    steps = edge_schedule.parse_steps(rot['steps'] if 'steps' in rot else str(rot['values'] or ''))
+                except ValueError as exc:
+                    return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+                cfg.edge_rotation_steps = steps
+                fields.append('edge_rotation_steps')
+            if 'minutes' in rot:
+                try:
+                    minutes = int(rot['minutes'])
+                except (TypeError, ValueError):
+                    minutes = 0
+                if not 1 <= minutes <= 1440:
+                    return Response({'detail': 'The rotation steps every 1 to 1440 minutes.'}, status=status.HTTP_400_BAD_REQUEST)
+                cfg.edge_rotation_minutes = minutes
+                fields.append('edge_rotation_minutes')
+            if 'enabled' in rot:
+                cfg.edge_rotation_enabled = bool(rot['enabled'])
+                fields.append('edge_rotation_enabled')
+        if fields:
             cfg.updated_by = request.user.get_username()[:150]
-            cfg.save(update_fields=['edge_schedule_enabled', 'updated_by', 'updated_at'])
-            accounts_services.audit(None, 'jet_edge_schedule', request, enabled=cfg.edge_schedule_enabled)
+            cfg.save(update_fields=[*fields, 'updated_by', 'updated_at'])
+            accounts_services.audit(None, 'jet_edge_schedule', request, windows=cfg.edge_schedule_enabled,
+                                    rotation=cfg.edge_rotation_enabled, rotation_minutes=cfg.edge_rotation_minutes,
+                                    rotation_steps=','.join(f"{st['edge']}{'' if st['on'] else ' (off)'}" for st in edge_schedule.parse_steps(cfg.edge_rotation_steps)))
         return Response(_schedule_payload())
 
 

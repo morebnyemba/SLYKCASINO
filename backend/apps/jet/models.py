@@ -16,6 +16,10 @@ from django.db import models
 from apps.wallet.models.wallet import Bucket
 
 
+def default_rotation_steps() -> list:
+    return [{'edge': str(v), 'on': True} for v in (5, 10, 15, 20, 25, 30, 35, 40, 45, 50)]
+
+
 class JetSettings(models.Model):
     """Operator settings (one row). Every limit here is shown to players."""
     enabled = models.BooleanField(default=True)
@@ -49,6 +53,12 @@ class JetSettings(models.Model):
     last_rain_at = models.DateTimeField(null=True, blank=True)
     # House edge by time of day / day of week (JetEdgeRule). Off: house_edge_percent always.
     edge_schedule_enabled = models.BooleanField(default=False)
+    # Rotation: the edge steps through these percentages, one every N minutes, round
+    # the clock (edge_schedule.rotation_slot). On, it takes priority over the windows.
+    edge_rotation_enabled = models.BooleanField(default=False)
+    edge_rotation_minutes = models.PositiveSmallIntegerField(default=5)
+    # The steps in order: [{"edge": "5", "on": true}, …]. Only steps switched on are used.
+    edge_rotation_steps = models.JSONField(default=default_rotation_steps, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
     updated_by = models.CharField(max_length=150, blank=True)
 

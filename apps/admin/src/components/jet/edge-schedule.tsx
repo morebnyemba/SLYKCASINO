@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { BsClock, BsPlusLg, BsTrash3 } from 'react-icons/bs';
+import { useEffect, useState } from 'react';
+import { BsArrowRepeat, BsClock, BsPlusLg, BsTrash3 } from 'react-icons/bs';
 import { Badge, Btn, Field, Notice, Panel, Switch, TextInput, cx, tableClass, tdClass, thClass, trClass } from '@/components/console/ui';
 import { useAuth } from '@/lib/auth-context';
 import { authedRequest, useApi } from '@/lib/use-api';
@@ -12,10 +12,13 @@ interface Rule {
 }
 interface Schedule {
   enabled: boolean; time_zone: string; standard_edge_percent: string;
+  rotation: { enabled: boolean; minutes: number; steps: Step[]; active: number; average_edge_percent: string | null; average_rtp_percent: string | null };
   now: { house_edge_percent: string; rtp_percent: string; rule: string };
   next_change: { at: string; house_edge_percent: string; rule: string } | null;
   rules: Rule[];
 }
+
+interface Step { edge: string; on: boolean }
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const EMPTY = { name: '', days: '0123456', starts: '18:00', ends: '23:00', house_edge_percent: '4.00' };
@@ -29,6 +32,14 @@ export function EdgeSchedulePanel() {
   const [form, setForm] = useState({ ...EMPTY });
   const [busy, setBusy] = useState('');
   const [notice, setNotice] = useState<{ tone: 'green' | 'red'; text: string } | null>(null);
+  const [rot, setRot] = useState<{ minutes: string; steps: Step[]; add: string } | null>(null);
+  useEffect(() => {
+    if (data) setRot({ minutes: String(data.rotation.minutes), steps: data.rotation.steps.map((st) => ({ edge: String(Number(st.edge)), on: st.on })), add: '' });
+  }, [data]);
+  const onEdges = rot ? rot.steps.filter((st) => st.on).map((st) => Number(st.edge)) : [];
+  const draftAvg = onEdges.length ? onEdges.reduce((a, b) => a + b, 0) / onEdges.length : null;
+  const dirtyRot = !!(rot && data) && (rot.minutes !== String(data.rotation.minutes)
+    || JSON.stringify(rot.steps) !== JSON.stringify(data.rotation.steps.map((st) => ({ edge: String(Number(st.edge)), on: st.on }))));
 
   async function call(method: 'PUT' | 'POST' | 'PATCH' | 'DELETE', path: string, body: unknown, ok: string, key: string) {
     if (!accessToken) return false;
@@ -51,14 +62,75 @@ export function EdgeSchedulePanel() {
       description={`A different house edge at chosen times (${data?.time_zone ?? 'players’ time'}). Each round is drawn with the edge in force when it opens, before any bet, and players see it in the round’s fairness details. The first enabled rule that covers the moment wins; outside every rule the standard edge applies.`}
       actions={data && (
         <span className="flex items-center gap-2 text-sm font-semibold">
-          <Switch checked={data.enabled} label="Schedule on"
-            onChange={(v) => call('PUT', URL, { enabled: v }, v ? 'Schedule on.' : 'Schedule off: the standard edge applies.', 'toggle')} />
-          Schedule on
+          <Switch checked={data.enabled} label="Time windows on"
+            onChange={(v) => call('PUT', URL, { enabled: v }, v ? 'Time windows on.' : 'Time windows off.', 'toggle')} />
+          Time windows on
         </span>
       )}>
       {notice && <div className="mb-4"><Notice tone={notice.tone} onClose={() => setNotice(null)}>{notice.text}</Notice></div>}
       {data && (
         <div className="space-y-5">
+          {rot && (
+            <div className={cx('space-y-3 rounded-xl border p-4', data.rotation.enabled ? 'border-secondary/50 bg-secondary/5' : 'border-border')}>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="flex items-center gap-2 text-sm font-bold"><BsArrowRepeat size={14} /> Automatic rotation</p>
+                <span className="flex items-center gap-2 text-sm font-semibold">
+                  <Switch checked={data.rotation.enabled} label="Rotation on"
+                    onChange={(v) => call('PUT', URL, { rotation: { enabled: v } }, v ? 'Rotation on: the edge now changes on its own.' : 'Rotation off.', 'rot')} />
+                  Rotation on
+                </span>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                The edge steps through the list, one value every N minutes, round the clock, then starts again. While on, it
+                takes priority over the time windows below.
+              </p>
+              <div className="space-y-2">
+                <p className="text-xs font-semibold">House edges, in order. Tap one to switch it on or off; only the ones on are used.</p>
+                <div className="flex flex-wrap gap-2">
+                  {rot.steps.map((st, i) => (
+                    <span key={i} className={cx('inline-flex items-center overflow-hidden rounded-full border text-sm font-bold',
+                      st.on ? 'border-secondary bg-secondary/15' : 'border-border text-muted-foreground line-through opacity-60')}>
+                      <button type="button" aria-pressed={st.on} aria-label={`${st.edge}% ${st.on ? 'on' : 'off'}`}
+                        onClick={() => setRot({ ...rot, steps: rot.steps.map((x, j) => (j === i ? { ...x, on: !x.on } : x)) })}
+                        className="flex items-center gap-1.5 py-1 pl-3 pr-2">
+                        <span className={cx('h-2 w-2 rounded-full', st.on ? 'bg-win' : 'bg-muted-foreground/50')} />{st.edge}%
+                      </button>
+                      <button type="button" aria-label={`Remove ${st.edge}%`} onClick={() => setRot({ ...rot, steps: rot.steps.filter((_, j) => j !== i) })}
+                        className="border-l border-border/60 px-2 py-1 text-xs text-muted-foreground hover:text-live">×</button>
+                    </span>
+                  ))}
+                  <span className="inline-flex items-center gap-1">
+                    <input value={rot.add} inputMode="decimal" placeholder="add %" aria-label="Add a house edge"
+                      onChange={(e) => setRot({ ...rot, add: e.target.value.replace(/[^0-9.]/g, '') })}
+                      onKeyDown={(e) => { if (e.key === 'Enter' && rot.add) setRot({ ...rot, steps: [...rot.steps, { edge: String(Number(rot.add)), on: true }], add: '' }); }}
+                      className="h-8 w-20 rounded-full border border-border bg-input/60 px-3 text-center text-xs outline-none focus:border-secondary" />
+                    <Btn size="sm" disabled={!rot.add} onClick={() => setRot({ ...rot, steps: [...rot.steps, { edge: String(Number(rot.add)), on: true }], add: '' })}>Add</Btn>
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-2 text-xs">
+                  <button type="button" className="font-semibold text-secondary" onClick={() => setRot({ ...rot, steps: rot.steps.map((x) => ({ ...x, on: true })) })}>All on</button>
+                  <span className="text-muted-foreground">·</span>
+                  <button type="button" className="font-semibold text-secondary" onClick={() => setRot({ ...rot, steps: rot.steps.map((x) => ({ ...x, on: false })) })}>All off</button>
+                </div>
+              </div>
+              <div className="flex flex-wrap items-end gap-3">
+                <Field label="Change every (minutes)" className="w-44">
+                  <TextInput inputMode="numeric" value={rot.minutes} onChange={(e) => setRot({ ...rot, minutes: e.target.value.replace(/\D/g, '') })} />
+                </Field>
+                <Btn variant="primary" busy={busy === 'rotsave'} disabled={!dirtyRot || rot.steps.length === 0}
+                  onClick={() => call('PUT', URL, { rotation: { minutes: Number(rot.minutes), steps: rot.steps } }, 'Rotation saved.', 'rotsave')}>
+                  Save rotation
+                </Btn>
+                {dirtyRot && <span className="text-xs text-gold">Unsaved changes</span>}
+              </div>
+              <p className={cx('text-xs', draftAvg != null && draftAvg > 10 ? 'rounded-lg border border-gold/40 bg-gold/10 p-2 text-gold' : 'text-muted-foreground')}>
+                {draftAvg == null
+                  ? 'Every edge is off: while the rotation is on, the time windows (or the standard edge) apply.'
+                  : `${onEdges.length} of ${rot.steps.length} on · average edge ${draftAvg.toFixed(2)}% · players get back about ${(100 - draftAvg).toFixed(2)}% over time.`}
+                {draftAvg != null && draftAvg > 10 && ` At a ${Math.max(...onEdges)}% edge about ${Math.round(Math.max(...onEdges))}% of rounds crash at 1.00x before the plane moves. Each round shows its edge, so players can see the cycle and wait for the low slots. Most crash games run 1–5%.`}
+              </p>
+            </div>
+          )}
           <div className="grid gap-3 sm:grid-cols-3">
             <div className="rounded-xl border border-border bg-card p-4">
               <p className="text-xs text-muted-foreground">In force now</p>
@@ -68,7 +140,7 @@ export function EdgeSchedulePanel() {
             <div className="rounded-xl border border-border bg-card p-4">
               <p className="text-xs text-muted-foreground">Next change</p>
               <p className="mt-1 text-xl font-bold tabular-nums">{data.next_change ? `${Number(data.next_change.house_edge_percent).toFixed(2)}%` : '—'}</p>
-              <p className="text-xs text-muted-foreground">{data.next_change ? `${at(data.next_change.at)} · ${data.next_change.rule || 'standard edge'}` : data.enabled ? 'No change in the next 7 days' : 'Schedule off'}</p>
+              <p className="text-xs text-muted-foreground">{data.next_change ? `${at(data.next_change.at)} · ${data.next_change.rule || 'standard edge'}` : data.enabled || data.rotation.enabled ? 'No change in the next 7 days' : 'Rotation and windows off'}</p>
             </div>
             <div className="rounded-xl border border-border bg-card p-4">
               <p className="text-xs text-muted-foreground">Standard edge</p>
