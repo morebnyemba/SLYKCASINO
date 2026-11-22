@@ -66,6 +66,7 @@ MIDDLEWARE = [
     # Two missed weekly pool audits in a row make the whole admin read-only.
     # Revenue-share settings change only when every partner co-signs.
     'config.middleware.SettingsCosignMiddleware',
+    'config.middleware.RevenueLockMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]

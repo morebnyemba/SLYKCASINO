@@ -1,15 +1,15 @@
 """Shares of the partner pool (30% of each day's GGR by default).
 
-Each wallet holds its own `percent`; whatever no wallet holds goes to the
-operating pool until it's sold. Rules:
+Each wallet holds its own `percent`; whatever no wallet holds is saved in the
+Savings account (services.savings_summary) until it's sold. Rules:
 
 * Selling (out of the unheld part) and raising a share: a superuser, at once.
   An approved buyer can ask to buy; it counts once an admin confirms the
   payment (payment happens outside the site).
-* Cutting someone's share, or handing their wallet to someone else: a
-  superuser or a share controller (the founder — wallet 1's holder — and the
+* Cutting someone's share: a superuser or a share controller (the founder — wallet 1's holder — and the
   user ids in settings.REVENUE_SHARE_CONTROLLER_IDS) does it at once, with no
-  approval from the holder or anyone else; a holder can cut their own. A cut is
+  approval from the holder or anyone else; a holder can cut their own. Wallets
+  aren't handed over: add the new person as a member instead. A cut is
   still sold for the holder (who gets the seller's part of the price) unless
   given back to the house.
 * Adding a member: a superuser or controller gives a staff login a wallet (the
@@ -198,23 +198,6 @@ def set_share(*, slot: int, percent, by_user, reason: str = '', for_sale: bool =
                                     from_percent=str(old), to_percent=str(new), by=by_user.get_username(), reason=reason)
             return {'applied': True, 'change': None}
         return _cut(wallet, to_percent=new, new_holder=None, by_user=by_user, reason=reason, for_sale=for_sale,
-                    request=request)
-
-
-def transfer_wallet(*, slot: int, new_holder_id, by_user, reason: str = '', request=None) -> dict:
-    """Hand a wallet (its share and future earnings) to another staff login —
-    the current holder's consent is needed, as for a cut."""
-    with transaction.atomic():
-        wallet = ShareWallet.objects.select_for_update(of=('self',)).select_related('holder').filter(slot=slot).first()
-        if wallet is None:
-            raise RevenueError('Unknown wallet.')
-        user = _staff(new_holder_id)
-        if wallet.holder_id == user.pk:
-            return {'applied': True, 'change': None}
-        clash = ShareWallet.objects.filter(holder=user).exclude(pk=wallet.pk).first()
-        if clash is not None:
-            raise RevenueError(f'{user.get_username()} already holds wallet {clash.slot} — change its share instead.')
-        return _cut(wallet, to_percent=wallet.percent, new_holder=user, by_user=by_user, reason=reason, for_sale=False,
                     request=request)
 
 

@@ -269,7 +269,8 @@ def admin_liabilities(request):
     (Winnings, Deposit, withdrawals waiting), agents (unpaid commissions) and,
     for people who may see the revenue share, partners (wallet balances)."""
     from apps.revenue import audit, liabilities
-    return Response(liabilities.summary(include_partners=audit.can_view(request.user)))
+    from apps.revenue import lock
+    return Response(liabilities.summary(include_partners=audit.can_view(request.user) and lock.has_access(request.user)))
 
 
 @api_view(['GET'])

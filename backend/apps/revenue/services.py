@@ -99,15 +99,21 @@ def split(ggr: Decimal, carried_in: Decimal, percent: Decimal, wallets: int = 3)
     return {'base': base, 'carry_out': min(net, ZERO), 'share_each': share_each, 'pool': base - share_each * wallets}
 
 
-def split_wallets(ggr: Decimal, carried_in: Decimal, percents: list[Decimal]) -> dict:
+def split_wallets(ggr: Decimal, carried_in: Decimal, percents: list[Decimal],
+                  partner_pool_percent: Optional[Decimal] = None) -> dict:
     """One day's maths with each wallet's own share: `shares` lines up with
-    `percents`, each rounded down to the cent; the pool keeps the rest. A loss
-    carried from earlier days is netted off first, as in `split`."""
+    `percents`, each rounded down to the cent. The part of the partner pool no
+    wallet holds goes to the Savings account (`savings`); the operating pool
+    keeps the rest. A loss carried from earlier days is netted off first."""
     net = ggr + carried_in
     base = max(net, ZERO)
     shares = [(base * Decimal(p) / Decimal('100')).quantize(CENT, rounding=ROUND_DOWN) for p in percents]
     shared = sum(shares, ZERO)
-    return {'base': base, 'carry_out': min(net, ZERO), 'shares': shares, 'shared': shared, 'pool': base - shared}
+    unheld = max(Decimal(partner_pool_percent) - sum((Decimal(p) for p in percents), ZERO), ZERO) \
+        if partner_pool_percent is not None else ZERO
+    savings = (base * unheld / Decimal('100')).quantize(CENT, rounding=ROUND_DOWN)
+    return {'base': base, 'carry_out': min(net, ZERO), 'shares': shares, 'shared': shared, 'savings': savings,
+            'unheld_percent': unheld, 'pool': base - shared - savings}
 
 
 def close_days(*, today: Optional[date] = None) -> int:
@@ -129,12 +135,13 @@ def close_days(*, today: Optional[date] = None) -> int:
         carried = last.carry_out if last else ZERO
         while day < today:
             ggr = day_ggr(day)
-            maths = split_wallets(ggr, carried, [w.percent for w in wallets])
+            maths = split_wallets(ggr, carried, [w.percent for w in wallets], cfg.partner_pool_percent)
             record = RevenueDay.objects.create(
                 day=day, ggr=ggr, carried_in=carried, share_percent=held, share_each=ZERO,
                 bonus_conversions=day_bonus_conversions(day), affiliate_costs=day_affiliate_costs(day),
                 affiliate_reversals=credit_affiliate_reversals(day),
                 base=maths['base'], carry_out=maths['carry_out'], shared=maths['shared'], pool=maths['pool'],
+                savings=maths['savings'],
             )
             ShareEntry.objects.bulk_create([
                 ShareEntry(wallet=w, kind=ShareEntry.Kind.ACCRUAL, amount=amount, day=record)
@@ -324,9 +331,9 @@ def update_settings(*, share_percent=None, started_on=None, wallets=None, founde
                 if 'holder_id' in row and str(row.get('holder_id') or '') != str(wallet.holder_id or ''):
                     holder_id = row.get('holder_id')
                     if wallet.holder_id is not None:
-                        # Taking a wallet off its holder is a cut: it needs their consent (shares.transfer_wallet).
-                        raise RevenueError(f'Wallet {wallet.slot} belongs to {wallet.holder.get_username()} — '
-                                           'hand it over with their consent instead.')
+                        # Wallets aren't handed over; only an empty wallet gets a holder here.
+                        raise RevenueError(f'Wallet {wallet.slot} belongs to {wallet.holder.get_username()}. Wallets '
+                                           'can’t be handed over: add the new person as a member instead.')
                     if holder_id in (None, ''):
                         wallet.holder = None
                     else:
@@ -352,9 +359,62 @@ def today_so_far() -> dict:
     ggr = figures['ggr']
     last = RevenueDay.objects.order_by('-day').first()
     wallets = list(ShareWallet.objects.filter(percent__gt=0).order_by('slot'))
-    maths = split_wallets(ggr, last.carry_out if last else ZERO, [w.percent for w in wallets])
+    maths = split_wallets(ggr, last.carry_out if last else ZERO, [w.percent for w in wallets],
+                          RevenueSettings.load().partner_pool_percent)
     return {'day': today.isoformat(), 'ggr': str(ggr), 'bonus_conversions': str(figures['bonus_conversions']),
             'carried_in': str(last.carry_out if last else ZERO), 'base': str(maths['base']),
             'carry_out': str(maths['carry_out']), 'shared': str(maths['shared']), 'pool': str(maths['pool']),
+            'savings': str(maths['savings']),
             'held_percent': str(sum((w.percent for w in wallets), Decimal('0'))),
             'per_wallet': {w.slot: str(a) for w, a in zip(wallets, maths['shares'])}}
+
+
+# -- savings account ------------------------------------------------------------------
+
+def savings_summary(*, days: int = 30) -> dict:
+    """The Savings account: the unheld part of the partner pool from every closed
+    day, less what's been used. Its balance, today's estimate and the history."""
+    from .models import SavingsUse
+    cfg = RevenueSettings.load()
+    saved = _sum(RevenueDay.objects.all(), 'savings')
+    used = _sum(SavingsUse.objects.all())
+    held = sum((w.percent for w in ShareWallet.objects.all()), ZERO)
+    today = today_so_far()
+    return {
+        'balance': str(saved - used), 'saved_total': str(saved), 'used_total': str(used),
+        'partner_pool_percent': str(cfg.partner_pool_percent), 'held_percent': str(held),
+        'unheld_percent': str(max(cfg.partner_pool_percent - held, ZERO)),
+        'today_estimate': today.get('savings', '0.00'),
+        'days': [{'day': d.day.isoformat(), 'base': str(d.base), 'savings': str(d.savings),
+                  'unheld_percent': str(max(cfg.partner_pool_percent - d.share_percent, ZERO))}
+                 for d in RevenueDay.objects.filter(savings__gt=0).order_by('-day')[:days]],
+        'uses': [{'id': u.id, 'day': u.day.isoformat(), 'amount': str(u.amount), 'note': u.note,
+                  'recorded_by': u.recorded_by} for u in SavingsUse.objects.all()[:50]],
+    }
+
+
+def use_savings(*, amount, note: str, by_user, request=None):
+    """Take money out of the Savings account (a superuser or share controller)."""
+    from .models import SavingsUse
+    from .shares import is_controller
+    if not (by_user.is_superuser or is_controller(by_user)):
+        raise RevenueError('Only a superuser or a share controller can use the savings.')
+    try:
+        amount = Decimal(str(amount)).quantize(CENT)
+    except (ArithmeticError, ValueError) as exc:
+        raise RevenueError('Enter an amount.') from exc
+    if amount <= 0:
+        raise RevenueError('The amount must be above zero.')
+    note = (note or '').strip()
+    if not note:
+        raise RevenueError('Say what the savings are used for.')
+    with transaction.atomic():
+        RevenueSettings.objects.select_for_update().get(pk=RevenueSettings.load().pk)
+        balance = _sum(RevenueDay.objects.all(), 'savings') - _sum(SavingsUse.objects.all())
+        if amount > balance:
+            raise RevenueError(f'The savings hold only ${balance:.2f}.')
+        use = SavingsUse.objects.create(day=timezone.localdate(), amount=amount, note=note[:300],
+                                        recorded_by=by_user.get_username()[:150])
+    accounts_services.audit(None, 'revenue_savings_used', request, amount=str(amount), note=use.note,
+                            by=by_user.get_username())
+    return use

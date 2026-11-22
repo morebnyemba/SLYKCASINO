@@ -69,7 +69,7 @@ export function SharesPanel({ onDone, onFail }: { onDone: (t: string) => void; o
   return (
     <>
       {view.pending_for_me.length > 0 && <Consent rows={view.pending_for_me} act={act} />}
-      <Panel title="Shares" description={`Shareholders split ${pct(view.settings.partner_pool_percent)} of every day’s real-money GGR, each by their own share. Whatever isn’t held goes to the operating pool until it’s sold.`}>
+      <Panel title="Shares" description={`Shareholders split ${pct(view.settings.partner_pool_percent)} of every day’s real-money GGR, each by their own share. Whatever isn’t held is saved in the Savings account until it’s sold.`}>
         <div className="grid gap-3 sm:grid-cols-4">
           <Tile label="Partner pool" value={pct(view.settings.partner_pool_percent)} />
           <Tile label="Held" value={pct(view.held_percent)} />
@@ -80,8 +80,8 @@ export function SharesPanel({ onDone, onFail }: { onDone: (t: string) => void; o
         {(view.can_admin || view.is_controller) && <AddMember view={view} act={act} />}
         {view.controllers.length > 0 && (
           <p className="mt-3 text-xs text-muted-foreground">
-            Superusers and share controllers (<b className="text-foreground">{view.controllers.join(', ')}</b>) change, hand over or add
-            shares at once, with no approval from anyone. Every change is logged.
+            Superusers and share controllers (<b className="text-foreground">{view.controllers.join(', ')}</b>) change shares and add
+            members at once, with no approval from anyone. Every change is logged.
           </p>
         )}
         <div className="mt-4 overflow-x-auto">
@@ -191,7 +191,6 @@ function PriceNote({ p }: { p: Price }) {
 
 function WalletRow({ w, view, act }: { w: SharesView['wallets'][number]; view: SharesView; act: Act }) {
   const [value, setValue] = useState(w.percent);
-  const [to, setTo] = useState('');
   const [busy, setBusy] = useState(false);
   useEffect(() => { setValue(w.percent); }, [w.percent]);
   const own = view.own_slot === w.slot;
@@ -206,12 +205,6 @@ function WalletRow({ w, view, act }: { w: SharesView['wallets'][number]; view: S
       lower && forSale ? `Wallet ${w.slot} is now ${pct(value)}; the ${pct(Number(w.percent) - Number(value))} freed is up for sale for ${w.holder ?? 'the wallet'}.`
         : `Wallet ${w.slot} is now ${pct(value)}.`);
     setBusy(false);
-  }
-  async function handOver() {
-    if (!to) return;
-    setBusy(true);
-    await act('transfer/', { slot: w.slot, new_holder_id: Number(to) }, `Wallet ${w.slot} handed over.`);
-    setBusy(false); setTo('');
   }
   return (
     <tr className={trClass}>
@@ -235,17 +228,6 @@ function WalletRow({ w, view, act }: { w: SharesView['wallets'][number]; view: S
                   <input type="checkbox" checked={forSale} onChange={(e) => setForSale(e.target.checked)} />
                   Sell it for {own ? 'me' : (w.holder ?? 'them')} ({pct(view.settings.seller_percent)} of the price)
                 </label>
-              )}
-              {power && (
-                <>
-                  <div className="w-40 shrink-0">
-                    <Select value={to} onChange={(e) => setTo(e.target.value)} aria-label={`Hand wallet ${w.slot} over to`} className="h-8 text-xs">
-                      <option value="">Hand over to…</option>
-                      {view.staff.filter((u) => u.id !== w.holder_id).map((u) => <option key={u.id} value={u.id}>{u.username}</option>)}
-                    </Select>
-                  </div>
-                  {to && <Btn size="sm" busy={busy} onClick={handOver}>{!w.holder ? 'Assign' : 'Hand over'}</Btn>}
-                </>
               )}
             </div>
           )}

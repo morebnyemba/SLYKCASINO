@@ -1,14 +1,17 @@
 from django.urls import path
 
 from .views import (
-    AuditCosignView, AuditFileView, AuditsView, AuditSubmitView, AuditUploadView, DecideWithdrawalView, ExpensesView,
-    ExpenseView, OverviewView, PoolDayView, PoolLedgerView, ProposalsView, ProposalVoteView, SettingsChangesView,
-    SettingsChangeView, SettingsView, ShareActionView, ShareChangeDecideView, SharesView, ShareQuoteView,
-    ShareSaleDecideView, WithdrawView,
+    AuditCosignView, AuditFileView, AuditSubmitView, AuditUploadView, AuditsView, DecideWithdrawalView,
+    ExpenseView, ExpensesView, OverviewView, PoolDayView, PoolLedgerView, ProposalVoteView, ProposalsView,
+    RevenueLockView, RevenueUnlockView, SavingsView, SettingsChangeView, SettingsChangesView, SettingsView,
+    ShareActionView, ShareChangeDecideView, ShareQuoteView, ShareSaleDecideView, SharesView, WithdrawView,
 )
 
 urlpatterns = [
     path('admin/revenue-share/', OverviewView.as_view(), name='revenue-overview'),
+    path('admin/revenue-share/lock/', RevenueLockView.as_view(), name='revenue-lock'),
+    path('admin/revenue-share/savings/', SavingsView.as_view(), name='revenue-savings'),
+    path('admin/revenue-share/lock/unlock/', RevenueUnlockView.as_view(), name='revenue-unlock'),
     path('admin/revenue-share/withdraw/', WithdrawView.as_view(), name='revenue-withdraw'),
     path('admin/revenue-share/withdrawals/<int:pk>/decide/', DecideWithdrawalView.as_view(), name='revenue-decide'),
     path('admin/revenue-share/expenses/', ExpensesView.as_view(), name='revenue-expenses'),

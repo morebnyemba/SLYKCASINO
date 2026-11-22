@@ -8,6 +8,7 @@ import {
   BsPersonBadge, BsPersonPlus, BsReceipt, BsTicketPerforated, BsWallet2, BsExclamationTriangle,
 } from 'react-icons/bs';
 import { MoneyOwedPanel } from '@/components/money-owed-panel';
+import { SavingsCard } from '@/components/revenue/savings-panel';
 import { ProfitPanel } from '@/components/profit-panel';
 import { RealtimeFeed } from '@/components/realtime-feed';
 import { Badge, Panel, PageHeader, StatTile, cx, money } from '@/components/console/ui';
@@ -126,6 +127,9 @@ export default function DashboardPage() {
       </div>
 
       <ProfitPanel />
+
+      {/* Revenue-share savings: shown only to people who may see the revenue share (and not while it's locked for them). */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 empty:hidden"><SavingsCard /></div>
 
       <MoneyOwedPanel />
 

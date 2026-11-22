@@ -182,10 +182,11 @@ class NoApprovalTests(Base):
         shares.set_share(slot=2, percent='12', by_user=self.boss)
         self.assertEqual(self.pct(2), D('12.00'))
 
-    def test_handing_a_wallet_over_applies_at_once(self):
-        res = shares.transfer_wallet(slot=3, new_holder_id=self.buyer.id, by_user=self.root)
-        self.assertTrue(res['applied'])
-        self.assertEqual(ShareWallet.objects.get(slot=3).holder_id, self.buyer.id)
+    def test_wallets_cant_be_handed_over(self):
+        self.assertFalse(hasattr(shares, 'transfer_wallet'))
+        res = self.api(self.boss).post(URL + 'transfer/', {'slot': 3, 'new_holder_id': self.buyer.id}, format='json')
+        self.assertEqual(res.status_code, 404)
+        self.assertEqual(ShareWallet.objects.get(slot=3).holder_id, self.p3.id)
 
     def test_a_change_left_pending_from_before_can_still_be_answered(self):
         wallet = ShareWallet.objects.get(slot=2)
@@ -236,7 +237,7 @@ class AddMemberTests(Base):
 
 
 class PayoutTests(Base):
-    def test_each_wallet_earns_its_own_share_and_the_unheld_part_goes_to_the_pool(self):
+    def test_each_wallet_earns_its_own_share_and_the_unheld_part_goes_to_savings(self):
         days([1000] * 20)
         RevenueDay.objects.all().delete()
         cfg = RevenueSettings.load()
@@ -247,8 +248,9 @@ class PayoutTests(Base):
         with patch.object(services, 'day_ggr', return_value=D('1000')):
             services.close_days()
         day = RevenueDay.objects.get()
-        # 5 + 10 + 10 + 2.5 = 27.5% held; 2.5% unsold stays in the pool.
-        self.assertEqual((day.share_percent, day.shared, day.pool), (D('27.50'), D('275.00'), D('725.00')))
+        # 5 + 10 + 10 + 2.5 = 27.5% held; the 2.5% unheld goes to the Savings account, 70% to the pool.
+        self.assertEqual((day.share_percent, day.shared, day.savings, day.pool),
+                         (D('27.50'), D('275.00'), D('25.00'), D('700.00')))
         buyer_wallet = ShareWallet.objects.get(holder=self.buyer)
         self.assertEqual(services.wallet_balance(buyer_wallet), D('25.00'))
         # Boss's 5% day share ($50) plus 90% of the $1 sale of share boss released ($0.90).
@@ -434,9 +436,6 @@ class ControllerTests(Base):
         change = ShareChange.objects.get()
         self.assertIn('Applied by boss', change.decided_note)
         self.assertEqual(ShareRelease.objects.get().holder_id, self.p2.id)    # still sold for p2 (90%)
-        res = shares.transfer_wallet(slot=3, new_holder_id=self.buyer.id, by_user=self.boss)
-        self.assertTrue(res['applied'])
-        self.assertEqual(ShareWallet.objects.get(slot=3).holder_id, self.buyer.id)
 
     def test_configured_ids_are_controllers_even_without_superuser(self):
         with override_settings(REVENUE_SHARE_CONTROLLER_IDS=[self.p3.id]):
@@ -458,8 +457,6 @@ class ControllerTests(Base):
     def test_non_controllers_cannot_edit_others(self):
         with self.assertRaisesMessage(RevenueError, 'share controller'):
             shares.set_share(slot=3, percent='5', by_user=self.p2)
-        with self.assertRaisesMessage(RevenueError, 'share controller'):
-            shares.transfer_wallet(slot=3, new_holder_id=self.buyer.id, by_user=self.p2)
 
     def test_api_flags_and_controller_view(self):
         with override_settings(REVENUE_SHARE_CONTROLLER_IDS=[self.p3.id]):

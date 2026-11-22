@@ -10,6 +10,8 @@ import { useAuth } from '@/lib/auth-context';
 import { authedPost, authedRequest, useApi } from '@/lib/use-api';
 import { PoolLedger, PoolProposals, WeeklyAudits } from '@/components/revenue/pool-audit';
 import { SharesPanel } from '@/components/revenue/shares-panel';
+import { RevenueLockGate } from '@/components/revenue/revenue-lock';
+import { SavingsPanel } from '@/components/revenue/savings-panel';
 
 interface Withdrawal {
   id: number; slot: number; label: string; amount: string; status: 'requested' | 'paid' | 'rejected'; status_label: string;
@@ -54,14 +56,17 @@ export default function RevenueSharePage() {
   return (
     <div className="space-y-6">
       <PageHeader icon={BsPieChart} eyebrow="Money" title="Revenue share"
-        description="Each day’s real-money GGR is shared when the day ends: cash stakes minus cash wins (sports and Aviator). Bonus money doesn’t count until a player unlocks it into Winnings — then it’s deducted that day. Each shareholder takes their own share of the partner pool, and the operating pool keeps the rest to pay affiliates and running costs. A losing day is carried forward and earned back before anything is shared." />
+        description="Each day’s real-money GGR is shared when the day ends: cash stakes minus cash wins (sports and Aviator). Bonus money doesn’t count until a player unlocks it into Winnings — then it’s deducted that day. Each shareholder takes their own share of the partner pool; the part no one holds is saved in the Savings account, and the operating pool keeps the rest to pay affiliates and running costs. A losing day is carried forward and earned back before anything is shared." />
       {notice && <Notice tone={notice.tone} onClose={() => setNotice(null)}>{notice.text}</Notice>}
-      {error && !error.includes('403') && <Notice tone="red">{error}</Notice>}
-      {loading && !data && <div className="h-48 animate-pulse rounded-2xl bg-muted/40" />}
-      {/* Shares: superusers, holders and approved buyers (a buyer without a wallet sees only this). */}
-      <SharesPanel onDone={done} onFail={fail} />
-      {data?.role === 'holder' && <HolderPanel view={data} onDone={done} onFail={fail} />}
-      {data?.role === 'superuser' && <BossPanel view={data} onDone={done} onFail={fail} />}
+      <RevenueLockGate>
+        {error && !error.includes('403') && <Notice tone="red">{error}</Notice>}
+        {loading && !data && <div className="h-48 animate-pulse rounded-2xl bg-muted/40" />}
+        {/* Shares: superusers, holders and approved buyers (a buyer without a wallet sees only this). */}
+        <SharesPanel onDone={done} onFail={fail} />
+        {data && <SavingsPanel canUse={data.role === 'superuser'} />}
+        {data?.role === 'holder' && <HolderPanel view={data} onDone={done} onFail={fail} />}
+        {data?.role === 'superuser' && <BossPanel view={data} onDone={done} onFail={fail} />}
+      </RevenueLockGate>
     </div>
   );
 }
