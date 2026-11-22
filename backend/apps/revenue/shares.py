@@ -6,15 +6,14 @@ operating pool until it's sold. Rules:
 * Selling (out of the unheld part) and raising a share: a superuser, at once.
   An approved buyer can ask to buy; it counts once an admin confirms the
   payment (payment happens outside the site).
-* Cutting someone's share, or handing their wallet to someone else: only with
-  that holder's consent — applied at once when they ask for it themselves or
-  the wallet has no holder, otherwise held until they approve.
-* Share controllers (the founder — wallet 1's holder — and the user ids in
-  settings.REVENUE_SHARE_CONTROLLER_IDS, 1 and 2 by default) can raise, cut or
-  hand over anyone's share at once, without consent. A cut they make is still
-  sold for the holder (who gets the seller's part of the price) unless given
-  back to the house. Cutting or handing over another controller's share still
-  needs that controller's consent.
+* Cutting someone's share, or handing their wallet to someone else: a
+  superuser or a share controller (the founder — wallet 1's holder — and the
+  user ids in settings.REVENUE_SHARE_CONTROLLER_IDS) does it at once, with no
+  approval from the holder or anyone else; a holder can cut their own. A cut is
+  still sold for the holder (who gets the seller's part of the price) unless
+  given back to the house.
+* Adding a member: a superuser or controller gives a staff login a wallet (the
+  next free slot) and a share out of the unsold part, at once (add_member).
 * Price: `price_per_percent` below, from the last 30 closed days.
 * Resale: share a holder gives up is sold for them (unless they give it back to
   the house). Sales use the oldest released share first, and the releaser gets
@@ -219,6 +218,29 @@ def transfer_wallet(*, slot: int, new_holder_id, by_user, reason: str = '', requ
                     request=request)
 
 
+def add_member(*, user_id, percent='0', label: str = '', by_user, request=None) -> dict:
+    """Give a staff login a share wallet (the next free slot) and a share out of
+    the unsold part of the partner pool, at once."""
+    if not (by_user.is_superuser or is_controller(by_user)):
+        raise RevenueError('Only a superuser or a share controller can add a member.')
+    pct = _pct(percent or '0')
+    user = _staff(user_id)
+    with transaction.atomic():
+        RevenueSettings.objects.select_for_update().get(pk=RevenueSettings.load().pk)
+        existing = ShareWallet.objects.filter(holder=user).first()
+        if existing is not None:
+            raise RevenueError(f'{user.get_username()} already holds wallet {existing.slot}. Change its share instead.')
+        _room_for(pct)
+        wallet = _wallet_for(user)
+        if (label or '').strip():
+            wallet.label = label.strip()[:60]
+        wallet.percent = pct
+        wallet.save(update_fields=['label', 'percent'])
+    accounts_services.audit(None, 'share_member_added', request, slot=wallet.slot, holder=user.get_username(),
+                            percent=str(pct), by=by_user.get_username())
+    return {'applied': True, 'slot': wallet.slot}
+
+
 def _name(user) -> Optional[str]:
     return user.get_username() if user else None
 
@@ -231,8 +253,8 @@ def _cut(wallet: ShareWallet, *, to_percent: Decimal, new_holder, by_user, reaso
         raise RevenueError('Only the holder, a superuser or a share controller can change this share.')
     if new_holder is not None and not (by_user.is_superuser or controller):
         raise RevenueError('Only a superuser or a share controller can hand a wallet to someone else.')
-    # A controller's edit applies at once — except to another controller's share.
-    overrides = controller and holder is not None and not own and not is_controller(holder)
+    # Superusers and controllers change any share at once: no approval from the holder or other admins.
+    overrides = (controller or by_user.is_superuser) and holder is not None and not own
     change = ShareChange.objects.create(
         wallet=wallet, holder=holder, from_percent=wallet.percent, to_percent=to_percent, new_holder=new_holder,
         reason=(reason or '').strip()[:500], requested_by=by_user.get_username(),
@@ -243,7 +265,7 @@ def _cut(wallet: ShareWallet, *, to_percent: Decimal, new_holder, by_user, reaso
                             new_holder=_name(new_holder), by=by_user.get_username(), reason=change.reason)
     if own or holder is None or overrides:
         note = ('Asked for by the holder' if own else 'Wallet had no holder' if holder is None
-                else f'Applied by share controller {by_user.get_username()} (no consent needed)')
+                else f'Applied by {by_user.get_username()} (no approval needed)')
         _apply(change, note=note)
         return {'applied': True, 'change': change_row(change)}
     return {'applied': False, 'change': change_row(change)}

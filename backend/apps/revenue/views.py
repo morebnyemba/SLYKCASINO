@@ -353,8 +353,7 @@ def _shares_payload(user) -> dict:
         'price': shares.price_per_percent(),
         'wallets': [{'slot': w.slot, 'label': w.label or f'Partner {w.slot}', 'holder': w.holder.get_username() if w.holder else None,
                      'holder_id': w.holder_id, 'percent': str(w.percent),
-                     # Another controller's share: even a controller needs its holder's consent.
-                     'protected': bool(w.holder and shares.is_controller(w.holder))}
+                     'protected': False}                    # no change needs anyone's approval any more
                     for w in ShareWallet.all_wallets() if sees_all or w.percent > 0],
         'sales': [shares.sale_row(s) for s in sales[:50]],
         'changes': [shares.change_row(c) for c in changes[:50]],
@@ -407,7 +406,7 @@ class ShareQuoteView(APIView):
 
 class ShareActionView(APIView):
     """POST /shares/<action>/ — set, transfer, buy, sale (record), settings,
-    buyer-add, buyer-remove. Rules live in revenue.shares."""
+    buyer-add, buyer-remove, member-add. Rules live in revenue.shares."""
     permission_classes = [IsAdminUser]
 
     def post(self, request, action: str):
@@ -432,6 +431,8 @@ class ShareActionView(APIView):
                                                              signer_min_percent=d.get('signer_min_percent'),
                                                              seller_percent=d.get('seller_percent'), by_user=u, request=request),
             'buyer-add': lambda: shares.approve_buyer(user_id=d.get('user_id'), by_user=u, request=request),
+            'member-add': lambda: shares.add_member(user_id=d.get('user_id'), percent=d.get('percent', '0'),
+                                                    label=d.get('label', ''), by_user=u, request=request),
             'buyer-remove': lambda: shares.remove_buyer(user_id=d.get('user_id'), by_user=u, request=request),
         }
         if action not in actions:
