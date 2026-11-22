@@ -35,6 +35,30 @@ class GeoBlockMiddleware:
         return self.get_response(request)
 
 
+class RevenueLockMiddleware:
+    """While the founder has password-locked the revenue share (apps.revenue.lock),
+    every staff login except the founder gets 423 on its pages and APIs (and the
+    Django admin's revenue section) until they enter the password."""
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        from apps.revenue import lock
+        if not lock.guarded(request.path):
+            return self.get_response(request)
+        user = staff_user(request)
+        if user is None:
+            return self.get_response(request)          # not staff: the views refuse them anyway
+        cfg = lock._cfg()
+        if lock.has_access(user, cfg):
+            return self.get_response(request)
+        from django.http import JsonResponse
+        owner = cfg.lock_owner.get_username() if cfg.lock_owner_id else 'the founder'
+        return JsonResponse({'locked': True, 'detail': f'The revenue share is locked by {owner}. '
+                                                       f'Ask them for the password to open it.'}, status=423)
+
+
 def staff_user(request):
     """The staff login behind a request (Django admin session or admin-console
     JWT), or None."""

@@ -541,3 +541,97 @@ class MyHistoryView(APIView):
         qs = affiliate.commissions.exclude(status=Commission.Status.REJECTED).order_by('-created_at')
         page = paginator.paginate_queryset(qs, request, view=self)
         return paginator.get_paginated_response(CommissionSerializer(page, many=True).data)
+
+
+# -- competitions & locked-balance adjustments (competitions.py) ------------------------
+
+class MyCompetitionsView(APIView):
+    """GET /affiliates/me/competitions/ — running, upcoming and recent competitions with my progress."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from . import competitions
+        player, denied = _player_or_403(request)
+        if denied:
+            return denied
+        affiliate = services.get_for_player(player.id)
+        if affiliate is None or affiliate.status != Affiliate.Status.ACTIVE:
+            return Response({'competitions': []})
+        competitions.award_due()
+        return Response({'competitions': competitions.for_agent(affiliate)})
+
+
+class AdminCompetitionsView(APIView):
+    """GET — every competition (newest first); POST — create one."""
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        from . import competitions
+        from .models import AffiliateCompetition
+        competitions.award_due()
+        return Response({'competitions': [competitions.competition_row(c) for c in AffiliateCompetition.objects.all()[:100]]})
+
+    def post(self, request):
+        from . import competitions
+        try:
+            c = competitions.save(request.data, by=request.user.get_username())
+        except competitions.CompetitionError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        competitions.award_due()
+        return Response(competitions.competition_row(c, standings=True), status=status.HTTP_201_CREATED)
+
+
+class AdminCompetitionView(APIView):
+    """GET — one competition with every agent's standing; PATCH — edit; DELETE — remove (only before any prize)."""
+    permission_classes = [IsAdminUser]
+
+    def _get(self, pk):
+        from .models import AffiliateCompetition
+        return AffiliateCompetition.objects.filter(pk=pk).first()
+
+    def get(self, request, pk: int):
+        from . import competitions
+        c = self._get(pk)
+        if c is None:
+            return Response({'detail': 'not found'}, status=status.HTTP_404_NOT_FOUND)
+        competitions.award_due()
+        return Response(competitions.competition_row(c, standings=True))
+
+    def patch(self, request, pk: int):
+        from . import competitions
+        c = self._get(pk)
+        if c is None:
+            return Response({'detail': 'not found'}, status=status.HTTP_404_NOT_FOUND)
+        try:
+            c = competitions.save(request.data, by=request.user.get_username(), competition=c)
+        except competitions.CompetitionError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(competitions.competition_row(c, standings=True))
+
+    def delete(self, request, pk: int):
+        c = self._get(pk)
+        if c is None:
+            return Response({'detail': 'not found'}, status=status.HTTP_404_NOT_FOUND)
+        if c.awards.exists():
+            return Response({'detail': 'Prizes were paid for this competition: switch it off instead.'},
+                            status=status.HTTP_409_CONFLICT)
+        accounts_services.audit(None, 'affiliate_competition_deleted', request, competition=c.id, name=c.name)
+        c.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class AdminAdjustLockedView(APIView):
+    """POST /admin/affiliates/<id>/adjust-locked/ {amount (+ to add, - to take), reason}."""
+    permission_classes = [IsAdminUser]
+
+    def post(self, request, pk: int):
+        from . import competitions
+        affiliate = Affiliate.objects.filter(pk=pk).first()
+        if affiliate is None:
+            return Response({'detail': 'not found'}, status=status.HTTP_404_NOT_FOUND)
+        try:
+            competitions.adjust_locked(affiliate, request.data.get('amount'), reason=request.data.get('reason', ''),
+                                       by=request.user.get_username(), request=request)
+        except competitions.CompetitionError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({k: str(v) if v is not None else None for k, v in services.balance(affiliate).items()})

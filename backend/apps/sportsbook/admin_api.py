@@ -176,7 +176,7 @@ class AdminLeagueSerializer(serializers.ModelSerializer):
     class Meta:
         model = LeagueSetting
         fields = ['id', 'provider', 'league_id', 'name', 'country', 'logo_url', 'flag_url',
-                  'enabled', 'sort_order', 'upcoming_count']
+                  'enabled', 'sort_order', 'top_events', 'upcoming_count']
         read_only_fields = ['id', 'provider', 'upcoming_count']
         extra_kwargs = {'league_id': {'required': False}}
         # league_id is filled in for hand-added leagues, so skip the
@@ -193,7 +193,7 @@ class AdminLeagueSerializer(serializers.ModelSerializer):
 
 
 class AdminLeagueViewSet(viewsets.ModelViewSet):
-    """/api/admin/sportsbook/leagues/ — ?search=, ?enabled=true|false, ?country="""
+    """/api/admin/sportsbook/leagues/ — ?search=, ?enabled=true|false, ?top=true|false, ?country="""
     serializer_class = AdminLeagueSerializer
     permission_classes = [IsAdminUser]
     pagination_class = AdminPagination
@@ -208,6 +208,8 @@ class AdminLeagueViewSet(viewsets.ModelViewSet):
                            else Q(name__icontains=q) | Q(country__icontains=q))
         if p.get('enabled') in ('true', 'false'):
             qs = qs.filter(enabled=p['enabled'] == 'true')
+        if p.get('top') in ('true', 'false'):
+            qs = qs.filter(top_events=p['top'] == 'true')
         if (country := p.get('country')):
             qs = qs.filter(country__iexact=country)
         return qs.order_by('sort_order', 'country', 'name')
@@ -221,11 +223,12 @@ class AdminLeagueViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['post'])
     def bulk(self, request):
-        """{ids: [...], enabled: bool} — switch many leagues on or off at once."""
+        """{ids: [...], enabled: bool} or {ids: [...], top_events: bool} — change many leagues at once."""
         ids = [int(i) for i in request.data.get('ids', []) if str(i).isdigit()]
-        if not ids or not isinstance(request.data.get('enabled'), bool):
-            return Response({'detail': 'Send ids and enabled.'}, status=status.HTTP_400_BAD_REQUEST)
-        updated = LeagueSetting.objects.filter(pk__in=ids).update(enabled=request.data['enabled'])
+        changes = {k: request.data[k] for k in ('enabled', 'top_events') if isinstance(request.data.get(k), bool)}
+        if not ids or not changes:
+            return Response({'detail': 'Send ids and enabled or top_events.'}, status=status.HTTP_400_BAD_REQUEST)
+        updated = LeagueSetting.objects.filter(pk__in=ids).update(**changes)
         return Response({'updated': updated})
 
     @action(detail=False, methods=['get'])

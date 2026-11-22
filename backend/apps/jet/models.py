@@ -16,6 +16,10 @@ from django.db import models
 from apps.wallet.models.wallet import Bucket
 
 
+def default_rotation_steps() -> list:
+    return [{'edge': str(v), 'on': True} for v in (5, 10, 15, 20, 25, 30, 35, 40, 45, 50)]
+
+
 class JetSettings(models.Model):
     """Operator settings (one row). Every limit here is shown to players."""
     enabled = models.BooleanField(default=True)
@@ -47,6 +51,14 @@ class JetSettings(models.Model):
     # Most the rains may give away per day, in free-bet value.
     rain_daily_budget = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('50.00'))
     last_rain_at = models.DateTimeField(null=True, blank=True)
+    # House edge by time of day / day of week (JetEdgeRule). Off: house_edge_percent always.
+    edge_schedule_enabled = models.BooleanField(default=False)
+    # Rotation: the edge steps through these percentages, one every N minutes, round
+    # the clock (edge_schedule.rotation_slot). On, it takes priority over the windows.
+    edge_rotation_enabled = models.BooleanField(default=False)
+    edge_rotation_minutes = models.PositiveSmallIntegerField(default=5)
+    # The steps in order: [{"edge": "5", "on": true}, …]. Only steps switched on are used.
+    edge_rotation_steps = models.JSONField(default=default_rotation_steps, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
     updated_by = models.CharField(max_length=150, blank=True)
 
@@ -72,6 +84,8 @@ class JetRound(models.Model):
     seed_hash = models.CharField(max_length=64)
     crash_point = models.DecimalField(max_digits=10, decimal_places=2)
     house_edge_percent = models.DecimalField(max_digits=4, decimal_places=2)
+    # The schedule rule that set this round's edge ('' = the standard edge).
+    edge_rule = models.CharField(max_length=60, blank=True, default='')
     betting_ends_at = models.DateTimeField()
     started_at = models.DateTimeField(null=True, blank=True)
     crashed_at = models.DateTimeField(null=True, blank=True)
@@ -86,6 +100,32 @@ class JetRound(models.Model):
 
     def __str__(self) -> str:
         return f'Round {self.id} ({self.status})'
+
+
+class JetEdgeRule(models.Model):
+    """A time window with its own house edge (edge_schedule.py). Only the time
+    and day decide it — never results, takings or who is playing — and it's
+    fixed on each round when the round opens, before any bet, and published
+    with the round, so every crash point stays provably fair. The first enabled
+    rule (by sort order) that covers the moment wins; none: the standard edge."""
+    name = models.CharField(max_length=60, blank=True, default='')
+    # Days the window starts on, Monday = 0 … Sunday = 6, e.g. "01234" for weekdays.
+    days = models.CharField(max_length=7, default='0123456')
+    starts = models.TimeField()
+    # An end at or before the start runs past midnight into the next day.
+    ends = models.TimeField()
+    house_edge_percent = models.DecimalField(max_digits=4, decimal_places=2)
+    enabled = models.BooleanField(default=True)
+    sort_order = models.PositiveSmallIntegerField(default=100)
+    updated_by = models.CharField(max_length=150, blank=True, default='')
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'jet_edge_rule'
+        ordering = ['sort_order', 'id']
+
+    def __str__(self) -> str:
+        return self.name or f'{self.starts:%H:%M}–{self.ends:%H:%M}'
 
 
 class JetBet(models.Model):

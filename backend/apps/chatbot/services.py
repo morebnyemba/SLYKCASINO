@@ -117,10 +117,13 @@ def daily_cap(link: ChatLink) -> Decimal:
 
 def local_tz():
     """The players' time zone for chat (kick-off times, the daily limit's day)."""
-    from zoneinfo import ZoneInfo
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-    from django.conf import settings
-    return ZoneInfo(getattr(settings, 'CHATBOT_TIME_ZONE', '') or 'Africa/Harare')
+    from . import config
+    try:
+        return ZoneInfo(config.value('time_zone'))
+    except (ZoneInfoNotFoundError, ValueError):
+        return ZoneInfo('Africa/Harare')
 
 
 def staked_today(player_id: int, *, channel: str = WHATSAPP) -> Decimal:

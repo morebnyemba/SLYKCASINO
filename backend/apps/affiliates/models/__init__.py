@@ -1,6 +1,7 @@
 from .affiliate import (
-    Affiliate, AffiliateClick, AffiliateProgramme, Commission, CommissionReversal, NetLossDay, Payout, Referral, RevshareMonth,
+    Affiliate, AffiliateClick, AffiliateCompetition, AffiliateProgramme, Commission, CommissionReversal, CompetitionAward,
+    NetLossDay, Payout, Referral, RevshareMonth,
 )
 
-__all__ = ['Affiliate', 'AffiliateClick', 'AffiliateProgramme', 'Commission', 'CommissionReversal', 'NetLossDay', 'Payout', 'Referral',
-           'RevshareMonth']
+__all__ = ['Affiliate', 'AffiliateClick', 'AffiliateCompetition', 'AffiliateProgramme', 'Commission', 'CommissionReversal',
+           'CompetitionAward', 'NetLossDay', 'Payout', 'Referral', 'RevshareMonth']

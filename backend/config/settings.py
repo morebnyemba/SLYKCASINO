@@ -66,6 +66,7 @@ MIDDLEWARE = [
     # Two missed weekly pool audits in a row make the whole admin read-only.
     # Revenue-share settings change only when every partner co-signs.
     'config.middleware.SettingsCosignMiddleware',
+    'config.middleware.RevenueLockMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
@@ -410,6 +411,11 @@ CELERY_BEAT_SCHEDULE = {
         # also paid the moment it is final). No-op when automatic payout is off.
         'schedule': 300.0,
     },
+    'affiliates-award-competitions': {
+        'task': 'apps.affiliates.tasks.award_competitions',
+        # Competition prizes to agents who reached a target.
+        'schedule': 900.0,
+    },
     'affiliates-credit-losing-tickets': {
         'task': 'apps.affiliates.tasks.credit_losing_tickets',
         # Each losing ticket's agent commission, 3 minutes after it settles.
@@ -571,12 +577,18 @@ JAZZMIN_UI_TWEAKS = {
 
 
 # -- WhatsApp betting bot (apps.chatbot): Meta WhatsApp Business Cloud API ---------
+# Each can be set (and overridden) in Admin → WhatsApp bot; these are the fallbacks.
+# CHATBOT_SECRET_KEY encrypts the secrets saved there (default: derived from DJANGO_SECRET_KEY).
+CHATBOT_SECRET_KEY = os.environ.get('CHATBOT_SECRET_KEY', '')
 WHATSAPP_TOKEN = os.environ.get('WHATSAPP_TOKEN', '')
 WHATSAPP_PHONE_NUMBER_ID = os.environ.get('WHATSAPP_PHONE_NUMBER_ID', '')
 WHATSAPP_APP_SECRET = os.environ.get('WHATSAPP_APP_SECRET', '')
 WHATSAPP_VERIFY_TOKEN = os.environ.get('WHATSAPP_VERIFY_TOKEN', '')
-WHATSAPP_GRAPH_VERSION = os.environ.get('WHATSAPP_GRAPH_VERSION', 'v21.0')
+WHATSAPP_GRAPH_VERSION = os.environ.get('WHATSAPP_GRAPH_VERSION', '')  # default v21.0 (apps.chatbot.config)
 # The bot's number as players should save it (shown on the website), e.g. +263 77 123 4567.
 WHATSAPP_DISPLAY_NUMBER = os.environ.get('WHATSAPP_DISPLAY_NUMBER', '')
 # Kick-off times in chat are written in the players' local time (the server runs on UTC).
-CHATBOT_TIME_ZONE = os.environ.get('CHATBOT_TIME_ZONE', 'Africa/Harare')
+CHATBOT_TIME_ZONE = os.environ.get('CHATBOT_TIME_ZONE', '')  # default Africa/Harare (apps.chatbot.config)
+
+# Players' local time zone, for time-of-day settings such as the Aviator house edge schedule.
+PLAYER_TIME_ZONE = os.environ.get('PLAYER_TIME_ZONE', 'Africa/Harare')

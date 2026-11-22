@@ -17,7 +17,7 @@ class TeamSerializer(serializers.ModelSerializer):
 class LeagueSerializer(serializers.ModelSerializer):
     class Meta:
         model = LeagueSetting
-        fields = ['id', 'name', 'country', 'logo_url', 'flag_url', 'sort_order']
+        fields = ['id', 'name', 'country', 'logo_url', 'flag_url', 'sort_order', 'top_events']
 
 
 class MarketOutcomeSerializer(serializers.ModelSerializer):

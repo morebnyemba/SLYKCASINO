@@ -5,7 +5,7 @@ import { SportsbookBrowser } from '@/components/sportsbook-browser';
 import { SportsbookHero } from '@/components/sportsbook-hero';
 import type { Banner } from '@/components/banner-slider';
 import { apiGet, apiGetAll } from '@/lib/config';
-import { isLive, slimEvent, sortEvents, type EventItem } from '@/lib/sports';
+import { isLive, slimEvent, sortEvents, type EventItem, isTopEvent } from '@/lib/sports';
 import { SEO_SPORTS, social } from '@/lib/seo';
 
 type PageProps = { searchParams: Promise<{ sport?: string; tab?: string }> };
@@ -70,7 +70,8 @@ export default async function SportsbookPage({ searchParams }: PageProps) {
   // Fixtures the bookmaker hasn't priced yet aren't bettable, so they stay off the board.
   const awaitingOdds = Number(unpriced.count ?? 0);
   const open = events.filter((ev) => ev.is_open !== false);
-  const featured = sortEvents(open.filter((ev) => ev.featured)).slice(0, 8);
+  // Hand-featured matches first, then matches from the leagues ticked for Top Events.
+  const featured = [...sortEvents(open.filter((ev) => ev.featured)), ...sortEvents(open.filter((ev) => !ev.featured && isTopEvent(ev)))].slice(0, 8);
   const topMatches = featured.length > 0 ? featured : sortEvents(open).slice(0, 8);
 
   return (

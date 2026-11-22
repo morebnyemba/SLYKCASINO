@@ -20,6 +20,9 @@ class LeagueSetting(models.Model):
     # Lower shows first; the big competitions are seeded with low numbers and
     # everything else follows alphabetically. Editable in Django admin.
     sort_order = models.PositiveIntegerField(default=1000)
+    # Ticked in the admin (Leagues → Top events): this league's upcoming and live
+    # matches appear on the sportsbook's Top Events tab.
+    top_events = models.BooleanField(default=False, db_index=True)
 
     class Meta:
         db_table = 'sportsbook_league_setting'

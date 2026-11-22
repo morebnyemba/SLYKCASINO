@@ -1,7 +1,7 @@
 from django.urls import path
 from rest_framework.routers import SimpleRouter
 
-from .views import AdminAffiliateViewSet, AdminPayoutViewSet, AdminProgrammeView, MyPayoutsView, AdminCommissionViewSet, ClickView, MyAffiliateAnalyticsView, MyAffiliateView, MyCustomersView, MyCustomerTicketsView, MyHistoryView, MyReportView, TermsView
+from .views import AdminAdjustLockedView, AdminCompetitionView, AdminCompetitionsView, MyCompetitionsView, AdminAffiliateViewSet, AdminPayoutViewSet, AdminProgrammeView, MyPayoutsView, AdminCommissionViewSet, ClickView, MyAffiliateAnalyticsView, MyAffiliateView, MyCustomersView, MyCustomerTicketsView, MyHistoryView, MyReportView, TermsView
 
 router = SimpleRouter()
 router.register('admin/affiliates', AdminAffiliateViewSet, basename='admin-affiliate')
@@ -16,6 +16,10 @@ urlpatterns = [
     path('affiliates/me/customers/', MyCustomersView.as_view(), name='affiliate-customers'),
     path('affiliates/me/history/', MyHistoryView.as_view(), name='affiliate-history'),
     path('affiliates/me/analytics/', MyAffiliateAnalyticsView.as_view(), name='affiliate-analytics'),
+    path('affiliates/me/competitions/', MyCompetitionsView.as_view(), name='affiliate-competitions'),
+    path('admin/affiliate-competitions/', AdminCompetitionsView.as_view(), name='admin-affiliate-competitions'),
+    path('admin/affiliate-competitions/<int:pk>/', AdminCompetitionView.as_view(), name='admin-affiliate-competition'),
+    path('admin/affiliates/<int:pk>/adjust-locked/', AdminAdjustLockedView.as_view(), name='admin-affiliate-adjust'),
     path('affiliates/terms/', TermsView.as_view(), name='affiliate-terms'),
     path('affiliates/click/', ClickView.as_view(), name='affiliate-click'),
     path('admin/affiliate-programme/', AdminProgrammeView.as_view(), name='admin-affiliate-programme'),

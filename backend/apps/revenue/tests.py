@@ -98,7 +98,8 @@ class CloseDayTests(Base):
             services.close_days(today=self.today)                         # the last 2 at 5%
         self.assertEqual(self.balance(0), D('300.00'))
         self.assertEqual(self.balance(1), D('400.00'))
-        self.assertEqual(RevenueDay.objects.order_by('-day').first().pool, D('750.00'))   # the 5% given up goes to the pool
+        last = RevenueDay.objects.order_by('-day').first()
+        self.assertEqual((last.savings, last.pool), (D('50.00'), D('700.00')))     # the 5% given up goes to savings
 
     def test_ggr_comes_from_the_player_ledger(self):
         from apps.accounts import services as accounts

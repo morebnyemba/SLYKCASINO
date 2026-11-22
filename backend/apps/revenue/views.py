@@ -353,8 +353,7 @@ def _shares_payload(user) -> dict:
         'price': shares.price_per_percent(),
         'wallets': [{'slot': w.slot, 'label': w.label or f'Partner {w.slot}', 'holder': w.holder.get_username() if w.holder else None,
                      'holder_id': w.holder_id, 'percent': str(w.percent),
-                     # Another controller's share: even a controller needs its holder's consent.
-                     'protected': bool(w.holder and shares.is_controller(w.holder))}
+                     'protected': False}                    # no change needs anyone's approval any more
                     for w in ShareWallet.all_wallets() if sees_all or w.percent > 0],
         'sales': [shares.sale_row(s) for s in sales[:50]],
         'changes': [shares.change_row(c) for c in changes[:50]],
@@ -406,8 +405,8 @@ class ShareQuoteView(APIView):
 
 
 class ShareActionView(APIView):
-    """POST /shares/<action>/ — set, transfer, buy, sale (record), settings,
-    buyer-add, buyer-remove. Rules live in revenue.shares."""
+    """POST /shares/<action>/ — set, buy, sale (record), settings,
+    buyer-add, buyer-remove, member-add. Rules live in revenue.shares."""
     permission_classes = [IsAdminUser]
 
     def post(self, request, action: str):
@@ -418,8 +417,6 @@ class ShareActionView(APIView):
                                             reason=d.get('reason', ''), for_sale=d.get('for_sale', True) not in (False, 'false', 0, '0'),
                                             request=request),
             'reclaim': lambda: shares.reclaim_release(int(d.get('release_id') or 0), by_user=u, request=request),
-            'transfer': lambda: shares.transfer_wallet(slot=int(d.get('slot') or 0), new_holder_id=d.get('new_holder_id'),
-                                                       by_user=u, reason=d.get('reason', ''), request=request),
             'buy': lambda: shares.request_purchase(by_user=u, percent=d.get('percent'),
                                                   accepted_agreement=d.get('accepted_agreement', False), request=request),
             'sale': lambda: shares.record_sale(buyer_id=d.get('buyer_id'), percent=d.get('percent'), price=d.get('price'),
@@ -432,6 +429,8 @@ class ShareActionView(APIView):
                                                              signer_min_percent=d.get('signer_min_percent'),
                                                              seller_percent=d.get('seller_percent'), by_user=u, request=request),
             'buyer-add': lambda: shares.approve_buyer(user_id=d.get('user_id'), by_user=u, request=request),
+            'member-add': lambda: shares.add_member(user_id=d.get('user_id'), percent=d.get('percent', '0'),
+                                                    label=d.get('label', ''), by_user=u, request=request),
             'buyer-remove': lambda: shares.remove_buyer(user_id=d.get('user_id'), by_user=u, request=request),
         }
         if action not in actions:
@@ -471,3 +470,54 @@ class ShareChangeDecideView(APIView):
         err = _run(lambda: shares.decide_change(pk, by_user=request.user, approve=bool(request.data.get('approve')),
                                                 note=request.data.get('note', ''), request=request))
         return err or Response(_shares_payload(request.user))
+
+
+class RevenueLockView(APIView):
+    """GET — is the revenue share password-locked, by whom, and is it open for me.
+    POST {password, current?} — the founder sets or changes the password.
+    DELETE {password} — the founder removes the lock."""
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        from . import lock
+        return Response(lock.status_for(request.user))
+
+    def post(self, request):
+        from . import lock
+        err = _run(lambda: lock.set_password(request.user, str(request.data.get('password') or ''),
+                                             current=str(request.data.get('current') or ''), request=request))
+        return err or Response(lock.status_for(request.user))
+
+    def delete(self, request):
+        from . import lock
+        err = _run(lambda: lock.remove(request.user, str(request.data.get('password') or ''), request=request))
+        return err or Response(lock.status_for(request.user))
+
+
+class RevenueUnlockView(APIView):
+    """POST {password} — open the locked revenue share for this login; POST {close: true} — lock it again for me."""
+    permission_classes = [IsAdminUser]
+
+    def post(self, request):
+        from . import lock
+        if request.data.get('close'):
+            lock.close(request.user)
+            return Response(lock.status_for(request.user))
+        err = _run(lambda: lock.unlock(request.user, str(request.data.get('password') or ''), request=request))
+        return err or Response(lock.status_for(request.user))
+
+
+class SavingsView(APIView):
+    """GET — the Savings account (the unheld part of the partner pool, kept for future use).
+    POST {amount, note} — record money taken out of it (superuser or share controller)."""
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        if not audit.can_view(request.user):
+            return _forbidden('The savings account is visible to superusers and shareholders only.')
+        return Response(services.savings_summary())
+
+    def post(self, request):
+        err = _run(lambda: services.use_savings(amount=request.data.get('amount'), note=request.data.get('note', ''),
+                                                by_user=request.user, request=request))
+        return err or Response(services.savings_summary())

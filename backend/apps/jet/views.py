@@ -371,3 +371,166 @@ class AdminPlayerBetsView(APIView):
             'summary': {'bets': agg['n'] or 0, 'staked': f'{staked:.2f}', 'won': f'{won:.2f}',
                         'net': f'{(won - staked):.2f}'},
         })
+
+
+# -- house edge schedule (edge_schedule.py) ----------------------------------------
+
+def _rule_row(r) -> dict:
+    from . import edge_schedule
+    return {'id': r.id, 'name': r.name, 'days': r.days, 'days_label': edge_schedule.describe_days(r.days),
+            'starts': r.starts.strftime('%H:%M'), 'ends': r.ends.strftime('%H:%M'),
+            'overnight': r.ends <= r.starts, 'house_edge_percent': str(r.house_edge_percent),
+            'rtp_percent': str(Decimal('100') - r.house_edge_percent), 'enabled': r.enabled,
+            'sort_order': r.sort_order, 'updated_by': r.updated_by}
+
+
+def _schedule_payload() -> dict:
+    from . import edge_schedule
+    from .models import JetEdgeRule
+    cfg = JetSettings.load()
+    edge, source = edge_schedule.current(cfg=cfg)
+    try:
+        steps = edge_schedule.parse_steps(cfg.edge_rotation_steps)
+    except ValueError:
+        steps = []
+    active = [Decimal(st['edge']) for st in steps if st['on']]
+    avg = (sum(active) / len(active)).quantize(Decimal('0.01')) if active else None
+    return {
+        'enabled': cfg.edge_schedule_enabled, 'time_zone': str(edge_schedule.tz()),
+        'standard_edge_percent': str(cfg.house_edge_percent),
+        'rotation': {'enabled': cfg.edge_rotation_enabled, 'minutes': cfg.edge_rotation_minutes, 'steps': steps,
+                     'active': len(active),
+                     'average_edge_percent': str(avg) if avg is not None else None,
+                     'average_rtp_percent': str(Decimal('100') - avg) if avg is not None else None},
+        'now': {'house_edge_percent': str(edge), 'rtp_percent': str(Decimal('100') - edge), 'rule': source},
+        'next_change': edge_schedule.upcoming(cfg=cfg),
+        'rules': [_rule_row(r) for r in JetEdgeRule.objects.all()],
+    }
+
+
+def _rule_values(data, rule=None) -> dict:
+    """Validated fields for a rule from the request (partial for an edit)."""
+    from datetime import datetime as dt
+    out, problems = {}, []
+    if 'name' in data:
+        out['name'] = str(data['name'] or '').strip()[:60]
+    if 'days' in data or rule is None:
+        days = ''.join(sorted({ch for ch in str(data.get('days') or '') if ch in '0123456'}))
+        if not days:
+            problems.append('Pick at least one day.')
+        out['days'] = days
+    for field in ('starts', 'ends'):
+        if field in data or rule is None:
+            try:
+                out[field] = dt.strptime(str(data.get(field) or ''), '%H:%M').time()
+            except ValueError:
+                problems.append(f'Enter the {"start" if field == "starts" else "end"} time as HH:MM.')
+    if 'house_edge_percent' in data or rule is None:
+        try:
+            edge = Decimal(str(data.get('house_edge_percent'))).quantize(engine.CENT)
+            if not Decimal('0') <= edge <= Decimal('50'):
+                raise ArithmeticError
+            out['house_edge_percent'] = edge
+        except (ArithmeticError, ValueError, TypeError):
+            problems.append('The house edge must be between 0% and 50%.')
+    if 'enabled' in data:
+        out['enabled'] = bool(data['enabled'])
+    if 'sort_order' in data:
+        try:
+            out['sort_order'] = max(0, min(int(data['sort_order']), 32000))
+        except (TypeError, ValueError):
+            problems.append('The order is a whole number.')
+    if problems:
+        raise ValueError(' '.join(problems))
+    return out
+
+
+class AdminEdgeScheduleView(APIView):
+    """GET/PUT /api/admin/jet/edge-schedule/ — the schedule, the edge in force now
+    and when it next changes; PUT {enabled} switches the schedule on or off."""
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        return Response(_schedule_payload())
+
+    def put(self, request):
+        """{enabled} switches the time windows; {rotation: {enabled, minutes, values}} the rotation."""
+        from . import edge_schedule
+        cfg = JetSettings.load()
+        fields = []
+        if 'enabled' in request.data:
+            cfg.edge_schedule_enabled = bool(request.data['enabled'])
+            fields.append('edge_schedule_enabled')
+        rot = request.data.get('rotation')
+        if isinstance(rot, dict):
+            if 'steps' in rot or 'values' in rot:
+                try:
+                    steps = edge_schedule.parse_steps(rot['steps'] if 'steps' in rot else str(rot['values'] or ''))
+                except ValueError as exc:
+                    return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+                cfg.edge_rotation_steps = steps
+                fields.append('edge_rotation_steps')
+            if 'minutes' in rot:
+                try:
+                    minutes = int(rot['minutes'])
+                except (TypeError, ValueError):
+                    minutes = 0
+                if not 1 <= minutes <= 1440:
+                    return Response({'detail': 'The rotation steps every 1 to 1440 minutes.'}, status=status.HTTP_400_BAD_REQUEST)
+                cfg.edge_rotation_minutes = minutes
+                fields.append('edge_rotation_minutes')
+            if 'enabled' in rot:
+                cfg.edge_rotation_enabled = bool(rot['enabled'])
+                fields.append('edge_rotation_enabled')
+        if fields:
+            cfg.updated_by = request.user.get_username()[:150]
+            cfg.save(update_fields=[*fields, 'updated_by', 'updated_at'])
+            accounts_services.audit(None, 'jet_edge_schedule', request, windows=cfg.edge_schedule_enabled,
+                                    rotation=cfg.edge_rotation_enabled, rotation_minutes=cfg.edge_rotation_minutes,
+                                    rotation_steps=','.join(f"{st['edge']}{'' if st['on'] else ' (off)'}" for st in edge_schedule.parse_steps(cfg.edge_rotation_steps)))
+        return Response(_schedule_payload())
+
+
+class AdminEdgeRuleView(APIView):
+    """POST /api/admin/jet/edge-schedule/rules/ adds a rule; PATCH/DELETE …/rules/<id>/."""
+    permission_classes = [IsAdminUser]
+
+    def post(self, request):
+        from .models import JetEdgeRule
+        try:
+            values = _rule_values(request.data)
+        except ValueError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        rule = JetEdgeRule.objects.create(**values, updated_by=request.user.get_username()[:150])
+        accounts_services.audit(None, 'jet_edge_rule', request, action='add', **_audit(rule))
+        return Response(_schedule_payload(), status=status.HTTP_201_CREATED)
+
+    def patch(self, request, pk: int):
+        from .models import JetEdgeRule
+        rule = JetEdgeRule.objects.filter(pk=pk).first()
+        if rule is None:
+            return Response({'detail': 'Rule not found.'}, status=status.HTTP_404_NOT_FOUND)
+        try:
+            values = _rule_values(request.data, rule)
+        except ValueError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        for k, v in values.items():
+            setattr(rule, k, v)
+        rule.updated_by = request.user.get_username()[:150]
+        rule.save()
+        accounts_services.audit(None, 'jet_edge_rule', request, action='edit', **_audit(rule))
+        return Response(_schedule_payload())
+
+    def delete(self, request, pk: int):
+        from .models import JetEdgeRule
+        rule = JetEdgeRule.objects.filter(pk=pk).first()
+        if rule is None:
+            return Response({'detail': 'Rule not found.'}, status=status.HTTP_404_NOT_FOUND)
+        accounts_services.audit(None, 'jet_edge_rule', request, action='delete', **_audit(rule))
+        rule.delete()
+        return Response(_schedule_payload())
+
+
+def _audit(rule) -> dict:
+    return {'rule': rule.id, 'name': rule.name, 'days': rule.days, 'starts': rule.starts.strftime('%H:%M'),
+            'ends': rule.ends.strftime('%H:%M'), 'house_edge': str(rule.house_edge_percent), 'enabled': rule.enabled}

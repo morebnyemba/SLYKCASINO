@@ -15,7 +15,7 @@ import { ShareLink } from '@/components/affiliate/share-link';
 
 interface Commission {
   id: number;
-  kind: 'stake' | 'netloss' | 'revshare' | 'cpa';
+  kind: 'stake' | 'netloss' | 'revshare' | 'cpa' | 'prize' | 'adjust';
   period: string | null;
   ticket?: string;
   base_amount: string;
@@ -246,6 +246,12 @@ function commissionText(c: Commission) {
   if (c.kind === 'stake') {
     return { title: `Losing ticket ${c.ticket ?? ''} · ${dayLabel(c.period)}`, sub: `${pct(c.rate)} of the ${money(c.base_amount)} stake` };
   }
+  if (c.kind === 'prize') {
+    return { title: `🏆 ${c.note.replace(/^Competition:\s*/, '') || 'Competition prize'}`, sub: 'Competition prize, added to your locked balance' };
+  }
+  if (c.kind === 'adjust') {
+    return { title: Number(c.amount) < 0 ? 'Balance adjustment' : 'Bonus added by the team', sub: c.note || 'Adjusted by the team' };
+  }
   if (c.kind === 'cpa' && c.note.startsWith(REVERSED)) {
     return { title: 'New customer bonus · reversed', sub: 'The customer didn’t play their first deposit through with their own money' };
   }
@@ -332,8 +338,8 @@ function EarningsList() {
                   <p className="text-xs text-muted-foreground">{t.sub}</p>
                 </div>
                 <div className="shrink-0 text-right">
-                  <p className={`font-bold tabular-nums ${rejected ? 'text-muted-foreground line-through' : 'text-win'}`}>
-                    {rejected ? money(c.amount) : `+${money(c.amount)}`}
+                  <p className={`font-bold tabular-nums ${rejected ? 'text-muted-foreground line-through' : Number(c.amount) < 0 ? 'text-destructive' : 'text-win'}`}>
+                    {rejected ? money(c.amount) : Number(c.amount) < 0 ? signedMoney(c.amount) : `+${money(c.amount)}`}
                   </p>
                   <p className="text-[11px] font-semibold text-muted-foreground">{STATUS_LABEL[c.status]}</p>
                 </div>
@@ -383,6 +389,73 @@ function WithdrawalsList({ min }: { min: number }) {
       )}
       <PagerBar page={page} count={data?.count ?? 0} onPage={setPage} />
     </div>
+  );
+}
+
+interface CompetitionView {
+  id: number; name: string; description: string; starts_on: string; ends_on: string; target_customers: number;
+  target_deposits: string; min_customer_deposit: string; prize: string; status: 'upcoming' | 'running' | 'ended' | 'off';
+  my: { customers: number; deposits: string; reached: boolean; percent: number }; won: boolean;
+}
+
+function Bar({ label, value, target, text }: { label: string; value: number; target: number; text: string }) {
+  const pctDone = Math.min(100, Math.round((value / target) * 100));
+  return (
+    <div>
+      <div className="flex items-center justify-between text-xs">
+        <span className="text-muted-foreground">{label}</span>
+        <span className="font-semibold tabular-nums">{text}</span>
+      </div>
+      <div className="mt-1 h-2 overflow-hidden rounded-full bg-muted" role="progressbar" aria-valuenow={pctDone} aria-valuemin={0} aria-valuemax={100} aria-label={label}>
+        <div className={`h-full rounded-full ${pctDone >= 100 ? 'bg-win' : 'bg-secondary'}`} style={{ width: `${pctDone}%` }} />
+      </div>
+    </div>
+  );
+}
+
+/** Competitions set by the team: targets for new customers and/or their deposits, with the agent's own progress.
+ *  The prize is added automatically to the locked balance when a target is reached. */
+function Competitions() {
+  const { data } = useApi<{ competitions: CompetitionView[] }>('/affiliates/me/competitions/');
+  const list = (data?.competitions ?? []).filter((c) => c.status !== 'off');
+  if (list.length === 0) return null;
+  const day = (iso: string) => new Date(`${iso}T00:00:00`).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+  return (
+    <section>
+      <h2 className="mb-2 text-sm font-bold">Competitions</h2>
+      <div className="grid gap-3 lg:grid-cols-2">
+        {list.map((c) => (
+          <Card key={c.id} className={`rounded-2xl ${c.won ? 'border-win/50' : ''}`}>
+            <CardContent className="space-y-3 pt-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="font-extrabold">🏆 {c.name}</p>
+                  <p className="text-xs text-muted-foreground">{day(c.starts_on)} – {day(c.ends_on)} · {c.status === 'running' ? 'running now' : c.status === 'upcoming' ? 'starts soon' : 'ended'}</p>
+                </div>
+                <div className="shrink-0 text-right">
+                  <p className="text-lg font-extrabold tabular-nums text-win">{money(c.prize)}</p>
+                  <p className="text-[11px] text-muted-foreground">prize</p>
+                </div>
+              </div>
+              {c.description && <p className="text-xs text-muted-foreground">{c.description}</p>}
+              {c.target_customers > 0 && (
+                <Bar label={`New customers${Number(c.min_customer_deposit) > 0 ? ` (each deposits ${money(c.min_customer_deposit)}+)` : ''}`}
+                  value={c.my.customers} target={c.target_customers} text={`${c.my.customers} / ${c.target_customers}`} />
+              )}
+              {Number(c.target_deposits) > 0 && (
+                <Bar label="Your customers’ deposits" value={Number(c.my.deposits)} target={Number(c.target_deposits)}
+                  text={`${money(c.my.deposits)} / ${money(c.target_deposits)}`} />
+              )}
+              <p className={`text-xs font-semibold ${c.won ? 'text-win' : 'text-muted-foreground'}`}>
+                {c.won ? `✓ You won ${money(c.prize)}. It’s in your locked balance.`
+                  : c.status === 'ended' ? 'Ended without reaching the target.'
+                    : `${c.my.percent}% of the way. Reach every target and the ${money(c.prize)} is added to your locked balance automatically.`}
+              </p>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -588,6 +661,8 @@ function Dashboard({ a, refetch }: { a: Affiliate & { stats: Stats }; refetch: (
           </p>
         </CardContent>
       </Card>
+
+      <Competitions />
 
       {/* Activity */}
       <Card className="rounded-2xl">

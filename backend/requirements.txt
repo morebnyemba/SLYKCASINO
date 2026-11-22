@@ -19,3 +19,5 @@ pytest-django>=4.8
 factory-boy>=3.3
 # Banner images are resized to WebP for phones (promotions.views).
 Pillow>=10.4
+# WhatsApp bot secrets are stored encrypted (apps.chatbot.secrets, Fernet).
+cryptography>=43

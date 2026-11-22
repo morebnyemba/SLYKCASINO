@@ -23,6 +23,19 @@ class ChatbotSettings(models.Model):
     daily_cap = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('200.00'))
     # Stakes above this need the player's chat PIN (set on the website). 0 = every bet.
     pin_above = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('20.00'))
+
+    # -- the WhatsApp connection (Meta Cloud API), set in the admin. Blank = use
+    # the WHATSAPP_* value from .env.prod. Secrets are stored encrypted (secrets.py)
+    # and never sent back to the browser.
+    phone_number_id = models.CharField(max_length=32, blank=True, default='')
+    display_number = models.CharField(max_length=32, blank=True, default='')
+    graph_version = models.CharField(max_length=10, blank=True, default='')
+    time_zone = models.CharField(max_length=64, blank=True, default='')
+    token_enc = models.TextField(blank=True, default='')
+    app_secret_enc = models.TextField(blank=True, default='')
+    verify_token_enc = models.TextField(blank=True, default='')
+    connection_updated_by = models.CharField(max_length=150, blank=True, default='')
+    connection_updated_at = models.DateTimeField(null=True, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

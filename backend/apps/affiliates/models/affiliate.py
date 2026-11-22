@@ -87,6 +87,10 @@ class Commission(models.Model):
         NET_LOSS = 'netloss', 'Customers’ net loss (day)'
         REVSHARE = 'revshare', 'Revenue share'
         CPA = 'cpa', 'CPA'
+        # A competition prize (affiliates.competitions) — credited to the locked balance.
+        PRIZE = 'prize', 'Competition prize'
+        # Staff added to (positive) or took from (negative) the agent's locked balance.
+        ADJUST = 'adjust', 'Balance adjustment'
 
     class Status(models.TextChoices):
         PENDING = 'pending', 'Pending review'
@@ -339,3 +343,44 @@ class Payout(models.Model):
 
     def __str__(self) -> str:
         return f'payout {self.amount} via {self.method} for {self.affiliate_id} ({self.status})'
+
+
+class AffiliateCompetition(models.Model):
+    """A target agents race for in a date window (competitions.py): new customers,
+    their deposits, or both. Every agent who reaches it gets the prize once,
+    credited automatically to their locked balance."""
+    name = models.CharField(max_length=80)
+    description = models.CharField(max_length=300, blank=True, default='')
+    starts_on = models.DateField()
+    ends_on = models.DateField()
+    # Targets (0 = not used). With both set, both must be reached.
+    target_customers = models.PositiveIntegerField(default=0)
+    target_deposits = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    # A new customer counts only once they've deposited at least this much in the
+    # window (0 = every sign-up counts). Stops fake sign-ups winning prizes.
+    min_customer_deposit = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    prize = models.DecimalField(max_digits=12, decimal_places=2)
+    active = models.BooleanField(default=True)
+    created_by = models.CharField(max_length=150, blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'affiliates_competition'
+        ordering = ['-starts_on', '-id']
+
+    def __str__(self) -> str:
+        return self.name
+
+
+class CompetitionAward(models.Model):
+    """An agent reached a competition's target: its prize, paid once."""
+    competition = models.ForeignKey(AffiliateCompetition, on_delete=models.PROTECT, related_name='awards')
+    affiliate = models.ForeignKey(Affiliate, on_delete=models.PROTECT, related_name='competition_awards')
+    commission = models.OneToOneField(Commission, on_delete=models.PROTECT, related_name='competition_award')
+    customers = models.PositiveIntegerField(default=0)
+    deposits = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    awarded_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'affiliates_competition_award'
+        constraints = [models.UniqueConstraint(fields=['competition', 'affiliate'], name='one_award_per_agent_competition')]

@@ -30,7 +30,7 @@ class RevenueSettings(models.Model):
     # Optional weekly audits are listed from this week on (nothing is due; nothing locks).
     audits_from = models.DateField(null=True, blank=True)
     # Shares: the part of each day's GGR that belongs to shareholders (sold or held),
-    # split by each wallet's own `percent`; whatever isn't held goes to the pool.
+    # split by each wallet's own `percent`; whatever isn't held is saved in the Savings account.
     partner_pool_percent = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal('30.00'))
     # A share's price = this many months of what it earned over the last 30 days.
     price_months = models.PositiveSmallIntegerField(default=12)
@@ -38,6 +38,12 @@ class RevenueSettings(models.Model):
     signer_min_percent = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal('5.00'))
     # When share a holder released is sold, they get this much of the price; the house keeps the rest.
     seller_percent = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal('90.00'))
+    # Password lock (revenue.lock): while set, only `lock_owner` opens the revenue
+    # share; any other admin needs the password from them.
+    lock_hash = models.CharField(max_length=128, blank=True, default='')
+    lock_owner = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+                                   related_name='+')
+    lock_set_at = models.DateTimeField(null=True, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -99,6 +105,8 @@ class RevenueDay(models.Model):
     share_each = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     shared = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     pool = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    # The part of the partner pool no wallet held that day, kept in the Savings account.
+    savings = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     # Affiliate commissions that became final this day, charged to the pool.
     affiliate_costs = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     # Commissions charged on earlier days and since taken back (e.g. the CPA
@@ -455,3 +463,17 @@ class ShareRelease(models.Model):
     class Meta:
         db_table = 'revenue_share_release'
         ordering = ['created_at', 'id']
+
+
+class SavingsUse(models.Model):
+    """Money taken out of the Savings account (the unheld part of the partner
+    pool, saved for future use), recorded by a superuser or share controller."""
+    day = models.DateField()
+    amount = models.DecimalField(max_digits=14, decimal_places=2)
+    note = models.CharField(max_length=300)
+    recorded_by = models.CharField(max_length=150)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'revenue_savings_use'
+        ordering = ['-day', '-id']

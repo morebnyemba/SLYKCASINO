@@ -73,6 +73,9 @@ def round_payload(rnd: JetRound) -> dict:
         'crash_point': str(rnd.crash_point) if crashed else None,
         'server_seed': rnd.server_seed if crashed else None,
         'bet_count': rnd.bet_count, 'total_stake': str(rnd.total_stake),
+        # Public from the start: the edge this round's crash point is drawn with.
+        'house_edge_percent': str(rnd.house_edge_percent),
+        'rtp_percent': str(Decimal('100') - rnd.house_edge_percent),
     }
 
 
@@ -93,10 +96,13 @@ def bet_payload(bet: JetBet, *, mine: bool = False) -> dict:
 
 
 def settings_payload(cfg: JetSettings) -> dict:
+    from . import edge_schedule
+    edge, _ = edge_schedule.current(cfg=cfg)      # in force now (rounds opening now use it)
     return {
         'enabled': cfg.enabled, 'display_name': cfg.display_name,
-        'house_edge_percent': str(cfg.house_edge_percent),
-        'rtp_percent': str(Decimal('100') - cfg.house_edge_percent),
+        'house_edge_percent': str(edge),
+        'rtp_percent': str(Decimal('100') - edge),
+        'edge_scheduled': cfg.edge_schedule_enabled or cfg.edge_rotation_enabled,
         'min_bet': str(cfg.min_bet), 'max_bet': str(cfg.max_bet), 'max_win': str(cfg.max_win),
         'max_multiplier': str(cfg.max_multiplier), 'round_stake_limit': str(cfg.round_stake_limit),
         'betting_seconds': cfg.betting_seconds, 'rate': engine.RATE,
@@ -368,13 +374,16 @@ def open_round(*, now=None) -> JetRound:
     now = now or timezone.now()
     cfg = JetSettings.load()
     seed = engine.new_seed()
+    # The edge is fixed here, before any bet, by the clock alone (edge_schedule), and published with the round.
+    from . import edge_schedule
+    edge, source = edge_schedule.current(now, cfg=cfg)
     rnd = JetRound.objects.create(
         server_seed=seed, seed_hash=engine.seed_hash(seed), crash_point=engine.ONE,
-        house_edge_percent=cfg.house_edge_percent,
+        house_edge_percent=edge, edge_rule=source[:60],
         betting_ends_at=now + timedelta(seconds=cfg.betting_seconds),
     )
     # The crash point is derived from the round id, so it's fixed once the row exists.
-    rnd.crash_point = engine.crash_point(seed, rnd.id, cfg.house_edge_percent, cfg.max_multiplier)
+    rnd.crash_point = engine.crash_point(seed, rnd.id, edge, cfg.max_multiplier)
     rnd.save(update_fields=['crash_point'])
     publish({'type': 'round', 'round': round_payload(rnd), 'server_time': iso(now)})
     return rnd

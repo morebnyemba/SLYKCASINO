@@ -157,21 +157,17 @@ class BuyerTests(Base):
             shares.confirm_sale(sale.id, by_user=self.boss, payment_reference='late')
 
 
-class ConsentTests(Base):
-    def test_cutting_someone_elses_share_waits_for_them(self):
-        res = shares.set_share(slot=2, percent='4', by_user=self.root, reason='Agreed at the meeting')
-        self.assertFalse(res['applied'])
-        self.assertEqual(self.pct(2), D('10.00'))
-        change = ShareChange.objects.get()
-        with self.assertRaisesMessage(RevenueError, 'holder'):
-            shares.decide_change(change.id, by_user=self.p3, approve=True)    # not theirs to answer
-        shares.decide_change(change.id, by_user=self.p2, approve=True)
-        self.assertEqual(self.pct(2), D('4.00'))
+class NoApprovalTests(Base):
+    """Superusers and share controllers change any share at once: no approval
+    from the holder or other admins."""
 
-    def test_a_holder_can_refuse(self):
-        shares.set_share(slot=2, percent='0', by_user=self.root)
-        shares.decide_change(ShareChange.objects.get().id, by_user=self.p2, approve=False, note='No')
-        self.assertEqual((self.pct(2), ShareChange.objects.get().status), (D('10.00'), 'rejected'))
+    def test_a_superuser_cuts_someone_elses_share_at_once(self):
+        res = shares.set_share(slot=2, percent='4', by_user=self.root, reason='Agreed at the meeting')
+        self.assertTrue(res['applied'])
+        self.assertEqual(self.pct(2), D('4.00'))
+        change = ShareChange.objects.get()
+        self.assertEqual(change.status, 'applied')
+        self.assertIn('no approval needed', change.decided_note)
 
     def test_a_holder_cuts_their_own_share_at_once(self):
         self.assertTrue(shares.set_share(slot=2, percent='6', by_user=self.p2)['applied'])
@@ -186,22 +182,62 @@ class ConsentTests(Base):
         shares.set_share(slot=2, percent='12', by_user=self.boss)
         self.assertEqual(self.pct(2), D('12.00'))
 
-    def test_handing_a_wallet_over_needs_its_holder(self):
-        res = shares.transfer_wallet(slot=3, new_holder_id=self.buyer.id, by_user=self.root)
-        self.assertFalse(res['applied'])
+    def test_wallets_cant_be_handed_over(self):
+        self.assertFalse(hasattr(shares, 'transfer_wallet'))
+        res = self.api(self.boss).post(URL + 'transfer/', {'slot': 3, 'new_holder_id': self.buyer.id}, format='json')
+        self.assertEqual(res.status_code, 404)
         self.assertEqual(ShareWallet.objects.get(slot=3).holder_id, self.p3.id)
-        shares.decide_change(ShareChange.objects.get().id, by_user=self.p3, approve=True)
-        self.assertEqual(ShareWallet.objects.get(slot=3).holder_id, self.buyer.id)
 
-    def test_a_stale_request_cant_be_approved(self):
-        shares.set_share(slot=2, percent='5', by_user=self.root)
-        shares.set_share(slot=2, percent='8', by_user=self.p2)                 # changed meanwhile
+    def test_a_change_left_pending_from_before_can_still_be_answered(self):
+        wallet = ShareWallet.objects.get(slot=2)
+        old = ShareChange.objects.create(wallet=wallet, holder=self.p2, from_percent=D('10'), to_percent=D('5'),
+                                         requested_by='root')
+        shares.decide_change(old.id, by_user=self.p2, approve=True)
+        self.assertEqual(self.pct(2), D('5.00'))
+        stale = ShareChange.objects.create(wallet=wallet, holder=self.p2, from_percent=D('10'), to_percent=D('4'),
+                                           requested_by='root')
         with self.assertRaisesMessage(RevenueError, 'changed'):
-            shares.decide_change(ShareChange.objects.filter(to_percent=D('5')).get().id, by_user=self.p2, approve=True)
+            shares.decide_change(stale.id, by_user=self.p2, approve=True)
+        shares.decide_change(stale.id, by_user=self.root, approve=False)          # the asker withdraws it
+        self.assertEqual(ShareChange.objects.get(pk=stale.pk).status, 'cancelled')
+
+
+class AddMemberTests(Base):
+    """A superuser or controller adds a staff login as a member, with a share from the unsold part."""
+
+    def test_add_a_member_with_a_share(self):
+        shares.set_share(slot=1, percent='5', by_user=self.boss, for_sale=False)   # 5% unsold now
+        res = shares.add_member(user_id=self.buyer.id, percent='3', label='Tendai (investor)', by_user=self.boss)
+        wallet = ShareWallet.objects.get(holder=self.buyer)
+        self.assertEqual((res['slot'], wallet.slot, wallet.percent, wallet.label), (wallet.slot, 4, D('3.00'), 'Tendai (investor)'))
+        self.assertEqual(shares.unsold_percent(), D('2.00'))
+        from apps.accounts.models import AuditLog
+        self.assertTrue(AuditLog.objects.filter(event_type='share_member_added').exists())
+
+    def test_rules(self):
+        with self.assertRaisesMessage(RevenueError, 'unsold'):
+            shares.add_member(user_id=self.buyer.id, percent='1', by_user=self.boss)    # all 30% held
+        shares.add_member(user_id=self.buyer.id, percent='0', by_user=self.boss)        # a member with 0% for now
+        with self.assertRaisesMessage(RevenueError, 'already holds wallet'):
+            shares.add_member(user_id=self.buyer.id, by_user=self.boss)
+        with self.assertRaisesMessage(RevenueError, 'share controller'):
+            shares.add_member(user_id=self.buyer.id, by_user=self.p2)
+        player = User.objects.create_user('punter', 'pu@example.com', 'x')               # not a staff login
+        with self.assertRaisesMessage(RevenueError, 'staff login'):
+            shares.add_member(user_id=player.id, by_user=self.boss)
+
+    def test_api(self):
+        shares.set_share(slot=1, percent='6', by_user=self.boss, for_sale=False)
+        res = self.api(self.boss).post(URL + 'member-add/', {'user_id': self.buyer.id, 'percent': '2.5'}, format='json')
+        self.assertEqual(res.status_code, 200, res.content)
+        row = next(w for w in res.json()['wallets'] if w['holder'] == 'tendai')
+        self.assertEqual(row['percent'], '2.50')
+        res = self.api(self.p2).post(URL + 'member-add/', {'user_id': self.p3.id}, format='json')
+        self.assertEqual(res.status_code, 400)
 
 
 class PayoutTests(Base):
-    def test_each_wallet_earns_its_own_share_and_the_unheld_part_goes_to_the_pool(self):
+    def test_each_wallet_earns_its_own_share_and_the_unheld_part_goes_to_savings(self):
         days([1000] * 20)
         RevenueDay.objects.all().delete()
         cfg = RevenueSettings.load()
@@ -212,8 +248,9 @@ class PayoutTests(Base):
         with patch.object(services, 'day_ggr', return_value=D('1000')):
             services.close_days()
         day = RevenueDay.objects.get()
-        # 5 + 10 + 10 + 2.5 = 27.5% held; 2.5% unsold stays in the pool.
-        self.assertEqual((day.share_percent, day.shared, day.pool), (D('27.50'), D('275.00'), D('725.00')))
+        # 5 + 10 + 10 + 2.5 = 27.5% held; the 2.5% unheld goes to the Savings account, 70% to the pool.
+        self.assertEqual((day.share_percent, day.shared, day.savings, day.pool),
+                         (D('27.50'), D('275.00'), D('25.00'), D('700.00')))
         buyer_wallet = ShareWallet.objects.get(holder=self.buyer)
         self.assertEqual(services.wallet_balance(buyer_wallet), D('25.00'))
         # Boss's 5% day share ($50) plus 90% of the $1 sale of share boss released ($0.90).
@@ -256,13 +293,11 @@ class ApiTests(Base):
         self.assertEqual(res.json()['sales'][0]['status'], 'confirmed')
         q = self.api(self.buyer).get(URL + 'quote/?percent=0.5').json()
         self.assertEqual(q['total'], '1800.00')
-        # A (non-controller) superuser's cut of someone else waits for them (202-style result in the body).
+        # A superuser's cut of someone else applies at once: no approval.
         res = self.api(self.root).post(URL + 'set/', {'slot': 2, 'percent': '9'}, format='json').json()
-        self.assertFalse(res['result']['applied'])
-        pending = self.api(self.p2).get(URL).json()['pending_for_me']
-        res = self.api(self.p2).post(f'{URL}changes/{pending[0]["id"]}/', {'approve': True}, format='json')
-        self.assertEqual(res.status_code, 200)
+        self.assertTrue(res['result']['applied'])
         self.assertEqual(self.pct(2), D('9.00'))
+        self.assertEqual(self.api(self.p2).get(URL).json()['pending_for_me'], [])
 
 
 class ResaleTests(Base):
@@ -310,9 +345,8 @@ class ResaleTests(Base):
         # Oldest release first: boss's 1% ($3,240 to boss); the other 2% is the house's.
         self.assertEqual((self.balance(1), sale.house_amount), (D('3240.00'), D('7560.00')))
 
-    def test_a_consented_cut_is_sold_for_the_holder(self):
+    def test_an_admins_cut_is_sold_for_the_holder(self):
         shares.set_share(slot=2, percent='8', by_user=self.root)
-        shares.decide_change(ShareChange.objects.get().id, by_user=self.p2, approve=True)
         shares.record_sale(buyer_id=self.buyer.id, percent='2', payment_reference='R', accepted_agreement=True, by_user=self.boss)
         self.assertEqual(self.balance(2), D('6480.00'))
 
@@ -392,7 +426,7 @@ class AgreementTests(Base):
 
 class ControllerTests(Base):
     """The founder (wallet 1's holder) and the configured user ids edit anyone's
-    share at once; another controller's share still needs its holder's consent."""
+    share at once, another controller's included."""
 
     def test_founder_cuts_and_hands_over_without_consent(self):
         self.assertTrue(shares.is_controller(self.boss))                      # holds wallet 1
@@ -400,11 +434,8 @@ class ControllerTests(Base):
         self.assertTrue(res['applied'])
         self.assertEqual(self.pct(2), D('4.00'))
         change = ShareChange.objects.get()
-        self.assertIn('share controller boss', change.decided_note)
+        self.assertIn('Applied by boss', change.decided_note)
         self.assertEqual(ShareRelease.objects.get().holder_id, self.p2.id)    # still sold for p2 (90%)
-        res = shares.transfer_wallet(slot=3, new_holder_id=self.buyer.id, by_user=self.boss)
-        self.assertTrue(res['applied'])
-        self.assertEqual(ShareWallet.objects.get(slot=3).holder_id, self.buyer.id)
 
     def test_configured_ids_are_controllers_even_without_superuser(self):
         with override_settings(REVENUE_SHARE_CONTROLLER_IDS=[self.p3.id]):
@@ -416,21 +447,16 @@ class ControllerTests(Base):
             self.assertEqual(sorted(shares.controller_names()), ['boss', 'p3'])
         self.assertFalse(shares.is_controller(self.p3))
 
-    def test_another_controllers_share_still_needs_their_consent(self):
+    def test_another_controllers_share_changes_at_once_too(self):
         with override_settings(REVENUE_SHARE_CONTROLLER_IDS=[self.p2.id]):
-            res = shares.set_share(slot=1, percent='5', by_user=self.p2)       # p2 cutting the founder
-            self.assertFalse(res['applied'])
-            self.assertEqual(self.pct(1), D('10.00'))
-            res = shares.set_share(slot=2, percent='5', by_user=self.boss)     # the founder cutting p2
-            self.assertFalse(res['applied'])
-            shares.decide_change(ShareChange.objects.get(wallet__slot=1).id, by_user=self.boss, approve=True)
+            self.assertTrue(shares.set_share(slot=1, percent='5', by_user=self.p2)['applied'])   # p2 cutting the founder
             self.assertEqual(self.pct(1), D('5.00'))
+            self.assertTrue(shares.set_share(slot=2, percent='5', by_user=self.boss)['applied'])  # the founder cutting p2
+            self.assertEqual(self.pct(2), D('5.00'))
 
     def test_non_controllers_cannot_edit_others(self):
         with self.assertRaisesMessage(RevenueError, 'share controller'):
             shares.set_share(slot=3, percent='5', by_user=self.p2)
-        with self.assertRaisesMessage(RevenueError, 'share controller'):
-            shares.transfer_wallet(slot=3, new_holder_id=self.buyer.id, by_user=self.p2)
 
     def test_api_flags_and_controller_view(self):
         with override_settings(REVENUE_SHARE_CONTROLLER_IDS=[self.p3.id]):
@@ -439,7 +465,7 @@ class ControllerTests(Base):
             self.assertFalse(body['can_admin'])
             self.assertTrue(body['staff'])                                      # can pick a new holder
             protected = {w['slot']: w['protected'] for w in body['wallets']}
-            self.assertEqual(protected, {1: True, 2: False, 3: True})
+            self.assertEqual(protected, {1: False, 2: False, 3: False})                # nothing needs approval
             res = self.api(self.p3).post(URL + 'set/', {'slot': 2, 'percent': '6'}, format='json')
             self.assertTrue(res.json()['result']['applied'], res.content)
         self.assertFalse(self.api(self.p2).get(URL).json()['is_controller'])

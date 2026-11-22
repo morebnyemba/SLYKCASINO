@@ -1,7 +1,7 @@
 """WhatsApp Business Cloud API (Meta): webhook signature check, inbound
 message parsing and sending replies.
 
-Settings (environment):
+Settings: Admin → WhatsApp bot (stored encrypted), falling back to the environment:
   WHATSAPP_TOKEN            — a permanent system-user access token
   WHATSAPP_PHONE_NUMBER_ID  — the sending number's id (not the number itself)
   WHATSAPP_APP_SECRET       — the Meta app secret; signs every webhook (X-Hub-Signature-256)
@@ -19,7 +19,6 @@ import logging
 from dataclasses import dataclass
 from typing import Optional
 
-from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
@@ -35,18 +34,28 @@ class Inbound:
     text: str
 
 
-def _setting(name: str, default: str = '') -> str:
-    return str(getattr(settings, name, '') or default)
+def _setting(name: str) -> str:
+    """A connection setting in force: the admin's (Admin → WhatsApp bot), else .env.prod's."""
+    from . import config
+    return config.value(name)
 
 
 def configured() -> bool:
-    return bool(_setting('WHATSAPP_TOKEN') and _setting('WHATSAPP_PHONE_NUMBER_ID'))
+    return bool(_setting('token') and _setting('phone_number_id'))
+
+
+def verify_token() -> str:
+    return _setting('verify_token')
+
+
+def display_number() -> str:
+    return _setting('display_number')
 
 
 def verify_signature(body: bytes, header: Optional[str]) -> bool:
     """Meta signs the raw body with the app secret. No secret configured means
     no webhook is trusted (fail closed)."""
-    secret = _setting('WHATSAPP_APP_SECRET')
+    secret = _setting('app_secret')
     if not secret or not header or not header.startswith('sha256='):
         return False
     expected = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
@@ -115,17 +124,40 @@ def payload_for(to: str, reply: dict) -> dict:
     }}
 
 
+def check_connection() -> dict:
+    """Ask Meta about the configured number with the configured token: the
+    business name and number it's registered as, or why it failed."""
+    if not configured():
+        return {'ok': False, 'error': 'Add the phone number ID and access token first.'}
+    import requests
+    url = f'https://graph.facebook.com/{_setting("graph_version")}/{_setting("phone_number_id")}'
+    try:
+        res = requests.get(url, timeout=10, headers={'Authorization': f'Bearer {_setting("token")}'},
+                           params={'fields': 'display_phone_number,verified_name,quality_rating'})
+    except requests.RequestException as exc:
+        return {'ok': False, 'error': f'Could not reach Meta: {exc.__class__.__name__}.'}
+    try:
+        body = res.json()
+    except ValueError:
+        body = {}
+    if res.status_code >= 300:
+        err = (body.get('error') or {}).get('message') or f'Meta answered {res.status_code}.'
+        return {'ok': False, 'error': str(err)[:300]}
+    return {'ok': True, 'verified_name': body.get('verified_name', ''),
+            'display_phone_number': body.get('display_phone_number', ''),
+            'quality_rating': body.get('quality_rating', '')}
+
+
 def send(to: str, reply: dict) -> bool:
     """Send one reply. False (logged) when not configured or Meta refuses."""
     if not configured():
         logger.info('whatsapp not configured; reply to %s dropped', to[-4:])
         return False
     import requests
-    url = (f'https://graph.facebook.com/{_setting("WHATSAPP_GRAPH_VERSION", "v21.0")}/'
-           f'{_setting("WHATSAPP_PHONE_NUMBER_ID")}/messages')
+    url = f'https://graph.facebook.com/{_setting("graph_version")}/{_setting("phone_number_id")}/messages'
     try:
         res = requests.post(url, json=payload_for(to, reply), timeout=10,
-                            headers={'Authorization': f'Bearer {_setting("WHATSAPP_TOKEN")}'})
+                            headers={'Authorization': f'Bearer {_setting("token")}'})
     except requests.RequestException:
         logger.warning('whatsapp send to %s failed', to[-4:], exc_info=True)
         return False

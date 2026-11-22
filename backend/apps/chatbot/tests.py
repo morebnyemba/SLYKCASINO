@@ -346,7 +346,106 @@ class AccountApiTests(_Base):
         staff.force_authenticate(User.objects.create_user('ops', 'o@example.com', 'x', is_staff=True))
         body = staff.get('/api/admin/chatbot/').json()
         self.assertEqual((body['enabled'], body['max_stake'], body['configured']), (True, '50.00', False))
+        self.assertEqual(body['webhook_url'], 'https://testserver/api/chatbot/whatsapp/webhook/')
         body = staff.put('/api/admin/chatbot/', {'enabled': False, 'daily_cap': '75'}, format='json').json()
         self.assertEqual((body['enabled'], body['daily_cap']), (False, '75.00'))
         self.assertIn('paused', text(self.say('GAMES')))
         self.assertEqual(APIClient().get('/api/admin/chatbot/').status_code, 401)
+
+
+class ConnectionSettingsTests(_Base):
+    """WhatsApp settings from the admin (secrets encrypted), .env.prod as fallback."""
+
+    def setUp(self):
+        super().setUp()
+        from django.contrib.auth.models import User
+        self.boss = APIClient()
+        self.boss.force_authenticate(User.objects.create_superuser('boss', 'b@example.com', 'x'))
+        self.clerk = APIClient()
+        self.clerk.force_authenticate(User.objects.create_user('clerk', 'c@example.com', 'x', is_staff=True))
+
+    def put(self, client, conn):
+        return client.put('/api/admin/chatbot/', {'connection': conn}, format='json')
+
+    @override_settings(WHATSAPP_PHONE_NUMBER_ID='111', WHATSAPP_TOKEN='env-token-123456')
+    def test_admin_overrides_env_and_clearing_falls_back(self):
+        from apps.chatbot import config
+        conn = self.boss.get('/api/admin/chatbot/').json()['connection']
+        self.assertEqual((conn['phone_number_id']['value'], conn['phone_number_id']['source']), ('111', 'env'))
+        self.assertEqual((conn['graph_version']['value'], conn['graph_version']['source']), ('v21.0', 'default'))
+        res = self.put(self.boss, {'phone_number_id': '222', 'token': 'admin-token-abcdef', 'time_zone': 'Africa/Lusaka'})
+        self.assertEqual(res.status_code, 200, res.content)
+        conn = res.json()['connection']
+        self.assertEqual((conn['phone_number_id']['value'], conn['phone_number_id']['source']), ('222', 'admin'))
+        self.assertEqual(config.value('token'), 'admin-token-abcdef')
+        self.assertEqual(str(services.local_tz()), 'Africa/Lusaka')
+        res = self.put(self.boss, {'clear': ['phone_number_id', 'token']})
+        self.assertEqual(res.json()['connection']['phone_number_id']['value'], '111')
+        self.assertEqual(config.value('token'), 'env-token-123456')
+
+    def test_secrets_are_encrypted_and_never_sent_back(self):
+        self.put(self.boss, {'token': 'EAAGsecret-token-9876', 'app_secret': 'shh-app-secret-1234'})
+        cfg = ChatbotSettings.load()
+        self.assertTrue(cfg.token_enc)
+        self.assertNotIn('EAAGsecret', cfg.token_enc)                    # not stored in the clear
+        raw = self.boss.get('/api/admin/chatbot/').content.decode()
+        self.assertNotIn('EAAGsecret-token-9876', raw)
+        self.assertNotIn('shh-app-secret', raw)
+        conn = json.loads(raw)['connection']
+        self.assertEqual((conn['token']['set'], conn['token']['hint'], conn['token']['source']), (True, '…9876', 'admin'))
+        self.put(self.boss, {'token': ''})                               # a blank box keeps it
+        from apps.chatbot import config
+        self.assertEqual(config.value('token'), 'EAAGsecret-token-9876')
+        from apps.accounts.models import AuditLog
+        log = AuditLog.objects.filter(event_type='chatbot_connection').first()
+        self.assertIn('token', str(log.metadata))
+        self.assertNotIn('EAAGsecret', str(log.metadata))
+
+    def test_only_superusers_change_the_connection(self):
+        self.assertEqual(self.put(self.clerk, {'phone_number_id': '333'}).status_code, 403)
+        self.assertFalse(self.clerk.get('/api/admin/chatbot/').json()['can_edit_connection'])
+        self.assertEqual(self.clerk.put('/api/admin/chatbot/', {'max_stake': '20'}, format='json').status_code, 200)
+
+    def test_bad_values_are_refused(self):
+        for conn, word in (({'phone_number_id': '+263 77'}, 'digits'), ({'graph_version': '21'}, 'v21.0'),
+                           ({'time_zone': 'Harare'}, 'time zone'), ({'verify_token': 'short'}, '12 characters'),
+                           ({'token': 'has space'}, 'no spaces'), ({'clear': ['nope']}, 'Unknown')):
+            res = self.put(self.boss, conn)
+            self.assertEqual(res.status_code, 400, conn)
+            self.assertIn(word, res.json()['detail'])
+
+    def test_a_changed_key_makes_stored_secrets_unreadable_not_wrong(self):
+        self.put(self.boss, {'token': 'EAAGsecret-token-9876'})
+        from apps.chatbot import config
+        with override_settings(CHATBOT_SECRET_KEY='a-different-key'):
+            self.assertEqual(config.source('token', ChatbotSettings.load()), 'unreadable')
+            self.assertEqual(config.value('token'), '')
+
+    def test_webhook_uses_the_admin_verify_token_and_app_secret(self):
+        self.put(self.boss, {'verify_token': 'admin-verify-token-1', 'app_secret': 'admin-app-secret-xyz'})
+        url = '/api/chatbot/whatsapp/webhook/?hub.mode=subscribe&hub.challenge=7&hub.verify_token='
+        self.assertEqual(APIClient().get(url + 'admin-verify-token-1').content, b'7')
+        raw = json.dumps({'entry': [{'changes': [{'value': {'messages': [
+            {'from': NUMBER, 'id': 'wamid.cfg', 'type': 'text', 'text': {'body': 'HI'}}]}}]}]}).encode()
+        sig = 'sha256=' + hmac.new(b'admin-app-secret-xyz', raw, hashlib.sha256).hexdigest()
+        with patch.object(services, 'deliver') as deliver:
+            res = APIClient().generic('POST', '/api/chatbot/whatsapp/webhook/', raw, content_type='application/json',
+                                      HTTP_X_HUB_SIGNATURE_256=sig)
+        self.assertEqual(res.status_code, 200)
+        deliver.assert_called_once()
+
+    def test_check_connection_with_meta(self):
+        self.assertFalse(self.boss.post('/api/admin/chatbot/test/').json()['ok'])
+        self.put(self.boss, {'phone_number_id': '444', 'token': 'EAAGsecret-token-9876'})
+
+        class Res:
+            status_code = 200
+
+            @staticmethod
+            def json():
+                return {'verified_name': 'BetBlits', 'display_phone_number': '+263 77 000 1111', 'quality_rating': 'GREEN'}
+        with patch('requests.get', return_value=Res()) as get:
+            body = self.boss.post('/api/admin/chatbot/test/').json()
+        self.assertEqual((body['ok'], body['verified_name']), (True, 'BetBlits'))
+        self.assertIn('/444', get.call_args.args[0])
+        self.assertEqual(get.call_args.kwargs['headers']['Authorization'], 'Bearer EAAGsecret-token-9876')

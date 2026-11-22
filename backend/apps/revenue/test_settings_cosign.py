@@ -49,7 +49,7 @@ class DirectSaveTests(Base):
     def test_a_held_wallet_cant_be_reassigned_through_settings(self):
         res = jwt(self.boss).put(RULES, {'wallets': [{'slot': 2, 'holder_id': self.ops.id}]}, format='json')
         self.assertEqual(res.status_code, 400)
-        self.assertIn('consent', res.json()['detail'])
+        self.assertIn('handed over', res.json()['detail'])
         self.assertEqual(ShareWallet.objects.get(slot=2).holder_id, self.p2.id)
 
     def test_django_admin_cant_edit_share_records(self):

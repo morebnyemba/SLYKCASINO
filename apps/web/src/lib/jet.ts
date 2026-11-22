@@ -12,6 +12,8 @@ export interface JetSettings {
   display_name: string;
   house_edge_percent: string;
   rtp_percent: string;
+  /** The house edge follows a time-of-day schedule; each round carries its own. */
+  edge_scheduled?: boolean;
   min_bet: string;
   max_bet: string;
   max_win: string;

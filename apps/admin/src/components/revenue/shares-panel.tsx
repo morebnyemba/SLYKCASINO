@@ -44,7 +44,7 @@ const SALE_TONE: Record<string, 'gold' | 'green' | 'red' | 'slate'> = { requeste
 /**
  * Shares of the partner pool (30% of each day's GGR by default): who holds what,
  * what's unsold, today's price from the last 30 days, selling, buyers' requests,
- * and cuts that wait for the holder's consent. Shown to superusers, holders and
+ * adding members. Admins' changes apply at once (no approvals). Shown to superusers, holders and
  * approved buyers (the API decides who sees what).
  */
 export function SharesPanel({ onDone, onFail }: { onDone: (t: string) => void; onFail: (t: string) => void }) {
@@ -69,7 +69,7 @@ export function SharesPanel({ onDone, onFail }: { onDone: (t: string) => void; o
   return (
     <>
       {view.pending_for_me.length > 0 && <Consent rows={view.pending_for_me} act={act} />}
-      <Panel title="Shares" description={`Shareholders split ${pct(view.settings.partner_pool_percent)} of every day’s real-money GGR, each by their own share. Whatever isn’t held goes to the operating pool until it’s sold.`}>
+      <Panel title="Shares" description={`Shareholders split ${pct(view.settings.partner_pool_percent)} of every day’s real-money GGR, each by their own share. Whatever isn’t held is saved in the Savings account until it’s sold.`}>
         <div className="grid gap-3 sm:grid-cols-4">
           <Tile label="Partner pool" value={pct(view.settings.partner_pool_percent)} />
           <Tile label="Held" value={pct(view.held_percent)} />
@@ -77,10 +77,11 @@ export function SharesPanel({ onDone, onFail }: { onDone: (t: string) => void; o
           <Tile label="Price of 1%" value={p.price_per_percent ? money(p.price_per_percent) : '—'} strong />
         </div>
         <PriceNote p={p} />
+        {(view.can_admin || view.is_controller) && <AddMember view={view} act={act} />}
         {view.controllers.length > 0 && (
           <p className="mt-3 text-xs text-muted-foreground">
-            Share controllers: <b className="text-foreground">{view.controllers.join(', ')}</b> — they can change or hand over anyone’s share at once,
-            without the holder’s approval (another controller’s share still needs its holder). Every change is logged.
+            Superusers and share controllers (<b className="text-foreground">{view.controllers.join(', ')}</b>) change shares and add
+            members at once, with no approval from anyone. Every change is logged.
           </p>
         )}
         <div className="mt-4 overflow-x-auto">
@@ -110,6 +111,64 @@ export function SharesPanel({ onDone, onFail }: { onDone: (t: string) => void; o
 
 type Act = (path: string, body: unknown, ok: string) => Promise<boolean>;
 
+/** Add a staff login as a revenue-share member: a wallet in the next free slot and a share from the unsold part. */
+function AddMember({ view, act }: { view: SharesView; act: Act }) {
+  const [open, setOpen] = useState(false);
+  const [user, setUser] = useState('');
+  const [share, setShare] = useState('0');
+  const [label, setLabel] = useState('');
+  const [busy, setBusy] = useState(false);
+  const holders = new Set(view.wallets.map((w) => w.holder_id).filter(Boolean));
+  const candidates = view.staff.filter((u) => !holders.has(u.id));
+  async function add() {
+    setBusy(true);
+    const name = candidates.find((u) => String(u.id) === user)?.username ?? 'The member';
+    if (await act('member-add/', { user_id: Number(user), percent: share || '0', label },
+      `${name} added with ${pct(share || 0)}.`)) {
+      setOpen(false); setUser(''); setShare('0'); setLabel('');
+    }
+    setBusy(false);
+  }
+  if (!open) {
+    return (
+      <div className="mt-4">
+        <Btn variant="primary" onClick={() => setOpen(true)}>+ Add member</Btn>
+      </div>
+    );
+  }
+  return (
+    <div className="mt-4 space-y-3 rounded-xl border border-dashed border-border p-4">
+      <p className="text-sm font-bold">Add a member</p>
+      <p className="text-xs text-muted-foreground">
+        Members need a staff login (they see their own wallet here). Their share comes out of the unsold part: {pct(view.unsold_percent)} is free
+        now. Lower another wallet first to make room, or add them with 0% and raise it later. A staff login can open the whole admin console.
+      </p>
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="w-52">
+          <Select value={user} onChange={(e) => setUser(e.target.value)} aria-label="Staff login to add">
+            <option value="">Choose a staff login…</option>
+            {candidates.map((u) => <option key={u.id} value={u.id}>{u.username}</option>)}
+          </Select>
+        </div>
+        <div className="w-28">
+          <TextInput value={share} inputMode="decimal" aria-label="Share (%)" placeholder="Share %"
+            onChange={(e) => setShare(e.target.value.replace(/[^0-9.]/g, ''))} />
+        </div>
+        <div className="w-56">
+          <TextInput value={label} maxLength={60} aria-label="Wallet name (optional)" placeholder="Wallet name (optional)"
+            onChange={(e) => setLabel(e.target.value)} />
+        </div>
+        <Btn variant="primary" busy={busy} disabled={!user || Number(share) > Number(view.unsold_percent)} onClick={add}>Add member</Btn>
+        <Btn onClick={() => setOpen(false)}>Cancel</Btn>
+      </div>
+      {Number(share) > Number(view.unsold_percent) && (
+        <p className="text-xs text-live">Only {pct(view.unsold_percent)} is unsold.</p>
+      )}
+      {candidates.length === 0 && <p className="text-xs text-muted-foreground">Every staff login already holds a wallet.</p>}
+    </div>
+  );
+}
+
 function Tile({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
   return (
     <div className="rounded-xl bg-muted/50 p-3">
@@ -132,16 +191,12 @@ function PriceNote({ p }: { p: Price }) {
 
 function WalletRow({ w, view, act }: { w: SharesView['wallets'][number]; view: SharesView; act: Act }) {
   const [value, setValue] = useState(w.percent);
-  const [to, setTo] = useState('');
   const [busy, setBusy] = useState(false);
   useEffect(() => { setValue(w.percent); }, [w.percent]);
   const own = view.own_slot === w.slot;
   const power = view.can_admin || view.is_controller;
   const editable = power || own;
   const lower = Number(value) < Number(w.percent);
-  // A controller's edit applies at once — unless the wallet belongs to another controller.
-  const overrides = view.is_controller && !w.protected;
-  const needsConsent = lower && !!w.holder && !own && !overrides;
   // A lowered share is sold for the holder (they get the seller's part of the price) unless given back to the house.
   const [forSale, setForSale] = useState(true);
   async function save() {
@@ -150,12 +205,6 @@ function WalletRow({ w, view, act }: { w: SharesView['wallets'][number]; view: S
       lower && forSale ? `Wallet ${w.slot} is now ${pct(value)}; the ${pct(Number(w.percent) - Number(value))} freed is up for sale for ${w.holder ?? 'the wallet'}.`
         : `Wallet ${w.slot} is now ${pct(value)}.`);
     setBusy(false);
-  }
-  async function handOver() {
-    if (!to) return;
-    setBusy(true);
-    await act('transfer/', { slot: w.slot, new_holder_id: Number(to) }, `Wallet ${w.slot} handed over.`);
-    setBusy(false); setTo('');
   }
   return (
     <tr className={trClass}>
@@ -172,24 +221,13 @@ function WalletRow({ w, view, act }: { w: SharesView['wallets'][number]; view: S
                   onChange={(e) => setValue(e.target.value.replace(/[^0-9.]/g, ''))} className="h-8 text-xs" />
               </div>
               <Btn size="sm" busy={busy} disabled={Number(value) === Number(w.percent) || (!power && !lower)} onClick={save}>
-                {needsConsent ? 'Ask holder' : 'Save'}
+                Save
               </Btn>
               {lower && (
                 <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
                   <input type="checkbox" checked={forSale} onChange={(e) => setForSale(e.target.checked)} />
                   Sell it for {own ? 'me' : (w.holder ?? 'them')} ({pct(view.settings.seller_percent)} of the price)
                 </label>
-              )}
-              {power && (
-                <>
-                  <div className="w-40 shrink-0">
-                    <Select value={to} onChange={(e) => setTo(e.target.value)} aria-label={`Hand wallet ${w.slot} over to`} className="h-8 text-xs">
-                      <option value="">Hand over to…</option>
-                      {view.staff.filter((u) => u.id !== w.holder_id).map((u) => <option key={u.id} value={u.id}>{u.username}</option>)}
-                    </Select>
-                  </div>
-                  {to && <Btn size="sm" busy={busy} onClick={handOver}>{!w.holder ? 'Assign' : overrides ? 'Hand over' : 'Ask holder'}</Btn>}
-                </>
               )}
             </div>
           )}
