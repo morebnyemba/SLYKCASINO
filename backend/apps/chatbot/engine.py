@@ -45,6 +45,15 @@ PICK = re.compile(r'^(1X|12|X2|1|X|2|GG|NG|[OU]\d+(?:\.\d+)?)$')
 WALLETS = {'DEP': 'deposit', 'DEPOSIT': 'deposit', 'WIN': 'winnings', 'WINNINGS': 'winnings', 'BONUS': 'bonus'}
 METHODS = {'ECOCASH': 'ecocash', 'ONEMONEY': 'onemoney', 'INNBUCKS': 'innbucks'}
 MENU_BUTTONS = ['GAMES', 'LIVE', 'SLIP']
+# Buttons as [command, label]: the label is what the player sees, the command is what a tap sends.
+ADD_MORE = ['GAMES', '➕ Add more']
+VIEW_SLIP = ['SLIP', '🧾 View slip']
+PLACE_BET = ['STAKE', '✅ Place bet']
+CONFIRM = ['CONFIRM', '✅ Confirm']
+CANCEL = ['NO', '✖ Cancel']
+QUICK_STAKES = (Decimal('1'), Decimal('2'), Decimal('5'), Decimal('10'), Decimal('20'), Decimal('50'))
+# The order picks are offered in a match's tap list (WhatsApp shows at most ten).
+PICK_ORDER = ('1', 'X', '2', 'GG', 'NG', 'O2.5', 'U2.5', '1X', '12', 'X2', 'O1.5', 'U1.5', 'O3.5', 'U3.5')
 
 
 def _money(v) -> str:
@@ -63,8 +72,32 @@ def _site() -> str:
         return 'BetBlits'
 
 
-def _reply(text: str, *buttons: str) -> dict:
+def _reply(text: str, *buttons) -> dict:
+    """A text reply with up to three buttons (a command, or [command, label])."""
     return {'text': text, 'buttons': [b for b in buttons if b]}
+
+
+def _teams(e) -> tuple[str, str]:
+    home = e.home_team.name if getattr(e, 'home_team_id', None) else ''
+    away = e.away_team.name if getattr(e, 'away_team_id', None) else ''
+    if not (home and away):
+        parts = re.split(r'\s+vs?\.?\s+', e.name, maxsplit=1, flags=re.IGNORECASE)
+        home, away = (parts + [''])[:2] if len(parts) == 2 else (e.name, '')
+    return home or 'Home', away or 'Away'
+
+
+def describe(e, code: str) -> tuple[str, str]:
+    """(market, pick) in words for a pick code, e.g. ('Match result', 'Dynamos')."""
+    home, away = _teams(e)
+    words = {
+        '1': ('Match result', home), 'X': ('Match result', 'Draw'), '2': ('Match result', away),
+        '1X': ('Double chance', f'{home} or draw'), '12': ('Double chance', f'{home} or {away}'),
+        'X2': ('Double chance', f'Draw or {away}'),
+        'GG': ('Both teams to score', 'Yes'), 'NG': ('Both teams to score', 'No'),
+    }
+    if code in words:
+        return words[code]
+    return 'Total goals', f'{"Over" if code.startswith("O") else "Under"} {code[1:]}'
 
 
 # -- entry point -------------------------------------------------------------------
@@ -116,6 +149,7 @@ class Conversation:
             'LIVE': self.live, 'SLIP': self.slip, 'CLEAR': self.clear, 'NO': self.cancel, 'CANCEL': self.cancel,
             'BALANCE': self.balance, 'BAL': self.balance, 'TICKETS': self.tickets, 'MYBETS': self.tickets,
             'BETS': self.tickets, 'BOOK': self.book, 'STOP': self.stop, 'UNLINK': self.stop,
+            'STAKE': self.stake_prompt, 'PLACE': self.stake_prompt, 'BET': self.stake_prompt,
         }
         if head in simple and not rest:
             return simple[head]()
@@ -144,8 +178,8 @@ class Conversation:
         site = _site()
         lines = [f'👋 Welcome to {site} on WhatsApp.', '',
                  'GAMES – upcoming matches with their IDs', 'LIVE – matches in play now',
-                 '1234 – see a match and its picks', '1234 1 – add a pick to your slip (also X 2 1X 12 X2 GG NG O2.5 U2.5)',
-                 'SLIP – your slip · BET 5 – stake $5 on it', 'BALANCE · TICKETS · DEPOSIT 10']
+                 '1234 – open a match and tap a pick', '1234 1 – or type the match ID and pick (X 2 1X 12 X2 GG NG O2.5 U2.5)',
+                 'SLIP – your ticket · then Place bet and Confirm', 'BALANCE · TICKETS · DEPOSIT 10']
         if not self.link:
             lines += ['', f'To bet, link your account: on the {site} website open {SITE_PATH}, get a code and send LINK 123456 here.']
         else:
@@ -270,16 +304,16 @@ class Conversation:
         picks = self._quick(e)
         if not picks:
             return [_reply(f'#{e.id} {e.name}: no picks are open right now. Try again shortly.', 'GAMES')]
-        rows, row = [], []
+        rank = {c: i for i, c in enumerate(PICK_ORDER)}
+        picks.sort(key=lambda p: rank.get(p[0], len(PICK_ORDER)))
+        rows, lines = [], []
         for code, price in picks:
-            row.append(f'{code} {_odds(price)}')
-            if len(row) == 3:
-                rows.append(' | '.join(row))
-                row = []
-        if row:
-            rows.append(' | '.join(row))
-        return [_reply(f'{self._line(e)}\n\n' + '\n'.join(rows)
-                       + f'\n\nReply {e.id} and a pick, e.g. {e.id} {picks[0][0]}. More markets on the website.', 'SLIP')]
+            market, pick = describe(e, code)
+            lines.append(f'{code} · {market}: {pick} @ {_odds(price)}')
+            rows.append([f'{e.id} {code}', f'{code} @ {_odds(price)}', f'{market}: {pick}'])
+        return [{'text': f'{self._line(e)}\n\n' + '\n'.join(lines)
+                         + f'\n\nTap “Choose a pick”, or type {e.id} and a pick, e.g. {e.id} {picks[0][0]}.',
+                 'list': {'button': 'Choose a pick', 'title': f'#{e.id}', 'rows': rows[:10]}}]
 
     # -- the slip ---------------------------------------------------------------------
     def _resolve(self, e, code: str) -> dict:
@@ -293,8 +327,7 @@ class Conversation:
             price = {'home': e.odds, 'draw': e.odds_draw, 'away': e.odds_away}[sel]
             if not sb.trading_state(e)['main_open'] or price is None or price <= 1:
                 raise services.ChatError(f'#{e.id} {code} is not available right now.')
-            return {'match': e.id, 'pick': code, 'event_id': e.id, 'selection': sel, 'outcome_id': None,
-                    'label': f'{e.name} – {code}', 'odds': str(price)}
+            return self._leg(e, code, price, event_id=e.id, selection=sel)
         if code in ('1X', '12', 'X2'):
             kind, key, line = 'double_chance', code.lower(), None
         elif code in ('GG', 'NG'):
@@ -311,9 +344,15 @@ class Conversation:
         for m in qs:
             o = m.outcomes.filter(key=key, is_open=True, result='pending', odds__gt=1).first()
             if o is not None:
-                return {'match': e.id, 'pick': code, 'event_id': None, 'selection': None, 'outcome_id': o.id,
-                        'label': f'{e.name} – {m.name}: {o.label}', 'odds': str(o.odds)}
+                return self._leg(e, code, o.odds, outcome_id=o.id)
         raise services.ChatError(f'#{e.id} {code} is not available right now.')
+
+    def _leg(self, e, code: str, price, *, event_id=None, selection=None, outcome_id=None) -> dict:
+        market, pick = describe(e, code)
+        return {'match': e.id, 'pick': code, 'event_id': event_id, 'selection': selection, 'outcome_id': outcome_id,
+                'event': e.name, 'market': market, 'pick_text': pick,
+                'kickoff': timezone.localtime(e.starts_at).strftime('%a %d %b %H:%M') if e.starts_at else '',
+                'label': f'{e.name} – {market}: {pick}', 'odds': str(price)}
 
     def add_picks(self, words: list[str]) -> list[dict]:
         from apps.sportsbook.models import Event
@@ -348,14 +387,19 @@ class Conversation:
                 problems.append(f'a slip holds at most {MAX_LEGS} picks')
                 break
             legs.append(leg)
-            added.append(f'#{leg["match"]} {leg["pick"]} @ {_odds(leg["odds"])}')
+            added.append(leg)
         self.state.pop('pending', None)
         out = []
-        if added:
-            out.append('➕ Added ' + ', '.join(added))
+        for leg in added:
+            out.append(f'✅ Selection confirmed\n#{leg["match"]} {leg["event"]}'
+                       + (f'\n🕒 {leg["kickoff"]}' if leg.get('kickoff') else '')
+                       + f'\n{leg["market"]}: {leg["pick_text"]} ({leg["pick"]})\nOdds {_odds(leg["odds"])}')
         if problems:
             out.append('⚠️ ' + '; '.join(problems))
-        return [_reply('\n'.join(out) + '\n\n' + self._slip_text(), 'SLIP')]
+        if legs:
+            n = len(legs)
+            out.append(f'🧾 Your ticket: {n} selection{"" if n == 1 else "s"} · total odds {_odds(self._total())}')
+        return [_reply('\n\n'.join(out), ADD_MORE, VIEW_SLIP, PLACE_BET if legs else None)]
 
     def _total(self) -> Decimal:
         total = Decimal('1')
@@ -366,18 +410,38 @@ class Conversation:
     def _slip_text(self) -> str:
         legs = self.state['legs']
         if not legs:
-            return 'Your slip is empty. Send GAMES and add picks, e.g. 1234 1.'
-        lines = [f'{i}) #{leg["match"]} {leg["label"]} @ {_odds(leg["odds"])}' for i, leg in enumerate(legs, 1)]
-        return ('🧾 Your slip:\n' + '\n'.join(lines) + f'\nTotal odds {_odds(self._total())}'
-                + '\n\nSend BET and your stake, e.g. BET 5. REMOVE 1234 takes a match off, CLEAR empties it.')
+            return 'Your ticket is empty. Send GAMES, open a match and tap a pick (or type e.g. 1234 1).'
+        return ('🧾 Your ticket:\n' + self._selections() + f'\nTotal odds {_odds(self._total())}'
+                + '\n\nPress Place bet (or type BET 5). REMOVE 1234 takes a match off, CLEAR empties it.')
+
+    def _selections(self) -> str:
+        return '\n'.join(f'{i}) #{leg["match"]} {leg.get("event") or leg["label"]}\n    '
+                         f'{leg.get("market", "Pick")}: {leg.get("pick_text") or leg["pick"]} @ {_odds(leg["odds"])}'
+                         for i, leg in enumerate(self.state['legs'], 1))
 
     def slip(self) -> list[dict]:
-        return [_reply(self._slip_text(), *(('BET 1', 'BOOK', 'CLEAR') if self.state['legs'] else ('GAMES',)))]
+        if not self.state['legs']:
+            return [_reply(self._slip_text(), 'GAMES')]
+        return [_reply(self._slip_text(), PLACE_BET, ADD_MORE, ['CLEAR', '🗑 Clear'])]
+
+    def stake_prompt(self) -> list[dict]:
+        """Place bet: ask how much, with quick stake buttons."""
+        if (r := self._need_link()) or (r := self._blocked()):
+            return r
+        legs = self.state['legs']
+        if not legs:
+            return [_reply('Your ticket is empty. Add a selection first, e.g. 1234 1.', 'GAMES')]
+        cap = self.cfg.max_stake
+        quick = [q for q in QUICK_STAKES if q <= cap][:3] or [cap]
+        n = len(legs)
+        return [_reply(f'🧾 {n} selection{"" if n == 1 else "s"} · total odds {_odds(self._total())}\n\n'
+                       f'How much do you want to stake? Tap an amount, or type BET and any amount up to {_money(cap)}, e.g. BET 3.',
+                       *[[f'BET {q.normalize():f}', _money(q)] for q in quick])]
 
     def clear(self) -> list[dict]:
         self.state['legs'] = []
         self.state.pop('pending', None)
-        return [_reply('Your slip is empty.', 'GAMES')]
+        return [_reply('Your ticket is empty.', 'GAMES')]
 
     def remove(self, ref: str) -> list[dict]:
         if not ref.isdigit():
@@ -397,7 +461,7 @@ class Conversation:
             return [_reply('Betting through WhatsApp is paused. Please bet on the website.')]
         legs = self.state['legs']
         if not legs:
-            return [_reply('Your slip is empty. Add picks first, e.g. 1234 1.', 'GAMES')]
+            return [_reply('Your ticket is empty. Add a selection first, e.g. 1234 1.', 'GAMES')]
         try:
             stake = Decimal(args[0].lstrip('$')).quantize(Decimal('0.01'))
             if stake <= 0:
@@ -416,17 +480,18 @@ class Conversation:
         self.state['pending'] = {'stake': str(stake), 'wallet': wallet, 'odds': [leg['odds'] for leg in legs],
                                  'expires': (self.now + CONFIRM_FOR).isoformat(), 'pin_tries': 0}
         pin = services.needs_pin(self.link, stake)
-        kind = 'Single' if len(legs) == 1 else f'Multiple ({len(legs)} picks)'
-        text = (f'Please confirm:\n{kind} · stake {_money(stake)} from your {wallet} wallet\n'
-                f'Total odds {_odds(total)} · returns up to {_money(stake * total)}\n\n'
-                + ('Reply YES and your PIN, e.g. YES 1234, within 2 minutes.' if pin
-                   else 'Reply YES within 2 minutes to place it.'))
+        kind = 'Single' if len(legs) == 1 else f'Multiple · {len(legs)} selections'
+        text = (f'🎟️ Confirm your ticket ({kind})\n\n{self._selections()}\n\n'
+                f'Stake {_money(stake)} from your {wallet} wallet\n'
+                f'Total odds {_odds(total)} · possible win {_money(stake * total)}\n\n'
+                + ('Type CONFIRM and your PIN, e.g. CONFIRM 1234, within 2 minutes.' if pin
+                   else 'Press Confirm within 2 minutes to place it.'))
         if pin and not self.link.pin_hash:
             text = (f'Stakes above {_money(self.cfg.pin_above)} need a chat PIN. '
-                    f'Set one on the website ({SITE_PATH}), then send BET again.')
+                    f'Set one on the website ({SITE_PATH}), then press Place bet again.')
             self.state.pop('pending', None)
             return [_reply(text)]
-        return [_reply(text, *(() if pin else ('YES', 'NO')))]
+        return [_reply(text, *((CANCEL,) if pin else (CONFIRM, CANCEL)))]
 
     def _auto_wallet(self, stake: Decimal) -> str:
         from apps.wallet import services as wallet_services
@@ -439,28 +504,28 @@ class Conversation:
 
     def cancel(self) -> list[dict]:
         had = self.state.pop('pending', None)
-        return [_reply('Cancelled. Your slip is kept.' if had else 'Nothing to cancel.', 'SLIP')]
+        return [_reply('Cancelled. Your selections are kept.' if had else 'Nothing to cancel.', VIEW_SLIP)]
 
     def confirm(self, pin: str) -> list[dict]:
         if (r := self._need_link()) or (r := self._blocked()):
             return r
         pending = self.state.get('pending')
         if not pending:
-            return [_reply('There is no bet waiting. Send BET and your stake first, e.g. BET 5.')]
+            return [_reply('There is no ticket waiting. Press Place bet first.', PLACE_BET)]
         if timezone.datetime.fromisoformat(pending['expires']) < self.now:
             self.state.pop('pending', None)
-            return [_reply('That confirmation expired. Send BET again.', 'SLIP')]
+            return [_reply('That confirmation expired. Press Place bet again.', PLACE_BET)]
         legs = self.state['legs']
         if [leg['odds'] for leg in legs] != pending['odds']:
             self.state.pop('pending', None)
-            return [_reply('Your slip changed. Send BET again.', 'SLIP')]
+            return [_reply('Your ticket changed. Press Place bet again.', PLACE_BET)]
         stake = Decimal(pending['stake'])
         if services.needs_pin(self.link, stake) and not services.pin_ok(self.link, pin):
             pending['pin_tries'] = pending.get('pin_tries', 0) + 1
             if pending['pin_tries'] >= PIN_TRIES:
                 self.state.pop('pending', None)
                 return [_reply('Wrong PIN too many times. The bet was cancelled.')]
-            return [_reply('Wrong or missing PIN. Reply YES and your PIN, e.g. YES 1234.')]
+            return [_reply('Wrong or missing PIN. Type CONFIRM and your PIN, e.g. CONFIRM 1234.')]
         try:
             services.check_stake(self.link, stake)
         except services.ChatError as exc:
@@ -493,10 +558,10 @@ class Conversation:
                         or (exc.event_id and leg['event_id'] == exc.event_id and leg['selection'] == exc.selection)):
                     leg['odds'] = str(exc.current)
             self.state.pop('pending', None)
-            return [_reply(f'⚠️ {exc} Nothing was placed.\n\n{self._slip_text()}', 'SLIP')]
+            return [_reply(f'⚠️ {exc} Nothing was placed: check the new price below.\n\n{self._slip_text()}', PLACE_BET, VIEW_SLIP)]
         except sb.SelectionUnavailable as exc:
             self.state.pop('pending', None)
-            return [_reply(f'⚠️ {exc} Nothing was placed. REMOVE that match and send BET again.\n\n{self._slip_text()}')]
+            return [_reply(f'⚠️ {exc} Nothing was placed. REMOVE that match and press Place bet again.\n\n{self._slip_text()}', VIEW_SLIP)]
         except InsufficientFunds:
             self.state.pop('pending', None)
             return [_reply(f'Not enough money in your {wallet} wallet. Send BALANCE, or DEPOSIT 10 to top up.', 'BALANCE')]
@@ -557,7 +622,7 @@ class Conversation:
         from apps.sportsbook import booking
         legs = self.state['legs']
         if not legs:
-            return [_reply('Your slip is empty.', 'GAMES')]
+            return [_reply('Your ticket is empty.', 'GAMES')]
         picks = [{'outcome_id': leg['outcome_id']} if leg['outcome_id']
                  else {'event_id': leg['event_id'], 'selection': leg['selection']} for leg in legs]
         try:

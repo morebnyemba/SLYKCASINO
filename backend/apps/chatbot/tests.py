@@ -67,16 +67,29 @@ class BrowsingAndSlipTests(_Base):
         self.assertIn(f'#{self.e2.id}', text(self.say('games caps')))
         self.assertNotIn(f'#{self.e1.id}', text(self.say('games caps')))
 
-    def test_a_match_shows_its_pick_codes(self):
-        out = text(self.say(str(self.e1.id)))
-        for code in ('1 2.00', 'X 3.20', '2 3.80', 'O2.5 2.10', 'U2.5 1.70'):
-            self.assertIn(code, out)
+    def test_a_match_offers_its_picks_to_tap(self):
+        [reply] = self.say(str(self.e1.id))
+        for line in ('1 · Match result: Dynamos @ 2.00', 'X · Match result: Draw @ 3.20',
+                     '2 · Match result: Highlanders @ 3.80', 'O2.5 · Total goals: Over 2.5 @ 2.10'):
+            self.assertIn(line, reply['text'])
+        rows = reply['list']['rows']
+        self.assertEqual(rows[0], [f'{self.e1.id} 1', '1 @ 2.00', 'Match result: Dynamos'])
+        self.assertEqual([r[0] for r in rows], [f'{self.e1.id} {c}' for c in ('1', 'X', '2', 'O2.5', 'U2.5')])
+        from apps.chatbot import whatsapp
+        body = whatsapp.payload_for(NUMBER, reply)
+        self.assertEqual(body['interactive']['type'], 'list')
+        self.assertEqual(body['interactive']['action']['sections'][0]['rows'][0]['id'], f'{self.e1.id} 1')
         self.assertIn('no match', text(self.say('999999')).lower().replace('there is no match', 'no match'))
 
     def test_building_a_slip(self):
-        out = text(self.say(f'{self.e1.id} 1, {self.e2.id} GG'))
-        self.assertIn('Added', out)
-        self.assertIn('Total odds 3.60', out)                       # 2.00 × 1.80
+        [reply] = self.say(f'{self.e1.id} 1, {self.e2.id} GG')
+        out = reply['text']
+        self.assertEqual(out.count('✅ Selection confirmed'), 2)    # every selection is confirmed back
+        self.assertIn(f'#{self.e1.id} Dynamos vs Highlanders', out)
+        self.assertIn('Match result: Dynamos (1)\nOdds 2.00', out)
+        self.assertIn('Both teams to score: Yes (GG)\nOdds 1.80', out)
+        self.assertIn('2 selections · total odds 3.60', out)       # 2.00 × 1.80
+        self.assertEqual([b[1] for b in reply['buttons']], ['➕ Add more', '🧾 View slip', '✅ Place bet'])
         self.assertIn('not a pick', text(self.say(f'{self.e1.id} ZZ')))
         self.assertIn('not available', text(self.say(f'{self.e2.id} O2.5')))
         self.assertIn('Total odds 2.00', text(self.say(f'REMOVE {self.e2.id}')))
@@ -123,11 +136,16 @@ class BettingTests(_Base):
 
     def test_single_bet_needs_yes_then_places_through_the_sportsbook(self):
         self.say(f'{self.e1.id} 1')
-        out = text(self.say('BET 5'))
-        self.assertIn('stake $5.00 from your deposit wallet', out)
-        self.assertIn('returns up to $10.00', out)
+        [prompt] = self.say('STAKE')                               # the Place bet button
+        self.assertEqual([b[0] for b in prompt['buttons']], ['BET 1', 'BET 2', 'BET 5'])
+        [ticket] = self.say('BET 5')
+        self.assertIn('Confirm your ticket (Single)', ticket['text'])
+        self.assertIn('Match result: Dynamos @ 2.00', ticket['text'])
+        self.assertIn('Stake $5.00 from your deposit wallet', ticket['text'])
+        self.assertIn('possible win $10.00', ticket['text'])
+        self.assertEqual(ticket['buttons'], [['CONFIRM', '✅ Confirm'], ['NO', '✖ Cancel']])
         self.assertFalse(Bet.objects.exists())
-        out = text(self.say('YES'))
+        out = text(self.say('CONFIRM'))                            # pressing Confirm
         bet = Bet.objects.get()
         self.assertIn(f'Ticket {bet.code}', out)
         self.assertEqual((bet.stake, bet.odds, bet.event_ref_id, bet.selection), (D('5.00'), D('2.00'), self.e1.id, 'home'))
@@ -157,7 +175,7 @@ class BettingTests(_Base):
 
     def test_no_confirmation_no_bet_and_it_expires(self):
         self.say(f'{self.e1.id} 1')
-        self.assertIn('no bet waiting', text(self.say('YES')))
+        self.assertIn('no ticket waiting', text(self.say('YES')))
         self.say('BET 5')
         later = timezone.now() + timedelta(minutes=3)
         self.assertIn('expired', text(engine.handle(NUMBER, 'YES', now=later)))
@@ -180,15 +198,17 @@ class BettingTests(_Base):
         ChatbotSettings.objects.filter(pk=1).update(pin_above=D('20'))
         self.say(f'{self.e1.id} 1')
         self.assertIn('need a chat PIN', text(self.say('BET 25')))
-        self.assertIn('Reply YES within', text(self.say('BET 5')))   # small stake, no PIN set
+        self.assertIn('Press Confirm within', text(self.say('BET 5')))   # small stake, no PIN set
         self.say('NO')
         services.set_pin(ChatLink.objects.get(pk=self.link.pk), '4321')
-        self.assertIn('YES and your PIN', text(self.say('BET 5')))
+        [reply] = self.say('BET 5')
+        self.assertIn('CONFIRM and your PIN', reply['text'])
+        self.assertNotIn(['CONFIRM', '✅ Confirm'], reply['buttons'])     # a PIN can't ride on a button
         self.assertIn('Wrong or missing PIN', text(self.say('YES')))
         self.assertIn('Wrong or missing PIN', text(self.say('YES 1111')))
         self.assertIn('too many times', text(self.say('YES 2222')))
         self.say('BET 5')
-        self.say('YES 4321')
+        self.say('CONFIRM 4321')
         self.assertTrue(Bet.objects.exists())
 
     def test_wallet_choice_and_not_enough_money(self):

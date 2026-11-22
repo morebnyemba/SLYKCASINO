@@ -76,18 +76,42 @@ def parse(payload: dict) -> list[Inbound]:
     return out
 
 
+MAX_LIST_ROWS = 10
+MAX_ROW_TITLE = 24
+MAX_ROW_DESCRIPTION = 72
+
+
+def _button(b) -> tuple[str, str]:
+    """A button is a command string (shown as is) or [command, label]."""
+    if isinstance(b, (list, tuple)):
+        return str(b[0]), str(b[1])
+    return str(b), str(b)
+
+
 def payload_for(to: str, reply: dict) -> dict:
-    """The Graph API body for one reply: {'text': str, 'buttons': [str, ...]}.
-    A button's id is the command it sends, so a tap reads like typing it."""
+    """The Graph API body for one reply:
+    {'text': str, 'buttons': [cmd | [cmd, label], ...]}  → up to three reply buttons, or
+    {'text': str, 'list': {'button': label, 'rows': [[cmd, title, description], ...]}} → a pick list.
+    A button's or row's id is the command it sends, so a tap reads like typing it."""
     text = reply['text'][:MAX_TEXT]
-    buttons = [b for b in reply.get('buttons') or [] if b][:MAX_BUTTONS]
     base = {'messaging_product': 'whatsapp', 'recipient_type': 'individual', 'to': to}
+    pick_list = reply.get('list')
+    if pick_list and pick_list.get('rows'):
+        rows = [{'id': str(r[0])[:200], 'title': str(r[1])[:MAX_ROW_TITLE],
+                 **({'description': str(r[2])[:MAX_ROW_DESCRIPTION]} if len(r) > 2 and r[2] else {})}
+                for r in pick_list['rows'][:MAX_LIST_ROWS]]
+        return {**base, 'type': 'interactive', 'interactive': {
+            'type': 'list', 'body': {'text': text[:1024]},
+            'action': {'button': str(pick_list.get('button') or 'Choose')[:MAX_BUTTON_TITLE],
+                       'sections': [{'title': str(pick_list.get('title') or 'Picks')[:MAX_ROW_TITLE], 'rows': rows}]},
+        }}
+    buttons = [_button(b) for b in reply.get('buttons') or [] if b][:MAX_BUTTONS]
     if not buttons:
         return {**base, 'type': 'text', 'text': {'body': text, 'preview_url': False}}
     return {**base, 'type': 'interactive', 'interactive': {
         'type': 'button', 'body': {'text': text[:1024]},
-        'action': {'buttons': [{'type': 'reply', 'reply': {'id': b[:256], 'title': b[:MAX_BUTTON_TITLE]}}
-                               for b in buttons]},
+        'action': {'buttons': [{'type': 'reply', 'reply': {'id': cmd[:256], 'title': label[:MAX_BUTTON_TITLE]}}
+                               for cmd, label in buttons]},
     }}
 
 

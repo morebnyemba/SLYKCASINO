@@ -27,10 +27,10 @@ const money = (v: string | number) => `$${Number(v).toFixed(2)}`;
 const COMMANDS: [string, string][] = [
   ['GAMES', 'upcoming matches with their IDs'],
   ['LIVE', 'matches in play now'],
-  ['1234', 'one match and its picks'],
-  ['1234 1', 'add a pick (also X 2 1X 12 X2 GG NG O2.5 U2.5)'],
-  ['SLIP', 'see your slip'],
-  ['BET 5', 'stake $5, then reply YES'],
+  ['1234', 'open a match and tap a pick'],
+  ['1234 1', 'or type the match ID and pick (X 2 1X 12 X2 GG NG O2.5 U2.5)'],
+  ['SLIP', 'see your ticket'],
+  ['Place bet → Confirm', 'choose a stake, check the ticket, press Confirm'],
   ['BALANCE · TICKETS', 'your money and latest tickets'],
   ['DEPOSIT 10', 'EcoCash prompt to your phone'],
   ['STOP', 'unlink the number'],
@@ -198,7 +198,7 @@ export default function WhatsAppBettingPage() {
             ))}
           </dl>
           <p className="mt-3 text-xs text-muted-foreground">
-            Every bet is confirmed with YES before it’s placed, at the current price, with the same rules as the website.
+            Each selection is confirmed back to you, and nothing is placed until you press Confirm on the ticket, at the current price and with the same rules as the website.
           </p>
         </CardContent>
       </Card>
