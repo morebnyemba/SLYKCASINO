@@ -51,7 +51,7 @@ export function LiveGuardPanel() {
 
   return (
     <Panel title="Live market protection"
-      description="Every live match trades from kick-off until the lock minute (75 by default, by the match clock), when all its markets lock until full time. With “Keep every market open” on, nothing suspends a whole match before then — not the odds feed pausing, and not the automatic holds below. Individual selections still close when the match has decided them, when their price is too short, or when the live feed stops pricing them (after the seconds below): a selection is only ever on offer in play at a price the feed is quoting now. You can always suspend a match by hand from its page.">
+      description="Every live match trades from kick-off to full time, unless you set a lock minute below (by the match clock), when all its markets lock. With “Keep every market open” on, nothing suspends a whole match by itself — not the odds feed pausing, and not the automatic holds below. Individual selections still close when the match has decided them, when their price is too short, or when the live feed stops pricing them (after the seconds below): a selection is only ever on offer in play at a price the feed is quoting now. You can always suspend a match by hand from its page.">
       {notice && <div className="mb-4"><Notice tone={notice.tone} onClose={() => setNotice(null)}>{notice.text}</Notice></div>}
       {(data?.held.length ?? 0) > 0 && (
         <div className="mb-4 space-y-2">

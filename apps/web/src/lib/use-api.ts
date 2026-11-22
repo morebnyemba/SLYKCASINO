@@ -124,6 +124,20 @@ export async function authedPost<T>(
   }
 }
 
+/** DELETE with the player's token (refresh-on-401 like authedPost). */
+export async function authedDelete<T>(path: string, token: string): Promise<{ data?: T; error?: string; status: number }> {
+  try {
+    const go = (t: string) => fetch(`${config.apiUrl}${path}`, { method: 'DELETE', headers: { Authorization: `Bearer ${t}` } });
+    let res = await go(token);
+    if (res.status === 401 && getStoredTokens()?.refresh) res = await go((await refreshSession()).access);
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) return { error: (json as { detail?: string }).detail ?? `API ${res.status}`, status: res.status };
+    return { data: json as T, status: res.status };
+  } catch (e) {
+    return { error: String(e), status: 0 };
+  }
+}
+
 /** GET with the player's token and the same refresh-on-401 as authedPost (for "load more"). */
 export async function authedGet<T>(path: string, token: string): Promise<{ data?: T; error?: string; status: number }> {
   try {
