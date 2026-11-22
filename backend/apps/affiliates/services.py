@@ -324,6 +324,10 @@ def dashboard(affiliate: Affiliate, *, mask: bool = True) -> dict:
         'depositors': sum(1 for s in lifetime.values() if s['deposits'] > 0),
         'active_this_month': sum(1 for s in this_month.values() if s['active']),
         'ngr_this_month': ngr,
+        # Month-to-date KPIs from the same figures (no extra queries but the sign-up count).
+        'deposits_this_month': sum((s['deposits'] for s in this_month.values()), Decimal('0')),
+        'depositors_this_month': sum(1 for s in this_month.values() if s['deposits'] > 0),
+        'signups_this_month': affiliate.referrals.filter(created_at__gte=_aware(month)).count(),
         'carryover': carryover_balance(affiliate),
         **summary,
         'estimated_commission': summary['commission_month'],
@@ -941,6 +945,10 @@ def commission_summary(affiliate: Affiliate, today: date) -> dict:
     first = utils.month_start(today)
     month = _sum(earned.filter(Q(kind__in=by_day, period__gte=first)
                                | (~Q(kind__in=by_day) & Q(created_at__gte=_aware(first)))))
+    last_first = utils.previous_month(today)
+    last_month = _sum(earned.filter(Q(kind__in=by_day, period__gte=last_first, period__lt=first)
+                                    | (~Q(kind__in=by_day) & Q(created_at__gte=_aware(last_first),
+                                                               created_at__lt=_aware(first)))))
     return {
         'commission_rate': affiliate.revshare_percent,
         # What today's commission is worked out on, so the dashboard explains the right formula.
@@ -953,6 +961,7 @@ def commission_summary(affiliate: Affiliate, today: date) -> dict:
         'losing_tickets_today': tickets,
         'commission_today': _sum(credited_today) + on_its_way,
         'commission_month': month + on_its_way,
+        'commission_last_month': last_month,
         'commission_total': _sum(earned) + on_its_way,
     }
 

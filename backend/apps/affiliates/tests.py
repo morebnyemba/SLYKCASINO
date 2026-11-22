@@ -242,6 +242,20 @@ class CommissionTests(Base):
         self.assertEqual(stats['net_loss_today'], D('60.00'))
         self.assertEqual(stats['referrals'][0]['player'], 'al***')
 
+    def test_dashboard_month_kpis(self):
+        a = self.referred('alice', self.affiliate)
+        self.referred('bob', self.affiliate)                          # signed up, never deposited
+        self.play(a, staked=100, won=40)
+        last = utils.previous_month(timezone.localdate())
+        Commission.objects.create(affiliate=self.affiliate, kind=Commission.Kind.NET_LOSS, period=last,
+                                  base_amount=D('40'), rate=D('30'), amount=D('12.00'), status=Commission.Status.PAID)
+        stats = services.dashboard(self.affiliate)
+        self.assertEqual((stats['deposits_this_month'], stats['depositors_this_month'], stats['signups_this_month']),
+                         (D('100'), 1, 2))
+        self.assertEqual(stats['commission_last_month'], D('12.00'))
+        self.assertEqual(stats['commission_month'], D('18.00'))          # last month's isn't counted in this month
+        self.assertEqual(stats['commission_basis'], 'net_loss')
+
 
 class ApiTests(Base):
     def client_for(self, player, staff=False):
