@@ -86,6 +86,27 @@ def _teams(e) -> tuple[str, str]:
     return home or 'Home', away or 'Away'
 
 
+def kickoff(e) -> str:
+    """Kick-off date and time, always shown with a match on a ticket, e.g.
+    '🕒 Sat 22 Nov 2026, 18:00' (plus the live clock once it's under way)."""
+    from apps.sportsbook import services as sb
+    if e is None:
+        return '🕒 Kick-off time not known'
+    when = (timezone.localtime(e.starts_at, services.local_tz()).strftime('%a %d %b %Y, %H:%M') if e.starts_at
+            else 'time to be confirmed')
+    live = (f' · LIVE {e.elapsed or 0}\' {e.score_home or 0}-{e.score_away or 0}'
+            if e.status in sb.IN_PLAY_STATUSES else '')
+    return f'🕒 {when}{live}'
+
+
+def _ticket_events(t) -> list:
+    """The matches on a placed ticket (single or multiple), in leg order."""
+    if hasattr(t, 'legs'):
+        legs = t.legs.select_related('event_ref', 'outcome_ref__market__event').order_by('id')
+        return [leg.event_ref or (leg.outcome_ref.market.event if leg.outcome_ref else None) for leg in legs]
+    return [t.event_ref or (t.outcome_ref.market.event if t.outcome_ref else None)]
+
+
 def describe(e, code: str) -> tuple[str, str]:
     """(market, pick) in words for a pick code, e.g. ('Match result', 'Dynamos')."""
     home, away = _teams(e)
@@ -229,12 +250,9 @@ class Conversation:
 
     # -- browsing -------------------------------------------------------------------
     def _line(self, e) -> str:
-        from apps.sportsbook import services as sb
-        when = (f'LIVE {e.elapsed or 0}\' {e.score_home or 0}-{e.score_away or 0}' if e.status in sb.IN_PLAY_STATUSES
-                else timezone.localtime(e.starts_at).strftime('%a %d %b %H:%M') if e.starts_at else '')
         prices = ' '.join(f'{c} {_odds(v)}' for c, v in (('1', e.odds), ('X', e.odds_draw), ('2', e.odds_away))
                           if v is not None and v > 1)
-        return f'#{e.id} {e.name}\n   {when} · {prices}'
+        return f'#{e.id} {e.name}\n   {kickoff(e)}' + (f'\n   {prices}' if prices else '')
 
     def games(self, query: str) -> list[dict]:
         from apps.sportsbook.models import Event
@@ -351,7 +369,7 @@ class Conversation:
         market, pick = describe(e, code)
         return {'match': e.id, 'pick': code, 'event_id': event_id, 'selection': selection, 'outcome_id': outcome_id,
                 'event': e.name, 'market': market, 'pick_text': pick,
-                'kickoff': timezone.localtime(e.starts_at).strftime('%a %d %b %H:%M') if e.starts_at else '',
+                'kickoff': kickoff(e),
                 'label': f'{e.name} – {market}: {pick}', 'odds': str(price)}
 
     def add_picks(self, words: list[str]) -> list[dict]:
@@ -391,9 +409,8 @@ class Conversation:
         self.state.pop('pending', None)
         out = []
         for leg in added:
-            out.append(f'✅ Selection confirmed\n#{leg["match"]} {leg["event"]}'
-                       + (f'\n🕒 {leg["kickoff"]}' if leg.get('kickoff') else '')
-                       + f'\n{leg["market"]}: {leg["pick_text"]} ({leg["pick"]})\nOdds {_odds(leg["odds"])}')
+            out.append(f'✅ Selection confirmed\n#{leg["match"]} {leg["event"]}\n{leg["kickoff"]}'
+                       f'\n{leg["market"]}: {leg["pick_text"]} ({leg["pick"]})\nOdds {_odds(leg["odds"])}')
         if problems:
             out.append('⚠️ ' + '; '.join(problems))
         if legs:
@@ -414,10 +431,15 @@ class Conversation:
         return ('🧾 Your ticket:\n' + self._selections() + f'\nTotal odds {_odds(self._total())}'
                 + '\n\nPress Place bet (or type BET 5). REMOVE 1234 takes a match off, CLEAR empties it.')
 
-    def _selections(self) -> str:
-        return '\n'.join(f'{i}) #{leg["match"]} {leg.get("event") or leg["label"]}\n    '
-                         f'{leg.get("market", "Pick")}: {leg.get("pick_text") or leg["pick"]} @ {_odds(leg["odds"])}'
-                         for i, leg in enumerate(self.state['legs'], 1))
+    def _selections(self, legs: Optional[list] = None) -> str:
+        """Every match on the ticket with its kick-off date and time, the pick and its price."""
+        from apps.sportsbook.models import Event
+        legs = self.state['legs'] if legs is None else legs
+        events = Event.objects.in_bulk({leg['match'] for leg in legs})
+        return '\n'.join(f'{i}) #{leg["match"]} {leg.get("event") or leg["label"]}\n'
+                         f'    {kickoff(events.get(leg["match"]))}\n'
+                         f'    {leg.get("market", "Pick")}: {leg.get("pick_text") or leg["pick"]} @ {_odds(leg["odds"])}'
+                         for i, leg in enumerate(legs, 1))
 
     def slip(self) -> list[dict]:
         if not self.state['legs']:
@@ -571,10 +593,11 @@ class Conversation:
         ChatTicket.objects.create(channel=self.channel, player_id=player_id, kind=kind, object_id=ticket.id, stake=stake)
         from apps.accounts import services as accounts
         accounts.audit(player_id, 'chat_bet', None, channel=self.channel, kind=kind, ticket=ticket.id, stake=str(stake))
+        selections = self._selections(legs)
         self.state['legs'] = []
         self.state.pop('pending', None)
-        text = (f'🎟️ Ticket {ticket.code or ticket.id} placed: {_money(stake)} at odds {_odds(odds)}, '
-                f'returns up to {_money(stake * odds)}.')
+        text = (f'🎟️ Ticket {ticket.code or ticket.id} placed\n\n{selections}\n\n'
+                f'Stake {_money(stake)} · total odds {_odds(odds)} · possible win {_money(stake * odds)}')
         if ticket.status == 'accepting':
             text += '\nIn play: we confirm it in a few seconds and will message you.'
             self._report_later(kind, ticket.id)
@@ -612,11 +635,13 @@ class Conversation:
         rows.sort(key=lambda r: r[1].placed_at, reverse=True)
         if not rows:
             return [_reply('No tickets yet. Send GAMES to find a match.', 'GAMES')]
-        lines = []
+        blocks = []
         for kind, t in rows[:5]:
             odds = getattr(t, 'odds', None) or getattr(t, 'combined_odds', None)
-            lines.append(f'{t.code or t.id} · {kind} · {_money(t.stake)} @ {_odds(odds)} · {t.get_status_display()}')
-        return [_reply('🎟️ Your latest tickets:\n' + '\n'.join(lines), 'GAMES', 'BALANCE')]
+            matches = '\n'.join(f'   • {f"#{e.id} {e.name}" if e else "Match removed"}\n     {kickoff(e)}'
+                                for e in _ticket_events(t))
+            blocks.append(f'{t.code or t.id} · {kind} · {_money(t.stake)} @ {_odds(odds)} · {t.get_status_display()}\n{matches}')
+        return [_reply('🎟️ Your latest tickets:\n\n' + '\n\n'.join(blocks), 'GAMES', 'BALANCE')]
 
     def book(self) -> list[dict]:
         from apps.sportsbook import booking

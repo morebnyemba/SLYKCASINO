@@ -5,7 +5,8 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
-from datetime import timedelta
+from datetime import datetime, timedelta
+from datetime import timezone as dt_timezone
 from decimal import Decimal
 from unittest.mock import patch
 
@@ -153,6 +154,35 @@ class BettingTests(_Base):
         self.assertEqual(ChatTicket.objects.get().object_id, bet.id)
         self.assertIn('empty', text(self.say('SLIP')))
         self.assertIn(bet.code, text(self.say('TICKETS')))
+
+    def test_every_match_on_the_ticket_shows_its_kick_off(self):
+        tz = services.local_tz()                                         # players' time (Harare), not the server's UTC
+        k1 = timezone.localtime(self.e1.starts_at, tz).strftime('%a %d %b %Y, %H:%M')
+        k2 = timezone.localtime(self.e2.starts_at, tz).strftime('%a %d %b %Y, %H:%M')
+
+        def both(out):
+            self.assertIn(f'#{self.e1.id} Dynamos vs Highlanders\n    🕒 {k1}', out)
+            self.assertIn(f'#{self.e2.id} CAPS United vs FC Platinum\n    🕒 {k2}', out)
+
+        added = text(self.say(f'{self.e1.id} 1, {self.e2.id} GG'))       # each selection confirmed
+        self.assertIn(f'🕒 {k1}', added)
+        self.assertIn(f'🕒 {k2}', added)
+        both(text(self.say('SLIP')))                                     # the slip
+        both(text(self.say('BET 4')))                                    # the ticket to confirm
+        # A rescheduled match shows its new kick-off on the ticket.
+        Event.objects.filter(pk=self.e2.pk).update(starts_at=self.e2.starts_at + timedelta(days=1))
+        k2 = timezone.localtime(self.e2.starts_at + timedelta(days=1), tz).strftime('%a %d %b %Y, %H:%M')
+        placed = text(self.say('CONFIRM'))                               # the placed ticket
+        both(placed)
+        out = text(self.say('TICKETS'))                                  # the ticket list
+        self.assertIn(f'#{self.e1.id} Dynamos vs Highlanders\n     🕒 {k1}', out)
+        self.assertIn(f'#{self.e2.id} CAPS United vs FC Platinum\n     🕒 {k2}', out)
+        self.assertIn(f'🕒 {k1}', text(self.say('GAMES')))                 # and the match list
+
+    def test_kick_off_is_in_harare_time_not_server_utc(self):
+        from apps.chatbot.engine import kickoff
+        e = Event(name='A vs B', starts_at=datetime(2026, 11, 28, 16, 0, tzinfo=dt_timezone.utc), status='NS')
+        self.assertEqual(kickoff(e), '🕒 Sat 28 Nov 2026, 18:00')        # 16:00 UTC = 18:00 CAT
 
     def test_multiple_bet(self):
         self.say(f'{self.e1.id} U2.5, {self.e2.id} GG')

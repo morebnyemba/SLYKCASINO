@@ -578,3 +578,5 @@ WHATSAPP_VERIFY_TOKEN = os.environ.get('WHATSAPP_VERIFY_TOKEN', '')
 WHATSAPP_GRAPH_VERSION = os.environ.get('WHATSAPP_GRAPH_VERSION', 'v21.0')
 # The bot's number as players should save it (shown on the website), e.g. +263 77 123 4567.
 WHATSAPP_DISPLAY_NUMBER = os.environ.get('WHATSAPP_DISPLAY_NUMBER', '')
+# Kick-off times in chat are written in the players' local time (the server runs on UTC).
+CHATBOT_TIME_ZONE = os.environ.get('CHATBOT_TIME_ZONE', 'Africa/Harare')

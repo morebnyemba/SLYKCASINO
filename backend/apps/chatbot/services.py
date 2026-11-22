@@ -115,8 +115,17 @@ def daily_cap(link: ChatLink) -> Decimal:
     return min(operator, link.daily_cap) if link.daily_cap is not None else operator
 
 
+def local_tz():
+    """The players' time zone for chat (kick-off times, the daily limit's day)."""
+    from zoneinfo import ZoneInfo
+
+    from django.conf import settings
+    return ZoneInfo(getattr(settings, 'CHATBOT_TIME_ZONE', '') or 'Africa/Harare')
+
+
 def staked_today(player_id: int, *, channel: str = WHATSAPP) -> Decimal:
-    start = timezone.make_aware(timezone.datetime.combine(timezone.localdate(), timezone.datetime.min.time()))
+    tz = local_tz()
+    start = timezone.make_aware(timezone.datetime.combine(timezone.localdate(timezone=tz), timezone.datetime.min.time()), tz)
     total = ChatTicket.objects.filter(channel=channel, player_id=player_id, created_at__gte=start).aggregate(t=Sum('stake'))['t']
     return (total or Decimal('0')).quantize(Decimal('0.01'))
 
