@@ -47,6 +47,7 @@ DOMAIN_APPS = [
     'apps.jet',
     'apps.risk',
     'apps.revenue',
+    'apps.chatbot',
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + DOMAIN_APPS
@@ -567,3 +568,15 @@ JAZZMIN_UI_TWEAKS = {
         'success': 'btn-success',
     },
 }
+
+
+# -- WhatsApp betting bot (apps.chatbot): Meta WhatsApp Business Cloud API ---------
+WHATSAPP_TOKEN = os.environ.get('WHATSAPP_TOKEN', '')
+WHATSAPP_PHONE_NUMBER_ID = os.environ.get('WHATSAPP_PHONE_NUMBER_ID', '')
+WHATSAPP_APP_SECRET = os.environ.get('WHATSAPP_APP_SECRET', '')
+WHATSAPP_VERIFY_TOKEN = os.environ.get('WHATSAPP_VERIFY_TOKEN', '')
+WHATSAPP_GRAPH_VERSION = os.environ.get('WHATSAPP_GRAPH_VERSION', 'v21.0')
+# The bot's number as players should save it (shown on the website), e.g. +263 77 123 4567.
+WHATSAPP_DISPLAY_NUMBER = os.environ.get('WHATSAPP_DISPLAY_NUMBER', '')
+# Kick-off times in chat are written in the players' local time (the server runs on UTC).
+CHATBOT_TIME_ZONE = os.environ.get('CHATBOT_TIME_ZONE', 'Africa/Harare')

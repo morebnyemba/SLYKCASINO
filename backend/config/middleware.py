@@ -1,6 +1,11 @@
 """Custom middleware for BetBlits backend."""
 
 BLOCKED_COUNTRIES = {'US', 'FR', 'AU', 'SG', 'HK'}  # example blocked jurisdictions
+# The same jurisdictions by international dialling code, for chat numbers (apps.chatbot).
+BLOCKED_DIAL_CODES = ('1', '33', '61', '65', '852')
+# Server-to-server webhooks authenticated by signature: the caller's country is
+# the provider's data centre (Meta's are mostly in the US), not a player's.
+GEO_EXEMPT = ('/api/health/', '/api/chatbot/whatsapp/webhook/')
 
 
 class GeoBlockMiddleware:
@@ -9,7 +14,7 @@ class GeoBlockMiddleware:
 
     def __call__(self, request):
         # Skip non-API paths and health check
-        if not request.path.startswith('/api/') or request.path == '/api/health/':
+        if not request.path.startswith('/api/') or request.path in GEO_EXEMPT:
             return self.get_response(request)
         # Trust only the Cloudflare-set header. A client-supplied header (e.g.
         # X-Country-Code) is fully spoofable and must never be used to decide

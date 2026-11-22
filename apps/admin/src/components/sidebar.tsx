@@ -7,7 +7,7 @@ import type { IconType } from 'react-icons';
 import {
   BsActivity, BsBroadcast, BsCalendar2Week, BsCashStack, BsChatDots, BsClockHistory, BsGift, BsGrid1X2,
   BsImages, BsList, BsMoonStars, BsPalette, BsPeople, BsPersonBadge, BsBoxArrowRight, BsSun, BsTicketPerforated,
-  BsTrophy, BsXLg, BsDiagram3, BsDatabase, BsCreditCard2Front, BsAirplane, BsPieChart, BsBank, BsShieldExclamation, BsTicket, BsSliders, BsChatSquareText, BsShieldCheck, BsJournalText,
+  BsTrophy, BsXLg, BsDiagram3, BsDatabase, BsCreditCard2Front, BsAirplane, BsPieChart, BsBank, BsShieldExclamation, BsTicket, BsSliders, BsChatSquareText, BsShieldCheck, BsJournalText, BsWhatsapp,
 } from 'react-icons/bs';
 import { useAuth } from '@/lib/auth-context';
 import { useSiteIdentity } from '@/lib/identity-context';
@@ -56,6 +56,7 @@ export const NAV: NavSection[] = [
     { href: '/promotions', label: 'Promotions', icon: BsGift },
     { href: '/promo-codes', label: 'Promo codes', icon: BsTicket },
     { href: '/banners', label: 'Banners', icon: BsImages },
+    { href: '/whatsapp-bot', label: 'WhatsApp bot', icon: BsWhatsapp },
   ] },
   { title: 'Settings', items: [
     { href: '/betting-rules', label: 'Betting rules', icon: BsSliders },
