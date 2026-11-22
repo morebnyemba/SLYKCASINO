@@ -14,6 +14,7 @@ import { PayoutsTab } from '@/components/affiliates/payouts-tab';
 import { AgentTicketsPanel, CreditingHealth } from '@/components/affiliates/agent-tickets';
 import { DepositCommissionsPanel } from '@/components/affiliates/deposit-commissions';
 import { ImpersonateButton } from '@/components/players/impersonate';
+import { AdjustBalancePanel, CompetitionsTab } from '@/components/affiliates/competitions';
 
 interface Affiliate {
   id: number;
@@ -141,6 +142,7 @@ function AffiliatesTab() {
   const [tickets, setTickets] = useState<number | null>(null);
   const [credited, setCredited] = useState(0);
   const [cpaOpen, setCpaOpen] = useState<number | null>(null);
+  const [adjust, setAdjust] = useState<number | null>(null);
   const [error, setError] = useState('');
   const rows = rowsOf(data);
 
@@ -210,6 +212,7 @@ function AffiliatesTab() {
                           {action(tickets === a.id ? 'Hide earnings' : 'Earnings', () => setTickets(tickets === a.id ? null : a.id))}
                           {action(cpaOpen === a.id ? 'Hide deposit commissions' : 'Deposit commissions', () => setCpaOpen(cpaOpen === a.id ? null : a.id))}
                           {action(stats === a.id ? 'Hide analytics' : 'Analytics', () => setStats(stats === a.id ? null : a.id))}
+                          {a.status === 'active' && action(adjust === a.id ? 'Hide balance' : 'Adjust balance', () => setAdjust(adjust === a.id ? null : a.id))}
                           {action(open === a.id ? 'Close' : 'Terms', () => setOpen(open === a.id ? null : a.id))}
                         </div>
                       </td>
@@ -217,6 +220,11 @@ function AffiliatesTab() {
                     {tickets === a.id && (
                       <tr className="border-b border-border">
                         <td colSpan={6} className="p-0"><AgentTicketsPanel id={a.id} active={a.status === 'active'} onChanged={() => { setCredited((n) => n + 1); refetch(); }} /></td>
+                      </tr>
+                    )}
+                    {adjust === a.id && (
+                      <tr className="border-b border-border">
+                        <td colSpan={6} className="p-0"><AdjustBalancePanel id={a.id} onChanged={refetch} /></td>
                       </tr>
                     )}
                     {cpaOpen === a.id && (
@@ -347,13 +355,13 @@ function CommissionsTab() {
 }
 
 export default function AffiliatesPage() {
-  const [tab, setTab] = useState<'affiliates' | 'commissions' | 'payouts' | 'programme'>('affiliates');
+  const [tab, setTab] = useState<'affiliates' | 'commissions' | 'payouts' | 'competitions' | 'programme'>('affiliates');
   return (
     <div className="space-y-6">
       <PageHeader icon={FaHandshake} eyebrow="Money" title="Affiliates" description="Approve partners, set their terms, and review and pay commissions." />
-      <Filter value={tab} onChange={(v) => setTab(v as typeof tab)} options={[['affiliates', 'Affiliates'], ['commissions', 'Commissions'], ['payouts', 'Payouts'], ['programme', 'Programme settings']]} />
+      <Filter value={tab} onChange={(v) => setTab(v as typeof tab)} options={[['affiliates', 'Affiliates'], ['commissions', 'Commissions'], ['payouts', 'Payouts'], ['competitions', 'Competitions'], ['programme', 'Programme settings']]} />
       {tab === 'affiliates' ? <AffiliatesTab /> : tab === 'commissions' ? <CommissionsTab />
-        : tab === 'payouts' ? <PayoutsTab /> : <ProgrammeSettings />}
+        : tab === 'payouts' ? <PayoutsTab /> : tab === 'competitions' ? <CompetitionsTab /> : <ProgrammeSettings />}
     </div>
   );
 }

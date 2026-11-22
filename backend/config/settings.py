@@ -411,6 +411,11 @@ CELERY_BEAT_SCHEDULE = {
         # also paid the moment it is final). No-op when automatic payout is off.
         'schedule': 300.0,
     },
+    'affiliates-award-competitions': {
+        'task': 'apps.affiliates.tasks.award_competitions',
+        # Competition prizes to agents who reached a target.
+        'schedule': 900.0,
+    },
     'affiliates-credit-losing-tickets': {
         'task': 'apps.affiliates.tasks.credit_losing_tickets',
         # Each losing ticket's agent commission, 3 minutes after it settles.

@@ -41,3 +41,10 @@ def pay_out_earnings() -> dict:
 @shared_task(name='apps.affiliates.tasks.reconcile_commission_payouts')
 def reconcile_commission_payouts(dry_run: bool = False) -> dict:
     return RecoveryManager(dry_run=dry_run).run().model_dump(mode='json')
+
+
+@shared_task(name='apps.affiliates.tasks.award_competitions')
+def award_competitions() -> int:
+    """Every 15 minutes: give competition prizes to agents who reached a target."""
+    from . import competitions
+    return competitions.award_due()
