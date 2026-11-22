@@ -9,12 +9,12 @@
 """
 from __future__ import annotations
 
+import hmac
 import json
 import logging
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 
-from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.db.models import Count, Sum
 from django.http import HttpResponse, HttpResponseForbidden
@@ -27,7 +27,7 @@ from rest_framework.views import APIView
 
 from apps.accounts import services as accounts_services
 
-from . import engine, services, whatsapp
+from . import config, engine, services, whatsapp
 from .models import WHATSAPP, ChatbotSettings, ChatLink, ChatTicket, InboundMessage
 
 logger = logging.getLogger(__name__)
@@ -36,9 +36,9 @@ logger = logging.getLogger(__name__)
 @csrf_exempt
 def whatsapp_webhook(request):
     if request.method == 'GET':
-        token = getattr(settings, 'WHATSAPP_VERIFY_TOKEN', '') or ''
+        token = whatsapp.verify_token()
         if (request.GET.get('hub.mode') == 'subscribe' and token
-                and request.GET.get('hub.verify_token') == token):
+                and hmac.compare_digest(request.GET.get('hub.verify_token', ''), token)):
             return HttpResponse(request.GET.get('hub.challenge', ''), content_type='text/plain')
         return HttpResponseForbidden('bad verify token')
     if request.method != 'POST':
@@ -83,7 +83,7 @@ def _player(request):
 def _status(player_id: int) -> dict:
     link = ChatLink.objects.filter(channel=WHATSAPP, player_id=player_id).first()
     cfg = ChatbotSettings.load()
-    number = getattr(settings, 'WHATSAPP_DISPLAY_NUMBER', '') or ''
+    number = whatsapp.display_number()
     return {
         'enabled': cfg.enabled, 'bot_number': number,
         'linked': bool(link), 'number': f'+{link.address[:3]} ••• {link.address[-4:]}' if link else None,
@@ -177,6 +177,14 @@ class ChatLimitView(APIView):
         return Response(_status(player.id))
 
 
+def _webhook_url(request) -> str:
+    """Shown to staff to paste into Meta, which only calls https: https unless
+    this is a local dev host (TLS ends at the proxy, so request.scheme says http)."""
+    host = request.get_host()
+    local = host.split(':')[0] in ('localhost', '127.0.0.1')
+    return f'{"http" if local else "https"}://{host}/api/chatbot/whatsapp/webhook/'
+
+
 class AdminChatbotView(APIView):
     permission_classes = [IsAdminUser]
     MONEY = ('max_stake', 'daily_cap', 'pin_above')
@@ -190,6 +198,10 @@ class AdminChatbotView(APIView):
             **{f: getattr(cfg, f) for f in self.FLAGS}, **{f: str(getattr(cfg, f)) for f in self.MONEY},
             'configured': whatsapp.configured(),
             'webhook_path': '/api/chatbot/whatsapp/webhook/',
+            # The address Meta must call: this API's own host (behind the proxy), not the admin's.
+            'webhook_url': _webhook_url(self.request),
+            'connection': config.describe(cfg),
+            'can_edit_connection': bool(self.request.user.is_superuser),
             'linked_players': ChatLink.objects.count(),
             'messages_24h': InboundMessage.objects.filter(received_at__gte=since).count(),
             'tickets_24h': tickets['n'] or 0, 'staked_24h': str((tickets['staked'] or Decimal('0')).quantize(Decimal('0.01'))),
@@ -199,6 +211,20 @@ class AdminChatbotView(APIView):
         return Response(self._payload())
 
     def put(self, request):
+        conn = request.data.get('connection')
+        if conn is not None:
+            # The token and secrets let anyone send as the business: superusers only.
+            if not request.user.is_superuser:
+                return Response({'detail': 'Only a superuser can change the WhatsApp connection.'},
+                                status=status.HTTP_403_FORBIDDEN)
+            if not isinstance(conn, dict):
+                return Response({'detail': 'Bad connection settings.'}, status=status.HTTP_400_BAD_REQUEST)
+            try:
+                changed = config.update(conn, by=request.user.get_username())
+            except config.ConfigError as exc:
+                return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            if changed:
+                accounts_services.audit(None, 'chatbot_connection', request, changed=','.join(changed))
         cfg = ChatbotSettings.load()
         try:
             for f in self.FLAGS:
@@ -213,6 +239,15 @@ class AdminChatbotView(APIView):
         except (InvalidOperation, ValueError, TypeError):
             return Response({'detail': 'Enter amounts of 0 or more.'}, status=status.HTTP_400_BAD_REQUEST)
         cfg.save()
-        accounts_services.audit(None, 'chatbot_settings', request,
-                                **{f: str(getattr(cfg, f)) for f in (*self.FLAGS, *self.MONEY)})
+        if any(f in request.data for f in (*self.FLAGS, *self.MONEY)):
+            accounts_services.audit(None, 'chatbot_settings', request,
+                                    **{f: str(getattr(cfg, f)) for f in (*self.FLAGS, *self.MONEY)})
         return Response(self._payload())
+
+
+class AdminChatbotTestView(APIView):
+    """POST /api/admin/chatbot/test/ — check the connection with Meta."""
+    permission_classes = [IsAdminUser]
+
+    def post(self, request):
+        return Response(whatsapp.check_connection())

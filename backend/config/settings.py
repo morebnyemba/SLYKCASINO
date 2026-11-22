@@ -571,12 +571,15 @@ JAZZMIN_UI_TWEAKS = {
 
 
 # -- WhatsApp betting bot (apps.chatbot): Meta WhatsApp Business Cloud API ---------
+# Each can be set (and overridden) in Admin → WhatsApp bot; these are the fallbacks.
+# CHATBOT_SECRET_KEY encrypts the secrets saved there (default: derived from DJANGO_SECRET_KEY).
+CHATBOT_SECRET_KEY = os.environ.get('CHATBOT_SECRET_KEY', '')
 WHATSAPP_TOKEN = os.environ.get('WHATSAPP_TOKEN', '')
 WHATSAPP_PHONE_NUMBER_ID = os.environ.get('WHATSAPP_PHONE_NUMBER_ID', '')
 WHATSAPP_APP_SECRET = os.environ.get('WHATSAPP_APP_SECRET', '')
 WHATSAPP_VERIFY_TOKEN = os.environ.get('WHATSAPP_VERIFY_TOKEN', '')
-WHATSAPP_GRAPH_VERSION = os.environ.get('WHATSAPP_GRAPH_VERSION', 'v21.0')
+WHATSAPP_GRAPH_VERSION = os.environ.get('WHATSAPP_GRAPH_VERSION', '')  # default v21.0 (apps.chatbot.config)
 # The bot's number as players should save it (shown on the website), e.g. +263 77 123 4567.
 WHATSAPP_DISPLAY_NUMBER = os.environ.get('WHATSAPP_DISPLAY_NUMBER', '')
 # Kick-off times in chat are written in the players' local time (the server runs on UTC).
-CHATBOT_TIME_ZONE = os.environ.get('CHATBOT_TIME_ZONE', 'Africa/Harare')
+CHATBOT_TIME_ZONE = os.environ.get('CHATBOT_TIME_ZONE', '')  # default Africa/Harare (apps.chatbot.config)

@@ -9,4 +9,5 @@ urlpatterns = [
     path('chatbot/me/pin/', views.ChatPinView.as_view(), name='chatbot-pin'),
     path('chatbot/me/limit/', views.ChatLimitView.as_view(), name='chatbot-limit'),
     path('admin/chatbot/', views.AdminChatbotView.as_view(), name='chatbot-admin'),
+    path('admin/chatbot/test/', views.AdminChatbotTestView.as_view(), name='chatbot-admin-test'),
 ]
