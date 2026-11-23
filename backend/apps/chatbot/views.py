@@ -28,7 +28,7 @@ from rest_framework.views import APIView
 from apps.accounts import services as accounts_services
 
 from . import config, engine, services, whatsapp
-from .models import WHATSAPP, ChatbotSettings, ChatLink, ChatTicket, InboundMessage
+from .models import WHATSAPP, ChatbotSettings, ChatLink, ChatTicket, InboundMessage, OutboundMessage
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +51,8 @@ def whatsapp_webhook(request):
         payload = json.loads(body or b'{}')
     except ValueError:
         return HttpResponse(status=400)
+    for st in whatsapp.parse_statuses(payload):
+        services.apply_status(st)                        # sent / delivered / read / failed (with Meta's reason)
     for msg in whatsapp.parse(payload):
         handle_inbound(msg)
     # Always 200 once authentic: Meta retries anything else, and a retry is a duplicate.
@@ -68,6 +70,7 @@ def handle_inbound(msg: whatsapp.Inbound) -> None:
             return  # redelivered: already answered
         if services.over_rate(msg.address):
             return
+        services.acknowledge(msg.provider_id)            # blue ticks and "typing…" while we work out the answer
         replies = engine.handle(msg.address, msg.text, channel=WHATSAPP)
         InboundMessage.objects.filter(pk=row.pk).update(replies=len(replies))
         services.deliver(msg.address, replies, channel=WHATSAPP)
@@ -251,3 +254,144 @@ class AdminChatbotTestView(APIView):
 
     def post(self, request):
         return Response(whatsapp.check_connection())
+
+
+# -- inbox ---------------------------------------------------------------------------
+
+WINDOW = timedelta(hours=24)
+
+
+def _last_in(address: str):
+    row = InboundMessage.objects.filter(address=address).order_by('-received_at').first()
+    return row.received_at if row else None
+
+
+def _who(addresses: list[str]) -> dict:
+    from apps.accounts.models import Player
+    links = {link.address: link.player_id for link in ChatLink.objects.filter(address__in=addresses)}
+    names = dict(Player.objects.filter(pk__in=set(links.values())).values_list('pk', 'username'))
+    return {a: names.get(pid) for a, pid in links.items()}
+
+
+class AdminInboxView(APIView):
+    """GET /api/admin/chatbot/inbox/?q= — every conversation, most recent first,
+    with who it is (when the number is linked), the last message and whether it
+    needs a person: unanswered, or a reply that failed to send."""
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        from django.db.models import Max
+        q = ''.join(ch for ch in request.query_params.get('q', '') if ch.isdigit())
+        ins = {r['address']: r for r in InboundMessage.objects.values('address').annotate(last=Max('received_at'), n=Count('id'))}
+        outs = {r['address']: r for r in OutboundMessage.objects.values('address').annotate(last=Max('created_at'), n=Count('id'))}
+        addresses = sorted(set(ins) | set(outs), key=lambda a: max(filter(None, [ins.get(a, {}).get('last'), outs.get(a, {}).get('last')])),
+                           reverse=True)
+        if q:
+            addresses = [a for a in addresses if q in a]
+        addresses = addresses[:200]
+        who = _who(addresses)
+        since = timezone.now() - WINDOW
+        failed = {r['address']: r['n'] for r in OutboundMessage.objects.filter(address__in=addresses, created_at__gte=since,
+                                                                            status='failed').values('address').annotate(n=Count('id'))}
+        rows = []
+        for a in addresses:
+            last_in, last_out = ins.get(a, {}).get('last'), outs.get(a, {}).get('last')
+            latest_in = InboundMessage.objects.filter(address=a).order_by('-received_at').first()
+            latest_out = OutboundMessage.objects.filter(address=a).order_by('-created_at').first()
+            last = latest_in if (last_in and (not last_out or last_in >= last_out)) else latest_out
+            rows.append({
+                'address': a, 'player': who.get(a), 'incoming': ins.get(a, {}).get('n', 0), 'outgoing': outs.get(a, {}).get('n', 0),
+                'last_at': (last_in if last is latest_in else last_out).isoformat(),
+                'last_text': (last.text if last else '')[:120], 'last_direction': 'in' if last is latest_in else 'out',
+                'unanswered': bool(last_in and (not last_out or last_in > last_out + timedelta(seconds=1))),
+                'failed': failed.get(a, 0), 'can_reply': bool(last_in and last_in >= since),
+            })
+        return Response({'conversations': rows})
+
+
+def _thread(address: str) -> dict:
+    ins = list(InboundMessage.objects.filter(address=address).order_by('-received_at')[:100])
+    outs = list(OutboundMessage.objects.filter(address=address).order_by('-created_at')[:100])
+    messages = ([{'id': f'i{m.id}', 'direction': 'in', 'text': m.text, 'at': m.received_at.isoformat()} for m in ins]
+                + [{'id': f'o{m.id}', 'direction': 'out', 'text': m.text, 'buttons': m.buttons, 'at': m.created_at.isoformat(),
+                    'status': m.status, 'status_label': m.get_status_display(), 'error': m.error, 'error_code': m.error_code,
+                    'source': m.source, 'sent_by': m.sent_by} for m in outs])
+    messages.sort(key=lambda m: m['at'])
+    last_in = _last_in(address)
+    return {'address': address, 'player': _who([address]).get(address), 'messages': messages[-120:],
+            'can_reply': bool(last_in and last_in >= timezone.now() - WINDOW),
+            'window_ends': (last_in + WINDOW).isoformat() if last_in else None}
+
+
+class AdminInboxThreadView(APIView):
+    """GET — one conversation. POST {text} — a staff reply (free text; WhatsApp allows it
+    only within 24 hours of the customer's last message)."""
+    permission_classes = [IsAdminUser]
+
+    def get(self, request, address: str):
+        return Response(_thread(''.join(ch for ch in address if ch.isdigit())))
+
+    def post(self, request, address: str):
+        address = ''.join(ch for ch in address if ch.isdigit())
+        text = str(request.data.get('text') or '').strip()
+        if not text or len(text) > 1000:
+            return Response({'detail': 'Write a message of up to 1,000 characters.'}, status=status.HTTP_400_BAD_REQUEST)
+        last_in = _last_in(address)
+        if not last_in or last_in < timezone.now() - WINDOW:
+            return Response({'detail': 'WhatsApp only allows a free-text reply within 24 hours of the customer’s last message. '
+                                       'They need to message us first.'}, status=status.HTTP_400_BAD_REQUEST)
+        services.send_now(WHATSAPP, address, [{'text': text}], source='staff', by=request.user.get_username())
+        accounts_services.audit(None, 'chat_staff_message', request, number=f'…{address[-4:]}', length=len(text))
+        return Response(_thread(address), status=status.HTTP_201_CREATED)
+
+
+class AdminChatbotHealthView(APIView):
+    """GET — is it working? Counts, the last message each way, and the reasons replies failed,
+    with the likely fix. POST {to} — send a test message and say exactly what Meta answered."""
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        from django.db.models import Max
+        since = timezone.now() - timedelta(hours=24)
+        out24 = OutboundMessage.objects.filter(created_at__gte=since)
+        by_status = {r['status']: r['n'] for r in out24.values('status').annotate(n=Count('id'))}
+        reasons = [{'error': r['error'], 'code': r['error_code'], 'count': r['n'], 'last_at': r['last'].isoformat()}
+                   for r in out24.filter(status='failed').exclude(error='').values('error', 'error_code')
+                   .annotate(n=Count('id'), last=Max('created_at')).order_by('-n')[:5]]
+        last_in = InboundMessage.objects.order_by('-received_at').first()
+        last_out = OutboundMessage.objects.order_by('-created_at').first()
+        problem = ''
+        if not whatsapp.configured():
+            problem = ('Replies cannot be sent: the access token or phone number ID is missing. '
+                       'Fill in the Connection section of the WhatsApp bot page, then press Test connection.')
+        elif last_in and not OutboundMessage.objects.filter(created_at__gte=last_in.received_at - timedelta(seconds=5)).exists() \
+                and last_in.received_at < timezone.now() - timedelta(minutes=2):
+            problem = 'Messages are arriving but no replies are being sent or logged. Restart the Django service and check its logs.'
+        elif reasons and (last_out and last_out.status == 'failed'):
+            problem = f'The latest reply failed: {reasons[0]["error"]}'
+        return Response({
+            'configured': whatsapp.configured(), 'problem': problem,
+            'incoming_24h': InboundMessage.objects.filter(received_at__gte=since).count(),
+            'outgoing_24h': out24.count(), 'by_status': by_status, 'failures': reasons,
+            'last_incoming_at': last_in.received_at.isoformat() if last_in else None,
+            'last_outgoing_at': last_out.created_at.isoformat() if last_out else None,
+        })
+
+    def post(self, request):
+        to = ''.join(ch for ch in str(request.data.get('to') or '') if ch.isdigit())
+        if not 8 <= len(to) <= 15:
+            return Response({'detail': 'Enter the number with its country code, e.g. 263771234567.'}, status=status.HTTP_400_BAD_REQUEST)
+        last_in = _last_in(to)
+        in_window = bool(last_in and last_in >= timezone.now() - WINDOW)
+        reply = {'text': f'✅ Test message from {engine._site()}. If you can read this, sending works.'}
+        row = services.record(to, reply if in_window else {'text': 'Template “hello_world” (connection test)'}, source='test',
+                              by=request.user.get_username())
+        if in_window:
+            services.transmit(row, reply)
+        else:                                            # outside 24 hours only a template can be sent
+            result = whatsapp.send_template(to)
+            row.provider_id, row.error_code, row.error = result.provider_id, result.code, result.error
+            row.status = row.Status.SENT if result.ok else row.Status.FAILED
+            row.save(update_fields=['provider_id', 'status', 'error_code', 'error', 'updated_at'])
+        return Response({'ok': row.status != 'failed', 'status': row.status, 'error': row.error, 'error_code': row.error_code,
+                         'via': 'text' if in_window else 'template'})

@@ -123,3 +123,37 @@ class ChatTicket(models.Model):
 
     class Meta:
         db_table = 'chatbot_ticket'
+
+
+class OutboundMessage(models.Model):
+    """Every message we send, with what happened to it: the delivery log behind
+    the admin inbox. `status` follows Meta's own reports (sent, delivered, read,
+    failed); `error` says why when it failed or was never sent."""
+    class Status(models.TextChoices):
+        QUEUED = 'queued', 'Sending'
+        SENT = 'sent', 'Sent'
+        DELIVERED = 'delivered', 'Delivered'
+        READ = 'read', 'Read'
+        FAILED = 'failed', 'Failed'
+
+    class Source(models.TextChoices):
+        BOT = 'bot', 'Bot'
+        STAFF = 'staff', 'Staff'
+        TEST = 'test', 'Test'
+
+    channel = models.CharField(max_length=16, choices=CHANNELS, default=WHATSAPP)
+    address = models.CharField(max_length=32, db_index=True)
+    text = models.TextField()
+    buttons = models.JSONField(default=list, blank=True)
+    source = models.CharField(max_length=8, choices=Source.choices, default=Source.BOT)
+    sent_by = models.CharField(max_length=150, blank=True, default='')
+    provider_id = models.CharField(max_length=128, blank=True, default='', db_index=True)
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.QUEUED, db_index=True)
+    error_code = models.CharField(max_length=20, blank=True, default='')
+    error = models.CharField(max_length=400, blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'chatbot_outbound'
+        ordering = ['-created_at']
