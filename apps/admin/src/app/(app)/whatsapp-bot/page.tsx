@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { BsWhatsapp } from 'react-icons/bs';
-import { Badge, Btn, Field, Notice, PageHeader, Panel, Switch, TextInput } from '@/components/console/ui';
+import { Badge, Btn, Field, Notice, PageHeader, Panel, Switch, Tabs, TextInput } from '@/components/console/ui';
+import { DeliveryHealth, Inbox } from '@/components/chatbot/inbox';
 import { useAuth } from '@/lib/auth-context';
 import { authedPost, authedRequest, useApi } from '@/lib/use-api';
 
@@ -105,6 +106,7 @@ export default function WhatsAppBotPage() {
     setForm((v) => v && { ...v, [k]: e.target.value.replace(/[^0-9.]/g, '') });
   const webhook = data?.webhook_url ?? '';
   const editable = !!data?.can_edit_connection;
+  const [tab, setTab] = useState<'inbox' | 'setup'>('inbox');
 
   return (
     <div className="space-y-6">
@@ -121,6 +123,16 @@ export default function WhatsAppBotPage() {
         ))}
       </div>
 
+      <Tabs value={tab} onChange={setTab} items={[{ id: 'inbox', label: 'Inbox' }, { id: 'setup', label: 'Setup & limits' }]} />
+
+      {tab === 'inbox' && (
+        <>
+          <DeliveryHealth />
+          <Inbox />
+        </>
+      )}
+
+      {tab === 'setup' && (<>
       {notice && <Notice tone={notice.tone} onClose={() => setNotice(null)}>{notice.text}</Notice>}
 
       <Panel title="WhatsApp connection (Meta Cloud API)"
@@ -222,6 +234,7 @@ export default function WhatsAppBotPage() {
           <li>Meta’s policy restricts real-money gambling on WhatsApp without its written approval. Apply for it; until then the number can be banned if reported.</li>
         </ol>
       </Panel>
+      </>)}
     </div>
   );
 }

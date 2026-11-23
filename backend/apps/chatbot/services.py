@@ -159,26 +159,81 @@ def over_rate(address: str) -> bool:
 
 # -- delivery -----------------------------------------------------------------------------
 
+def record(address: str, reply: dict, *, channel: str = WHATSAPP, source: str = 'bot', by: str = ''):
+    """Write the message to the delivery log (status: sending) before it's sent."""
+    from .models import OutboundMessage
+    return OutboundMessage.objects.create(channel=channel, address=address, text=reply['text'],
+                                          buttons=[b if isinstance(b, str) else b[1] for b in reply.get('buttons') or [] if b]
+                                          + ([f'☰ {reply["list"].get("button", "Choose")}'] if reply.get('list') else []),
+                                          source=source, sent_by=by[:150])
+
+
+def transmit(row, reply: dict) -> bool:
+    """Send one logged message and write what happened to it onto its row."""
+    from . import whatsapp
+    if row.channel != WHATSAPP:
+        result = whatsapp.SendResult(False, error='Unsupported channel.', code='channel')
+    else:
+        result = whatsapp.send(row.address, reply)
+    row.provider_id = result.provider_id
+    row.status = row.Status.SENT if result.ok else row.Status.FAILED
+    row.error_code, row.error = result.code, result.error
+    row.save(update_fields=['provider_id', 'status', 'error_code', 'error', 'updated_at'])
+    return result.ok
+
+
 def deliver(address: str, replies: list[dict], *, channel: str = WHATSAPP) -> None:
-    """Send replies in order once the transaction commits, off the request
-    thread (Celery when it's up, else directly)."""
+    """Log the replies now and send them, in order, once the transaction has
+    committed. Sent straight from this process on a background thread: a reply
+    never depends on a Celery worker being up (a task queued for a worker that
+    isn't running is lost without a trace, and a chat must always answer)."""
     if not replies:
         return
+    rows = [record(address, r, channel=channel) for r in replies]
 
     def run():
         try:
-            from .tasks import send_replies
-            send_replies.apply_async(args=(channel, address, replies), retry=False)
-        except Exception:  # noqa: BLE001 — broker down: send from here
-            send_now(channel, address, replies)
+            for row, reply in zip(rows, replies):
+                transmit(row, reply)
+        except Exception:  # noqa: BLE001
+            logger.exception('chat delivery to …%s crashed', address[-4:])
 
     transaction.on_commit(lambda: threading.Thread(target=run, daemon=True).start())
 
 
-def send_now(channel: str, address: str, replies: list[dict]) -> int:
-    from . import whatsapp
+def send_now(channel: str, address: str, replies: list[dict], *, source: str = 'bot', by: str = '') -> int:
+    """Log and send replies now (for jobs that run later, and staff messages)."""
     sent = 0
-    for r in replies:
-        if channel == WHATSAPP and whatsapp.send(address, r):
+    for reply in replies:
+        row = record(address, reply, channel=channel, source=source, by=by)
+        if transmit(row, reply):
             sent += 1
     return sent
+
+
+def acknowledge(provider_id: str) -> None:
+    """Blue ticks and the "typing…" indicator for a message just received, on a
+    background thread so the webhook still answers Meta immediately."""
+    from . import whatsapp
+    if whatsapp.configured():
+        threading.Thread(target=whatsapp.mark_read, args=(provider_id,), daemon=True).start()
+
+
+def apply_status(st) -> bool:
+    """Record Meta's delivery report (sent, delivered, read, failed) for a message
+    we sent. Reports can arrive out of order: a message never goes back from
+    read to delivered."""
+    from .models import OutboundMessage
+    row = OutboundMessage.objects.filter(provider_id=st.provider_id).first()
+    if row is None:
+        return False
+    order = {'queued': 0, 'sent': 1, 'delivered': 2, 'read': 3}
+    if st.status == 'failed':
+        row.status, row.error_code = OutboundMessage.Status.FAILED, st.code
+        row.error = (st.error or 'Meta could not deliver this message.')[:400]
+    elif order.get(st.status, 0) > order.get(row.status, -1) and row.status != OutboundMessage.Status.FAILED:
+        row.status = st.status
+    else:
+        return False
+    row.save(update_fields=['status', 'error_code', 'error', 'updated_at'])
+    return True

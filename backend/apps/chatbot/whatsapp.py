@@ -148,20 +148,121 @@ def check_connection() -> dict:
             'quality_rating': body.get('quality_rating', '')}
 
 
-def send(to: str, reply: dict) -> bool:
-    """Send one reply. False (logged) when not configured or Meta refuses."""
+@dataclass(frozen=True)
+class SendResult:
+    ok: bool
+    provider_id: str = ''
+    error: str = ''
+    code: str = ''
+
+
+def _meta_error(res) -> tuple[str, str]:
+    """(code, text) from a failed Graph API response, in words staff can act on."""
+    try:
+        err = (res.json() or {}).get('error') or {}
+    except ValueError:
+        err = {}
+    code = str(err.get('code') or res.status_code)
+    detail = ((err.get('error_data') or {}).get('details') or err.get('message') or res.text[:200] or '').strip()
+    hint = {
+        '190': 'The access token is invalid or has expired (a temporary token lasts 24 hours: create a permanent system-user token).',
+        '100': 'Meta does not recognise this phone number ID (use the Phone number ID, not the WhatsApp Business Account ID).',
+        '131030': 'This recipient is not on the allowed list (a number in test mode can only message numbers added in Meta).',
+        '131047': 'More than 24 hours since this person last wrote: free-text replies are blocked until they message again.',
+        '131026': 'The message could not be delivered: this number may not be on WhatsApp, or has blocked the business.',
+        '131031': 'The business account is locked or restricted by Meta.',
+        '130429': 'Meta is rate-limiting this number: too many messages too fast.',
+    }.get(code, '')
+    return code, (f'{hint} ({detail})' if hint and detail else hint or detail or f'Meta answered {res.status_code}.')[:400]
+
+
+def send(to: str, reply: dict) -> SendResult:
+    """Send one reply. Never raises; the result says what Meta answered."""
     if not configured():
-        logger.info('whatsapp not configured; reply to %s dropped', to[-4:])
-        return False
+        missing = [n for n, k in (('access token', 'token'), ('phone number ID', 'phone_number_id')) if not _setting(k)]
+        logger.warning('whatsapp not connected (missing %s); reply to …%s not sent', ' and '.join(missing), to[-4:])
+        return SendResult(False, error=f'WhatsApp is not connected: the {" and ".join(missing)} {"is" if len(missing) == 1 else "are"} not set '
+                                      '(Admin → WhatsApp bot → Connection).', code='not_configured')
     import requests
     url = f'https://graph.facebook.com/{_setting("graph_version")}/{_setting("phone_number_id")}/messages'
     try:
         res = requests.post(url, json=payload_for(to, reply), timeout=10,
                             headers={'Authorization': f'Bearer {_setting("token")}'})
+    except requests.RequestException as exc:
+        logger.warning('whatsapp send to …%s failed: %s', to[-4:], exc.__class__.__name__)
+        return SendResult(False, error=f'Could not reach Meta ({exc.__class__.__name__}). Check the server can reach graph.facebook.com.',
+                          code='network')
+    if res.status_code >= 300:
+        code, text = _meta_error(res)
+        logger.warning('whatsapp send to …%s refused: %s %s', to[-4:], code, text)
+        return SendResult(False, error=text, code=code)
+    try:
+        wamid = ((res.json().get('messages') or [{}])[0]).get('id', '')
+    except (ValueError, AttributeError, IndexError):
+        wamid = ''
+    return SendResult(True, provider_id=wamid)
+
+
+def send_template(to: str, name: str = 'hello_world', language: str = 'en_US') -> SendResult:
+    """A template message: the only kind WhatsApp lets a business send to someone
+    who hasn't written in the last 24 hours (used for the connection test)."""
+    if not configured():
+        return send(to, {'text': ''})                    # the same "not connected" answer
+    import requests
+    url = f'https://graph.facebook.com/{_setting("graph_version")}/{_setting("phone_number_id")}/messages'
+    body = {'messaging_product': 'whatsapp', 'to': to, 'type': 'template', 'template': {'name': name, 'language': {'code': language}}}
+    try:
+        res = requests.post(url, json=body, timeout=10, headers={'Authorization': f'Bearer {_setting("token")}'})
+    except requests.RequestException as exc:
+        return SendResult(False, error=f'Could not reach Meta ({exc.__class__.__name__}).', code='network')
+    if res.status_code >= 300:
+        code, text = _meta_error(res)
+        return SendResult(False, error=('The “hello_world” template does not exist on this number: message the bot from that '
+                                        'phone first, then send the test again.' if code == '132001' else text), code=code)
+    try:
+        return SendResult(True, provider_id=((res.json().get('messages') or [{}])[0]).get('id', ''))
+    except (ValueError, AttributeError):
+        return SendResult(True)
+
+
+def mark_read(message_id: str, *, typing: bool = True) -> bool:
+    """Blue ticks for the customer's message and, with `typing`, the "typing…"
+    indicator (it shows until we reply or for up to 25 seconds). Best effort."""
+    if not configured() or not message_id:
+        return False
+    import requests
+    body = {'messaging_product': 'whatsapp', 'status': 'read', 'message_id': message_id}
+    if typing:
+        body['typing_indicator'] = {'type': 'text'}
+    url = f'https://graph.facebook.com/{_setting("graph_version")}/{_setting("phone_number_id")}/messages'
+    try:
+        res = requests.post(url, json=body, timeout=8, headers={'Authorization': f'Bearer {_setting("token")}'})
     except requests.RequestException:
-        logger.warning('whatsapp send to %s failed', to[-4:], exc_info=True)
         return False
     if res.status_code >= 300:
-        logger.warning('whatsapp send to %s refused: %s %s', to[-4:], res.status_code, res.text[:300])
+        logger.warning('whatsapp mark-as-read refused: %s', _meta_error(res)[1])
         return False
     return True
+
+
+@dataclass(frozen=True)
+class Status:
+    provider_id: str
+    status: str          # sent | delivered | read | failed
+    code: str = ''
+    error: str = ''
+
+
+def parse_statuses(payload: dict) -> list[Status]:
+    """Meta's delivery reports for the messages we sent."""
+    out: list[Status] = []
+    for entry in payload.get('entry') or []:
+        for change in entry.get('changes') or []:
+            for st in (change.get('value') or {}).get('statuses') or []:
+                if not st.get('id') or st.get('status') not in ('sent', 'delivered', 'read', 'failed'):
+                    continue
+                err = (st.get('errors') or [{}])[0]
+                detail = ((err.get('error_data') or {}).get('details') or err.get('message') or err.get('title') or '')
+                out.append(Status(provider_id=str(st['id'])[:128], status=st['status'], code=str(err.get('code') or ''),
+                                  error=str(detail)[:400]))
+    return out

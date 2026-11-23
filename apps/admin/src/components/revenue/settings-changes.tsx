@@ -23,7 +23,10 @@ const show = (v: unknown) => (v === null || v === undefined || v === '' ? '—' 
 
 /** On every admin page: settings changes waiting for your co-signature. */
 export function PendingChangesBar() {
-  const { data, refetch } = useApi<View>('/admin/settings-changes/');
+  // Ask only when the revenue share is open to this login: while it's password-locked the call would be refused.
+  const { data: lock } = useApi<{ locked: boolean; has_access: boolean }>('/admin/revenue-share/lock/');
+  const open = !!lock && (!lock.locked || lock.has_access);
+  const { data, refetch } = useApi<View>(open ? '/admin/settings-changes/' : null);
   usePolling(refetch, 60000, [refetch]);
   if (!data?.pending_for_me) return null;
   return (

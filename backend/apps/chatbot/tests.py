@@ -449,3 +449,142 @@ class ConnectionSettingsTests(_Base):
         self.assertEqual((body['ok'], body['verified_name']), (True, 'BetBlits'))
         self.assertIn('/444', get.call_args.args[0])
         self.assertEqual(get.call_args.kwargs['headers']['Authorization'], 'Bearer EAAGsecret-token-9876')
+
+
+class _Res:
+    """A stand-in for a requests response."""
+
+    def __init__(self, status=200, body=None, text=''):
+        self.status_code, self._body, self.text = status, body if body is not None else {}, text
+
+    def json(self):
+        return self._body
+
+
+class _Inline:
+    """threading.Thread that runs its target at once, so a background send can be tested."""
+
+    def __init__(self, target=None, args=(), kwargs=None, daemon=None):
+        self.target, self.args, self.kwargs = target, args, kwargs or {}
+
+    def start(self):
+        self.target(*self.args, **self.kwargs)
+
+
+@override_settings(WHATSAPP_APP_SECRET=SECRET, WHATSAPP_TOKEN='tok', WHATSAPP_PHONE_NUMBER_ID='555')
+class DeliveryLogTests(_Base):
+    """Every reply is logged, sent from the web process (no worker) and its outcome kept."""
+
+    def post_hook(self, body_text='GAMES', msg_id='wamid.d1', statuses=None):
+        value = {'messages': [{'from': NUMBER, 'id': msg_id, 'type': 'text', 'text': {'body': body_text}}]} if body_text else {}
+        if statuses:
+            value['statuses'] = statuses
+        raw = json.dumps({'entry': [{'changes': [{'value': value}]}]}).encode()
+        sig = 'sha256=' + hmac.new(SECRET.encode(), raw, hashlib.sha256).hexdigest()
+        return APIClient().generic('POST', '/api/chatbot/whatsapp/webhook/', raw, content_type='application/json',
+                                   HTTP_X_HUB_SIGNATURE_256=sig)
+
+    def receive(self, **kw):
+        with patch.object(services.threading, 'Thread', _Inline), self.captureOnCommitCallbacks(execute=True):
+            return self.post_hook(**kw)
+
+    def test_a_reply_is_sent_directly_logged_and_marked_sent(self):
+        from apps.chatbot.models import OutboundMessage
+        with patch('requests.post', return_value=_Res(200, {'messages': [{'id': 'wamid.OUT1'}]})) as post:
+            self.receive()
+        row = OutboundMessage.objects.get()
+        self.assertEqual((row.status, row.provider_id, row.source, row.address), ('sent', 'wamid.OUT1', 'bot', NUMBER))
+        self.assertIn('Upcoming', row.text)
+        sent = [c.kwargs['json'] for c in post.call_args_list]
+        reply = next(b for b in sent if b.get('type') in ('text', 'interactive'))
+        self.assertEqual((reply['to'], reply['messaging_product']), (NUMBER, 'whatsapp'))
+
+    def test_blue_ticks_and_typing_are_requested_when_a_message_arrives(self):
+        with patch('requests.post', return_value=_Res(200, {'messages': [{'id': 'x'}]})) as post:
+            self.receive(msg_id='wamid.IN9')
+        read = next(c.kwargs['json'] for c in post.call_args_list if c.kwargs['json'].get('status') == 'read')
+        self.assertEqual((read['message_id'], read['typing_indicator']), ('wamid.IN9', {'type': 'text'}))
+
+    def test_a_refused_send_keeps_metas_reason_in_plain_words(self):
+        from apps.chatbot.models import OutboundMessage
+        err = _Res(401, {'error': {'code': 190, 'message': 'Error validating access token: Session has expired'}})
+        with patch('requests.post', return_value=err):
+            self.receive()
+        row = OutboundMessage.objects.get()
+        self.assertEqual((row.status, row.error_code), ('failed', '190'))
+        self.assertIn('expired', row.error)
+        self.assertIn('permanent', row.error)                              # tells staff what to do about it
+
+    @override_settings(WHATSAPP_TOKEN='', WHATSAPP_PHONE_NUMBER_ID='')
+    def test_not_connected_is_recorded_not_silently_dropped(self):
+        from apps.chatbot.models import OutboundMessage
+        with patch('requests.post') as post:
+            self.receive()
+        post.assert_not_called()
+        row = OutboundMessage.objects.get()
+        self.assertEqual((row.status, row.error_code), ('failed', 'not_configured'))
+        self.assertIn('access token and phone number ID', row.error)
+
+    def test_delivery_reports_move_the_ticks_forward_never_back(self):
+        from apps.chatbot.models import OutboundMessage
+        row = OutboundMessage.objects.create(address=NUMBER, text='hi', provider_id='wamid.T1', status='sent')
+        for state in ('delivered', 'read', 'delivered'):                   # the last arrives late
+            self.post_hook(body_text='', statuses=[{'id': 'wamid.T1', 'status': state, 'recipient_id': NUMBER}])
+        row.refresh_from_db()
+        self.assertEqual(row.status, 'read')
+        self.post_hook(body_text='', statuses=[{'id': 'wamid.T1', 'status': 'failed', 'errors': [
+            {'code': 131047, 'title': 'Re-engagement message', 'message': 'window closed'}]}])
+        row.refresh_from_db()
+        self.assertEqual((row.status, row.error_code), ('failed', '131047'))
+
+    def test_inbox_threads_staff_replies_and_the_24_hour_rule(self):
+        from django.contrib.auth.models import User
+        from apps.chatbot.models import OutboundMessage
+        staff = APIClient()
+        staff.force_authenticate(User.objects.create_user('desk', 'd@example.com', 'x', is_staff=True))
+        ChatLink.objects.create(address=NUMBER, player_id=self.player.id)
+        with patch('requests.post', return_value=_Res(200, {'messages': [{'id': 'wamid.O'}]})):
+            self.receive(body_text='hello there')
+        conv = staff.get('/api/admin/chatbot/inbox/').json()['conversations'][0]
+        self.assertEqual((conv['address'], conv['player'], conv['incoming'], conv['outgoing'], conv['can_reply'], conv['unanswered']),
+                         (NUMBER, 'rudo', 1, 1, True, False))
+        thread = staff.get(f'/api/admin/chatbot/inbox/{NUMBER}/').json()
+        self.assertEqual([m['direction'] for m in thread['messages']], ['in', 'out'])
+        self.assertEqual(thread['messages'][1]['status'], 'sent')
+        with patch('requests.post', return_value=_Res(200, {'messages': [{'id': 'wamid.S'}]})):
+            res = staff.post(f'/api/admin/chatbot/inbox/{NUMBER}/', {'text': 'Hi, this is support'}, format='json')
+        self.assertEqual(res.status_code, 201)
+        self.assertEqual(OutboundMessage.objects.get(source='staff').sent_by, 'desk')
+        InboundMessage.objects.all().update(received_at=timezone.now() - timedelta(hours=30))      # window closed
+        res = staff.post(f'/api/admin/chatbot/inbox/{NUMBER}/', {'text': 'Too late'}, format='json')
+        self.assertEqual(res.status_code, 400)
+        self.assertIn('24 hours', res.json()['detail'])
+        self.assertEqual(APIClient().get('/api/admin/chatbot/inbox/').status_code, 401)
+
+    def test_health_names_the_problem(self):
+        from django.contrib.auth.models import User
+        staff = APIClient()
+        staff.force_authenticate(User.objects.create_user('desk', 'd@example.com', 'x', is_staff=True))
+        with patch('requests.post', return_value=_Res(400, {'error': {'code': 100, 'message': 'Unsupported post request'}})):
+            self.receive()
+        h = staff.get('/api/admin/chatbot/health/').json()
+        self.assertEqual((h['incoming_24h'], h['outgoing_24h'], h['by_status']), (1, 1, {'failed': 1}))
+        self.assertIn('Phone number ID', h['problem'])
+        self.assertEqual(h['failures'][0]['code'], '100')
+
+    def test_test_send_uses_text_inside_the_window_and_the_template_outside(self):
+        from django.contrib.auth.models import User
+        staff = APIClient()
+        staff.force_authenticate(User.objects.create_user('desk', 'd@example.com', 'x', is_staff=True))
+        with patch('requests.post', return_value=_Res(200, {'messages': [{'id': 'wamid.TT'}]})) as post:
+            out = staff.post('/api/admin/chatbot/health/', {'to': '+263 77 123 4567'}, format='json').json()
+        self.assertEqual((out['ok'], out['via']), (True, 'template'))        # nobody has written yet: template only
+        self.assertEqual(post.call_args.kwargs['json']['template']['name'], 'hello_world')
+        InboundMessage.objects.create(provider_id='w.t', address='263771234567', text='hi')
+        with patch('requests.post', return_value=_Res(200, {'messages': [{'id': 'wamid.TU'}]})):
+            out = staff.post('/api/admin/chatbot/health/', {'to': '263771234567'}, format='json').json()
+        self.assertEqual((out['ok'], out['via']), (True, 'text'))
+        with patch('requests.post', return_value=_Res(400, {'error': {'code': 131030, 'message': 'x'}})):
+            out = staff.post('/api/admin/chatbot/health/', {'to': '263771234567'}, format='json').json()
+        self.assertEqual(out['ok'], False)
+        self.assertIn('allowed list', out['error'])
