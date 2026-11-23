@@ -256,6 +256,36 @@ class AdminChatbotTestView(APIView):
         return Response(whatsapp.check_connection())
 
 
+class _SuperuserOnly(APIView):
+    """Connection tools touch the live Meta account: superusers only."""
+    permission_classes = [IsAdminUser]
+
+    def _guard(self, request):
+        if not request.user.is_superuser:
+            return Response({'detail': 'Only a superuser can use the connection tools.'}, status=status.HTTP_403_FORBIDDEN)
+        return None
+
+
+class AdminChatbotNumbersView(_SuperuserOnly):
+    """POST /api/admin/chatbot/numbers/ {waba_id} — the numbers (and their Phone number IDs) under a WhatsApp Business Account."""
+
+    def post(self, request):
+        return self._guard(request) or Response(whatsapp.list_numbers(str(request.data.get('waba_id') or '')))
+
+
+class AdminChatbotRegisterView(_SuperuserOnly):
+    """POST /api/admin/chatbot/register/ {pin} — register the configured number with the Cloud API."""
+
+    def post(self, request):
+        denied = self._guard(request)
+        if denied:
+            return denied
+        result = whatsapp.register_number(str(request.data.get('pin') or ''))
+        # The PIN is never logged or audited: only that a registration was tried.
+        accounts_services.audit(None, 'chatbot_register', request, ok=result['ok'], code=result.get('code', ''))
+        return Response(result)
+
+
 # -- inbox ---------------------------------------------------------------------------
 
 WINDOW = timedelta(hours=24)
