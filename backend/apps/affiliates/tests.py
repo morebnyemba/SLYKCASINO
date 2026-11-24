@@ -140,11 +140,11 @@ class CommissionTests(Base):
         a = self.referred('alice', self.affiliate)
         b = self.referred('bob', self.affiliate)
         self.play(a, staked=100, won=20)            # +80
-        self.play(b, staked=50, won=70, bonus=10)   # -30
+        self.play(b, staked=50, won=70, bonus=10)   # -20 (real money only: an unplayed bonus counts for nothing)
         outsider = account_services.create_player(username='outsider')
         self.play(outsider, staked=1000, won=0)     # not referred: ignored
         c = services.compute_revshare(self.affiliate, self.month)
-        self.assertEqual((c.base_amount, c.amount, c.active_players), (D('50'), D('15.00'), 2))
+        self.assertEqual((c.base_amount, c.amount, c.active_players), (D('60'), D('18.00'), 2))
         self.assertEqual(services.compute_revshare(self.affiliate, self.month).pk, c.pk)
         self.assertEqual(Commission.objects.count(), 1)
 
@@ -315,3 +315,20 @@ class SignupRuleAdminTests(TestCase):
         self.assertEqual(clerk.put('/api/admin/affiliate-signup-rule/', {'require_agent_code': False}, format='json').status_code, 403)
         self.assertFalse(boss.put('/api/admin/affiliate-signup-rule/', {'require_agent_code': False}, format='json').json()['require_agent_code'])
         self.assertFalse(AffiliateProgramme.load().require_agent_code)
+
+
+
+class BonusTicketsEarnNothingTests(Base):
+    """A ticket staked from the Bonus wallet earns the agent nothing, in the payout and in what the dashboard shows."""
+
+    def test_bonus_stakes_dont_count_for_the_agent(self):
+        from apps.wallet import services as wallet
+        affiliate = self.make_affiliate()
+        p = self.referred('carol', affiliate)
+        wallet.credit(player_id=p.id, amount=D('40'), kind='bonus', bucket='bonus', idempotency_key='b:carol')
+        wallet.debit(player_id=p.id, amount=D('40'), kind='bet_stake', bucket='bonus', idempotency_key='s:carol')  # lost bonus ticket
+        stats = services.referral_stats(affiliate)
+        self.assertEqual(stats[p.id]['ngr'], D('0'))
+        wallet.credit(player_id=p.id, amount=D('25'), kind='deposit', idempotency_key='d:carol')
+        wallet.debit(player_id=p.id, amount=D('25'), kind='bet_stake', bucket='deposit', idempotency_key='s2:carol')  # lost real ticket
+        self.assertEqual(services.referral_stats(affiliate)[p.id]['ngr'], D('25'))

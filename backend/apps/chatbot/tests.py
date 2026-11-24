@@ -92,7 +92,7 @@ class BrowsingAndSlipTests(_Base):
         self.assertIn(f'#{self.e1.id} Dynamos vs Highlanders', out)
         self.assertIn('Match result: *Dynamos* (1)\nOdds *2.00*', out)
         self.assertIn('Both teams to score: *Yes* (GG)\nOdds *1.80*', out)
-        self.assertIn('2 selections · total odds *3.60*', out)     # 2.00 × 1.80
+        self.assertIn('2 matches · total odds *3.60*', out)     # 2.00 × 1.80
         self.assertEqual([b[1] for b in reply['buttons']], ['➕ Add more', '🧾 View slip', '✅ Place bet'])
         self.assertIn('not a pick', text(self.say(f'{self.e1.id} ZZ')))
         self.assertIn('not available', text(self.say(f'{self.e2.id} O2.5')))
@@ -888,7 +888,7 @@ class AllOddsTests(_Base):
         btts_yes = MarketOutcome.objects.get(market__event=self.e2, key='yes')
         self.say(f'{self.e2.id} GG')                     # typed…
         out = self.say(f'PICK {btts_yes.id}')[0]['text']   # …then tapped: the same outcome
-        self.assertIn('Your ticket: 1 selection ·', out)
+        self.assertIn('Your ticket: 1 match ·', out)
         slip = text(self.say('SLIP'))
         self.assertIn('1) ', slip)
         self.assertNotIn('2) ', slip)
@@ -1347,3 +1347,19 @@ class NavigationTests(_Base):
         self.say('GAMES')
         self.assertIn('9–12 of 12', text(self.say('NEXT')))
         self.assertIn('1–8 of 12', text(self.say('PREV')))
+
+
+class SameMatchChatTests(_Base):
+    def test_picks_from_one_match_show_as_one_entry_at_one_price(self):
+        from apps.sportsbook import services as sb
+        self.say(f'{self.e1.id} 1, {self.e1.id} O2.5, {self.e2.id} GG')
+        slip = text(self.say('SLIP'))
+        self.assertIn('🔗 Same match: *Dynamos Win & Over 2.5 Goals*', slip)
+        self.assertEqual(slip.count(f'#{self.e1.id} '), 1)                 # the match appears once
+        priced = sb.check_accumulator([
+            {'event_id': self.e1.id, 'selection': 'home', 'odds': '2.00'},
+            {'outcome_id': MarketOutcome.objects.get(market__event=self.e1, key='over').id, 'odds': '2.10'},
+            {'outcome_id': MarketOutcome.objects.get(market__event=self.e2, key='yes').id, 'odds': '1.80'}])
+        self.assertIn(f'Total odds {priced["combined_odds"]}', slip)        # the price it will be placed at
+        self.linked()
+        self.assertIn('2 matches (3 picks)', text(self.say('STAKE')))       # a ticket counts matches, not picks

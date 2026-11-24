@@ -40,6 +40,9 @@ export interface ApiBet {
   payout: string | null;
   placed_at: string;
   settled_at?: string | null;
+  /** Placed while the match was being played. */
+  in_play?: boolean;
+  wallet?: string;
   cashout?: CashoutOffer | null;
   cashout_paid?: string;
   stake_cashed_out?: string;
@@ -54,6 +57,11 @@ export interface ApiSlipLeg {
   match?: BetMatch | null;
   odds: string;
   result?: string;
+  in_play?: boolean;
+  /** Short name as it reads on a combined ticket ("Liverpool Win", "BTTS YES"). */
+  pick_name?: string;
+  /** The one price of all this ticket's picks from this match. */
+  match_odds?: string | null;
 }
 
 export interface ApiSlip {
@@ -67,6 +75,8 @@ export interface ApiSlip {
   bonus?: string;
   placed_at: string;
   settled_at?: string | null;
+  in_play?: boolean;
+  wallet?: string;
   legs: ApiSlipLeg[];
   cashout?: CashoutOffer | null;
   cashout_paid?: string;
@@ -83,6 +93,10 @@ interface TicketLeg {
   odds: number;
   result: string;
   info: BetMatch | null;
+  /** This selection's match was being played when the ticket was placed. */
+  inPlay: boolean;
+  /** Several picks from this match, shown as one entry: each pick and its result. */
+  parts?: { name: string; result: string; odds: number }[];
 }
 
 export interface Ticket {
@@ -100,6 +114,10 @@ export interface Ticket {
   bonus: number;
   placedAt: string;
   settledAt: string | null;
+  /** Placed live: at least one selection's match was being played. */
+  inPlay: boolean;
+  /** The wallet the stake came from (deposit, winnings, bonus). */
+  wallet: string;
   legs: TicketLeg[];
   /** The cash-out offer as listed (kept fresh by useCashoutOffers). */
   cashout: CashoutOffer | null;
@@ -146,7 +164,7 @@ function toLeg(l: ApiSlipLeg, result: string): TicketLeg {
   const { market, outcome } = pickParts(l);
   return {
     id: l.id, match, market, outcome, pick: market ? `${market} - ${outcome}` : outcome,
-    odds: Number(l.odds), result, info: l.match ?? null,
+    odds: Number(l.odds), result, info: l.match ?? null, inPlay: !!l.in_play,
   };
 }
 
@@ -164,18 +182,46 @@ export function ticketFromBet(b: ApiBet): Ticket {
   return {
     key: `b${b.id}`, kind: 'single', id: b.id, code: b.code ?? null, stake: Number(b.stake), odds: Number(b.odds),
     status: b.status, payout: b.payout == null ? null : Number(b.payout), placedAt: b.placed_at, settledAt: b.settled_at ?? null,
-    bonusPercent: 0, bonus: 0,
+    bonusPercent: 0, bonus: 0, inPlay: !!b.in_play, wallet: b.wallet ?? '',
     legs: [toLeg(b, singleResult(b.status))],
     cashout: b.cashout ?? null, cashoutPaid: Number(b.cashout_paid ?? 0), stakeCashedOut: Number(b.stake_cashed_out ?? 0),
   };
+}
+
+/** A combined result for picks from one match: lost if any lost, won once every pick won (or was voided). */
+function groupResult(results: string[]): string {
+  if (results.includes('lost')) return 'lost';
+  if (results.includes('pending')) return 'pending';
+  return results.every((r) => r === 'void') ? 'void' : 'won';
+}
+
+/** One entry per match: picks from the same match join into one ("Liverpool Win & BTTS YES") at one price. */
+function byMatch(legs: ApiSlipLeg[]): TicketLeg[] {
+  const groups = new Map<string, ApiSlipLeg[]>();
+  legs.forEach((l, i) => {
+    const key = l.match?.id != null ? `m${l.match.id}` : `x${i}`;
+    groups.set(key, [...(groups.get(key) ?? []), l]);
+  });
+  return [...groups.values()].map((group) => {
+    const legsOut = group.map((l) => toLeg(l, l.result ?? 'pending'));
+    if (group.length === 1) return legsOut[0];
+    const names = group.map((l, i) => l.pick_name || legsOut[i].pick);
+    const odds = Number(group[0].match_odds ?? 0) || legsOut.reduce((acc, l) => acc * l.odds, 1);
+    const result = groupResult(legsOut.map((l) => l.result));
+    return {
+      ...legsOut[0], market: `${group.length} picks · one price`, outcome: names.join(' & '), pick: names.join(' & '),
+      odds, result, inPlay: legsOut.some((l) => l.inPlay),
+      parts: legsOut.map((l, i) => ({ name: names[i], result: l.result, odds: l.odds })),
+    };
+  });
 }
 
 export function ticketFromSlip(s: ApiSlip): Ticket {
   return {
     key: `s${s.id}`, kind: 'multiple', id: s.id, code: s.code ?? null, stake: Number(s.stake), odds: Number(s.combined_odds),
     status: s.status, payout: s.payout == null ? null : Number(s.payout), placedAt: s.placed_at, settledAt: s.settled_at ?? null,
-    bonusPercent: Number(s.bonus_percent ?? 0), bonus: Number(s.bonus ?? 0),
-    legs: s.legs.map((l) => toLeg(l, l.result ?? 'pending')),
+    bonusPercent: Number(s.bonus_percent ?? 0), bonus: Number(s.bonus ?? 0), inPlay: !!s.in_play, wallet: s.wallet ?? '',
+    legs: byMatch(s.legs),
     cashout: s.cashout ?? null, cashoutPaid: Number(s.cashout_paid ?? 0), stakeCashedOut: Number(s.stake_cashed_out ?? 0),
   };
 }
@@ -303,7 +349,19 @@ function Progress({ t }: { t: Ticket }) {
  * `collapsible`: a settled ticket starts as a one-line summary and opens on tap.
  * `isPublic`: shown on the "check a ticket" page to someone who may not own it.
  */
-export function BetTicket({ ticket, compact = false, offer, onChanged, collapsible = false, isPublic = false }: {
+/** "Placed live": the ticket was bet while its match was being played. */
+function LiveBadge({ small = false }: { small?: boolean }) {
+  return (
+    <span title="Placed while the match was being played"
+      className={`inline-flex shrink-0 items-center gap-1 rounded bg-live font-extrabold uppercase tracking-wide text-white ${small ? 'px-1 py-px text-[9px]' : 'px-1.5 py-0.5 text-[10px]'}`}>
+      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-white" aria-hidden />{small ? 'Live' : 'Placed live'}
+    </span>
+  );
+}
+
+export function BetTicket({ ticket, compact = false, offer, onChanged, collapsible = false, isPublic = false, agentView = false }: {
+  /** An agent looking at a customer's ticket: say when it earns them nothing (Bonus wallet). */
+  agentView?: boolean;
   ticket: Ticket; compact?: boolean;
   /** Live cash-out offer (from useCashoutOffers); falls back to the listed one. */
   offer?: CashoutOffer | null;
@@ -350,7 +408,9 @@ export function BetTicket({ ticket, compact = false, offer, onChanged, collapsib
         className="relative flex w-full items-center gap-3 overflow-hidden rounded-xl border border-border bg-card py-2.5 pl-4 pr-3 text-left shadow-sm transition-colors hover:bg-muted/40">
         <span className={`absolute inset-y-0 left-0 w-1 ${s.bar}`} aria-hidden />
         <div className="min-w-0 flex-1">
-          <p className="truncate text-[13px] font-bold">{title}</p>
+          <p className="flex items-center gap-1.5 truncate text-[13px] font-bold">
+            {t.inPlay && <LiveBadge small />}<span className="truncate">{title}</span>
+          </p>
           <p className="truncate text-[11px] text-muted-foreground">{number} · {sub}</p>
         </div>
         <div className="shrink-0 text-right">
@@ -371,7 +431,13 @@ export function BetTicket({ ticket, compact = false, offer, onChanged, collapsib
       <header className={`${pad} pb-2 pt-3`}>
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
-            <p className="text-[14px] font-extrabold">{t.kind === 'single' ? 'Single' : `Combo (${t.legs.length})`}</p>
+            <p className="flex items-center gap-2 text-[14px] font-extrabold">
+              {t.kind === 'single' ? 'Single' : `Combo (${t.legs.length})`}
+              {t.inPlay && <LiveBadge />}
+            </p>
+            {agentView && t.wallet === 'bonus' && (
+              <p className="mt-0.5 text-[11px] font-bold text-gold">🎁 Bonus wallet: no commission on this ticket</p>
+            )}
             <p className="text-[11px] text-muted-foreground">{number} · {when(t.placedAt, false)}</p>
           </div>
           <span className="flex shrink-0 items-center gap-1.5">
@@ -404,7 +470,7 @@ export function BetTicket({ ticket, compact = false, offer, onChanged, collapsib
           {shown.map((l, i) => {
             const live = l.result === 'pending' && isLiveMatch(l.info);
             const score = scoreLine(l.info);
-            const sameMatch = !!l.info && t.legs.filter((x) => x.info?.id === l.info?.id).length > 1;
+            const sameMatch = !!l.parts;
             return (
               <li key={l.id} className="relative overflow-hidden rounded-lg bg-muted/60 px-3 pb-2.5 pt-2 text-[12.5px]">
                 <ResultTab result={l.result} live={live} />
@@ -412,6 +478,9 @@ export function BetTicket({ ticket, compact = false, offer, onChanged, collapsib
                   <span><b className="text-foreground">{i + 1}.</b> {l.info?.starts_at ? ticketDate(l.info.starts_at) : ''}</span>
                   {sameMatch && (
                     <span className="rounded bg-secondary/15 px-1.5 py-px text-[10px] font-bold uppercase tracking-wide text-secondary">Same match</span>
+                  )}
+                  {l.inPlay && t.kind === 'multiple' && (
+                    <span className="rounded bg-live/15 px-1.5 py-px text-[10px] font-bold uppercase tracking-wide text-live">Live bet</span>
                   )}
                 </p>
                 {l.info?.league && <p className="mt-1 break-words text-muted-foreground">{l.info.league}</p>}
@@ -428,6 +497,18 @@ export function BetTicket({ ticket, compact = false, offer, onChanged, collapsib
                       <p className="break-words text-[11px] font-semibold uppercase leading-tight tracking-wide text-muted-foreground">{l.market}</p>
                     )}
                     <p className="break-words text-[13.5px] font-extrabold leading-snug">{l.outcome}</p>
+                    {l.parts && (
+                      <ul className="mt-1 space-y-0.5 text-[11px] text-muted-foreground">
+                        {l.parts.map((p, j) => (
+                          <li key={j} className="flex items-center gap-1.5">
+                            <span aria-hidden className={p.result === 'won' ? 'text-win' : p.result === 'lost' ? 'text-destructive' : ''}>
+                              {p.result === 'won' ? '✓' : p.result === 'lost' ? '✗' : p.result === 'void' ? '↩' : '•'}
+                            </span>
+                            <span className="min-w-0 truncate">{p.name}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                   </div>
                   <span className="shrink-0 font-mono text-[13.5px] font-extrabold leading-snug">{l.odds.toFixed(2)}</span>
                 </div>

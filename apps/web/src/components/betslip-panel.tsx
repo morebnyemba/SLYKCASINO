@@ -166,14 +166,83 @@ export function SlipBody({ onClose, variant = 'card' }: {
     legs, limits, mode, setMode, accaStake, setAccaStake, legStakes, setLegStake,
     combinedOdds, potentialPayout, bonus, status, busy,
     removeLeg, clear, place, conflictingEvents, conflictMessage, sameMatchPercent, hasPriceChanges, hasSuspended, acceptPriceChanges, wallet,
+    matchGroups, fixtures,
   } = useBetslip();
 
   const hasLegs = legs.length > 0;
   const isSingles = mode === 'singles';
   const fmt = (o: number) => formatOdds(o, oddsFormat);
 
+  /** One pick (singles, or the only pick from its match on a multiple). */
+  const renderLeg = (l: BetLeg) => {
+              const key = keyOf(l);
+              const conflict = !isSingles && conflictingEvents.has(String(l.eventId));
+              const stake = legStakes[key] || '';
+              const stakeNum = parseFloat(stake) || 0;
+              return (
+                <div key={key} className={`rounded-xl border bg-background/50 p-3 ${conflict ? 'border-gold' : 'border-border'}`}>
+                  <div className="flex items-start gap-2">
+                    <div className="min-w-0 flex-1">
+                      <p className="break-words text-[13px] font-extrabold leading-tight">{pickLabel(l)}</p>
+                      <p className="mt-0.5 text-[11px] font-semibold text-muted-foreground">
+                        {l.outcomeId != null ? l.marketName : `Match result · ${SELECTION_CODE[l.selection]}`}
+                      </p>
+                      <p className="mt-0.5 break-words text-[11px] text-muted-foreground">{l.eventName.replace(/\s+vs?\.?\s+/i, ' – ')}</p>
+                      {conflict && (
+                        <p className="mt-1 text-[11px] font-bold text-gold">Can’t go on the same multiple — see the note above</p>
+                      )}
+                    </div>
+                    {l.suspended ? (
+                      <span className="flex flex-col items-end" title="Can’t be played right now">
+                        <span className="rounded-md bg-muted px-2 py-1 text-sm font-extrabold tabular-nums text-muted-foreground/60">{fmt(l.odds)}</span>
+                        <span className="mt-0.5 text-[10px] font-bold text-muted-foreground">Not available now</span>
+                      </span>
+                    ) : (
+                      <span className="flex flex-col items-end">
+                        {l.changedFrom != null && (
+                          <span className="text-[10.5px] font-semibold tabular-nums text-muted-foreground line-through">{fmt(l.changedFrom)}</span>
+                        )}
+                        <span className={`rounded-md px-2 py-1 text-sm font-extrabold tabular-nums ${
+                          l.changedFrom == null ? 'bg-odds'
+                            : l.odds > l.changedFrom ? 'bg-win/15 text-win' : 'bg-destructive/10 text-destructive'
+                        }`}>
+                          {l.changedFrom != null && (l.odds > l.changedFrom ? '▲ ' : '▼ ')}{fmt(l.odds)}
+                        </span>
+                      </span>
+                    )}
+                    <button
+                      onClick={() => removeLeg(key)}
+                      aria-label="Remove selection"
+                      className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-destructive"
+                    >
+                      <BsXLg size={12} />
+                    </button>
+                  </div>
+                  {isSingles && (
+                    <div className="mt-2.5 flex items-center gap-2">
+                      <div className="relative flex-1">
+                        <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-muted-foreground">$</span>
+                        <input
+                          value={stake}
+                          onChange={(e) => setLegStake(key, e.target.value)}
+                          inputMode="decimal"
+                          placeholder="Stake"
+                          aria-label={`Stake for ${pickLabel(l)}`}
+                          className="w-full rounded-lg border border-border bg-input py-2 pl-6 pr-2 text-sm font-bold outline-none focus:ring-2 focus:ring-ring"
+                        />
+                      </div>
+                      <div className="min-w-[80px] text-right">
+                        <p className="text-[10px] font-semibold text-muted-foreground">Returns</p>
+                        <p className="text-[13px] font-extrabold tabular-nums text-win">{money(stakeNum * l.odds)}</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+  };
+
   const slipTabs: { id: 'acca' | 'singles'; label: string }[] = [
-    { id: 'acca', label: legs.length > 1 ? `Multiple (${legs.length})` : 'Single' },
+    { id: 'acca', label: legs.length > 1 ? (fixtures > 1 ? `Multiple (${fixtures})` : 'Same match') : 'Single' },
     { id: 'singles', label: 'Singles' },
   ];
 
@@ -280,72 +349,30 @@ export function SlipBody({ onClose, variant = 'card' }: {
                   ?? 'Two picks from the same match can’t share a multiple.'} Remove one, or switch to Singles.
               </p>
             )}
-            {legs.map((l) => {
-              const key = keyOf(l);
-              const conflict = !isSingles && conflictingEvents.has(String(l.eventId));
-              const stake = legStakes[key] || '';
-              const stakeNum = parseFloat(stake) || 0;
-              return (
-                <div key={key} className={`rounded-xl border bg-background/50 p-3 ${conflict ? 'border-gold' : 'border-border'}`}>
-                  <div className="flex items-start gap-2">
-                    <div className="min-w-0 flex-1">
-                      <p className="break-words text-[13px] font-extrabold leading-tight">{pickLabel(l)}</p>
-                      <p className="mt-0.5 text-[11px] font-semibold text-muted-foreground">
-                        {l.outcomeId != null ? l.marketName : `Match result · ${SELECTION_CODE[l.selection]}`}
-                      </p>
-                      <p className="mt-0.5 break-words text-[11px] text-muted-foreground">{l.eventName.replace(/\s+vs?\.?\s+/i, ' – ')}</p>
-                      {conflict && (
-                        <p className="mt-1 text-[11px] font-bold text-gold">Can’t go on the same multiple — see the note above</p>
-                      )}
-                    </div>
-                    {l.suspended ? (
-                      <span className="flex flex-col items-end" title="Can’t be played right now">
-                        <span className="rounded-md bg-muted px-2 py-1 text-sm font-extrabold tabular-nums text-muted-foreground/60">{fmt(l.odds)}</span>
-                        <span className="mt-0.5 text-[10px] font-bold text-muted-foreground">Not available now</span>
-                      </span>
-                    ) : (
-                      <span className="flex flex-col items-end">
-                        {l.changedFrom != null && (
-                          <span className="text-[10.5px] font-semibold tabular-nums text-muted-foreground line-through">{fmt(l.changedFrom)}</span>
-                        )}
-                        <span className={`rounded-md px-2 py-1 text-sm font-extrabold tabular-nums ${
-                          l.changedFrom == null ? 'bg-odds'
-                            : l.odds > l.changedFrom ? 'bg-win/15 text-win' : 'bg-destructive/10 text-destructive'
-                        }`}>
-                          {l.changedFrom != null && (l.odds > l.changedFrom ? '▲ ' : '▼ ')}{fmt(l.odds)}
-                        </span>
-                      </span>
-                    )}
-                    <button
-                      onClick={() => removeLeg(key)}
-                      aria-label="Remove selection"
-                      className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-destructive"
-                    >
-                      <BsXLg size={12} />
-                    </button>
+            {(isSingles ? legs.map((l) => renderLeg(l)) : matchGroups.map((g) => (g.legs.length === 1 ? renderLeg(g.legs[0]) : (
+              <div key={`m${g.eventId}`} className={`rounded-xl border bg-background/50 p-3 ${!isSingles && conflictingEvents.has(g.eventId) ? 'border-gold' : 'border-secondary/50'}`}>
+                <div className="flex items-start gap-2">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[10.5px] font-bold uppercase tracking-wide text-secondary">Same match · {g.legs.length} picks</p>
+                    <p className="mt-0.5 break-words text-[11px] text-muted-foreground">{g.eventName.replace(/\s+vs?\.?\s+/i, ' – ')}</p>
+                    <p className="mt-1 break-words text-[13px] font-extrabold leading-tight">{g.names.join(' & ')}</p>
                   </div>
-                  {isSingles && (
-                    <div className="mt-2.5 flex items-center gap-2">
-                      <div className="relative flex-1">
-                        <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-muted-foreground">$</span>
-                        <input
-                          value={stake}
-                          onChange={(e) => setLegStake(key, e.target.value)}
-                          inputMode="decimal"
-                          placeholder="Stake"
-                          aria-label={`Stake for ${pickLabel(l)}`}
-                          className="w-full rounded-lg border border-border bg-input py-2 pl-6 pr-2 text-sm font-bold outline-none focus:ring-2 focus:ring-ring"
-                        />
-                      </div>
-                      <div className="min-w-[80px] text-right">
-                        <p className="text-[10px] font-semibold text-muted-foreground">Returns</p>
-                        <p className="text-[13px] font-extrabold tabular-nums text-win">{money(stakeNum * l.odds)}</p>
-                      </div>
-                    </div>
-                  )}
+                  <span className="rounded-md bg-odds px-2 py-1 text-sm font-extrabold tabular-nums">{fmt(g.odds)}</span>
                 </div>
-              );
-            })}
+                <ul className="mt-2 space-y-1 border-t border-border/60 pt-2">
+                  {g.legs.map((l, i) => (
+                    <li key={keyOf(l)} className="flex items-center gap-2 text-[11.5px] text-muted-foreground">
+                      <span className="min-w-0 flex-1 truncate">{g.names[i]}{l.suspended ? ' · not available now' : ''}</span>
+                      <button onClick={() => removeLeg(keyOf(l))} aria-label={`Remove ${g.names[i]}`}
+                        className="rounded p-0.5 hover:bg-muted hover:text-destructive"><BsXLg size={10} /></button>
+                    </li>
+                  ))}
+                </ul>
+                {conflictingEvents.has(g.eventId) && (
+                  <p className="mt-1 text-[11px] font-bold text-gold">Can’t go on the same multiple — see the note above</p>
+                )}
+              </div>
+            ))))}
           </div>
 
           <div className="border-t border-border bg-muted/30 px-4 pt-3.5">
@@ -365,7 +392,7 @@ export function SlipBody({ onClose, variant = 'card' }: {
                 </div>
                 {wallet !== 'bonus' && limits && (
                   <p className="mt-1.5 text-[11px] text-muted-foreground">
-                    Stake ${limits.minStake.toFixed(2)}–${limits.maxStake.toFixed(2)} · up to {limits.maxSelections} selections
+                    Stake ${limits.minStake.toFixed(2)}–${limits.maxStake.toFixed(2)} · up to {limits.maxSelections} matches
                   </p>
                 )}
                 {wallet !== 'bonus' && (
@@ -398,7 +425,7 @@ export function SlipBody({ onClose, variant = 'card' }: {
                     <dd className="font-bold tabular-nums">{fmt(combinedOdds)}</dd>
                   </div>
                   {sameMatchPercent != null && sameMatchPercent < 100 && conflictingEvents.size === 0 && (
-                    <p className="text-[11px] text-muted-foreground">Includes the same-match price: {sameMatchPercent}% for each extra pick from one match.</p>
+                    <p className="text-[11px] text-muted-foreground">Picks from the same match are priced together: the more they tend to win together, the lower their combined price.</p>
                   )}
                 </>
               )}

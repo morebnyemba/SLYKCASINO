@@ -405,7 +405,7 @@ def place_bet(
         # Anonymous compatibility path — no wallet movement (documented).
         bet = Bet.objects.create(
             event=event, stake=utils.quantize(stake), odds=odds, status=placed_status,
-            event_ref_id=event_id, selection=selection, outcome_ref=outcome, wallet=wallet or 'deposit',
+            event_ref_id=event_id, selection=selection, outcome_ref=outcome, wallet=wallet or 'deposit', in_play=in_play,
         )
         if in_play:
             _schedule_confirmation('bet', bet.id)
@@ -415,7 +415,7 @@ def place_bet(
     bet = Bet.objects.create(
         player_id=player_id, event=event, stake=utils.quantize(stake),
         odds=odds, status=Bet.Status.PENDING, event_ref_id=event_id, selection=selection,
-        outcome_ref=outcome, wallet=wallet,
+        outcome_ref=outcome, wallet=wallet, in_play=in_play,
     )
     wallet_services.debit(
         player_id=player_id, amount=bet.stake, kind='bet_stake', bucket=wallet,
@@ -604,16 +604,19 @@ def same_match_review(normalised: list[dict]) -> dict:
     more than one pick)."""
     from apps.wallet.models import WalletRules
 
-    from . import same_match
+    from . import correlation, same_match
     rules = WalletRules.load()
     groups: dict = {}
     for i, n in enumerate(normalised):
         groups.setdefault(n['event_id'] if n['event_id'] is not None else f'x{i}', []).append(i)
+    events = Event.objects.in_bulk([k for k, idxs in groups.items() if isinstance(k, int) and len(idxs) > 1])
     factor, per_match, percent, problem = Decimal('1'), [], None, None
+    match_odds: dict = {}
     for event_id, idxs in groups.items():
         odds = Decimal('1')
         for i in idxs:
             odds *= normalised[i]['odds']
+        straight = odds
         if len(idxs) > 1 and problem is None:
             if not rules.same_match_bets:
                 problem = {'legs': idxs, 'message': 'Multiples can’t combine two picks from the same match — remove one or switch to Singles.'}
@@ -623,12 +626,16 @@ def same_match_review(normalised: list[dict]) -> dict:
                 if found:
                     a, b, message = found[0]
                     problem = {'legs': [picks[id(a)], picks[id(b)]], 'message': message}
-            f = same_match.price_factor(len(idxs), rules.same_match_price_percent)
-            factor *= f
-            odds *= f
+            # One price for the match's picks, from how much they move together (correlation.py).
+            event = events.get(event_id)
+            odds = correlation.group_price(event, [(normalised[i]['pick'], normalised[i]['odds']) for i in idxs],
+                                           rules.same_match_price_percent, in_play=bool(event and _started(event)))
+            factor *= odds / straight if straight else Decimal('1')
             percent = rules.same_match_price_percent
         per_match.append(odds)
-    return {'problem': problem, 'factor': factor, 'per_match': per_match, 'percent': percent}
+        match_odds[event_id] = odds
+    return {'problem': problem, 'factor': factor, 'per_match': per_match, 'percent': percent,
+            'groups': groups, 'match_odds': match_odds}
 
 
 def check_accumulator(legs: list[dict]) -> dict:
@@ -647,13 +654,29 @@ def check_accumulator(legs: list[dict]) -> dict:
         except (ArithmeticError, ValueError):
             odds = Decimal('1')
         normalised.append({'event_id': int(event_id) if event_id is not None else None, 'odds': odds,
-                           'pick': _pick_for(outcome, selection)})
+                           'pick': _pick_for(outcome, selection), 'outcome': outcome, 'selection': selection})
     review = same_match_review(normalised)
+    from . import pick_names
+    events = Event.objects.select_related('home_team', 'away_team').in_bulk(
+        [n['event_id'] for n in normalised if n['event_id'] is not None])
+    names = []
+    for n in normalised:
+        o = n['outcome']
+        try:
+            names.append(pick_names.name(event=events.get(n['event_id']), selection=n['selection'],
+                                         market=o.market if o else None, outcome=o))
+        except Exception:  # noqa: BLE001 — cosmetic
+            names.append('')
     combined = Decimal('1')
     for o in review['per_match']:
         combined *= o
     return {'problem': review['problem'], 'combined_odds': str(utils.quantize(combined)),
-            'same_match_percent': str(review['percent']) if review['percent'] is not None else None}
+            'same_match_percent': str(review['percent']) if review['percent'] is not None else None,
+            # One entry per match: the legs (indexes into the request) and the match's one price.
+            'fixtures': len(review['groups']),
+            'names': names,
+            'matches': [{'event_id': k if isinstance(k, int) else None, 'legs': idxs, 'odds': str(review['match_odds'][k])}
+                        for k, idxs in review['groups'].items()]}
 
 
 @transaction.atomic
@@ -673,7 +696,7 @@ def place_accumulator(
         raise ValueError('an accumulator needs at least 2 selections')
     if player_id is not None:
         wallet = wallet_services.betting_bucket(wallet)
-    wallet_services.check_ticket_limits(stake=stake, selections=len(legs), bucket=wallet)
+    wallet_services.check_ticket_limits(stake=stake, selections=1, bucket=wallet)   # selections: counted by match below
 
     combined = Decimal('1')
     normalised: list[dict] = []
@@ -702,11 +725,16 @@ def place_accumulator(
         normalised.append({
             'event': leg['event'], 'odds': odds, 'selection': selection,
             'event_id': int(event_id) if event_id is not None else None, 'outcome': outcome,
-            'pick': _pick_for(outcome, selection),
+            'pick': _pick_for(outcome, selection), 'in_play': leg_in_play,
         })
     review = same_match_review(normalised)
     if review['problem']:
         raise ValueError(review['problem']['message'])
+    # The selections limit counts matches: several picks from one match are one entry.
+    wallet_services.check_ticket_limits(stake=stake, selections=len(review['groups']), bucket=wallet)
+    for key, idxs in review['groups'].items():
+        for i in idxs:
+            normalised[i]['match_odds'] = review['match_odds'][key]
     for o in review['per_match']:
         combined *= o
     combined_odds = utils.quantize(combined)
@@ -723,11 +751,11 @@ def place_accumulator(
         player_id=player_id, stake=utils.quantize(stake),
         combined_odds=combined_odds, status=status_, wallet=wallet or 'deposit',
         bonus_percent=multibet_bonus_percent(review['per_match']),
-        same_match_percent=review['percent'],
+        same_match_percent=review['percent'], in_play=in_play,
     )
     BetLeg.objects.bulk_create([
         BetLeg(slip=slip, event=n['event'], odds=n['odds'], selection=n['selection'],
-               event_ref_id=n['event_id'], outcome_ref=n['outcome'])
+               event_ref_id=n['event_id'], outcome_ref=n['outcome'], in_play=n['in_play'], match_odds=n['match_odds'])
         for n in normalised
     ])
 

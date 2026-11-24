@@ -34,6 +34,14 @@ export interface BetLeg {
 }
 
 const SELECTION_LABEL: Record<Selection, string> = { home: 'Home', draw: 'Draw', away: 'Away' };
+
+/** A pick's short name before the server's arrives: "Liverpool Win", "Draw", or the outcome. */
+function shortName(l: BetLeg): string {
+  if (l.outcomeId != null) return [l.marketName, l.outcomeLabel].filter(Boolean).join(': ') || 'Selection';
+  if (l.selection === 'draw') return 'Draw';
+  const [home, away] = l.eventName.split(/\s+(?:v|vs\.?)\s+/i);
+  return `${(l.selection === 'away' ? away : home) || l.eventName} Win`;
+}
 const STORAGE_KEY = 'slyk:betslip';
 
 function legKey(eventId: string | number, selection: Selection | string, outcomeId?: number) {
@@ -111,12 +119,13 @@ interface BonusLadder {
 }
 
 /** Bonus for a multiple: the highest tier its qualifying legs reach, and the next one up. */
-export function bonusFor(ladder: BonusLadder | null, legs: BetLeg[]) {
+export function bonusFor(ladder: BonusLadder | null, legs: BetLeg[], matchOdds?: number[]) {
   if (!ladder || ladder.tiers.length === 0) return { percent: 0, qualifying: 0, next: null as null | { minLegs: number; percent: number } };
-  // A match counts once (its picks' odds multiplied), as on the server.
+  // A match counts once, at its one price (as on the server).
   const perMatch = new Map<string, number>();
   for (const l of legs) perMatch.set(String(l.eventId), (perMatch.get(String(l.eventId)) ?? 1) * l.odds);
-  const qualifying = [...perMatch.values()].filter((o) => o >= ladder.minOdds).length;
+  const prices = matchOdds ?? [...perMatch.values()];
+  const qualifying = prices.filter((o) => o >= ladder.minOdds).length;
   let percent = 0;
   let next: { minLegs: number; percent: number } | null = null;
   for (const t of ladder.tiers) {
@@ -167,6 +176,10 @@ interface BetslipContextValue {
   conflictMessage: string | null;
   /** The same-match price %, when a match has more than one pick on the multiple. */
   sameMatchPercent: number | null;
+  /** One entry per match (multiples): its picks together, their short names and the one price. */
+  matchGroups: { eventId: string; eventName: string; legs: BetLeg[]; names: string[]; odds: number }[];
+  /** Matches on the slip (several picks from one match count once). */
+  fixtures: number;
   isOnSlip: (eventId: string | number, selection: Selection) => boolean;
   isOutcomeOnSlip: (outcomeId: number) => boolean;
   toggleLeg: (leg: BetLeg) => void;
@@ -391,6 +404,8 @@ export function BetslipProvider({ children }: { children: React.ReactNode }) {
     return dupes;
   }, [legs]);
   const [sameMatch, setSameMatch] = useState<{ events: Set<string>; message: string | null }>({ events: new Set(), message: null });
+  // The server's one price per match (correlation-aware) and each pick's short name.
+  const [priced, setPriced] = useState<{ sig: string; odds: Record<string, number>; names: Record<string, string> }>({ sig: '', odds: {}, names: {} });
   useEffect(() => {
     if (sharedEvents.size === 0) { setSameMatch({ events: new Set(), message: null }); return; }
     let cancelled = false;
@@ -399,10 +414,16 @@ export function BetslipProvider({ children }: { children: React.ReactNode }) {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ legs: legs.map(legPayload) }),
       })
         .then((r) => (r.ok ? r.json() : null))
-        .then((d: { problem: { legs: number[]; message: string } | null } | null) => {
+        .then((d: { problem: { legs: number[]; message: string } | null; matches?: { event_id: number | null; odds: string }[];
+          names?: string[] } | null) => {
           if (cancelled || !d) return;
           const events = new Set((d.problem?.legs ?? []).map((i) => String(legs[i]?.eventId)));
           setSameMatch({ events, message: d.problem?.message ?? null });
+          const odds: Record<string, number> = {};
+          for (const m of d.matches ?? []) if (m.event_id != null) odds[String(m.event_id)] = Number(m.odds);
+          const names: Record<string, string> = {};
+          (d.names ?? []).forEach((n, i) => { if (legs[i] && n) names[keyOf(legs[i])] = n; });
+          setPriced({ sig: legs.map((l) => `${keyOf(l)}@${l.odds}`).join('|'), odds, names });
         })
         .catch(() => {});
     }, 250);
@@ -412,26 +433,34 @@ export function BetslipProvider({ children }: { children: React.ReactNode }) {
   const conflictMessage = sameMatch.message;
   const sameMatchPercent = sharedEvents.size > 0 && limits?.sameMatchBets ? limits.sameMatchPercent : null;
 
-  // Each extra pick from one match multiplies the price by the same-match % (as the server does).
-  const combinedOdds = useMemo(() => {
-    const perEvent = new Map<string, number>();
-    for (const l of legs) perEvent.set(String(l.eventId), (perEvent.get(String(l.eventId)) ?? 0) + 1);
-    const factor = sameMatchPercent == null ? 1
-      : [...perEvent.values()].reduce((f, n) => f * Math.pow(sameMatchPercent / 100, Math.max(0, n - 1)), 1);
-    return legs.reduce((acc, l) => acc * l.odds, 1) * factor;
-  }, [legs, sameMatchPercent]);
+  // One entry per match. A match with several picks takes the server's correlation-aware
+  // price (as it will when the ticket is placed); until that arrives, the flat same-match %.
+  const fresh = priced.sig === legs.map((l) => `${keyOf(l)}@${l.odds}`).join('|');
+  const matchGroups = useMemo(() => {
+    const byEvent = new Map<string, BetLeg[]>();
+    for (const l of legs) byEvent.set(String(l.eventId), [...(byEvent.get(String(l.eventId)) ?? []), l]);
+    return [...byEvent.entries()].map(([eventId, group]) => {
+      const product = group.reduce((acc, l) => acc * l.odds, 1);
+      const flat = sameMatchPercent == null ? 1 : Math.pow(sameMatchPercent / 100, group.length - 1);
+      const odds = group.length > 1 && fresh && priced.odds[eventId] ? priced.odds[eventId] : product * flat;
+      const names = group.map((l) => (fresh && priced.names[keyOf(l)]) || shortName(l));
+      return { eventId, eventName: group[0].eventName, legs: group, names, odds };
+    });
+  }, [legs, sameMatchPercent, fresh, priced]);
+  const combinedOdds = useMemo(() => matchGroups.reduce((acc, g) => acc * g.odds, 1), [matchGroups]);
+  const fixtures = matchGroups.length;
 
   const bonus = useMemo(() => {
     // Only a multiple earns the bonus; the hint for the next tier shows either way.
     const isMultiple = mode === 'acca' && legs.length > 1 && conflictingEvents.size === 0;
-    const tier = bonusFor(ladder, legs);
+    const tier = bonusFor(ladder, legs, matchGroups.map((g) => g.odds));
     const percent = isMultiple ? tier.percent : 0;
     const stake = parseFloat(accaStake || '0') || 0;
     const winnings = Math.max(0, stake * combinedOdds - stake);
     let amount = Math.round(winnings * percent) / 100;
     if (ladder?.cap) amount = Math.min(amount, ladder.cap);
     return { percent, amount, qualifying: tier.qualifying, minOdds: ladder?.minOdds ?? 0, next: tier.next };
-  }, [ladder, mode, legs, conflictingEvents, accaStake, combinedOdds]);
+  }, [ladder, mode, legs, conflictingEvents, accaStake, combinedOdds, matchGroups]);
 
   const potentialPayout = useMemo(() => {
     if (mode === 'singles') {
@@ -566,7 +595,7 @@ export function BetslipProvider({ children }: { children: React.ReactNode }) {
 
   const value: BetslipContextValue = {
     legs, limits, mode, setMode, accaStake, setAccaStake, legStakes, setLegStake,
-    combinedOdds, potentialPayout, bonus, maxBonusPercent: Math.max(0, ...(ladder?.tiers.map((t) => t.percent) ?? [0])), loadCode, status, busy, wallet, setWallet, conflictingEvents, conflictMessage, sameMatchPercent,
+    combinedOdds, potentialPayout, bonus, maxBonusPercent: Math.max(0, ...(ladder?.tiers.map((t) => t.percent) ?? [0])), loadCode, status, busy, wallet, setWallet, conflictingEvents, conflictMessage, sameMatchPercent, matchGroups, fixtures,
     isOnSlip, isOutcomeOnSlip, toggleLeg, removeLeg, clear, place,
     hasPriceChanges, hasSuspended, acceptPriceChanges,
     slipOpen, setSlipOpen,

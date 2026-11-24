@@ -256,11 +256,12 @@ def attach_referral(*, player_id: int, code: str, campaign: str = '') -> Optiona
 def referral_stats(affiliate: Affiliate, *, start=None, end=None) -> dict[int, dict]:
     """Per referred player: deposits and net gaming revenue in [start, end)."""
     ids = list(affiliate.referrals.values_list('player_id', flat=True))
-    totals = wallet_services.totals_by_kind(ids, start=start, end=end)
+    # Real money only: tickets staked from the Bonus wallet earn the agent nothing.
+    totals = wallet_services.totals_by_kind(ids, start=start, end=end, real_money=True)
     return {
         pid: {
             'deposits': totals.get(pid, {}).get('deposit', Decimal('0')),
-            'ngr': utils.net_gaming_revenue(totals.get(pid, {})),
+            'ngr': utils.real_net_revenue(totals.get(pid, {})),
             'active': any(k in totals.get(pid, {}) for k in utils.GAMING_KINDS),
         }
         for pid in ids
@@ -291,9 +292,9 @@ def customer_rows(affiliate: Affiliate, referrals, *, mask: bool = True) -> list
 
 
 def referral_stats_for(ids: list[int], *, start=None, end=None) -> dict[int, dict]:
-    totals = wallet_services.totals_by_kind(ids, start=start, end=end)
+    totals = wallet_services.totals_by_kind(ids, start=start, end=end, real_money=True)
     return {pid: {'deposits': totals.get(pid, {}).get('deposit', Decimal('0')),
-                  'ngr': utils.net_gaming_revenue(totals.get(pid, {})),
+                  'ngr': utils.real_net_revenue(totals.get(pid, {})),
                   'active': any(k in totals.get(pid, {}) for k in utils.GAMING_KINDS)} for pid in ids}
 
 

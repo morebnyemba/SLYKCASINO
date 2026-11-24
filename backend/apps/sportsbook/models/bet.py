@@ -50,6 +50,8 @@ class Bet(models.Model):
     odds = models.DecimalField(max_digits=6, decimal_places=2)
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.OPEN)
     payout = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    # Placed while the match was being played (in-play / live betting). Shown on the ticket.
+    in_play = models.BooleanField(default=False)
     # Cash-out: what has been paid out early, and the part of the original
     # stake that bought it. A partial cash-out lowers `stake` (the part still
     # riding) by `stake_cashed_out`; a full one ends the ticket as CASHED_OUT.
