@@ -152,7 +152,8 @@ class MenuMixin:
         first = events[0] if events else None
         match = f'#{first.id} {first.name}' if first else 'Match removed'
         more = f' + {n - 1} more' if n > 1 else ''
-        return (f'*{t.code or t.id}* · {what}\n{match}{more}\n'
+        live = ' · 🔴 *LIVE BET*' if getattr(t, 'in_play', False) else ''
+        return (f'*{t.code or t.id}* · {what}{live}\n{match}{more}\n'
                 f'{engine._money(t.stake)} @ {engine._odds(odds)} · {t.get_status_display()}{extra}')
 
     def open_tickets(self) -> list[dict]:

@@ -1134,7 +1134,8 @@ class Conversation(MenuMixin, SignInMixin):
         selections = self._selections(legs)
         self.state['legs'] = []
         self.state.pop('pending', None)
-        text = (f'🎟️ Ticket {ticket.code or ticket.id} placed\n\n{selections}\n\n'
+        live = ' · 🔴 *LIVE BET*' if getattr(ticket, 'in_play', False) else ''
+        text = (f'🎟️ Ticket {ticket.code or ticket.id} placed{live}\n\n{selections}\n\n'
                 f'Stake {_money(stake)} · total odds {_odds(odds)} · possible win {_money(stake * odds)}')
         if ticket.status == 'accepting':
             text += '\nIn play: we confirm it in a few seconds and will message you.'
@@ -1178,7 +1179,8 @@ class Conversation(MenuMixin, SignInMixin):
             odds = getattr(t, 'odds', None) or getattr(t, 'combined_odds', None)
             matches = '\n'.join(f'   • {f"#{e.id} {e.name}" if e else "Match removed"}\n     {kickoff(e)}'
                                 for e in _ticket_events(t))
-            blocks.append(f'{t.code or t.id} · {kind} · {_money(t.stake)} @ {_odds(odds)} · {t.get_status_display()}\n{matches}')
+            live = ' · 🔴 LIVE BET' if getattr(t, 'in_play', False) else ''
+            blocks.append(f'{t.code or t.id} · {kind}{live} · {_money(t.stake)} @ {_odds(odds)} · {t.get_status_display()}\n{matches}')
         return [_reply('🎟️ Your latest tickets:\n\n' + '\n\n'.join(blocks), 'GAMES', 'BALANCE')]
 
     def book(self) -> list[dict]:

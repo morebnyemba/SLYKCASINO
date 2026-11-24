@@ -405,7 +405,7 @@ def place_bet(
         # Anonymous compatibility path — no wallet movement (documented).
         bet = Bet.objects.create(
             event=event, stake=utils.quantize(stake), odds=odds, status=placed_status,
-            event_ref_id=event_id, selection=selection, outcome_ref=outcome, wallet=wallet or 'deposit',
+            event_ref_id=event_id, selection=selection, outcome_ref=outcome, wallet=wallet or 'deposit', in_play=in_play,
         )
         if in_play:
             _schedule_confirmation('bet', bet.id)
@@ -415,7 +415,7 @@ def place_bet(
     bet = Bet.objects.create(
         player_id=player_id, event=event, stake=utils.quantize(stake),
         odds=odds, status=Bet.Status.PENDING, event_ref_id=event_id, selection=selection,
-        outcome_ref=outcome, wallet=wallet,
+        outcome_ref=outcome, wallet=wallet, in_play=in_play,
     )
     wallet_services.debit(
         player_id=player_id, amount=bet.stake, kind='bet_stake', bucket=wallet,
@@ -702,7 +702,7 @@ def place_accumulator(
         normalised.append({
             'event': leg['event'], 'odds': odds, 'selection': selection,
             'event_id': int(event_id) if event_id is not None else None, 'outcome': outcome,
-            'pick': _pick_for(outcome, selection),
+            'pick': _pick_for(outcome, selection), 'in_play': leg_in_play,
         })
     review = same_match_review(normalised)
     if review['problem']:
@@ -723,11 +723,11 @@ def place_accumulator(
         player_id=player_id, stake=utils.quantize(stake),
         combined_odds=combined_odds, status=status_, wallet=wallet or 'deposit',
         bonus_percent=multibet_bonus_percent(review['per_match']),
-        same_match_percent=review['percent'],
+        same_match_percent=review['percent'], in_play=in_play,
     )
     BetLeg.objects.bulk_create([
         BetLeg(slip=slip, event=n['event'], odds=n['odds'], selection=n['selection'],
-               event_ref_id=n['event_id'], outcome_ref=n['outcome'])
+               event_ref_id=n['event_id'], outcome_ref=n['outcome'], in_play=n['in_play'])
         for n in normalised
     ])
 

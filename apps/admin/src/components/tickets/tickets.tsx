@@ -11,7 +11,7 @@ import { authedRequest, useApi } from '@/lib/use-api';
 
 // The match a ticket is on (null for old free-text bets).
 interface Match { id: number; name: string; starts_at?: string | null; status?: string; score_home?: number | null; score_away?: number | null }
-interface Leg { id: number; event: string; match?: Match | null; market_name?: string | null; outcome_label?: string | null; selection: string; odds: string; result: string }
+interface Leg { id: number; event: string; match?: Match | null; market_name?: string | null; outcome_label?: string | null; selection: string; odds: string; result: string; in_play?: boolean }
 export interface Ticket {
   ticket: string; kind: 'single' | 'multiple'; id: number; code?: string | null; player_id: number | null; username: string;
   stake: string; odds?: string; combined_odds?: string; status: string; payout: string; placed_at: string;
@@ -19,6 +19,7 @@ export interface Ticket {
   bonus?: string; bonus_percent?: string; cashout_paid?: string; stake_cashed_out?: string;
   event?: string; match?: Match | null; market_name?: string | null; outcome_label?: string | null; selection?: string;
   legs?: Leg[];
+  in_play?: boolean; wallet?: string;
 }
 export interface TicketSummary {
   tickets: number; staked: string; returned: string; net: string; open: number; open_liability: string;
@@ -136,7 +137,13 @@ export function TicketsTable({ tickets, showPlayer = true, active, onOpen }: {
                   )}
                   {Number(t.cashout_paid ?? 0) > 0 && <p className="text-[11px] text-muted-foreground">cashed out {money(t.cashout_paid)}</p>}
                 </td>
-                <td className={tdClass}><Badge tone={STATUS_TONE[t.status] ?? 'slate'} dot>{statusLabel(t.status)}</Badge></td>
+                <td className={tdClass}>
+                  <span className="flex flex-wrap items-center gap-1">
+                    <Badge tone={STATUS_TONE[t.status] ?? 'slate'} dot>{statusLabel(t.status)}</Badge>
+                    {t.in_play && <Badge tone="red">Live</Badge>}
+                    {t.wallet === 'bonus' && <Badge tone="gold">Bonus</Badge>}
+                  </span>
+                </td>
                 <td className={cx(tdClass, 'whitespace-nowrap text-xs text-muted-foreground')} title={when(t.placed_at)}>{ago(t.placed_at)}</td>
               </tr>
             );
@@ -220,7 +227,11 @@ export function TicketDrawer({ ticket, onClose, onStep, hidePlayer }: {
           {/* Outcome */}
           <div className="rounded-2xl border border-border/70 bg-card p-4">
             <div className="flex items-center justify-between">
-              <Badge tone={STATUS_TONE[t.status] ?? 'slate'} dot>{statusLabel(t.status)}</Badge>
+              <span className="flex flex-wrap items-center gap-1.5">
+                <Badge tone={STATUS_TONE[t.status] ?? 'slate'} dot>{statusLabel(t.status)}</Badge>
+                {t.in_play && <Badge tone="red">Placed live</Badge>}
+                {t.wallet === 'bonus' && <Badge tone="gold">Bonus wallet · no agent commission</Badge>}
+              </span>
               <span className="text-xs text-muted-foreground">{isOpen ? 'Pays if it wins' : 'Paid to player'}</span>
             </div>
             <p className={cx('mt-2 text-3xl font-extrabold tabular-nums', !isOpen && returnedOf(t) > 0 && 'text-win')}>
@@ -268,6 +279,7 @@ export function TicketDrawer({ ticket, onClose, onStep, hidePlayer }: {
                       {leg.match?.starts_at && (
                         <p className="mt-0.5 text-[11px] text-muted-foreground">
                           {legs.length > 1 && `Leg ${i + 1} · `}kick-off {when(leg.match.starts_at)}{leg.match.status && ` · ${leg.match.status.replace('_', ' ')}`}
+                          {(leg.in_play ?? (legs.length === 1 && t.in_play)) && <span className="ml-1.5 font-bold text-live">· bet placed live</span>}
                         </p>
                       )}
                     </div>

@@ -32,6 +32,8 @@ class BetSlip(models.Model):
     combined_odds = models.DecimalField(max_digits=12, decimal_places=2)
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.OPEN)
     payout = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    # Placed while the match was being played (in-play / live betting). Shown on the ticket.
+    in_play = models.BooleanField(default=False)
     # Multi-bet bonus rate promised at placement (0 = none) and the amount paid
     # on top of `payout` when the slip wins.
     bonus_percent = models.DecimalField(max_digits=5, decimal_places=2, default=0)
@@ -93,6 +95,8 @@ class BetLeg(models.Model):
     )
     odds = models.DecimalField(max_digits=6, decimal_places=2)
     result = models.CharField(max_length=10, choices=Result.choices, default=Result.PENDING)
+    # This selection's match was being played when the ticket was placed.
+    in_play = models.BooleanField(default=False)
 
     class Meta:
         db_table = 'sportsbook_betleg'

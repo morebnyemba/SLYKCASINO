@@ -78,7 +78,7 @@ export default function AgentTicketsPage() {
             {rows.map((r) => (
               <div key={r.ticket} className="space-y-1">
                 <p className="px-1 text-xs font-semibold text-muted-foreground">{r.customer}</p>
-                <BetTicket ticket={ticketFromRow(r)} isPublic collapsible />
+                <BetTicket ticket={ticketFromRow(r)} isPublic collapsible agentView />
               </div>
             ))}
           </div>

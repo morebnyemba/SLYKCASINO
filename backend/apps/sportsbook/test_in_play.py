@@ -292,6 +292,21 @@ class InPlayPlacementTests(InPlayBase):
         self.assertEqual(sb.confirm_live_bet('bet', bet.id, now=later + timedelta(seconds=1)), 'open')
         self.assertEqual(wallet_services.get_balance(self.player.id), D('90'))
 
+    def test_a_ticket_placed_in_play_says_so(self):
+        from apps.sportsbook.serializers import BetSerializer
+        self.feed(at=self.t0)
+        bet = self.place_over()
+        self.assertTrue(Bet.objects.get(pk=bet.pk).in_play)
+        self.assertTrue(BetSerializer(bet).data['in_play'])
+        prematch = Event.objects.create(name='Later vs Tonight', starts_at=timezone.now() + timedelta(hours=5), status='NS',
+                                        odds=D('2.00'), odds_draw=D('3.20'), odds_away=D('3.50'), has_odds=True)
+        slip = sb.place_accumulator(wallet='deposit', stake=D('5'), player_id=self.player.id, legs=[
+            {'event': 'Over 2.5', 'odds': '1.80', 'outcome_id': self.over_2_5().id},
+            {'event': 'Pre-match', 'odds': '2.00', 'event_id': prematch.id, 'selection': 'home'}])
+        self.assertTrue(slip.in_play)                                       # one live leg makes the ticket live
+        legs = {leg.event: leg.in_play for leg in slip.legs.all()}
+        self.assertEqual(legs, {'Over 2.5': True, 'Pre-match': False})
+
     def test_price_move_during_delay_rejects_and_refunds(self):
         self.feed(at=self.t0)
         bet = self.place_over()

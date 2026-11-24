@@ -16,6 +16,15 @@ def net_gaming_revenue(totals: dict[str, Decimal]) -> Decimal:
     return gross - totals.get('bonus', Decimal('0'))
 
 
+def real_net_revenue(totals: dict[str, Decimal]) -> Decimal:
+    """What an agent's customer lost with real money (Deposit and Winnings wallets;
+    totals from totals_by_kind(real_money=True)): stakes minus winnings, less bonus
+    money that turned into real money. Bonus-wallet tickets count for nothing, as
+    in the agent's net-loss commission."""
+    gross = -sum((totals.get(k, Decimal('0')) for k in GAMING_KINDS), Decimal('0'))
+    return gross - totals.get('bonus_conversion', Decimal('0')) - totals.get('bonus_profit', Decimal('0'))
+
+
 def commission_for(ngr: Decimal, percent: Decimal) -> Decimal:
     """Revenue share on a positive month; a losing month pays nothing (no
     negative carry-over). Rounded down to the cent."""

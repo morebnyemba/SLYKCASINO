@@ -307,16 +307,19 @@ def real_money_turnover(player_ids: list[int]) -> dict[int, Decimal]:
 
 
 def totals_by_kind(
-    player_ids: list[int], *, start=None, end=None,
+    player_ids: list[int], *, start=None, end=None, real_money: bool = False,
 ) -> dict[int, dict[str, Decimal]]:
     """Read-only: the signed sum of each player's ledger entries per kind over
     [start, end) — e.g. for affiliate revenue reports. Players with no entries in
-    the window are absent from the result."""
+    the window are absent from the result. `real_money` leaves out the Bonus
+    wallet (bonus credits and everything staked or won with bonus money)."""
     from django.db.models import Sum
 
     if not player_ids:
         return {}
     qs = LedgerEntry.objects.filter(wallet__player_id__in=player_ids)
+    if real_money:
+        qs = qs.exclude(bucket=Bucket.BONUS)
     if start is not None:
         qs = qs.filter(created_at__gte=start)
     if end is not None:
