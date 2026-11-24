@@ -1,3 +1,4 @@
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
 from .tokens import default_dark, default_light
@@ -58,6 +59,9 @@ class SiteIdentity(models.Model):
     support_email = models.EmailField(blank=True, default='')
     governing_law = models.CharField(max_length=120, blank=True, default='')
     dispute_body = models.CharField(max_length=200, blank=True, default='')
+    # The small loading circle between pages on the website shows for at least this long.
+    page_loader_seconds = models.DecimalField(max_digits=3, decimal_places=1, default=3,
+                                              validators=[MinValueValidator(0), MaxValueValidator(5)])
     updated_at = models.DateTimeField(auto_now=True)
     updated_by_username = models.CharField(max_length=150, blank=True)
 

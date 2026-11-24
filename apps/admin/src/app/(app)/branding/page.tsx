@@ -24,6 +24,7 @@ interface IdentityResponse {
   logo_url: string;
   license_text: string;
   whatsapp_number: string;
+  page_loader_seconds: string;
   legal_name: string;
   registered_address: string;
   support_email: string;
@@ -39,6 +40,7 @@ const DEFAULT_IDENTITY: IdentityResponse = {
   logo_url: '',
   license_text: '',
   whatsapp_number: '',
+  page_loader_seconds: '3.0',
   legal_name: '',
   registered_address: '',
   support_email: '',
@@ -264,6 +266,7 @@ function IdentitySection() {
         logo_url: form.logo_url,
         license_text: form.license_text,
         whatsapp_number: form.whatsapp_number,
+        page_loader_seconds: form.page_loader_seconds,
         legal_name: form.legal_name,
         registered_address: form.registered_address,
         support_email: form.support_email,
@@ -337,6 +340,18 @@ function IdentitySection() {
                   <img src={form.logo_url} alt="Logo preview" className="h-9 w-auto max-w-[120px] shrink-0 rounded border border-border object-contain bg-white p-1" />
                 )}
               </div>
+            </div>
+            <div className="space-y-1 sm:col-span-2">
+              <label className="text-sm font-medium">Page loading circle (seconds)</label>
+              <input
+                value={form.page_loader_seconds}
+                onChange={(e) => set('page_loader_seconds', e.target.value.replace(/[^0-9.]/g, ''))}
+                inputMode="decimal"
+                className="w-32 rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+              <p className="text-xs text-muted-foreground">
+                When a player opens another page, a small loading circle shows for at least this long (0 to 5; 0 = only while the page loads). Longer feels slower, especially in live betting.
+              </p>
             </div>
             <div className="space-y-1 sm:col-span-2">
               <label className="text-sm font-medium">Support WhatsApp number</label>

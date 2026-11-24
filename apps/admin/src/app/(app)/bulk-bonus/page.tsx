@@ -76,7 +76,7 @@ export default function BulkBonusPage() {
   if (!superuser) {
     return (
       <div className="space-y-6">
-        <PageHeader icon={BsGift} eyebrow="Marketing" title="Bulk bonus" description="Give or take bonus for many players at once." />
+        <PageHeader icon={BsGift} eyebrow="Promotions & bonuses" title="Bulk bonus" description="Give or take bonus for many players at once." />
         <Notice tone="red">Only a superuser can use bulk bonuses.</Notice>
       </div>
     );
@@ -85,7 +85,7 @@ export default function BulkBonusPage() {
   const give = form.kind === 'credit';
   return (
     <div className="space-y-6">
-      <PageHeader icon={BsGift} eyebrow="Marketing" title="Bulk bonus"
+      <PageHeader icon={BsGift} eyebrow="Promotions & bonuses" title="Bulk bonus"
         description="Give every player (or a group) a bonus at once, or take bonus back. Only the Bonus wallet is ever touched: deposits and winnings never are. Suspended and self-excluded players are always left out." />
       {notice && <Notice tone={notice.tone} onClose={() => setNotice(null)}>{notice.text}</Notice>}
 

@@ -50,7 +50,7 @@ class SiteIdentitySerializer(serializers.ModelSerializer):
         fields = [
             'site_name', 'tagline', 'logo_url', 'license_text', 'whatsapp_number',
             'legal_name', 'registered_address', 'support_email', 'governing_law', 'dispute_body',
-            'updated_at', 'updated_by_username',
+            'page_loader_seconds', 'updated_at', 'updated_by_username',
         ]
         read_only_fields = ['updated_at', 'updated_by_username']
 

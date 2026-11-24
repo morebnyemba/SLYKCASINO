@@ -7,7 +7,7 @@ import type { IconType } from 'react-icons';
 import {
   BsActivity, BsBroadcast, BsCalendar2Week, BsCashStack, BsChatDots, BsClockHistory, BsGift, BsGrid1X2,
   BsImages, BsList, BsMoonStars, BsPalette, BsPeople, BsPersonBadge, BsBoxArrowRight, BsSun, BsTicketPerforated,
-  BsTrophy, BsXLg, BsDiagram3, BsDatabase, BsCreditCard2Front, BsAirplane, BsPieChart, BsBank, BsShieldExclamation, BsTicket, BsSliders, BsChatSquareText, BsShieldCheck, BsJournalText, BsWhatsapp,
+  BsTrophy, BsXLg, BsDiagram3, BsDatabase, BsCreditCard2Front, BsAirplane, BsPieChart, BsBank, BsShieldExclamation, BsTicket, BsSliders, BsChatSquareText, BsShieldCheck, BsJournalText, BsWhatsapp, BsArrowCounterclockwise, BsStars,
 } from 'react-icons/bs';
 import { useAuth } from '@/lib/auth-context';
 import { useSiteIdentity } from '@/lib/identity-context';
@@ -52,10 +52,14 @@ export const NAV: NavSection[] = [
     { href: '/revenue-share', label: 'Revenue share', icon: BsPieChart },
     { href: '/settings-changes', label: 'Revenue-share changes', icon: BsShieldCheck },
   ] },
-  { title: 'Marketing', items: [
+  { title: 'Promotions & bonuses', items: [
     { href: '/promotions', label: 'Promotions', icon: BsGift },
     { href: '/promo-codes', label: 'Promo codes', icon: BsTicket },
     { href: '/bulk-bonus', label: 'Bulk bonus', icon: BsPeople },
+    { href: '/cashback', label: 'Cashback & refunds', icon: BsArrowCounterclockwise },
+    { href: '/free-spins', label: 'Aviator free spins', icon: BsStars },
+  ] },
+  { title: 'Marketing', items: [
     { href: '/banners', label: 'Banners', icon: BsImages },
     { href: '/whatsapp-bot', label: 'WhatsApp bot', icon: BsWhatsapp },
   ] },

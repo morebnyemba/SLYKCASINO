@@ -142,7 +142,7 @@ export default function PromotionsPage() {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4 [&>div:first-child]:mb-0">
-        <PageHeader icon={FaGift} eyebrow="Marketing" title="Promotions" description="Deposit bonuses by amount, free bets and codes players can claim." />
+        <PageHeader icon={FaGift} eyebrow="Promotions & bonuses" title="Promotions" description="Deposit bonuses by amount, free bets and codes players can claim." />
         <button
           onClick={() => (showForm ? setShowForm(false) : startCreate())}
           className={`rounded-md px-4 py-2 text-sm font-bold shadow transition-transform hover:scale-[1.02] ${
