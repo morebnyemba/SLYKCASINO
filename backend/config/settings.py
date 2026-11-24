@@ -337,6 +337,11 @@ CELERY_TASK_TIME_LIMIT = 300
 # Periodic reconciliation. Each manager is idempotent, so cadence is a safety
 # knob, not a correctness one — running more often just narrows drift windows.
 CELERY_BEAT_SCHEDULE = {
+    'chatbot-purge-questions': {
+        # The WhatsApp bot's question log (what players typed) is kept 90 days.
+        'task': 'apps.chatbot.tasks.purge_bot_questions',
+        'schedule': 24 * 60 * 60,
+    },
     'promotions-cashback': {
         # Cashback on losses: pays each finished period once (promotions.cashback).
         'task': 'apps.promotions.tasks.pay_cashback',

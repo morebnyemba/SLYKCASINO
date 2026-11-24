@@ -202,3 +202,77 @@ class SupportRequest(models.Model):
 
     class Meta:
         ordering = ['-created_at']
+
+
+class KnowledgeArticle(models.Model):
+    """One knowledge base answer: a question players ask and the site's answer to it.
+
+    A player's message is matched against the question, the other wordings and the
+    keywords (typos and plurals forgiven, see knowledge.py). A sure match is sent as
+    written, with no AI call; the AI reads the closest ones for everything else.
+    {placeholders} in the answer are filled from the live settings when it is sent,
+    so fees and limits never go stale."""
+
+    class Category(models.TextChoices):
+        ACCOUNT = 'account', 'Account & verification'
+        DEPOSITS = 'deposits', 'Deposits'
+        WITHDRAWALS = 'withdrawals', 'Withdrawals'
+        BETTING = 'betting', 'Betting'
+        BONUSES = 'bonuses', 'Bonuses & promotions'
+        AVIATOR = 'aviator', 'Aviator'
+        WHATSAPP = 'whatsapp', 'WhatsApp bot'
+        SAFETY = 'safety', 'Responsible gambling'
+        OTHER = 'other', 'Other'
+
+    question = models.CharField(max_length=200)
+    example_questions = models.TextField(blank=True, default='')       # other wordings, one per line
+    # Wordings the bot learned on its own when the AI answered from this answer. They only help matching.
+    learned_questions = models.TextField(blank=True, default='')
+    keywords = models.CharField(max_length=255, blank=True, default='')  # comma-separated
+    answer = models.TextField()
+    buttons = models.CharField(max_length=120, blank=True, default='MENU')  # up to 3 commands, comma-separated
+    category = models.CharField(max_length=16, choices=Category.choices, default=Category.OTHER)
+    is_active = models.BooleanField(default=True)
+    # Written by the AI for a question no answer covered: off until staff approve it.
+    is_draft = models.BooleanField(default=False)
+    times_asked = models.PositiveIntegerField(default=0)                # for a draft: players who asked it
+    hit_count = models.PositiveIntegerField(default=0)                  # times the bot gave this answer
+    last_used_at = models.DateTimeField(null=True, blank=True)
+    updated_by = models.CharField(max_length=150, blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['category', 'id']
+
+    def __str__(self):
+        return self.question
+
+
+class BotQuestion(models.Model):
+    """A free-text message the bot tried to answer, and how. Unanswered ones show staff
+    what the knowledge base is missing. Kept 90 days (tasks.purge_bot_questions)."""
+
+    class Source(models.TextChoices):
+        KNOWLEDGE = 'kb', 'Knowledge base'
+        AI = 'ai', 'AI, from the knowledge base'
+        AI_FACTS = 'ai_facts', 'AI, from the site facts'
+        AI_UNSURE = 'ai_unsure', 'AI: not covered'
+        SUGGESTED = 'suggested', 'Offered close answers'
+        HANDOFF = 'handoff', 'Handed to a person'
+        NONE = 'none', 'Not answered'
+
+    UNANSWERED = (Source.AI_UNSURE, Source.SUGGESTED, Source.NONE)
+
+    channel = models.CharField(max_length=16, choices=CHANNELS, default=WHATSAPP)
+    address = models.CharField(max_length=32, db_index=True)
+    text = models.TextField()
+    source = models.CharField(max_length=10, choices=Source.choices)
+    article = models.ForeignKey(KnowledgeArticle, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    score = models.FloatField(default=0)                                # best knowledge base match, 0 to 1
+    reply = models.TextField(blank=True, default='')
+    reviewed = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-created_at']

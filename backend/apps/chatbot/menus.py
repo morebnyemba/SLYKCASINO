@@ -495,6 +495,14 @@ class MenuMixin:
 
     def faq(self) -> list[dict]:
         from . import engine
+        from . import knowledge
+        from .models import KnowledgeArticle
+        top = list(KnowledgeArticle.objects.filter(is_active=True, is_draft=False).order_by('-hit_count', 'id')[:9])
+        if top:                                                 # the most asked knowledge base answers, to tap
+            rows = [knowledge.row(a) for a in top]
+            rows.append(['SUPPORT', '💬 Talk to us', 'A person replies here'])
+            return [{'text': '❓ *Questions players ask*\n\nTap one, or just type your question in your own words.',
+                     'list': {'button': 'See questions', 'title': 'FAQ', 'rows': rows}}]
         qa = (
             ('How do I bet?', 'Send TODAY, open a match by its ID, tap a pick, then Place bet and Confirm.'),
             ('How do I link my account?', f'On the website open {engine.SITE_PATH}, get a code, send LINK and the code here.'),

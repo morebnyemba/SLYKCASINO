@@ -620,6 +620,10 @@ def same_match_review(normalised: list[dict]) -> dict:
         if len(idxs) > 1 and problem is None:
             if not rules.same_match_bets:
                 problem = {'legs': idxs, 'message': 'Multiples can’t combine two picks from the same match — remove one or switch to Singles.'}
+            elif len(idxs) > rules.max_picks_per_match:
+                n = rules.max_picks_per_match
+                problem = {'legs': idxs, 'message': f'At most {n} pick{"" if n == 1 else "s"} from one match — remove '
+                                                    f'{len(idxs) - n}.'}
             else:
                 picks = {id(p): i for i, p in ((i, normalised[i]['pick']) for i in idxs)}
                 found = same_match.problems(normalised[i]['pick'] for i in idxs)

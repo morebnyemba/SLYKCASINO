@@ -49,7 +49,7 @@ interface BettingRules {
   deposit_min_odds: string; bonus_min_odds: string; winnings_min_odds: string;
   bonus_min_legs: number | string; bonus_min_leg_odds: string; bonus_wins_to_convert: number | string; bonus_max_conversion: string; bonus_conversion_multiple: string; bonus_aviator_stake: string;
   bonus_expiry_hours: number | string;
-  same_match_bets: boolean; same_match_price_percent: string;
+  same_match_bets: boolean; same_match_price_percent: string; max_picks_per_match: number | string;
 }
 
 /** Stake and selection limits, each wallet's minimum odds, and the Bonus wallet's rules. */
@@ -75,6 +75,7 @@ export function BettingRulesPanel() {
     { key: 'bonus_expiry_hours', label: 'Bonus — expires after (hours unused)', hint: '72 = 3 days (default), 120 = 5 days, 360 = 15 days (the most). Players are warned 24 hours before; an open bonus ticket keeps it.' },
   ];
   const sameMatch: FieldDef<BettingRules>[] = [
+    { key: 'max_picks_per_match', label: 'Most picks from one match', hint: 'On one multiple, e.g. Home win + Over 1.5 is 2. 1–5; the Combined tab offers pairs, so keep it at 2 or more.' },
     { key: 'same_match_price_percent', label: 'Same-match price (%)', hint: 'Each extra pick from one match multiplies the odds by this — such picks tend to win together. 100 = straight product; 50–100.' },
   ];
   const heading = 'mb-3 mt-6 text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground first:mt-0';

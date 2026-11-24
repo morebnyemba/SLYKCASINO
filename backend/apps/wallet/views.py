@@ -541,7 +541,7 @@ class AdminWalletRulesView(APIView):
     permission_classes = [IsAdminUser]
     FIELDS = ('deposit_min_odds', 'bonus_min_odds', 'winnings_min_odds', 'bonus_min_leg_odds', 'bonus_max_conversion',
               'bonus_conversion_multiple', 'bonus_aviator_stake', 'min_stake', 'max_stake', 'same_match_price_percent')
-    INTS = ('bonus_min_legs', 'bonus_wins_to_convert', 'max_selections', 'bonus_expiry_hours')
+    INTS = ('bonus_min_legs', 'bonus_wins_to_convert', 'max_selections', 'bonus_expiry_hours', 'max_picks_per_match')
 
     def _out(self, rules):
         return {**{f: str(getattr(rules, f)) for f in self.FIELDS}, **{f: getattr(rules, f) for f in self.INTS},
@@ -586,6 +586,8 @@ class AdminWalletRulesView(APIView):
         if not Decimal('50') <= rules.same_match_price_percent <= Decimal('100'):
             return Response({'detail': 'Same-match price: 50–100% (100 = the straight product of the odds).'},
                             status=status.HTTP_400_BAD_REQUEST)
+        if not 1 <= rules.max_picks_per_match <= 5:
+            return Response({'detail': 'Picks per match: 1–5.'}, status=status.HTTP_400_BAD_REQUEST)
         if not 2 <= rules.max_selections <= 50:
             return Response({'detail': 'Selections per ticket: 2–50.'}, status=status.HTTP_400_BAD_REQUEST)
         if rules.bonus_min_legs > rules.max_selections:
