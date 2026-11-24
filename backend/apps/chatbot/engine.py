@@ -38,6 +38,7 @@ logger = logging.getLogger(__name__)
 
 MAX_LEGS = 15
 LIST_SIZE = 10
+PAGE_SIZE = 8          # matches per GAMES / LIVE page
 CONFIRM_FOR = timedelta(minutes=2)
 PIN_TRIES = 3
 SITE_PATH = 'Account → WhatsApp betting'
@@ -174,6 +175,24 @@ class Conversation:
         }
         if head in simple and not rest:
             return simple[head]()
+        if head in ('NEXT', 'MORE') and not rest:
+            return self.turn_page(1)
+        if head in ('PREV', 'BACK', 'PREVIOUS') and not rest:
+            return self.turn_page(-1)
+        if head == 'LEAGUES':
+            return self.leagues(int(rest[0]) - 1 if rest and rest[0].isdigit() else 0)
+        if head == 'LEAGUE' and rest and rest[0].isdigit():
+            return self.games('', league=int(rest[0]))
+        if head == 'PICK' and rest and rest[0].isdigit():
+            return self.pick_outcome(int(rest[0]))
+        if head == 'LIVE' and rest and rest[0].isdigit():
+            return self.live(page=int(rest[0]) - 1)
+        if head.isdigit() and rest and rest[0] in ('M', 'MARKETS', 'ODDS', 'ALL'):
+            return self.all_markets(int(head), int(rest[1]) - 1 if len(rest) > 1 and rest[1].isdigit() else 0)
+        if head.isdigit() and len(rest) >= 2 and rest[0] == 'G':
+            return self.group(int(head), rest[1].lower(), int(rest[2]) - 1 if len(rest) > 2 and rest[2].isdigit() else 0)
+        if head.isdigit() and len(rest) >= 2 and rest[0] == 'K' and rest[1].isdigit():
+            return self.market(int(head), int(rest[1]), int(rest[2]) - 1 if len(rest) > 2 and rest[2].isdigit() else 0)
         if head in ('GAMES', 'TODAY', 'MATCHES', 'FOOTBALL'):
             return self.games(' '.join(text.split()[1:]))
         if head == 'LINK':
@@ -198,8 +217,10 @@ class Conversation:
     def menu(self) -> list[dict]:
         site = _site()
         lines = [f'👋 Welcome to {site} on WhatsApp.', '',
-                 'GAMES – upcoming matches with their IDs', 'LIVE – matches in play now',
-                 '1234 – open a match and tap a pick', '1234 1 – or type the match ID and pick (X 2 1X 12 X2 GG NG O2.5 U2.5)',
+                 '*GAMES* – upcoming matches (NEXT for more) · *LEAGUES* – pick a league',
+                 '*LIVE* – matches in play now · *GAMES chelsea* – search',
+                 '*1234* – open a match: its main odds, then “All odds” for every market',
+                 '*1234 1* – type the match ID and pick (X 2 1X 12 X2 GG NG O2.5 U2.5)',
                  'SLIP – your ticket · then Place bet and Confirm', 'BALANCE · TICKETS · DEPOSIT 10']
         if not self.link:
             lines += ['', f'To bet, link your account: on the {site} website open {SITE_PATH}, get a code and send LINK 123456 here.']
@@ -249,53 +270,177 @@ class Conversation:
         return None
 
     # -- browsing -------------------------------------------------------------------
-    def _line(self, e) -> str:
-        prices = ' '.join(f'{c} {_odds(v)}' for c, v in (('1', e.odds), ('X', e.odds_draw), ('2', e.odds_away))
-                          if v is not None and v > 1)
-        return f'#{e.id} {e.name}\n   {kickoff(e)}' + (f'\n   {prices}' if prices else '')
+    # Every match and every playable price is reachable: lists come in pages
+    # (NEXT / PREV), LEAGUES narrows them, and a match opens onto all its markets
+    # by group. What's shown as playable is exactly what placement accepts
+    # (sportsbook.services.outcome_unavailable).
 
-    def games(self, query: str) -> list[dict]:
+    def _price_row(self, e) -> str:
+        """`1 2.10 · X 3.20 · 2 3.40`: the main prices, when they're open."""
+        prices = [f'{c} {_odds(v)}' for c, v in self._main(e)]
+        return f'`{" · ".join(prices)}`' if prices else ''
+
+    def _main(self, e) -> list[tuple[str, Decimal]]:
+        """The playable 1X2 prices (the event's own main market)."""
+        from apps.sportsbook import services as sb
+        state = sb.trading_state(e)
+        if not state['main_open']:
+            return []
+        blocked = set(state.get('main_blocked') or [])
+        return [(code, price) for code, sel, price in (('1', 'home', e.odds), ('X', 'draw', e.odds_draw), ('2', 'away', e.odds_away))
+                if price is not None and price > 1 and sel not in blocked]
+
+    def _entry(self, e, *, live: bool = False) -> str:
+        home, away = _teams(e)
+        if live:
+            head = f'*{e.id}* · 🔴 {e.elapsed or 0}\' · {home} *{e.score_home or 0}-{e.score_away or 0}* {away}'
+        else:
+            when = timezone.localtime(e.starts_at, services.local_tz()).strftime('%H:%M') if e.starts_at else 'TBC'
+            head = f'*{e.id}* · {when} · {home} v {away}'
+        row = self._price_row(e)
+        more = getattr(e, 'open_markets', 0) or 0
+        tail = ' · '.join(x for x in (row, f'+{more} market{"" if more == 1 else "s"}' if more else '') if x)
+        return head + (f'\n{tail}' if tail else '')
+
+    def _upcoming(self, *, query: str = '', league: Optional[int] = None):
+        from django.db.models import Count, F, Q
         from apps.sportsbook.models import Event
-        qs = Event.objects.filter(is_open=True, has_odds=True, starts_at__gt=self.now).order_by('starts_at')
-        q = query.strip()
-        if q:
-            from django.db.models import Q
-            qs = qs.filter(Q(name__icontains=q) | Q(league__name__icontains=q))
-        events = list(qs.select_related('league')[:LIST_SIZE])
-        if not events:
-            return [_reply(f'No upcoming matches{f" for “{q}”" if q else ""} right now.', 'LIVE', 'MENU')]
-        head = f'⚽ Upcoming{f" · {q}" if q else ""}:'
-        body = '\n'.join(self._line(e) for e in events)
-        return [_reply(f'{head}\n{body}\n\nSend a match ID (e.g. {events[0].id}) to see its picks, '
-                       f'or add one straight away: {events[0].id} 1', 'LIVE', 'SLIP')]
+        qs = Event.objects.filter(is_open=True, has_odds=True).filter(Q(starts_at__gt=self.now) | Q(starts_at__isnull=True))
+        if query:
+            qs = qs.filter(Q(name__icontains=query) | Q(league__name__icontains=query)
+                           | Q(home_team__name__icontains=query) | Q(away_team__name__icontains=query))
+        if league:
+            qs = qs.filter(league_id=league)
+        return (qs.select_related('league', 'home_team', 'away_team')
+                .annotate(open_markets=Count('markets', filter=Q(markets__is_open=True, markets__settled=False), distinct=True))
+                .order_by(F('starts_at').asc(nulls_last=True), 'name', 'id'))
 
-    def live(self) -> list[dict]:
+    def _live_events(self) -> list:
+        from django.db.models import Count, Q
         from apps.sportsbook import services as sb
         from apps.sportsbook.models import Event
-        events = [e for e in Event.objects.filter(status__in=sb.IN_PLAY_STATUSES, is_open=True).order_by('starts_at')[:60]
-                  if sb.in_play_bettable(e, now=self.now)][:LIST_SIZE]
+        qs = (Event.objects.filter(status__in=sb.IN_PLAY_STATUSES, is_open=True)
+              .select_related('league', 'home_team', 'away_team')
+              .annotate(open_markets=Count('markets', filter=Q(markets__is_open=True, markets__settled=False), distinct=True))
+              .order_by('starts_at', 'id'))
+        return [e for e in qs[:300] if sb.in_play_bettable(e, now=self.now)]
+
+    def _page_buttons(self, page: int, pages: int, extra) -> list:
+        nav = ([['PREV', '◀ Previous']] if page > 0 else []) + ([['NEXT', 'Next ▶']] if page + 1 < pages else [])
+        return (nav + [b for b in extra if b])[:3]
+
+    def games(self, query: str, *, page: int = 0, league: Optional[int] = None) -> list[dict]:
+        q = query.strip()
+        qs = self._upcoming(query=q, league=league)
+        total = qs.count()
+        if not total:
+            what = f' for “{q}”' if q else ''
+            return [_reply(f'No upcoming matches{what} right now.', 'LIVE', 'LEAGUES', 'MENU')]
+        pages = -(-total // PAGE_SIZE)
+        page = max(0, min(page, pages - 1))
+        events = list(qs[page * PAGE_SIZE:(page + 1) * PAGE_SIZE])
+        self.state['browse'] = {'kind': 'games', 'q': q, 'league': league, 'page': page}
+        title = (events[0].league.name if league and events[0].league_id else q) or 'Upcoming matches'
+        lines = [f'⚽ *{title}* · {page * PAGE_SIZE + 1}–{page * PAGE_SIZE + len(events)} of {total}']
+        day = group = None
+        tz = services.local_tz()
+        for e in events:
+            d = timezone.localtime(e.starts_at, tz).strftime('%a %d %b') if e.starts_at else 'Date to be confirmed'
+            if d != day:
+                lines += ['', f'📅 *{d}*']
+                day, group = d, None
+            lg = e.league.name if e.league_id else ''
+            if lg and lg != group and not league:
+                lines.append(f'🏆 _{lg}_')
+                group = lg
+            lines.append(self._entry(e))
+        lines += ['', f'Send a match ID for all its odds, e.g. *{events[0].id}*.']
+        return [_reply('\n'.join(lines), *self._page_buttons(page, pages, ['LEAGUES', VIEW_SLIP]))]
+
+    def live(self, *, page: int = 0) -> list[dict]:
+        events = self._live_events()
         if not events:
             return [_reply('No matches are trading in play right now.', 'GAMES', 'MENU')]
-        body = '\n'.join(self._line(e) for e in events)
-        return [_reply(f'🔴 In play now:\n{body}\n\nSend a match ID to see its live picks.', 'GAMES', 'SLIP')]
+        pages = -(-len(events) // PAGE_SIZE)
+        page = max(0, min(page, pages - 1))
+        chunk = events[page * PAGE_SIZE:(page + 1) * PAGE_SIZE]
+        self.state['browse'] = {'kind': 'live', 'page': page}
+        lines = [f'🔴 *In play now* · {page * PAGE_SIZE + 1}–{page * PAGE_SIZE + len(chunk)} of {len(events)}', '']
+        group = None
+        for e in chunk:
+            lg = e.league.name if e.league_id else ''
+            if lg and lg != group:
+                lines.append(f'🏆 _{lg}_')
+                group = lg
+            lines.append(self._entry(e, live=True))
+        lines += ['', 'Send a match ID for its live odds.']
+        return [_reply('\n'.join(lines), *self._page_buttons(page, pages, ['GAMES', VIEW_SLIP]))]
 
-    def _quick(self, e) -> list[tuple[str, Decimal]]:
-        """(pick code, price) for every quick pick open on the match."""
+    def turn_page(self, step: int) -> list[dict]:
+        b = self.state.get('browse') or {}
+        page = int(b.get('page') or 0) + step
+        if b.get('kind') == 'live':
+            return self.live(page=page)
+        if b.get('kind') == 'games':
+            return self.games(b.get('q') or '', page=page, league=b.get('league'))
+        if b.get('kind') == 'leagues':
+            return self.leagues(page)
+        if b.get('kind') == 'market':
+            return self.market(b['match'], b['market'], page)
+        return self.games('', page=max(page, 0))
+
+    def leagues(self, page: int = 0) -> list[dict]:
+        from django.db.models import Count
+        rows = list(self._upcoming().order_by().values('league_id', 'league__name', 'league__top_events', 'league__sort_order')
+                    .annotate(n=Count('id', distinct=True)).filter(league_id__isnull=False)
+                    .order_by('-league__top_events', 'league__sort_order', 'league__name'))
+        if not rows:
+            return [_reply('No upcoming matches right now.', 'LIVE', 'MENU')]
+        per = LIST_SIZE - 1
+        pages = -(-len(rows) // per)
+        page = max(0, min(page, pages - 1))
+        chunk = rows[page * per:(page + 1) * per]
+        self.state['browse'] = {'kind': 'leagues', 'page': page}
+        options = [[f'LEAGUE {r["league_id"]}', r['league__name'], f'{r["n"]} match{"" if r["n"] == 1 else "es"}'] for r in chunk]
+        if page + 1 < pages:
+            options.append([f'LEAGUES {page + 2}', 'More leagues ▶', f'Page {page + 2} of {pages}'])
+        total = sum(r['n'] for r in rows)
+        return [{'text': f'🏆 *Leagues* · {len(rows)} with {total} upcoming matches\n\nTap a league to see its matches.',
+                 'list': {'button': 'Choose a league', 'title': f'Leagues {page + 1}/{pages}', 'rows': options}}]
+
+    # -- one match: quick picks, then every market by group ---------------------------
+
+    def _event(self, event_id: int):
+        from apps.sportsbook.models import Event
+        return Event.objects.select_related('league', 'home_team', 'away_team').filter(pk=event_id).first()
+
+    def _playable(self, e) -> list[tuple]:
+        """[(market, [outcomes])] that can be backed right now, in the website's
+        order (by group, then the market's own order)."""
         from apps.sportsbook import services as sb
         from apps.sportsbook.models import Market
-        out: list[tuple[str, Decimal]] = []
-        if sb.trading_state(e)['main_open']:
-            blocked = set(sb.trading_state(e).get('main_blocked') or [])
-            for code, sel, price in (('1', 'home', e.odds), ('X', 'draw', e.odds_draw), ('2', 'away', e.odds_away)):
-                if price is not None and price > 1 and sel not in blocked:
-                    out.append((code, price))
-        markets = (Market.objects.filter(event=e, period='ft', metric='goals', is_open=True, settled=False,
-                                         kind__in=('double_chance', 'btts', 'over_under'))
-                   .prefetch_related('outcomes').order_by('kind', 'line'))
-        for m in markets:
-            for o in m.outcomes.all():
-                if not o.is_open or o.odds <= 1 or o.result != 'pending':
-                    continue
+        in_play = sb._started(e)
+        event_ok = sb.in_play_bettable(e, now=self.now) if in_play else e.is_open
+        if not event_ok:
+            return []
+        rank = {g: i for i, g in enumerate(Market.Group.values)}
+        out = []
+        for m in Market.objects.filter(event=e, is_open=True, settled=False).prefetch_related('outcomes'):
+            outs = [o for o in m.outcomes.all()
+                    if sb.outcome_unavailable(e, m, o, in_play=in_play, event_ok=event_ok) is None]
+            if outs:
+                out.append((m, outs))
+        out.sort(key=lambda mo: (rank.get(mo[0].group, len(rank)), mo[0].sort_order,
+                                 mo[0].line if mo[0].line is not None else Decimal('0'), mo[0].id))
+        return out
+
+    def _quick(self, e, playable=None) -> list[tuple[str, Decimal]]:
+        """(pick code, price) for every typeable shortcut open on the match."""
+        out = list(self._main(e))
+        for m, outs in (self._playable(e) if playable is None else playable):
+            if m.period != 'ft' or m.metric != 'goals':
+                continue
+            for o in outs:
                 code = self._code_for(m, o)
                 if code:
                     out.append((code, o.odds))
@@ -311,27 +456,151 @@ class Conversation:
             return f'{o.key[0].upper()}{format(m.line.normalize(), "f")}'
         return ''
 
-    def match(self, event_id: int) -> list[dict]:
+    def _head(self, e) -> str:
+        home, away = _teams(e)
+        league = f'🏆 {e.league.name}\n' if e.league_id else ''
+        return f'*#{e.id} {home} v {away}*\n{league}{kickoff(e)}'
+
+    def _closed(self, e, event_id: int) -> Optional[list[dict]]:
         from apps.sportsbook import services as sb
-        from apps.sportsbook.models import Event
-        e = Event.objects.filter(pk=event_id).first()
         if e is None:
             return [_reply(f'There is no match #{event_id}. Send GAMES for the list.', 'GAMES')]
         if not sb.trading_state(e)['bettable']:
             return [_reply(f'#{e.id} {e.name} is not taking bets right now.', 'GAMES', 'LIVE')]
-        picks = self._quick(e)
-        if not picks:
-            return [_reply(f'#{e.id} {e.name}: no picks are open right now. Try again shortly.', 'GAMES')]
-        rank = {c: i for i, c in enumerate(PICK_ORDER)}
-        picks.sort(key=lambda p: rank.get(p[0], len(PICK_ORDER)))
-        rows, lines = [], []
-        for code, price in picks:
-            market, pick = describe(e, code)
-            lines.append(f'{code} · {market}: {pick} @ {_odds(price)}')
-            rows.append([f'{e.id} {code}', f'{code} @ {_odds(price)}', f'{market}: {pick}'])
-        return [{'text': f'{self._line(e)}\n\n' + '\n'.join(lines)
-                         + f'\n\nTap “Choose a pick”, or type {e.id} and a pick, e.g. {e.id} {picks[0][0]}.',
-                 'list': {'button': 'Choose a pick', 'title': f'#{e.id}', 'rows': rows[:10]}}]
+        return None
+
+    def _groups(self, playable) -> list[tuple[str, str, int]]:
+        """[(group key, label, playable markets)] in display order."""
+        from apps.sportsbook.models import Market
+        labels = dict(Market.Group.choices)
+        counts: dict[str, int] = {}
+        for m, _ in playable:
+            counts[m.group] = counts.get(m.group, 0) + 1
+        return [(g, labels.get(g, g.title()), n) for g, n in counts.items()]
+
+    def match(self, event_id: int) -> list[dict]:
+        e = self._event(event_id)
+        if (r := self._closed(e, event_id)):
+            return r
+        playable = self._playable(e)
+        main = self._main(e)
+        if not main and not playable:
+            return [_reply(f'#{e.id} {e.name}: no odds are open right now. Try again shortly.', 'GAMES')]
+        home, away = _teams(e)
+        lines = [self._head(e)]
+        if main:
+            lines += ['', '*Match result*'] + [f'{c} · {describe(e, c)[1]} — *{_odds(p)}*' for c, p in main]
+        quick = [(c, p) for c, p in self._quick(e, playable) if c not in ('1', 'X', '2')]
+        sections = (('Double chance', ('1X', '12', 'X2')), ('Both teams to score', ('GG', 'NG')))
+        have = dict(quick)
+        for title, codes in sections:
+            got = [(c, have[c]) for c in codes if c in have]
+            if got:
+                lines += ['', f'*{title}*'] + [f'{c} · {describe(e, c)[1]} — *{_odds(p)}*' for c, p in got]
+        totals = sorted({c[1:] for c, _ in quick if c[0] in 'OU'}, key=Decimal)
+        if totals:
+            lines += ['', '*Total goals*']
+            for line in totals:
+                o, u = have.get(f'O{line}'), have.get(f'U{line}')
+                lines.append(' · '.join(x for x in (o and f'O{line} *{_odds(o)}*', u and f'U{line} *{_odds(u)}*') if x))
+        groups = self._groups(playable)
+        n_markets = len(playable)
+        lines += ['', f'📊 *{n_markets} market{"" if n_markets == 1 else "s"}* open: tap “All odds” for every price.' if n_markets else '',
+                  f'Type a pick to add it, e.g. *{e.id} {(main or quick or [("1", 0)])[0][0]}*.']
+        rows = [[f'{e.id} {c}', f'{c} · {_odds(p)}', f'Match result: {describe(e, c)[1]}'] for c, p in main]
+        group_rows = [[f'{e.id} G {g}', label, f'{n} market{"" if n == 1 else "s"}'] for g, label, n in groups]
+        room = LIST_SIZE - len(rows)
+        if len(group_rows) > room:
+            group_rows = group_rows[:room - 1] + [[f'{e.id} M', 'More markets ▶', f'{len(groups)} groups in all']]
+        return [{'text': '\n'.join(x for x in lines if x is not None).replace('\n\n\n', '\n\n'),
+                 'prompt': f'#{e.id} {home} v {away}: tap “All odds” 👇',
+                 'list': {'button': 'All odds', 'sections': [
+                     {'title': 'Match result', 'rows': rows},
+                     {'title': 'Markets', 'rows': group_rows}]}}]
+
+    def all_markets(self, event_id: int, page: int = 0) -> list[dict]:
+        e = self._event(event_id)
+        if (r := self._closed(e, event_id)):
+            return r
+        groups = self._groups(self._playable(e))
+        if not groups:
+            return [_reply(f'#{e.id}: no markets are open right now.', f'{e.id}', 'GAMES')]
+        per = LIST_SIZE - 1
+        pages = -(-len(groups) // per)
+        page = max(0, min(page, pages - 1))
+        rows = [[f'{e.id} G {g}', label, f'{n} market{"" if n == 1 else "s"}'] for g, label, n in groups[page * per:(page + 1) * per]]
+        if page + 1 < pages:
+            rows.append([f'{e.id} M {page + 2}', 'More ▶', f'Page {page + 2} of {pages}'])
+        return [{'text': f'{self._head(e)}\n\nChoose a group of markets.',
+                 'list': {'button': 'Choose', 'title': 'Market groups', 'rows': rows}}]
+
+    @staticmethod
+    def _outcome_line(o) -> str:
+        return f'{o.label} *{_odds(o.odds)}*'
+
+    def group(self, event_id: int, group: str, page: int = 0) -> list[dict]:
+        from apps.sportsbook.models import Market
+        e = self._event(event_id)
+        if (r := self._closed(e, event_id)):
+            return r
+        markets = [(m, outs) for m, outs in self._playable(e) if m.group == group]
+        label = dict(Market.Group.choices).get(group, group.title())
+        if not markets:
+            return [_reply(f'#{e.id}: no {label.lower()} markets are open right now.', f'{e.id}', 'GAMES')]
+        if len(markets) == 1:
+            return self.market(e.id, markets[0][0].id)
+        lines = [self._head(e), '', f'📊 *{label}*']
+        for m, outs in markets:
+            lines += ['', f'*{m.name}*', ' · '.join(self._outcome_line(o) for o in outs)]
+        n_out = sum(len(outs) for _, outs in markets)
+        per = LIST_SIZE - 1
+        if n_out <= LIST_SIZE:
+            rows = [[f'PICK {o.id}', f'{_odds(o.odds)} · {o.label}', m.name] for m, outs in markets for o in outs]
+        else:
+            pages = -(-len(markets) // per)
+            page = max(0, min(page, pages - 1))
+            rows = [[f'{e.id} K {m.id}', m.name, f'{len(outs)} options'] for m, outs in markets[page * per:(page + 1) * per]]
+            if page + 1 < pages:
+                rows.append([f'{e.id} G {group} {page + 2}', 'More ▶', f'Page {page + 2} of {pages}'])
+        return [{'text': '\n'.join(lines), 'prompt': f'#{e.id} · {label}: tap to choose 👇',
+                 'list': {'button': 'Choose', 'title': label, 'rows': rows}}]
+
+    def market(self, event_id: int, market_id: int, page: int = 0) -> list[dict]:
+        e = self._event(event_id)
+        if (r := self._closed(e, event_id)):
+            return r
+        found = next(((m, outs) for m, outs in self._playable(e) if m.id == market_id), None)
+        if found is None:
+            return [_reply(f'That market on #{e.id} is not open right now.', f'{e.id}', 'GAMES')]
+        m, outs = found
+        per = LIST_SIZE - 1
+        pages = -(-len(outs) // per) if len(outs) > LIST_SIZE else 1
+        page = max(0, min(page, pages - 1))
+        self.state['browse'] = {'kind': 'market', 'match': e.id, 'market': m.id, 'page': page}
+        lines = [self._head(e), '', f'📊 *{m.name}*'] + [f'• {self._outcome_line(o)}' for o in outs]
+        chunk = outs if pages == 1 else outs[page * per:(page + 1) * per]
+        rows = [[f'PICK {o.id}', f'{_odds(o.odds)} · {o.label}', m.name] for o in chunk]
+        if page + 1 < pages:
+            rows.append([f'{e.id} K {m.id} {page + 2}', 'More ▶', f'Page {page + 2} of {pages}'])
+        return [{'text': '\n'.join(lines), 'prompt': f'#{e.id} · {m.name}: tap to choose 👇',
+                 'list': {'button': 'Choose', 'title': m.name, 'rows': rows}}]
+
+    def pick_outcome(self, outcome_id: int) -> list[dict]:
+        """Add any market's outcome (what a tap on an odds list sends)."""
+        from apps.sportsbook import services as sb
+        from apps.sportsbook.models import MarketOutcome
+        o = MarketOutcome.objects.select_related('market__event').filter(pk=outcome_id).first()
+        if o is None:
+            return [_reply('That selection no longer exists. Send GAMES for the list.', 'GAMES')]
+        m, e = o.market, o.market.event
+        reason = sb.outcome_unavailable(e, m, o)
+        if reason:
+            return [_reply(f'⚠️ {reason}', f'{e.id}', VIEW_SLIP)]
+        code = self._code_for(m, o) if (m.period == 'ft' and m.metric == 'goals') else ''
+        leg = {'match': e.id, 'pick': code or f'#{o.id}', 'event_id': None, 'selection': None, 'outcome_id': o.id,
+               'event': e.name, 'market': m.name, 'pick_text': o.label, 'kickoff': kickoff(e),
+               'label': f'{e.name} – {m.name}: {o.label}', 'odds': str(o.odds)}
+        return self._add_legs([leg], [])
 
     # -- the slip ---------------------------------------------------------------------
     def _resolve(self, e, code: str) -> dict:
@@ -360,8 +629,8 @@ class Conversation:
         if line is not None:
             qs = qs.filter(line=line)
         for m in qs:
-            o = m.outcomes.filter(key=key, is_open=True, result='pending', odds__gt=1).first()
-            if o is not None:
+            o = m.outcomes.filter(key=key).first()
+            if o is not None and sb.outcome_unavailable(e, m, o) is None:
                 return self._leg(e, code, o.odds, outcome_id=o.id)
         raise services.ChatError(f'#{e.id} {code} is not available right now.')
 
@@ -388,19 +657,25 @@ class Conversation:
                 return [_reply(f'“{w}” is not a pick. Use 1 X 2 1X 12 X2 GG NG O2.5 U2.5, e.g. 1234 1.')]
         if current is not None:
             return self.match(current)
-        added, problems = [], []
-        legs = self.state['legs']
+        found, problems = [], []
         for event_id, code in pairs:
             e = Event.objects.filter(pk=event_id).first()
             if e is None:
                 problems.append(f'#{event_id} does not exist')
                 continue
             try:
-                leg = self._resolve(e, code)
+                found.append(self._resolve(e, code))
             except services.ChatError as exc:
                 problems.append(str(exc))
-                continue
-            legs[:] = [x for x in legs if not (x['match'] == leg['match'] and x['pick'] == leg['pick'])]
+        return self._add_legs(found, problems)
+
+    def _add_legs(self, found: list[dict], problems: list[str]) -> list[dict]:
+        """Put legs on the slip (replacing the same pick) and confirm each one."""
+        added = []
+        legs = self.state['legs']
+        for leg in found:
+            legs[:] = [x for x in legs if not ((x['match'] == leg['match'] and x['pick'] == leg['pick'])
+                                               or (leg['outcome_id'] and x.get('outcome_id') == leg['outcome_id']))]
             if len(legs) >= MAX_LEGS:
                 problems.append(f'a slip holds at most {MAX_LEGS} picks')
                 break
@@ -409,13 +684,14 @@ class Conversation:
         self.state.pop('pending', None)
         out = []
         for leg in added:
-            out.append(f'✅ Selection confirmed\n#{leg["match"]} {leg["event"]}\n{leg["kickoff"]}'
-                       f'\n{leg["market"]}: {leg["pick_text"]} ({leg["pick"]})\nOdds {_odds(leg["odds"])}')
+            code = '' if leg['pick'].startswith('#') else f' ({leg["pick"]})'
+            out.append(f'✅ *Selection added*\n#{leg["match"]} {leg["event"]}\n{leg["kickoff"]}'
+                       f'\n{leg["market"]}: *{leg["pick_text"]}*{code}\nOdds *{_odds(leg["odds"])}*')
         if problems:
             out.append('⚠️ ' + '; '.join(problems))
         if legs:
             n = len(legs)
-            out.append(f'🧾 Your ticket: {n} selection{"" if n == 1 else "s"} · total odds {_odds(self._total())}')
+            out.append(f'🧾 Your ticket: {n} selection{"" if n == 1 else "s"} · total odds *{_odds(self._total())}*')
         return [_reply('\n\n'.join(out), ADD_MORE, VIEW_SLIP, PLACE_BET if legs else None)]
 
     def _total(self) -> Decimal:

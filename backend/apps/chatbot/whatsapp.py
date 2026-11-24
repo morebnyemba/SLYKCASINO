@@ -24,6 +24,7 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 MAX_TEXT = 4000          # WhatsApp allows 4096 characters
+MAX_INTERACTIVE_TEXT = 1024   # the body of a button or list message
 MAX_BUTTONS = 3
 MAX_BUTTON_TITLE = 20
 
@@ -98,6 +99,44 @@ def _button(b) -> tuple[str, str]:
     return str(b), str(b)
 
 
+def _chunks(text: str, size: int) -> list[str]:
+    """Split on line breaks into pieces of at most `size` characters."""
+    out, cur = [], ''
+    for line in text.split('\n'):
+        while len(line) > size:                      # a single over-long line
+            if cur:
+                out.append(cur)
+                cur = ''
+            out.append(line[:size])
+            line = line[size:]
+        if cur and len(cur) + 1 + len(line) > size:
+            out.append(cur)
+            cur = line
+        else:
+            cur = f'{cur}\n{line}' if cur else line
+    if cur:
+        out.append(cur)
+    return out or ['']
+
+
+def fit(replies: list[dict]) -> list[dict]:
+    """Make replies fit WhatsApp's limits without losing a word: a button or
+    list message's text is capped at 1024 characters, so longer text goes first
+    as plain messages (4096 each) and the taps follow with a short prompt."""
+    out = []
+    for reply in replies:
+        text = reply.get('text') or ''
+        interactive = bool(reply.get('buttons') or reply.get('list'))
+        limit = MAX_INTERACTIVE_TEXT if interactive else MAX_TEXT
+        if len(text) <= limit:
+            out.append(reply)
+            continue
+        out.extend({'text': part} for part in _chunks(text, MAX_TEXT))
+        if interactive:
+            out.append({**reply, 'text': reply.get('prompt') or 'Tap below 👇'})
+    return out
+
+
 def payload_for(to: str, reply: dict) -> dict:
     """The Graph API body for one reply:
     {'text': str, 'buttons': [cmd | [cmd, label], ...]}  → up to three reply buttons, or
@@ -106,20 +145,26 @@ def payload_for(to: str, reply: dict) -> dict:
     text = reply['text'][:MAX_TEXT]
     base = {'messaging_product': 'whatsapp', 'recipient_type': 'individual', 'to': to}
     pick_list = reply.get('list')
-    if pick_list and pick_list.get('rows'):
-        rows = [{'id': str(r[0])[:200], 'title': str(r[1])[:MAX_ROW_TITLE],
-                 **({'description': str(r[2])[:MAX_ROW_DESCRIPTION]} if len(r) > 2 and r[2] else {})}
-                for r in pick_list['rows'][:MAX_LIST_ROWS]]
+    if pick_list and (pick_list.get('rows') or pick_list.get('sections')):
+        def row(r):
+            return {'id': str(r[0])[:200], 'title': str(r[1])[:MAX_ROW_TITLE],
+                    **({'description': str(r[2])[:MAX_ROW_DESCRIPTION]} if len(r) > 2 and r[2] else {})}
+        groups = pick_list.get('sections') or [{'title': pick_list.get('title') or 'Picks', 'rows': pick_list['rows']}]
+        sections, left = [], MAX_LIST_ROWS            # WhatsApp: ten rows in total, across all sections
+        for g in groups:
+            rows = [row(r) for r in g['rows'][:left]]
+            if rows:
+                sections.append({'title': str(g.get('title') or 'Picks')[:MAX_ROW_TITLE], 'rows': rows})
+                left -= len(rows)
         return {**base, 'type': 'interactive', 'interactive': {
-            'type': 'list', 'body': {'text': text[:1024]},
-            'action': {'button': str(pick_list.get('button') or 'Choose')[:MAX_BUTTON_TITLE],
-                       'sections': [{'title': str(pick_list.get('title') or 'Picks')[:MAX_ROW_TITLE], 'rows': rows}]},
+            'type': 'list', 'body': {'text': text[:MAX_INTERACTIVE_TEXT]},
+            'action': {'button': str(pick_list.get('button') or 'Choose')[:MAX_BUTTON_TITLE], 'sections': sections},
         }}
     buttons = [_button(b) for b in reply.get('buttons') or [] if b][:MAX_BUTTONS]
     if not buttons:
         return {**base, 'type': 'text', 'text': {'body': text, 'preview_url': False}}
     return {**base, 'type': 'interactive', 'interactive': {
-        'type': 'button', 'body': {'text': text[:1024]},
+        'type': 'button', 'body': {'text': text[:MAX_INTERACTIVE_TEXT]},
         'action': {'buttons': [{'type': 'reply', 'reply': {'id': cmd[:256], 'title': label[:MAX_BUTTON_TITLE]}}
                                for cmd, label in buttons]},
     }}

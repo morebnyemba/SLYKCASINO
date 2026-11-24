@@ -189,6 +189,8 @@ def deliver(address: str, replies: list[dict], *, channel: str = WHATSAPP) -> No
     isn't running is lost without a trace, and a chat must always answer)."""
     if not replies:
         return
+    from .whatsapp import fit
+    replies = fit(replies)
     rows = [record(address, r, channel=channel) for r in replies]
 
     def run():
@@ -203,8 +205,9 @@ def deliver(address: str, replies: list[dict], *, channel: str = WHATSAPP) -> No
 
 def send_now(channel: str, address: str, replies: list[dict], *, source: str = 'bot', by: str = '') -> int:
     """Log and send replies now (for jobs that run later, and staff messages)."""
+    from .whatsapp import fit
     sent = 0
-    for reply in replies:
+    for reply in fit(replies):
         row = record(address, reply, channel=channel, source=source, by=by)
         if transmit(row, reply):
             sent += 1
