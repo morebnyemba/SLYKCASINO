@@ -55,6 +55,7 @@ export const NAV: NavSection[] = [
   { title: 'Marketing', items: [
     { href: '/promotions', label: 'Promotions', icon: BsGift },
     { href: '/promo-codes', label: 'Promo codes', icon: BsTicket },
+    { href: '/bulk-bonus', label: 'Bulk bonus', icon: BsPeople },
     { href: '/banners', label: 'Banners', icon: BsImages },
     { href: '/whatsapp-bot', label: 'WhatsApp bot', icon: BsWhatsapp },
   ] },
