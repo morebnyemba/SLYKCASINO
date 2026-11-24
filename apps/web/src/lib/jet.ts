@@ -57,6 +57,7 @@ export interface JetBet {
 }
 
 export interface FreeBet { id: number; amount: string; expires_at: string }
+export interface FreeSpinOffer { grant: number | null; count: number; amount: string; expires_at: string; message: string }
 
 /** Aviator bonus bets: the fixed stake, the profit waiting to be claimed, and
  *  how much of it may go to Winnings right now (the rest can go to Deposit). */
@@ -75,6 +76,8 @@ interface JetState {
   /** The player's three balances (deposit / bonus / winnings). */
   wallets?: Record<WalletId, string> | null;
   free_bets?: FreeBet[];
+  /** Free spins staff gave, waiting to be claimed (one row per grant). */
+  free_spin_offers?: FreeSpinOffer[];
   bonus_aviator?: BonusAviator | null;
 }
 

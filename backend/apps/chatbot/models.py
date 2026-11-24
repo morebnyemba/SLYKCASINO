@@ -33,6 +33,13 @@ class ChatbotSettings(models.Model):
     # logged out after this many minutes without a message.
     require_login = models.BooleanField(default=True)
     session_minutes = models.PositiveSmallIntegerField(default=5)
+    # The AI assistant (ai.py): answers questions the menu can't, with Google Gemini.
+    ai_enabled = models.BooleanField(default=False)
+    ai_model = models.CharField(max_length=60, blank=True, default='')
+    gemini_key_enc = models.TextField(blank=True, default='')
+    # Extra facts staff want it to know, on top of the live rules it reads itself.
+    ai_knowledge = models.TextField(blank=True, default='')
+    ai_daily_limit = models.PositiveSmallIntegerField(default=30)
     withdraw_daily_cap = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('100.00'))
     withdraw_cooldown_hours = models.PositiveSmallIntegerField(default=48)
 
@@ -154,6 +161,7 @@ class OutboundMessage(models.Model):
         BOT = 'bot', 'Bot'
         STAFF = 'staff', 'Staff'
         TEST = 'test', 'Test'
+        AI = 'ai', 'AI assistant'
 
     channel = models.CharField(max_length=16, choices=CHANNELS, default=WHATSAPP)
     address = models.CharField(max_length=32, db_index=True)
@@ -176,3 +184,21 @@ class OutboundMessage(models.Model):
         db_table = 'chatbot_outbound'
         ordering = ['-created_at']
 
+
+
+class SupportRequest(models.Model):
+    """A conversation that needs a person: the AI handed it over (money missing,
+    account changes, unsure) or the player asked for one. Shown in the inbox
+    until a staff member replies or resolves it."""
+    channel = models.CharField(max_length=16, choices=CHANNELS, default=WHATSAPP)
+    address = models.CharField(max_length=32, db_index=True)
+    player_id = models.IntegerField(null=True, blank=True)
+    reason = models.CharField(max_length=300, blank=True, default='')
+    question = models.TextField(blank=True, default='')
+    source = models.CharField(max_length=8, default='ai')            # ai | player
+    created_at = models.DateTimeField(auto_now_add=True)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    resolved_by = models.CharField(max_length=150, blank=True, default='')
+
+    class Meta:
+        ordering = ['-created_at']

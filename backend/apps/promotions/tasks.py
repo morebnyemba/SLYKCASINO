@@ -16,3 +16,10 @@ def run_bulk_grant(grant_id: int) -> str:
     """Work through a bulk bonus grant (promotions.bulk). Safe to run twice."""
     from . import bulk
     return bulk.run(grant_id).status
+
+
+@shared_task(name='apps.promotions.tasks.pay_cashback')
+def pay_cashback() -> list:
+    """Hourly: pay any finished cashback period (idempotent; normally does nothing)."""
+    from . import cashback
+    return [{**r, 'total': str(r['total'])} for r in cashback.run()]

@@ -13,6 +13,8 @@ export interface SiteIdentity {
   support_email: string;
   governing_law: string;
   dispute_body: string;
+  /** The loading circle between pages shows for at least this many seconds. */
+  page_loader_seconds?: string | number;
 }
 
 export const DEFAULT_IDENTITY: SiteIdentity = {

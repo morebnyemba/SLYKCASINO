@@ -67,7 +67,7 @@ class PromotionViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         # Deposit-bonus tiers keep their claims on a hidden promotion each; they
         # are managed as tiers (admin/deposit-bonuses), so never listed here.
-        qs = services.list_promotions().exclude(code__startswith='deposit-bonus:')
+        qs = services.list_promotions().exclude(code__startswith='deposit-bonus:').filter(deleted_at__isnull=True)
         # System promotions (e.g. the referral welcome bonus) are granted
         # automatically, never listed for players to claim.
         if not (self.request.user and self.request.user.is_staff):
@@ -80,6 +80,22 @@ class PromotionViewSet(viewsets.ModelViewSet):
         if self.action == 'claim':
             return [IsAuthenticated()]
         return [AllowAny()]
+
+    def destroy(self, request, *args, **kwargs):
+        """Delete a promotion. One players have already claimed can't be erased (their
+        claims hold the bonus and wagering history), so it is removed instead: switched
+        off, hidden from staff and players, never claimable again; the claims continue."""
+        promo = self.get_object()
+        if promo.claims.exists():
+            promo.active = False
+            promo.deleted_at = timezone.now()
+            promo.save(update_fields=['active', 'deleted_at'])
+            outcome = 'removed'
+        else:
+            promo.delete()
+            outcome = 'deleted'
+        accounts_services.audit(None, 'promotion_deleted', request, promotion=kwargs.get('pk'), outcome=outcome)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated], url_path='claim')
     def claim(self, request, pk=None):

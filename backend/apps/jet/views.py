@@ -13,7 +13,7 @@ from rest_framework.views import APIView
 from apps.accounts import services as accounts_services
 from apps.wallet.services import InsufficientFunds, get_balance_dto
 
-from . import bot_chat, bots, engine, services, social
+from . import free_spins, bot_chat, bots, engine, services, social
 from .models import JetBet, JetChatMessage, JetRound, JetSettings
 
 
@@ -60,6 +60,7 @@ class StateView(APIView):
             'balance': _balance(player.id) if player else None,
             'wallets': _wallets(player.id) if player else None,
             'free_bets': social.free_bets_for(player.id) if player else [],
+            'free_spin_offers': free_spins.offers_for(player.id) if player else [],
             'bonus_aviator': _bonus_aviator(player.id) if player else None,
         })
 
@@ -534,3 +535,47 @@ class AdminEdgeRuleView(APIView):
 def _audit(rule) -> dict:
     return {'rule': rule.id, 'name': rule.name, 'days': rule.days, 'starts': rule.starts.strftime('%H:%M'),
             'ends': rule.ends.strftime('%H:%M'), 'house_edge': str(rule.house_edge_percent), 'enabled': rule.enabled}
+
+
+class FreeSpinsView(APIView):
+    """GET /api/jet/free-spins/ — the player's unclaimed spins (by grant) and claimed ones.
+    POST {grant?} — claim them (all, or one grant's)."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        player = accounts_services.get_current_player(request)
+        if player is None:
+            return Response({'offers': [], 'free_bets': []})
+        return Response({'offers': free_spins.offers_for(player.id), 'free_bets': social.free_bets_for(player.id)})
+
+    def post(self, request):
+        player = accounts_services.get_current_player(request)
+        if player is None:
+            return Response({'detail': 'Log in first.'}, status=status.HTTP_403_FORBIDDEN)
+        n = free_spins.claim(player.id, request.data.get('grant'))
+        if n:
+            accounts_services.audit(player.id, 'free_spins_claimed', request, spins=n)
+        return Response({'claimed': n, 'offers': free_spins.offers_for(player.id), 'free_bets': social.free_bets_for(player.id)})
+
+
+class AdminFreeSpinsView(APIView):
+    """GET /api/admin/jet/free-spins/ — grants with their take-up. POST — give spins
+    {audience: all|depositors|usernames, usernames, amount, count, days, message}. Superusers only."""
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        from .models import JetFreeSpinGrant
+        return Response({'results': [free_spins.payload(g) for g in JetFreeSpinGrant.objects.all()[:30]],
+                         'can_grant': bool(request.user.is_superuser)})
+
+    def post(self, request):
+        if not request.user.is_superuser:
+            return Response({'detail': 'Only a superuser can give free spins.'}, status=status.HTTP_403_FORBIDDEN)
+        d = request.data
+        try:
+            g, missing = free_spins.grant(audience=str(d.get('audience') or 'all'), usernames=str(d.get('usernames') or ''),
+                                          amount=d.get('amount'), count=d.get('count', 1), days=d.get('days', 7),
+                                          message=str(d.get('message') or ''), by=request.user.get_username())
+        except free_spins.FreeSpinError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({**free_spins.payload(g), 'not_found': missing}, status=status.HTTP_201_CREATED)

@@ -286,15 +286,27 @@ def deliver(address: str, replies: list[dict], *, channel: str = WHATSAPP) -> No
     if not replies:
         return
     from .whatsapp import fit
-    replies = fit(replies)
+    # A free-text question for the AI assistant is answered on the same background
+    # thread, after the other replies, so the webhook never waits on Gemini.
+    questions = [r for r in replies if 'ai_question' in r]
+    replies = fit([r for r in replies if 'ai_question' not in r])
     rows = [record(address, r, channel=channel) for r in replies]
 
     def run():
         try:
             for row, reply in zip(rows, replies):
                 transmit(row, reply)
+            for q in questions:
+                from . import ai
+                for reply in fit(ai.answer(address=address, question=q['ai_question'], channel=channel,
+                                           player_id=q.get('player_id'))):
+                    transmit(record(address, reply, channel=channel, source='ai'), reply)
         except Exception:  # noqa: BLE001
             logger.exception('chat delivery to …%s crashed', address[-4:])
+        finally:
+            if threading.current_thread() is not threading.main_thread():
+                from django.db import connection
+                connection.close()
 
     transaction.on_commit(lambda: threading.Thread(target=run, daemon=True).start())
 

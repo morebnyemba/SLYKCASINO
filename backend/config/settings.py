@@ -337,6 +337,11 @@ CELERY_TASK_TIME_LIMIT = 300
 # Periodic reconciliation. Each manager is idempotent, so cadence is a safety
 # knob, not a correctness one — running more often just narrows drift windows.
 CELERY_BEAT_SCHEDULE = {
+    'promotions-cashback': {
+        # Cashback on losses: pays each finished period once (promotions.cashback).
+        'task': 'apps.promotions.tasks.pay_cashback',
+        'schedule': 60 * 60,
+    },
     'risk-sweep': {
         # Hourly fraud patterns no single event shows (big winnings, linked
         # accounts backing the same selections).
@@ -590,6 +595,9 @@ WHATSAPP_APP_ID = os.environ.get('WHATSAPP_APP_ID', '')
 WHATSAPP_APP_SECRET = os.environ.get('WHATSAPP_APP_SECRET', '')
 WHATSAPP_VERIFY_TOKEN = os.environ.get('WHATSAPP_VERIFY_TOKEN', '')
 WHATSAPP_GRAPH_VERSION = os.environ.get('WHATSAPP_GRAPH_VERSION', '')  # default v21.0 (apps.chatbot.config)
+# The WhatsApp AI assistant (apps.chatbot.ai). Also settable in Admin → WhatsApp bot.
+GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
+GEMINI_MODEL = os.environ.get('GEMINI_MODEL', '')  # default gemini-2.5-flash
 # The bot's number as players should save it (shown on the website), e.g. +263 77 123 4567.
 WHATSAPP_DISPLAY_NUMBER = os.environ.get('WHATSAPP_DISPLAY_NUMBER', '')
 # Kick-off times in chat are written in the players' local time (the server runs on UTC).

@@ -19,6 +19,9 @@ class Promotion(models.Model):
     ends_at = models.DateTimeField(null=True, blank=True)
     code = models.CharField(max_length=100, blank=True)
     terms_html = models.TextField(blank=True)
+    # Deleted by staff after players claimed it: hidden everywhere and never claimable,
+    # but kept so those claims (bonus and wagering history) stay intact.
+    deleted_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = 'promotions_promotion'

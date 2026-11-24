@@ -8,6 +8,7 @@ import { ServiceWorkerRegistration } from '@/components/service-worker-registrat
 import { fetchSiteThemeCss } from '@/lib/site-theme';
 import { fetchSiteIdentity } from '@/lib/site-identity';
 import { IdentityProvider } from '@/lib/identity-context';
+import { PageLoader } from '@/components/page-loader';
 import { DEFAULT_DESCRIPTION, SITE_URL, jsonLdHtml, siteJsonLd } from '@/lib/seo';
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -86,6 +87,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdHtml(siteJsonLd(identity.site_name, identity.logo_url)) }} />
         <IdentityProvider value={identity}>
           <SiteSplash />
+          <PageLoader />
           <ServiceWorkerRegistration />
           <AgeGate />
           <Providers>

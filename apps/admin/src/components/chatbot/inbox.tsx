@@ -10,13 +10,16 @@ import { AttachPicker, AuthedMedia } from '@/components/chat/attachments';
 
 interface Conversation {
   address: string; player: string | null; incoming: number; outgoing: number; last_at: string; last_text: string;
-  last_direction: 'in' | 'out'; unanswered: boolean; failed: number; can_reply: boolean;
+  last_direction: 'in' | 'out'; unanswered: boolean; failed: number; can_reply: boolean; needs_person?: boolean;
 }
 interface Message {
   id: string; direction: 'in' | 'out'; text: string; at: string; buttons?: string[]; media?: { kind: string; url: string } | null; status?: 'queued' | 'sent' | 'delivered' | 'read' | 'failed';
   status_label?: string; error?: string; error_code?: string; source?: 'bot' | 'staff' | 'test'; sent_by?: string;
 }
-interface Thread { address: string; player: string | null; messages: Message[]; can_reply: boolean; window_ends: string | null }
+interface Thread {
+  address: string; player: string | null; messages: Message[]; can_reply: boolean; window_ends: string | null;
+  needs_person?: { reason: string; question: string; since: string; source: string } | null;
+}
 interface Health {
   configured: boolean; problem: string; incoming_24h: number; outgoing_24h: number; by_status: Record<string, number>;
   failures: { error: string; code: string; count: number; last_at: string }[]; last_incoming_at: string | null; last_outgoing_at: string | null;
@@ -112,6 +115,15 @@ export function Inbox() {
   useEffect(() => { const t = window.setInterval(() => { refetchList(); if (open) refetchThread(); }, 8000); return () => window.clearInterval(t); }, [open, refetchList, refetchThread]);
   useEffect(() => { bottom.current?.scrollIntoView({ block: 'end' }); }, [thread?.messages.length, open]);
 
+  async function resolve() {
+    if (!accessToken || !open) return;
+    setBusy(true);
+    const res = await authedPost(`/admin/chatbot/inbox/${open}/resolve/`, {}, accessToken);
+    setBusy(false);
+    setNotice(res.error ? { tone: 'red', text: res.error } : { tone: 'green', text: 'Marked resolved.' });
+    refetchThread(); refetchList();
+  }
+
   async function send() {
     if (!accessToken || !open) return;
     setBusy(true); setNotice(null);
@@ -152,6 +164,7 @@ export function Inbox() {
                 {c.player && <p className="text-[11px] text-muted-foreground">{pretty(c.address)}</p>}
                 <p className="mt-0.5 truncate text-xs text-muted-foreground">{c.last_direction === 'out' ? '↩ ' : ''}{c.last_text.replace(/\s+/g, ' ')}</p>
                 <div className="mt-1 flex gap-1.5">
+                  {c.needs_person && <Badge tone="red" dot>Needs a person</Badge>}
                   {c.unanswered && <Badge tone="gold">Unanswered</Badge>}
                   {c.failed > 0 && <Badge tone="red">{c.failed} failed</Badge>}
                 </div>
@@ -174,6 +187,21 @@ export function Inbox() {
                 {pretty(thread.address)} · {thread.can_reply ? `you can reply until ${new Date(thread.window_ends!).toLocaleString()}` : 'the 24-hour reply window is closed: they need to message first'}
               </p>
             </div>
+            {thread.needs_person && (
+              <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border/60 bg-destructive/10 px-4 py-3 text-sm">
+                <div className="min-w-0 space-y-0.5">
+                  <p className="font-semibold">
+                    Needs a person: {thread.needs_person.reason}
+                    <span className="ml-2 text-xs font-normal text-muted-foreground">
+                      {thread.needs_person.source === 'ai' ? 'handed over by the AI' : 'asked by the player'} · {new Date(thread.needs_person.since).toLocaleString()}
+                    </span>
+                  </p>
+                  {thread.needs_person.question && <p className="text-xs text-muted-foreground">“{thread.needs_person.question}”</p>}
+                  <p className="text-xs text-muted-foreground">Replying here marks it resolved.</p>
+                </div>
+                <Btn size="sm" busy={busy} onClick={resolve}>Resolve</Btn>
+              </div>
+            )}
             <div className="max-h-[480px] flex-1 space-y-2 overflow-y-auto bg-muted/10 p-4">
               {thread.messages.map((m) => (
                 <div key={m.id} className={cx('flex', m.direction === 'out' ? 'justify-end' : 'justify-start')}>

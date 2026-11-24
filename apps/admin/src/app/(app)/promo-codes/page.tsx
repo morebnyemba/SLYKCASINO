@@ -76,7 +76,7 @@ export default function PromoCodesPage() {
 
   return (
     <div className="space-y-5">
-      <PageHeader icon={BsTicket} eyebrow="Marketing" title="Promo codes"
+      <PageHeader icon={BsTicket} eyebrow="Promotions & bonuses" title="Promo codes"
         description="Codes players enter when depositing. The bonus goes into their Bonus wallet (sportsbook only, staked in full on a 10+ selection multiple) and replaces the automatic deposit bonus for that deposit. The fraud engine refuses a code on accounts sharing a payment number."
         actions={<Btn variant="primary" onClick={() => setEditing({ id: null, draft: EMPTY })}>New promo code</Btn>} />
       {notice && <Notice tone={notice.tone} onClose={() => setNotice(null)}>{notice.text}</Notice>}

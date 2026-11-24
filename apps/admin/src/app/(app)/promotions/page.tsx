@@ -127,18 +127,22 @@ export default function PromotionsPage() {
   }
 
   async function handleDelete(id: number) {
-    if (!accessToken || !confirm('Delete this promotion?')) return;
-    await fetch(`${config.apiUrl}/promotions/${id}/`, {
+    if (!accessToken || !confirm('Delete this promotion? Players who already claimed it keep their bonus.')) return;
+    const res = await fetch(`${config.apiUrl}/promotions/${id}/`, {
       method: 'DELETE',
       headers: { Authorization: `Bearer ${accessToken}` },
-    });
+    }).catch(() => null);
+    if (!res || !res.ok) {
+      const body = res ? ((await res.json().catch(() => ({}))) as { detail?: string }) : {};
+      window.alert(body.detail ?? 'Could not delete the promotion. Check your connection and try again.');
+    }
     refetch();
   }
 
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4 [&>div:first-child]:mb-0">
-        <PageHeader icon={FaGift} eyebrow="Marketing" title="Promotions" description="Deposit bonuses by amount, free bets and codes players can claim." />
+        <PageHeader icon={FaGift} eyebrow="Promotions & bonuses" title="Promotions" description="Deposit bonuses by amount, free bets and codes players can claim." />
         <button
           onClick={() => (showForm ? setShowForm(false) : startCreate())}
           className={`rounded-md px-4 py-2 text-sm font-bold shadow transition-transform hover:scale-[1.02] ${

@@ -34,7 +34,9 @@ def claim_promotion(*, player_id: int, promotion_id: int) -> PromotionClaim:
     if not eligibility.eligible:
         raise ValueError(f'player not eligible: {eligibility.reason or "ineligible"}')
 
-    promo = Promotion.objects.get(pk=promotion_id, active=True)
+    promo = Promotion.objects.filter(pk=promotion_id, active=True, deleted_at__isnull=True).first()
+    if promo is None:
+        raise ValueError('This promotion is no longer available.')
     required = utils.wagering_requirement(promo.bonus_amount, promo.wagering_multiplier)
 
     claim, created = PromotionClaim.objects.get_or_create(

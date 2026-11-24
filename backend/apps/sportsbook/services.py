@@ -804,6 +804,10 @@ def _settle_slip_if_ready(slip_id: int) -> BetSlip:
     Payout credit is idempotency-keyed."""
     slip = BetSlip.objects.select_for_update().get(pk=slip_id)
     if slip.status not in (BetSlip.Status.OPEN, BetSlip.Status.PENDING):
+        if slip.status == BetSlip.Status.LOST:
+            # Lost early on one leg: once the other matches have results, it may have lost by just one.
+            from apps.promotions import refunds
+            refunds.check_slip(slip)
         return slip  # already settled — idempotent
 
     legs = list(slip.legs.all())
@@ -839,6 +843,9 @@ def _settle_slip_if_ready(slip_id: int) -> BetSlip:
 
     slip.settled_at = timezone.now()
     slip.save(update_fields=['status', 'payout', 'bonus', 'settled_at'])
+    if slip.status == BetSlip.Status.LOST:
+        from apps.promotions import refunds
+        refunds.check_slip(slip)
     if slip.wallet == 'bonus' and slip.player_id:
         # Counts towards (or resets) the Bonus wallet's rollover; an all-void
         # ticket only got its stake back and counts as neither.

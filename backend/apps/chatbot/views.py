@@ -205,6 +205,8 @@ class AdminChatbotView(APIView):
             'allow_withdrawals': cfg.allow_withdrawals, 'withdraw_daily_cap': str(cfg.withdraw_daily_cap),
             'withdraw_cooldown_hours': cfg.withdraw_cooldown_hours,
             'require_login': cfg.require_login, 'session_minutes': cfg.session_minutes,
+            'ai_enabled': cfg.ai_enabled, 'ai_knowledge': cfg.ai_knowledge, 'ai_daily_limit': cfg.ai_daily_limit,
+            'ai_ready': bool(config.value('gemini_api_key', cfg)),
             'can_edit_withdrawals': bool(self.request.user.is_superuser),
             'configured': whatsapp.configured(),
             'webhook_path': '/api/chatbot/whatsapp/webhook/',
@@ -266,6 +268,15 @@ class AdminChatbotView(APIView):
                 wanted['withdraw_cooldown_hours'] = hours
             if 'require_login' in request.data:
                 wanted['require_login'] = bool(request.data['require_login'])
+            if 'ai_enabled' in request.data:
+                wanted['ai_enabled'] = bool(request.data['ai_enabled'])
+            if 'ai_knowledge' in request.data:
+                wanted['ai_knowledge'] = str(request.data['ai_knowledge'] or '')[:6000]
+            if 'ai_daily_limit' in request.data:
+                limit = int(request.data['ai_daily_limit'])
+                if not 1 <= limit <= 500:
+                    raise ValueError
+                wanted['ai_daily_limit'] = limit
             if 'session_minutes' in request.data:
                 minutes = int(request.data['session_minutes'])
                 if not 1 <= minutes <= 120:
@@ -273,10 +284,10 @@ class AdminChatbotView(APIView):
                 wanted['session_minutes'] = minutes
         except (InvalidOperation, ValueError, TypeError):
             return Response({'detail': 'Enter a withdrawal limit of 0 or more, a waiting time of 0 to 720 hours, '
-                                       'and a login time of 1 to 120 minutes.'}, status=status.HTTP_400_BAD_REQUEST)
+                                       'a login time of 1 to 120 minutes, and an AI daily limit of 1 to 500.'}, status=status.HTTP_400_BAD_REQUEST)
         changed_w = {k: v for k, v in wanted.items() if getattr(cfg, k) != v}
         if changed_w and not request.user.is_superuser:
-            return Response({'detail': 'Only a superuser can change WhatsApp withdrawals or login.'}, status=status.HTTP_403_FORBIDDEN)
+            return Response({'detail': 'Only a superuser can change WhatsApp withdrawals, login or the AI assistant.'}, status=status.HTTP_403_FORBIDDEN)
         for k, v in changed_w.items():
             setattr(cfg, k, v)
         if changed_w:
@@ -401,6 +412,8 @@ class AdminInboxView(APIView):
         failed = {r['address']: r['n'] for r in OutboundMessage.objects.filter(address__in=addresses, created_at__gte=since,
                                                                             status='failed').values('address').annotate(n=Count('id'))}
         rows = []
+        from .models import SupportRequest
+        waiting = set(SupportRequest.objects.filter(resolved_at__isnull=True).values_list('address', flat=True))
         for a in addresses:
             last_in, last_out = ins.get(a, {}).get('last'), outs.get(a, {}).get('last')
             latest_in = InboundMessage.objects.filter(address=a).order_by('-received_at').first()
@@ -412,8 +425,11 @@ class AdminInboxView(APIView):
                 'last_text': (last.text if last else '')[:120], 'last_direction': 'in' if last is latest_in else 'out',
                 'unanswered': bool(last_in and (not last_out or last_in > last_out + timedelta(seconds=1))),
                 'failed': failed.get(a, 0), 'can_reply': bool(last_in and last_in >= since),
+                'needs_person': a in waiting,
             })
-        return Response({'conversations': rows})
+        # Conversations a person must take (the AI handed over, or the player asked) come first.
+        rows.sort(key=lambda r: not r['needs_person'])
+        return Response({'conversations': rows, 'needs_person': len(waiting)})
 
 
 def _thread(address: str) -> dict:
@@ -426,7 +442,11 @@ def _thread(address: str) -> dict:
                     'source': m.source, 'sent_by': m.sent_by} for m in outs])
     messages.sort(key=lambda m: m['at'])
     last_in = _last_in(address)
+    from .models import SupportRequest
+    req = SupportRequest.objects.filter(address=address, resolved_at__isnull=True).first()
     return {'address': address, 'player': _who([address]).get(address), 'messages': messages[-120:],
+            'needs_person': ({'reason': req.reason, 'question': req.question, 'since': req.created_at.isoformat(),
+                              'source': req.source} if req else None),
             'can_reply': bool(last_in and last_in >= timezone.now() - WINDOW),
             'window_ends': (last_in + WINDOW).isoformat() if last_in else None}
 
@@ -459,9 +479,11 @@ class AdminInboxThreadView(APIView):
             except AttachmentError as exc:
                 return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
             services.send_media(WHATSAPP, address, upload, found, text, by=request.user.get_username())
+            _resolve(address, request.user.get_username())
             accounts_services.audit(None, 'chat_staff_media', request, number=f'…{address[-4:]}', kind=found.kind, size=upload.size)
             return Response(_thread(address), status=status.HTTP_201_CREATED)
         services.send_now(WHATSAPP, address, [{'text': text}], source='staff', by=request.user.get_username())
+        _resolve(address, request.user.get_username())
         accounts_services.audit(None, 'chat_staff_message', request, number=f'…{address[-4:]}', length=len(text))
         return Response(_thread(address), status=status.HTTP_201_CREATED)
 
@@ -528,3 +550,45 @@ class AdminChatbotHealthView(APIView):
             row.save(update_fields=['provider_id', 'status', 'error_code', 'error', 'updated_at'])
         return Response({'ok': row.status != 'failed', 'status': row.status, 'error': row.error, 'error_code': row.error_code,
                          'via': 'text' if in_window else 'template'})
+
+
+def _resolve(address: str, by: str) -> int:
+    from .models import SupportRequest
+    return SupportRequest.objects.filter(address=address, resolved_at__isnull=True).update(
+        resolved_at=timezone.now(), resolved_by=by[:150])
+
+
+class AdminInboxResolveView(APIView):
+    """POST /api/admin/chatbot/inbox/<address>/resolve/ — done: no person needed any more."""
+    permission_classes = [IsAdminUser]
+
+    def post(self, request, address: str):
+        address = ''.join(ch for ch in address if ch.isdigit())
+        _resolve(address, request.user.get_username())
+        return Response(_thread(address))
+
+
+class AdminAiTestView(APIView):
+    """POST /api/admin/chatbot/ai/test/ {question} — ask the assistant as a player would (no history, no account)."""
+    permission_classes = [IsAdminUser]
+
+    def post(self, request):
+        from . import ai
+        question = str(request.data.get('question') or '').strip()
+        if not question:
+            return Response({'detail': 'Type a question.'}, status=status.HTTP_400_BAD_REQUEST)
+        if not config.value('gemini_api_key'):
+            return Response({'detail': 'Add the Gemini API key in the connection settings first.'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            return Response(ai.ask(question[:1000], history=False))
+        except Exception as exc:  # noqa: BLE001
+            return Response({'detail': f'Gemini did not answer: {exc}'[:300]}, status=status.HTTP_502_BAD_GATEWAY)
+
+
+class AdminAiKnowledgeView(APIView):
+    """GET /api/admin/chatbot/ai/knowledge/ — exactly what the assistant is told about the site right now."""
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        from . import ai
+        return Response({'knowledge': ai.knowledge()})

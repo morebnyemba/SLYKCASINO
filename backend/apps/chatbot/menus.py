@@ -484,8 +484,10 @@ class MenuMixin:
 
     # -- help ------------------------------------------------------------------------------------------
     def support(self, words: list[str]) -> list[dict]:
-        from . import engine
+        from . import ai, engine
         if words:
+            ai.handoff(self.address, channel=self.channel, player_id=self.link.player_id if self.link else None,
+                       reason='Player asked for a person', question=' '.join(words), source='player')
             return [engine._reply('💬 Thanks, your message is with our team. A person will reply here, '
                                   'usually within a few minutes in working hours.', 'MENU')]
         return [engine._reply('💬 *Talk to us*\n\nWrite *SUPPORT* followed by your question, e.g. '
