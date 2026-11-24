@@ -83,7 +83,8 @@ ITEMS = {
         ('WEBSITE', '🌐 Website', 'Open the website'),
     )),
     'ACCOUNT': ('👤 My account', (
-        ('LOGIN', '🔓 Log in', 'With your chat PIN'),
+        ('LOGIN', '🔓 Log in', 'Your website username and password'),
+        ('REGISTER', '📝 Register', 'New here? Create an account'),
         ('ACCOUNT', '👤 My details', 'Details and verification'),
         ('NOTIFICATIONS', '🔔 Notifications', 'Your latest messages'),
         ('STOP', '🔓 Unlink this number', 'Stop betting from WhatsApp'),
@@ -103,14 +104,14 @@ class MenuMixin:
         from . import engine
         site = engine._site()
         head = f'👋 *Welcome to {site}*\nBet on football from WhatsApp.'
-        if not self.link:
-            head += (f'\n\nTo bet, link your account: on the website open {engine.SITE_PATH}, '
-                     'get a code and send *LINK 123456* here.')
+        if not self.link and not self.logged_in:
+            head += ('\n\n🔒 Log in with your website username and password: send *LOGIN*. '
+                     'New here? Send *REGISTER*.')
         elif self.logged_in:
             head += f'\n\n👤 Logged in · you are logged out after {self.cfg.session_minutes} minutes without a message.'
         elif self.cfg.require_login:
             head += ('\n\n🔒 ' + (f'You were logged out after {self.cfg.session_minutes} minutes without activity. '
-                                   if self.idle_logout else '') + 'Send *LOGIN* and your PIN to use your account.')
+                                   if self.idle_logout else '') + 'Send *LOGIN* to log in with your website details.')
         head += '\n\nTap *Menu* below, or type a match ID (e.g. *1234*) or a word like *TODAY* or *BALANCE*.'
         return [{'text': head, 'list': {'button': 'Menu', 'title': site[:24],
                                         'rows': [list(r) for r in SECTIONS]}}]
@@ -119,8 +120,8 @@ class MenuMixin:
         if key not in ITEMS:
             return self.menu()
         title, rows = ITEMS[key]
-        if key == 'ACCOUNT' and self.logged_in:              # Log in becomes Log out once logged in
-            rows = (('LOGOUT', '🔒 Log out', 'End this session now'),) + rows[1:]
+        if key == 'ACCOUNT' and self.logged_in:              # Log in / Register become Log out once logged in
+            rows = (('LOGOUT', '🔒 Log out', 'End this session now'),) + rows[2:]
         return [{'text': f'*{title}*\n\nChoose below 👇', 'list': {
             'button': 'Choose', 'title': title.split(' ', 1)[-1][:24],
             'rows': [list(r) for r in rows] + [['MENU', '🏠 Main menu', '']]}}]

@@ -635,3 +635,26 @@ class AdminAdjustLockedView(APIView):
         except competitions.CompetitionError as exc:
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response({k: str(v) if v is not None else None for k, v in services.balance(affiliate).items()})
+
+
+class AdminSignupRuleView(APIView):
+    """GET/PUT /api/admin/affiliate-signup-rule/ {require_agent_code}: whether new
+    accounts (website and WhatsApp) need a valid agent code. Changing it: superusers only."""
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        from .models import AffiliateProgramme
+        return Response({'require_agent_code': AffiliateProgramme.load().require_agent_code,
+                         'can_edit': bool(request.user.is_superuser)})
+
+    def put(self, request):
+        from apps.accounts import services as accounts
+        from .models import AffiliateProgramme
+        if not request.user.is_superuser:
+            return Response({'detail': 'Only a superuser can change the agent code rule.'}, status=status.HTTP_403_FORBIDDEN)
+        on = bool(request.data.get('require_agent_code'))
+        p = AffiliateProgramme.load()
+        if p.require_agent_code != on:
+            AffiliateProgramme.objects.filter(pk=p.pk).update(require_agent_code=on)
+            accounts.audit(None, 'agent_code_rule', request, require_agent_code=on)
+        return self.get(request)

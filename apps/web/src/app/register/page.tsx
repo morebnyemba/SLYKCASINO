@@ -32,7 +32,7 @@ function passwordStrength(pw: string): { score: number; label: string } {
 
 const STRENGTH_COLOR = ['', 'bg-destructive', 'bg-gold', 'bg-secondary', 'bg-win'];
 
-type Field = 'username' | 'email' | 'password' | 'confirm' | 'terms';
+type Field = 'username' | 'email' | 'password' | 'confirm' | 'terms' | 'agent';
 
 function FieldError({ id, message }: { id: string; message?: string }) {
   if (!message) return null;
@@ -53,6 +53,9 @@ export default function RegisterPage() {
   const [refOpen, setRefOpen] = useState(false);
   const offer = useWelcomeOffer();
   const { data: welcome } = useApi<{ programme?: { welcome_bonus_percent: string; welcome_bonus_cap: string } }>('/affiliates/terms/', { public: true });
+  // An agent code is mandatory while the operator requires it (no code, no account).
+  const { data: rules } = useApi<{ agent_code_required: boolean }>('/auth/register/', { public: true });
+  const codeRequired = rules?.agent_code_required ?? true;
   const [errors, setErrors] = useState<Partial<Record<Field, string>>>({});
   const [formError, setFormError] = useState('');
   const [accountCreated, setAccountCreated] = useState(false);
@@ -80,6 +83,7 @@ export default function RegisterPage() {
     else if (/^\d+$/.test(password)) e.password = 'Your password can’t be only numbers.';
     if (confirm !== password) e.confirm = 'Passwords do not match.';
     if (!terms) e.terms = 'Please confirm you are 18 or older and accept the terms.';
+    if (codeRequired && !refCode.trim()) e.agent = 'Enter your agent code. Ask your agent for it.';
     return e;
   }
 
@@ -98,8 +102,9 @@ export default function RegisterPage() {
       if (err instanceof AccountCreatedError) {
         setAccountCreated(true);
       } else if (err instanceof RegisterError) {
-        const { username: u, email: em, password: pw, accept_terms: tm, ...rest } = err.fields;
-        setErrors({ username: u, email: em, password: pw, terms: tm });
+        const { username: u, email: em, password: pw, accept_terms: tm, agent_code: ag, ...rest } = err.fields;
+        setErrors({ username: u, email: em, password: pw, terms: tm, agent: ag });
+        if (ag) setRefOpen(true);
         setFormError(err.message || Object.values(rest).join(' '));
       } else {
         setFormError('Could not reach the server. Check your connection and try again.');
@@ -231,17 +236,21 @@ export default function RegisterPage() {
             {Number(welcome!.programme!.welcome_bonus_cap) > 0 ? ` (up to $${Number(welcome!.programme!.welcome_bonus_cap)})` : ''}.
           </p>
         )}
-        {refOpen ? (
+        {refOpen || codeRequired ? (
           <div className="flex flex-col gap-1">
             <label className="text-xs font-bold text-muted-foreground" htmlFor="ref">
-              Referral code <span className="font-normal">(optional)</span>
+              Agent code {!codeRequired && <span className="font-normal">(optional)</span>}
             </label>
             <input
               id="ref"
               value={refCode}
-              onChange={(e) => setRefCode(e.target.value.replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 24))}
+              required={codeRequired}
+              onChange={(e) => { setRefCode(e.target.value.replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 24)); clearError('agent'); }}
+              aria-invalid={!!errors.agent}
               className={authInputClass}
             />
+            <FieldError id="agent" message={errors.agent} />
+            {codeRequired && !errors.agent && <p className="text-xs text-muted-foreground">You need an agent code to register. Ask your agent.</p>}
           </div>
         ) : (
           <button
@@ -249,7 +258,7 @@ export default function RegisterPage() {
             onClick={() => setRefOpen(true)}
             className="self-start text-xs font-bold text-secondary underline-offset-4 hover:underline"
           >
-            Have a referral code?
+            Have an agent code?
           </button>
         )}
 

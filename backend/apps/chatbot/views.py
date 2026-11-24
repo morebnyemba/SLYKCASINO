@@ -66,7 +66,8 @@ def handle_inbound(msg: whatsapp.Inbound) -> None:
         try:
             with transaction.atomic():
                 row = InboundMessage.objects.create(channel=WHATSAPP, provider_id=msg.provider_id,
-                                                    address=msg.address, text=services.redact(msg.text))
+                                                    address=msg.address,
+                                                    text=services.redact(msg.text, secret=services.awaiting_secret(msg.address)))
         except IntegrityError:
             return  # redelivered: already answered
         if services.over_rate(msg.address):

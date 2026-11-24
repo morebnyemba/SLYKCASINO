@@ -28,7 +28,8 @@ class ChatbotSettings(models.Model):
     # deposits came from, stop at this many dollars a day (all withdrawals that
     # day count), and wait this long after a number is linked (SIM-swap defence).
     allow_withdrawals = models.BooleanField(default=False)
-    # Log in with the chat PIN before anything private (balance, bets, money);
+    # Log in with the website's username and password before anything private
+    # (balance, bets, money);
     # logged out after this many minutes without a message.
     require_login = models.BooleanField(default=True)
     session_minutes = models.PositiveSmallIntegerField(default=5)
@@ -70,8 +71,6 @@ class ChatLink(models.Model):
     linked_at = models.DateTimeField(auto_now_add=True)
     # Hashed chat PIN (django password hasher); blank = none set.
     pin_hash = models.CharField(max_length=128, blank=True, default='')
-    # Too many wrong PINs at LOGIN: chat login stays shut until a new PIN is set on the website.
-    login_locked_at = models.DateTimeField(null=True, blank=True)
     # The player's own daily chat staking cap (None = the operator's).
     daily_cap = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
     last_seen_at = models.DateTimeField(null=True, blank=True)
@@ -176,3 +175,4 @@ class OutboundMessage(models.Model):
     class Meta:
         db_table = 'chatbot_outbound'
         ordering = ['-created_at']
+

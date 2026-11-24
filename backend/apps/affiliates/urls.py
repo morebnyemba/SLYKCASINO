@@ -1,7 +1,7 @@
 from django.urls import path
 from rest_framework.routers import SimpleRouter
 
-from .views import AdminAdjustLockedView, AdminCompetitionView, AdminCompetitionsView, MyCompetitionsView, AdminAffiliateViewSet, AdminPayoutViewSet, AdminProgrammeView, MyPayoutsView, AdminCommissionViewSet, ClickView, MyAffiliateAnalyticsView, MyAffiliateView, MyCustomersView, MyCustomerTicketsView, MyHistoryView, MyReportView, TermsView
+from .views import AdminAdjustLockedView, AdminCompetitionView, AdminCompetitionsView, MyCompetitionsView, AdminAffiliateViewSet, AdminPayoutViewSet, AdminProgrammeView, AdminSignupRuleView, MyPayoutsView, AdminCommissionViewSet, ClickView, MyAffiliateAnalyticsView, MyAffiliateView, MyCustomersView, MyCustomerTicketsView, MyHistoryView, MyReportView, TermsView
 
 router = SimpleRouter()
 router.register('admin/affiliates', AdminAffiliateViewSet, basename='admin-affiliate')
@@ -23,5 +23,6 @@ urlpatterns = [
     path('affiliates/terms/', TermsView.as_view(), name='affiliate-terms'),
     path('affiliates/click/', ClickView.as_view(), name='affiliate-click'),
     path('admin/affiliate-programme/', AdminProgrammeView.as_view(), name='admin-affiliate-programme'),
+    path('admin/affiliate-signup-rule/', AdminSignupRuleView.as_view(), name='admin-affiliate-signup-rule'),
     *router.urls,
 ]

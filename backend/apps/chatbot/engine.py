@@ -157,7 +157,8 @@ def _looks_like_error(reply: dict) -> bool:
         'is not a pick', 'There is no match', 'does not exist', 'not available', 'Send WITHDRAW and', 'Send BET and',
         'No league matching', 'No country matching', 'No upcoming matches for'))
 
-from .menus import MenuMixin  # noqa: E402  (menus reads this module's helpers at call time)
+from .menus import MenuMixin  # noqa: E402
+from .signin import SignInMixin  # noqa: E402  (menus reads this module's helpers at call time)
 
 # -- entry point -------------------------------------------------------------------
 
@@ -190,7 +191,7 @@ def _handle(channel: str, address: str, text: str, now) -> list[dict]:
     return replies
 
 
-class Conversation(MenuMixin):
+class Conversation(MenuMixin, SignInMixin):
     def __init__(self, channel, address, link: Optional[ChatLink], session: ChatSession, now, cfg):
         self.channel, self.address, self.link, self.session, self.now, self.cfg = channel, address, link, session, now, cfg
         self.state = session.state if isinstance(session.state, dict) else {}
@@ -228,24 +229,6 @@ class Conversation(MenuMixin):
         now = self.now.isoformat()
         self.state['auth'] = {'player': self.link.player_id, 'at': now, 'seen': now}
 
-    def login(self, pin: str) -> list[dict]:
-        if not self.link:
-            return self._need_link()
-        if self.logged_in:
-            return [_reply('You are already logged in.', 'MENU')]
-        if not pin:
-            return [_reply('Send *LOGIN* and your chat PIN, e.g. *LOGIN 1234*.')]
-        try:
-            services.check_login(self.link, pin)
-        except services.ChatError as exc:
-            return [_reply(f'🔒 {exc}')]
-        self._start_session()
-        from apps.accounts import services as accounts
-        accounts.audit(self.link.player_id, 'chat_login', None, number=f'…{self.address[-4:]}')
-        return [_reply(f'✅ Logged in. You stay logged in while you keep chatting; after {self.cfg.session_minutes} '
-                       'minutes without a message you are logged out. Send *LOGOUT* when you are done.\n\n'
-                       '💡 Delete the message with your PIN from this chat.', 'MENU', ['ACCOUNT', '👤 My account'])]
-
     def logout(self) -> list[dict]:
         if not self.logged_in:
             return [_reply('You are not logged in.', 'MENU')]
@@ -258,6 +241,9 @@ class Conversation(MenuMixin):
         """Answer one message, remembering the screens the player opened so BACK goes up a
         level and a message the bot doesn't understand shows where they were instead of a dead end."""
         self._lost = False
+        answered = self.in_flow(text)                           # a log-in or sign-up question is waiting
+        if answered is not None:
+            return answered
         words = text.upper().split()
         if words in (['BACK'], ['UP']):
             return self.back()
@@ -332,7 +318,9 @@ class Conversation(MenuMixin):
         if head in simple and not rest:
             return simple[head]()
         if head in ('LOGIN', 'SIGNIN'):
-            return self.login(rest[0] if rest else '')
+            return self.login(text.split()[1:])                 # as typed: passwords are case-sensitive
+        if head in ('REGISTER', 'SIGNUP', 'JOIN') and not rest:
+            return self.register()
         if head == 'MENU' and rest:
             return self.section(rest[0])
         if head == 'CASHOUT' and len(rest) >= 2 and rest[1].isdigit():
@@ -412,16 +400,12 @@ class Conversation(MenuMixin):
     def _need_link(self) -> Optional[list[dict]]:
         """Anything private (balance, bets, money, account) needs a linked number
         and, when the operator requires it, a logged-in session."""
-        if not self.link:
-            return [_reply(f'Link your account first: on the {_site()} website open {SITE_PATH}, '
-                           'get a code and send LINK 123456 here.')]
-        if not self.cfg.require_login or self.logged_in:
+        if self.link and (not self.cfg.require_login or self.logged_in):
             return None
         why = (f'🔒 You were logged out after {self.cfg.session_minutes} minutes without activity.\n\n'
                if self.idle_logout else '🔒 ')
-        if not self.link.pin_hash:
-            return [_reply(f'{why}To log in here, first set a chat PIN on the website ({SITE_PATH}).')]
-        return [_reply(f'{why}Log in first: send *LOGIN* and your chat PIN, e.g. *LOGIN 1234*.', 'MENU')]
+        return [_reply(f'{why}Log in with your {_site()} website username and password: send *LOGIN*.\n'
+                       'New here? Send *REGISTER* to create an account.', ['LOGIN', '🔓 Log in'], ['REGISTER', '📝 Register'])]
 
     def _player(self):
         from apps.accounts.models import Player
