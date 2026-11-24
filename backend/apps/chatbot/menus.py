@@ -25,6 +25,7 @@ ACTION_FOR = timedelta(minutes=2)       # how long a cash-out or withdrawal wait
 
 # (command, title, description) for the main menu, in order.
 SECTIONS = (
+    ('MENU ACCOUNT', '👤 My account', 'Log in or out, your details, notifications'),
     ('MENU BET', '⚽ Bet', 'Today, tomorrow, live, leagues, search'),
     ('MENU BETS', '🎟️ My bets', 'Open and settled tickets, cash out'),
     ('MENU MONEY', '💰 Money', 'Balance, deposit, withdraw, history'),
@@ -32,7 +33,6 @@ SECTIONS = (
     ('MENU REFER', '🤝 Refer & earn', 'Your referral link, agent dashboard'),
     ('MENU AVIATOR', '🎮 Aviator', 'Play on the website, latest results'),
     ('MENU HELP', '🛟 Help', 'Support, FAQ, rules, play safe'),
-    ('MENU ACCOUNT', '👤 Account', 'Your details, notifications, unlink'),
 )
 
 ITEMS = {
@@ -82,8 +82,10 @@ ITEMS = {
         ('SAFE', '🛡️ Play safe', 'Limits and taking a break'),
         ('WEBSITE', '🌐 Website', 'Open the website'),
     )),
-    'ACCOUNT': ('👤 Account', (
-        ('ACCOUNT', '👤 My account', 'Details and verification'),
+    'ACCOUNT': ('👤 My account', (
+        ('LOGIN', '🔓 Log in', 'Your website username and password'),
+        ('REGISTER', '📝 Register', 'New here? Create an account'),
+        ('ACCOUNT', '👤 My details', 'Details and verification'),
         ('NOTIFICATIONS', '🔔 Notifications', 'Your latest messages'),
         ('STOP', '🔓 Unlink this number', 'Stop betting from WhatsApp'),
     )),
@@ -102,9 +104,14 @@ class MenuMixin:
         from . import engine
         site = engine._site()
         head = f'👋 *Welcome to {site}*\nBet on football from WhatsApp.'
-        if not self.link:
-            head += (f'\n\nTo bet, link your account: on the website open {engine.SITE_PATH}, '
-                     'get a code and send *LINK 123456* here.')
+        if not self.link and not self.logged_in:
+            head += ('\n\n🔒 Log in with your website username and password: send *LOGIN*. '
+                     'New here? Send *REGISTER*.')
+        elif self.logged_in:
+            head += f'\n\n👤 Logged in · you are logged out after {self.cfg.session_minutes} minutes without a message.'
+        elif self.cfg.require_login:
+            head += ('\n\n🔒 ' + (f'You were logged out after {self.cfg.session_minutes} minutes without activity. '
+                                   if self.idle_logout else '') + 'Send *LOGIN* to log in with your website details.')
         head += '\n\nTap *Menu* below, or type a match ID (e.g. *1234*) or a word like *TODAY* or *BALANCE*.'
         return [{'text': head, 'list': {'button': 'Menu', 'title': site[:24],
                                         'rows': [list(r) for r in SECTIONS]}}]
@@ -113,6 +120,8 @@ class MenuMixin:
         if key not in ITEMS:
             return self.menu()
         title, rows = ITEMS[key]
+        if key == 'ACCOUNT' and self.logged_in:              # Log in / Register become Log out once logged in
+            rows = (('LOGOUT', '🔒 Log out', 'End this session now'),) + rows[2:]
         return [{'text': f'*{title}*\n\nChoose below 👇', 'list': {
             'button': 'Choose', 'title': title.split(' ', 1)[-1][:24],
             'rows': [list(r) for r in rows] + [['MENU', '🏠 Main menu', '']]}}]

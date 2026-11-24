@@ -187,6 +187,8 @@ class AffiliateProgramme(models.Model):
     # welcome bonus (or, if it gives nothing, the usual promo code / deposit
     # promotion). Their later deposits earn no deposit bonus or promo code.
     referral_first_deposit_only = models.BooleanField(default=True)
+    # New accounts (website and WhatsApp) need a valid, active agent code. Superusers can switch it off.
+    require_agent_code = models.BooleanField(default=True)
     # Terms a new affiliate starts with (each affiliate can be changed after).
     # `revshare_percent` is the % of the stake on each losing ticket a referred
     # player places.

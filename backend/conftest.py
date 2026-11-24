@@ -33,6 +33,9 @@ def _manual_affiliate_payouts(request, django_db_blocker):
     values = {} if request.node.get_closest_marker('affiliate_lock') else {'lock_until_month_end': False}
     if not request.node.get_closest_marker('affiliate_auto'):
         values.update(auto_payout=False, auto_approve_commissions=False)
+    # The mandatory agent code is tested on its own (marker `agent_code`).
+    if not request.node.get_closest_marker('agent_code'):
+        values['require_agent_code'] = False
     if not values:
         return
     with django_db_blocker.unblock():

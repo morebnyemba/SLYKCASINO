@@ -21,6 +21,7 @@ interface BotSettings {
   linked_players: number; messages_24h: number; tickets_24h: number; staked_24h: string;
   connection: Connection; can_edit_connection: boolean;
   allow_withdrawals: boolean; withdraw_daily_cap: string; withdraw_cooldown_hours: number; can_edit_withdrawals: boolean;
+  require_login: boolean; session_minutes: number;
 }
 interface CheckResult {
   ok: boolean; error?: string; code?: string; warning?: string; diagnosis?: string;
@@ -140,6 +141,12 @@ export default function WhatsAppBotPage() {
     const { allow_withdrawals, withdraw_daily_cap, withdraw_cooldown_hours } = form;
     void put({ allow_withdrawals, withdraw_daily_cap, withdraw_cooldown_hours: Number(withdraw_cooldown_hours) },
       allow_withdrawals ? 'WhatsApp withdrawals are on.' : 'WhatsApp withdrawals are off.', 'withdrawals');
+  }
+
+  function saveLogin() {
+    if (!form) return;
+    void put({ require_login: form.require_login, session_minutes: Number(form.session_minutes) },
+      'Login settings saved. They apply to the next message.', 'login');
   }
 
   function saveConnection() {
@@ -372,6 +379,26 @@ export default function WhatsAppBotPage() {
               </Field>
             </div>
             <Btn variant="primary" busy={busy === 'limits'} onClick={saveLimits}>Save</Btn>
+          </div>
+        )}
+      </Panel>
+
+      <Panel title="Login on WhatsApp"
+        description="Players log in with their chat PIN (set on the website) before balance, bets, deposits, withdrawals or tickets. Browsing odds and building a slip don’t need it. PINs are never stored in the inbox."
+        actions={form && (form.require_login ? <Badge tone="green" dot>Required</Badge> : <Badge tone="gold" dot>Off</Badge>)}>
+        {form && (
+          <div className="space-y-5">
+            <span className="flex items-center gap-2 text-sm font-semibold">
+              <Switch checked={form.require_login} disabled={!form.can_edit_withdrawals}
+                onChange={(v) => setForm({ ...form, require_login: v })} label="Require login" /> Require login with the chat PIN
+            </span>
+            <Field label="Log out after (minutes without a message)" hint="1 to 120. Every message keeps the session alive.">
+              <TextInput inputMode="numeric" value={String(form.session_minutes)} disabled={!form.can_edit_withdrawals}
+                onChange={(e) => setForm({ ...form, session_minutes: Number(e.target.value.replace(/\D/g, '') || 0) })} />
+            </Field>
+            {form.can_edit_withdrawals
+              ? <Btn variant="primary" busy={busy === 'login'} onClick={saveLogin}>Save</Btn>
+              : <p className="text-xs text-muted-foreground">Only a superuser can change login.</p>}
           </div>
         )}
       </Panel>

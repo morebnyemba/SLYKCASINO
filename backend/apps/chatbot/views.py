@@ -66,7 +66,8 @@ def handle_inbound(msg: whatsapp.Inbound) -> None:
         try:
             with transaction.atomic():
                 row = InboundMessage.objects.create(channel=WHATSAPP, provider_id=msg.provider_id,
-                                                    address=msg.address, text=msg.text)
+                                                    address=msg.address,
+                                                    text=services.redact(msg.text, secret=services.awaiting_secret(msg.address)))
         except IntegrityError:
             return  # redelivered: already answered
         if services.over_rate(msg.address):
@@ -94,6 +95,7 @@ def _status(player_id: int) -> dict:
         'linked_at': link.linked_at if link else None, 'has_pin': bool(link and link.pin_hash),
         'daily_limit': str(link.daily_cap) if link and link.daily_cap is not None else None,
         'operator_daily_limit': str(cfg.daily_cap), 'max_stake': str(cfg.max_stake), 'pin_above': str(cfg.pin_above),
+        'require_login': cfg.require_login, 'session_minutes': cfg.session_minutes,
         'staked_today': str(services.staked_today(player_id)),
     }
 
@@ -202,6 +204,7 @@ class AdminChatbotView(APIView):
             **{f: getattr(cfg, f) for f in self.FLAGS}, **{f: str(getattr(cfg, f)) for f in self.MONEY},
             'allow_withdrawals': cfg.allow_withdrawals, 'withdraw_daily_cap': str(cfg.withdraw_daily_cap),
             'withdraw_cooldown_hours': cfg.withdraw_cooldown_hours,
+            'require_login': cfg.require_login, 'session_minutes': cfg.session_minutes,
             'can_edit_withdrawals': bool(self.request.user.is_superuser),
             'configured': whatsapp.configured(),
             'webhook_path': '/api/chatbot/whatsapp/webhook/',
@@ -261,12 +264,19 @@ class AdminChatbotView(APIView):
                 if not 0 <= hours <= 720:
                     raise ValueError
                 wanted['withdraw_cooldown_hours'] = hours
+            if 'require_login' in request.data:
+                wanted['require_login'] = bool(request.data['require_login'])
+            if 'session_minutes' in request.data:
+                minutes = int(request.data['session_minutes'])
+                if not 1 <= minutes <= 120:
+                    raise ValueError
+                wanted['session_minutes'] = minutes
         except (InvalidOperation, ValueError, TypeError):
-            return Response({'detail': 'Enter a withdrawal limit of 0 or more and a waiting time of 0 to 720 hours.'},
-                            status=status.HTTP_400_BAD_REQUEST)
+            return Response({'detail': 'Enter a withdrawal limit of 0 or more, a waiting time of 0 to 720 hours, '
+                                       'and a login time of 1 to 120 minutes.'}, status=status.HTTP_400_BAD_REQUEST)
         changed_w = {k: v for k, v in wanted.items() if getattr(cfg, k) != v}
         if changed_w and not request.user.is_superuser:
-            return Response({'detail': 'Only a superuser can change WhatsApp withdrawals.'}, status=status.HTTP_403_FORBIDDEN)
+            return Response({'detail': 'Only a superuser can change WhatsApp withdrawals or login.'}, status=status.HTTP_403_FORBIDDEN)
         for k, v in changed_w.items():
             setattr(cfg, k, v)
         if changed_w:

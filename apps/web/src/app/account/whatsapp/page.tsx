@@ -19,6 +19,7 @@ interface ChatStatus {
   operator_daily_limit: string;
   max_stake: string;
   pin_above: string;
+  require_login?: boolean; session_minutes?: number;
   staked_today: string;
 }
 
@@ -149,9 +150,11 @@ export default function WhatsAppBettingPage() {
             <div className="space-y-2">
               <p className="flex items-center gap-2 text-sm font-bold"><FaLock size={12} /> Chat PIN {data.has_pin && <span className="text-xs font-semibold text-win">set</span>}</p>
               <p className="text-xs text-muted-foreground">
-                {data.has_pin
-                  ? 'Every bet from WhatsApp needs your PIN (reply YES 1234).'
-                  : `Bets above ${money(data.pin_above)} need a PIN. Set one to protect your account if someone else uses your phone.`}
+                {data.require_login && !data.has_pin
+                  ? 'On WhatsApp you log in with your usual username and password (send LOGIN). Set a PIN too: withdrawals and large bets from WhatsApp need it.'
+                  : data.has_pin
+                    ? 'Every bet from WhatsApp needs your PIN (reply YES 1234).'
+                    : `Bets above ${money(data.pin_above)} need a PIN. Set one to protect your account if someone else uses your phone.`}
               </p>
               <div className="flex flex-wrap gap-2">
                 <input value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 6))} inputMode="numeric"

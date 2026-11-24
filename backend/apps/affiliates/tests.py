@@ -300,3 +300,18 @@ class ApiTests(Base):
         res = admin.post(f'/api/admin/affiliates/{a.id}/terms/', {'revshare_percent': '35'}, format='json')
         self.assertEqual(res.json()['revshare_percent'], '35.00')
         self.assertEqual(admin.post('/api/admin/affiliate-commissions/run/', {}, format='json').status_code, 200)
+
+
+class SignupRuleAdminTests(TestCase):
+    def test_only_a_superuser_switches_the_agent_code_rule(self):
+        from django.contrib.auth.models import User
+        from rest_framework.test import APIClient
+        from apps.affiliates.models import AffiliateProgramme
+        clerk, boss = APIClient(), APIClient()
+        clerk.force_authenticate(User.objects.create_user('clerk', 'c@example.com', 'x', is_staff=True))
+        boss.force_authenticate(User.objects.create_superuser('boss', 'b@example.com', 'x'))
+        AffiliateProgramme.objects.filter(pk=AffiliateProgramme.load().pk).update(require_agent_code=True)
+        self.assertEqual(clerk.get('/api/admin/affiliate-signup-rule/').json(), {'require_agent_code': True, 'can_edit': False})
+        self.assertEqual(clerk.put('/api/admin/affiliate-signup-rule/', {'require_agent_code': False}, format='json').status_code, 403)
+        self.assertFalse(boss.put('/api/admin/affiliate-signup-rule/', {'require_agent_code': False}, format='json').json()['require_agent_code'])
+        self.assertFalse(AffiliateProgramme.load().require_agent_code)

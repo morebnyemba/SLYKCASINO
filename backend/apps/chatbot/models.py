@@ -28,6 +28,11 @@ class ChatbotSettings(models.Model):
     # deposits came from, stop at this many dollars a day (all withdrawals that
     # day count), and wait this long after a number is linked (SIM-swap defence).
     allow_withdrawals = models.BooleanField(default=False)
+    # Log in with the website's username and password before anything private
+    # (balance, bets, money);
+    # logged out after this many minutes without a message.
+    require_login = models.BooleanField(default=True)
+    session_minutes = models.PositiveSmallIntegerField(default=5)
     withdraw_daily_cap = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('100.00'))
     withdraw_cooldown_hours = models.PositiveSmallIntegerField(default=48)
 
@@ -170,3 +175,4 @@ class OutboundMessage(models.Model):
     class Meta:
         db_table = 'chatbot_outbound'
         ordering = ['-created_at']
+

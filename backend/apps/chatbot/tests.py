@@ -10,6 +10,8 @@ from datetime import timezone as dt_timezone
 from decimal import Decimal
 from unittest.mock import patch
 
+import pytest
+
 from django.test import TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
@@ -17,7 +19,7 @@ from rest_framework.test import APIClient
 from apps.accounts import services as accounts
 from apps.accounts.models import Player
 from apps.chatbot import engine, services, whatsapp
-from apps.chatbot.models import ChatbotSettings, ChatLink, ChatTicket, InboundMessage
+from apps.chatbot.models import ChatbotSettings, ChatLink, ChatSession, ChatTicket, InboundMessage
 from apps.sportsbook.models import Bet, BetSlip, Event, Market, MarketOutcome
 from apps.wallet import services as wallet
 
@@ -61,7 +63,7 @@ class _Base(TestCase):
 
 class BrowsingAndSlipTests(_Base):
     def test_menu_and_games_with_ids_need_no_account(self):
-        self.assertIn('LINK 123456', text(self.say('hi')))
+        self.assertIn('send *LOGIN*', text(self.say('hi')))
         out = text(self.say('GAMES'))
         self.assertIn(f'*{self.e1.id}* · ', out)
         self.assertIn('Dynamos v Highlanders', out)
@@ -76,7 +78,7 @@ class BrowsingAndSlipTests(_Base):
         result, markets = reply['list']['sections']
         self.assertEqual(result['rows'][0], [f'{self.e1.id} 1', '1 · 2.00', 'Match result: Dynamos'])
         self.assertEqual([r[0] for r in result['rows']], [f'{self.e1.id} {c}' for c in ('1', 'X', '2')])
-        self.assertEqual(markets['rows'], [[f'{self.e1.id} G main', 'Main', '1 market']])
+        self.assertEqual(markets['rows'], [[f'{self.e1.id} G main', 'Main', '1 market'], ['BACK', '⬅️ Back', 'Up one level']])
         from apps.chatbot import whatsapp
         body = whatsapp.payload_for(NUMBER, reply)
         self.assertEqual(body['interactive']['type'], 'list')
@@ -100,7 +102,7 @@ class BrowsingAndSlipTests(_Base):
     def test_money_commands_need_a_linked_account(self):
         self.say(f'{self.e1.id} 1')
         for cmd in ('BET 5', 'BALANCE', 'TICKETS', 'DEPOSIT 10'):
-            self.assertIn('Link your account first', text(self.say(cmd)), cmd)
+            self.assertIn('send *LOGIN*', text(self.say(cmd)), cmd)
 
     def test_blocked_countries_are_refused(self):
         self.assertIn('not available in your country', text(self.say('GAMES', number='14155550100')))
@@ -861,8 +863,9 @@ class AllOddsTests(_Base):
         self.assertEqual(rows[-1][1], 'More ▶')
         page2 = self.say(rows[-1][0])[0]['list']['rows']
         self.assertTrue(page2[0][1].endswith('1-4'))
-        page3 = self.say('NEXT')[0]['list']['rows']       # NEXT also pages a market: the last 7 options
-        self.assertEqual((len(page3), page3[0][1].endswith('3-3'), page3[-1][1].endswith('4-4')), (7, True, True))
+        page3 = self.say('NEXT')[0]['list']['rows']       # NEXT also pages a market: the last 7 options, then Back
+        self.assertEqual((len(page3), page3[0][1].endswith('3-3'), page3[-2][1].endswith('4-4'), page3[-1][0]),
+                         (8, True, True, 'BACK'))
         [added] = self.say(page2[0][0])                  # tap → on the slip, confirmed
         self.assertIn('Correct score: *1-4*', added['text'])
         self.assertNotIn('(#', added['text'])            # no internal code shown
@@ -919,7 +922,7 @@ class MenuTests(_Base):
         rows = body['interactive']['action']['sections'][0]['rows']
         self.assertEqual(len(rows), 8)
         self.assertLessEqual(len(body['interactive']['body']['text']), 1024)
-        self.assertIn('LINK 123456', reply['text'])                      # not linked yet: says how
+        self.assertIn('send *LOGIN*', reply['text'])                     # not logged in yet: says how
         [money] = self.say('MENU MONEY')
         cmds = [r[0] for r in money['list']['rows']]
         self.assertEqual(cmds[:3], ['BALANCE', 'DEPOSIT', 'WITHDRAW'])
@@ -1124,3 +1127,223 @@ class SearchTests(_Base):
 
     def test_searching_a_country_name_in_games(self):
         self.assertIn('Leeds v Burnley', text(self.say('GAMES england')))
+
+
+class LoginTests(_Base):
+    """LOGIN with the website's username and password; logged out after 5 idle minutes."""
+
+    def setUp(self):
+        super().setUp()
+        from django.core.cache import cache
+        cache.clear()
+
+    def log_in(self, now=None):
+        engine.handle(NUMBER, 'LOGIN', now=now)
+        engine.handle(NUMBER, 'rudo', now=now)
+        return text(engine.handle(NUMBER, 'Pass-word-123', now=now))
+
+    def at(self, minutes):
+        return timezone.now() + timedelta(minutes=minutes)
+
+    def say_at(self, msg, minutes):
+        return engine.handle(NUMBER, msg, now=self.at(minutes))
+
+    def test_log_in_with_the_website_details(self):
+        self.assertIn('send *LOGIN*', text(self.say('BALANCE')))
+        self.assertIn('username', text(self.say('LOGIN')))
+        self.assertIn('password', text(self.say('rudo')))
+        out = text(self.say('Pass-word-123'))
+        self.assertIn('Logged in as *rudo*', out)
+        self.assertIn('delete your password message', out)
+        self.assertEqual(ChatLink.objects.get(address=NUMBER).player_id, self.player.id)   # the number is now theirs
+        self.assertIn('Deposit', text(self.say('BALANCE')))
+        from apps.notifications.models import Notification
+        self.assertTrue(Notification.objects.filter(player_id=self.player.id, title='WhatsApp login').exists())
+
+    def test_one_message_and_email_work_too(self):
+        self.assertIn('Logged in as *rudo*', text(self.say('LOGIN rudo Pass-word-123')))
+        self.say('LOGOUT')
+        self.assertIn('Logged in as *rudo*', text(self.say('LOGIN rudo@example.com Pass-word-123')))
+
+    def test_wrong_details_and_guessing_limits(self):
+        self.assertIn('Wrong username or password', text(self.say('LOGIN rudo wrong-pass')))
+        self.assertIn('Wrong username or password', text(self.say('LOGIN nobody whatever')))
+        for _ in range(3):
+            self.say('LOGIN rudo wrong-pass')
+        self.assertIn('Too many wrong tries', text(self.say('LOGIN rudo Pass-word-123')))   # even the right one now
+        self.assertNotIn('auth', ChatSession.objects.get(address=NUMBER).state)
+
+    def test_one_username_cant_be_guessed_from_many_numbers(self):
+        for i in range(10):
+            engine.handle(f'26377000{i:04d}', 'LOGIN rudo wrong-pass')
+        self.assertIn('Too many wrong tries', text(self.say('LOGIN rudo Pass-word-123')))
+
+    def test_a_suspended_account_cant_log_in(self):
+        Player.objects.filter(pk=self.player.pk).update(is_suspended=True)
+        self.assertIn('suspended', text(self.say('LOGIN rudo Pass-word-123')))
+
+    def test_idle_for_five_minutes_logs_out(self):
+        self.assertIn('Logged in', self.log_in(self.at(0)))
+        self.assertIn('Deposit', text(self.say_at('BALANCE', 4)))          # activity keeps it alive
+        self.assertIn('Deposit', text(self.say_at('BALANCE', 8)))
+        out = text(self.say_at('BALANCE', 14))                             # 6 minutes idle
+        self.assertIn('logged out after 5 minutes without activity', out)
+        self.assertNotIn('Deposit', out)
+        self.assertIn('Dynamos', text(self.say_at('GAMES', 15)))           # browsing needs no login
+
+    def test_logout_drops_anything_waiting_for_confirm(self):
+        self.log_in()
+        self.say(f'{self.e1.id} 1')
+        self.say('BET 2')
+        self.assertIn('Logged out', text(self.say('LOGOUT')))
+        self.assertIn('send *LOGIN*', text(self.say('CONFIRM')))
+        self.log_in()
+        self.assertIn('no ticket waiting', text(self.say('CONFIRM')))
+        self.assertIn('Your ticket', text(self.say('SLIP')))                # the slip itself is kept
+
+    def test_cancel_leaves_the_login(self):
+        self.say('LOGIN')
+        self.assertIn('Cancelled', text(self.say('CANCEL')))
+        self.assertIn('Dynamos', text(self.say('GAMES')))                  # not taken as a username
+
+    def test_login_can_be_switched_off_for_a_linked_number(self):
+        self.linked()
+        self.say('LOGOUT')
+        cfg = ChatbotSettings.load()
+        cfg.require_login = False
+        cfg.save()
+        self.assertIn('Deposit', text(self.say('BALANCE')))
+
+    def test_my_account_is_first_and_shows_log_in_or_out(self):
+        [menu] = self.say('MENU')
+        self.assertEqual(menu['list']['rows'][0][0], 'MENU ACCOUNT')
+        self.assertEqual([r[0] for r in self.say('MENU ACCOUNT')[0]['list']['rows'][:2]], ['LOGIN', 'REGISTER'])
+        self.log_in()
+        self.assertIn('Logged in', self.say('MENU')[0]['text'])
+        self.assertEqual(self.say('MENU ACCOUNT')[0]['list']['rows'][0][0], 'LOGOUT')
+
+    def test_passwords_never_reach_the_inbox(self):
+        import hashlib
+        import hmac
+        import json as _json
+        from apps.chatbot.models import InboundMessage
+        secret = 'chat-secret'
+
+        def send(body, i):
+            raw = _json.dumps({'entry': [{'changes': [{'value': {'messages': [
+                {'from': NUMBER, 'id': f'wamid.p{i}', 'type': 'text', 'text': {'body': body}}]}}]}]}).encode()
+            sig = 'sha256=' + hmac.new(secret.encode(), raw, hashlib.sha256).hexdigest()
+            with patch('requests.post'):
+                APIClient().generic('POST', '/api/chatbot/whatsapp/webhook/', raw, content_type='application/json',
+                                    HTTP_X_HUB_SIGNATURE_256=sig)
+        with override_settings(WHATSAPP_APP_SECRET=secret):
+            for i, body in enumerate(('LOGIN', 'rudo', 'Pass-word-123', 'LOGOUT', 'LOGIN rudo Pass-word-123', 'CONFIRM 2468')):
+                send(body, i)
+        stored = list(InboundMessage.objects.order_by('id').values_list('text', flat=True))
+        self.assertEqual(stored, ['LOGIN', 'rudo', services.HIDDEN, 'LOGOUT', f'LOGIN rudo {services.HIDDEN}', 'CONFIRM ••••'])
+        self.assertFalse(any('Pass-word-123' in t for t in stored))
+
+
+@pytest.mark.agent_code
+class RegisterTests(_Base):
+    """REGISTER in chat: agent code (mandatory), username, 18+ and terms, password: same account as the website."""
+
+    def setUp(self):
+        super().setUp()
+        from apps.affiliates import services as affiliates
+        from apps.affiliates.models import Affiliate
+        agent = accounts.register_player(username='agentx', email='agent@example.com', password='Pass-word-123')
+        aff = affiliates.apply(player_id=agent.id, code='AGENT7')
+        Affiliate.objects.filter(pk=aff.pk).update(status=Affiliate.Status.ACTIVE)
+        self.num = '263779990000'
+
+    def chat(self, msg):
+        return text(engine.handle(self.num, msg))
+
+    def test_signing_up_in_chat(self):
+        from apps.affiliates.models import Referral
+        from django.contrib.auth import authenticate
+        self.assertIn('agent code', self.chat('REGISTER'))
+        self.assertIn('isn’t valid', self.chat('NOPE99'))
+        self.assertIn('Agent code accepted', self.chat('agent7'))
+        self.assertIn('taken', self.chat('rudo'))
+        self.assertIn('18 or older', self.chat('Tendai_99'))
+        self.assertIn('password', self.chat('YES'))
+        self.assertIn('8 to 128', self.chat('short'))
+        out = self.chat('My-Secret-pass1')
+        self.assertIn('Welcome to', out)
+        p = Player.objects.get(username='tendai_99')
+        self.assertTrue(Referral.objects.filter(player_id=p.id, affiliate__code='AGENT7').exists())
+        self.assertIsNotNone(authenticate(username='tendai_99', password='My-Secret-pass1'))   # works on the website
+        self.assertEqual(ChatLink.objects.get(address=self.num).player_id, p.id)
+        self.assertIn('Deposit', self.chat('BALANCE'))                                        # and logged in here
+        self.assertNotIn('My-Secret-pass1', str(ChatSession.objects.get(address=self.num).state))
+
+    def test_no_agent_code_no_account(self):
+        self.chat('REGISTER')
+        self.assertIn('required', self.chat('SKIP'))
+        self.assertIn('Cancelled', self.chat('CANCEL'))
+        self.assertFalse(Player.objects.filter(username='skip').exists())
+
+    def test_the_website_also_needs_a_valid_agent_code(self):
+        body = {'username': 'webby', 'email': 'w@example.com', 'password': 'Pass-word-123', 'accept_terms': True}
+        self.assertEqual(APIClient().get('/api/auth/register/').json(), {'agent_code_required': True})
+        res = APIClient().post('/api/auth/register/', body, format='json')
+        self.assertEqual(res.status_code, 400)
+        self.assertIn('agent_code', res.json())
+        self.assertEqual(APIClient().post('/api/auth/register/', {**body, 'agent_code': 'BAD1'}, format='json').status_code, 400)
+        ok = APIClient().post('/api/auth/register/', {**body, 'agent_code': 'agent7'}, format='json')
+        self.assertEqual(ok.status_code, 201, ok.content)
+
+    def test_switched_off_codes_are_optional(self):
+        from apps.affiliates.models import AffiliateProgramme
+        AffiliateProgramme.objects.filter(pk=1).update(require_agent_code=False)
+        self.chat('REGISTER')
+        self.assertIn('Step 2', self.chat('SKIP'))
+
+
+class NavigationTests(_Base):
+    """BACK goes up a level; a message the bot doesn't understand shows where the player was."""
+
+    def test_back_climbs_the_levels(self):
+        self.say('MENU')
+        self.say('MENU BET')
+        self.say('TODAY')
+        self.say(str(self.e1.id))
+        self.say(f'{self.e1.id} G main')
+        self.assertIn(f'*#{self.e1.id} Dynamos v Highlanders*', text(self.say('BACK')))   # the match
+        self.assertIn('⚽ *', text(self.say('BACK')))                                       # today's list
+        back = self.say('BACK')[0]                                                          # the Bet section
+        self.assertEqual(back['list']['rows'][0][0], 'TODAY')
+        self.assertEqual(self.say('BACK')[0]['list']['rows'][0][0], 'MENU ACCOUNT')         # the main menu
+        self.assertEqual(self.say('BACK')[0]['list']['rows'][0][0], 'MENU ACCOUNT')         # and it stays there
+
+    def test_a_mistake_shows_where_they_were(self):
+        self.say('GAMES')
+        self.say(str(self.e1.id))
+        [reply] = self.say('blah blah')
+        self.assertIn("Sorry, I didn't get that. Here is where you were", reply['text'])
+        self.assertIn(f'*#{self.e1.id} Dynamos v Highlanders*', reply['text'])
+        self.assertIn('list', reply)                                                         # its taps are there too
+        self.assertIn('Upcoming', text(self.say('BACK')))                                    # the mistake isn't a level
+
+    def test_lost_on_the_menu_or_with_nothing_open(self):
+        [reply] = self.say('qwerty')
+        self.assertIn("Sorry, I didn't get that", reply['text'])
+        self.assertEqual(reply['list']['rows'][0][0], 'MENU ACCOUNT')
+
+    def test_errors_offer_a_way_back(self):
+        self.say('GAMES')
+        out = self.say(f'{self.e1.id} ZZ')[0]
+        self.assertIn('not a pick', out['text'])
+        self.assertIn(['RETURN', '⬅️ Back'], out['buttons'])
+        self.assertIn('Upcoming', text(self.say('RETURN')))                                  # back to where they were
+
+    def test_prev_still_turns_pages(self):
+        soon = timezone.now() + timedelta(days=2)
+        for i in range(10):
+            Event.objects.create(name=f'T{i} vs C{i}', starts_at=soon + timedelta(minutes=i), status='NS',
+                                 odds=D('2'), odds_draw=D('3'), odds_away=D('4'))
+        self.say('GAMES')
+        self.assertIn('9–12 of 12', text(self.say('NEXT')))
+        self.assertIn('1–8 of 12', text(self.say('PREV')))

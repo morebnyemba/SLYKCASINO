@@ -52,6 +52,9 @@ VIEW_SLIP = ['SLIP', '🧾 View slip']
 PLACE_BET = ['STAKE', '✅ Place bet']
 CONFIRM = ['CONFIRM', '✅ Confirm']
 CANCEL = ['NO', '✖ Cancel']
+BACK = ['BACK', '⬅️ Back']
+RETURN = ['RETURN', '⬅️ Back']        # after a mistake: where they were, not a level up
+NAV_DEPTH = 12
 QUICK_STAKES = (Decimal('1'), Decimal('2'), Decimal('5'), Decimal('10'), Decimal('20'), Decimal('50'))
 # The order picks are offered in a match's tap list (WhatsApp shows at most ten).
 PICK_ORDER = ('1', 'X', '2', 'GG', 'NG', 'O2.5', 'U2.5', '1X', '12', 'X2', 'O1.5', 'U1.5', 'O3.5', 'U3.5')
@@ -122,7 +125,40 @@ def describe(e, code: str) -> tuple[str, str]:
     return 'Total goals', f'{"Over" if code.startswith("O") else "Under"} {code[1:]}'
 
 
-from .menus import MenuMixin  # noqa: E402  (menus reads this module's helpers at call time)
+# Commands that open a screen (worth coming back to). Actions (a pick, BET, CONFIRM,
+# LOGIN…) are not screens: BACK and a mistake return to the screen they were sent from.
+SCREENS = {
+    'MENU', 'HI', 'HELLO', 'HELP', 'START', 'GAMES', 'TODAY', 'TOMORROW', 'MATCHES', 'FOOTBALL', 'TOP', 'LIVE',
+    'LEAGUES', 'LEAGUE', 'COUNTRIES', 'COUNTRY', 'SEARCH', 'FIND', 'SLIP', 'OPEN', 'SETTLED', 'TICKETS', 'MYBETS', 'BETS',
+    'BALANCE', 'BAL', 'HISTORY', 'TRANSACTIONS', 'WITHDRAWALS', 'BONUS', 'BONUSES', 'OFFERS', 'PROMOTIONS', 'REFER',
+    'AGENT', 'AVIATOR', 'CRASHES', 'FAQ', 'RULES', 'SAFE', 'WEBSITE', 'ACCOUNT', 'NOTIFICATIONS', 'ALERTS',
+}
+
+
+def _is_screen(words: list[str]) -> bool:
+    if not words:
+        return False
+    head, rest = words[0], words[1:]
+    if head == 'CASHOUT':
+        return not rest                                  # the list, not "CASHOUT B 12"
+    if head.isdigit():                                   # a match, its markets, a group or a market
+        return not rest or rest[0] in ('M', 'MARKETS', 'ODDS', 'ALL', 'G', 'K')
+    return head in SCREENS
+
+
+def _with_back(rows: list, room: int = 10) -> list:
+    """A list's rows plus a Back row, when WhatsApp's ten-row limit leaves room."""
+    return rows + [['BACK', '⬅️ Back', 'Up one level']] if len(rows) < room else rows
+
+
+def _looks_like_error(reply: dict) -> bool:
+    t = reply.get('text') or ''
+    return t.startswith(('⚠️', '“')) or any(p in t for p in (
+        'is not a pick', 'There is no match', 'does not exist', 'not available', 'Send WITHDRAW and', 'Send BET and',
+        'No league matching', 'No country matching', 'No upcoming matches for'))
+
+from .menus import MenuMixin  # noqa: E402
+from .signin import SignInMixin  # noqa: E402  (menus reads this module's helpers at call time)
 
 # -- entry point -------------------------------------------------------------------
 
@@ -155,22 +191,117 @@ def _handle(channel: str, address: str, text: str, now) -> list[dict]:
     return replies
 
 
-class Conversation(MenuMixin):
+class Conversation(MenuMixin, SignInMixin):
     def __init__(self, channel, address, link: Optional[ChatLink], session: ChatSession, now, cfg):
         self.channel, self.address, self.link, self.session, self.now, self.cfg = channel, address, link, session, now, cfg
         self.state = session.state if isinstance(session.state, dict) else {}
         session.state = self.state
         self.state.setdefault('legs', [])
+        self.idle_logout = False
+        self._session_tick()
+
+    # -- logged in or not ------------------------------------------------------------
+    def _session_tick(self) -> None:
+        """Every message: log out after `session_minutes` without one, else keep the session alive."""
+        auth = self.state.get('auth')
+        if not auth:
+            return
+        if not self.link or auth.get('player') != self.link.player_id:
+            self._logout()
+            return
+        seen = timezone.datetime.fromisoformat(auth['seen'])
+        if self.now - seen > timedelta(minutes=self.cfg.session_minutes):
+            self._logout()
+            self.idle_logout = True
+            return
+        auth['seen'] = self.now.isoformat()
+
+    def _logout(self) -> None:
+        self.state.pop('auth', None)
+        self.state.pop('pending', None)                  # nothing half-confirmed survives a logout
+        self.state.pop('action', None)
+
+    @property
+    def logged_in(self) -> bool:
+        return bool(self.link and self.state.get('auth'))
+
+    def _start_session(self) -> None:
+        now = self.now.isoformat()
+        self.state['auth'] = {'player': self.link.player_id, 'at': now, 'seen': now}
+
+    def logout(self) -> list[dict]:
+        if not self.logged_in:
+            return [_reply('You are not logged in.', 'MENU')]
+        self._logout()
+        return [_reply('🔒 Logged out. Send *LOGIN* and your PIN to log in again.', 'MENU')]
 
     # -- routing --------------------------------------------------------------------
+    # -- where the player is: BACK, and getting lost ------------------------------------
     def dispatch(self, text: str) -> list[dict]:
+        """Answer one message, remembering the screens the player opened so BACK goes up a
+        level and a message the bot doesn't understand shows where they were instead of a dead end."""
+        self._lost = False
+        answered = self.in_flow(text)                           # a log-in or sign-up question is waiting
+        if answered is not None:
+            return answered
+        words = text.upper().split()
+        if words in (['BACK'], ['UP']):
+            return self.back()
+        if words == ['RETURN']:                                 # after a mistake: the screen they were on
+            nav = self.state.get('nav') or []
+            return self._route(nav[-1]) if nav else self.menu()
+        replies = self._route(text)
+        if self._lost:
+            return self._where_you_were()
+        if _is_screen(words):
+            self._remember(' '.join(text.split()))
+        elif replies and _looks_like_error(replies[-1]) and len(replies[-1].get('buttons') or []) < 3:
+            replies[-1] = {**replies[-1], 'buttons': list(replies[-1].get('buttons') or []) + [RETURN]}
+        return replies
+
+    def _remember(self, cmd: str) -> None:
+        nav = self.state.setdefault('nav', [])
+        key = cmd.upper()
+        if key in ('MENU', 'HI', 'HELLO', 'HELP', 'START'):
+            nav[:] = ['MENU']                                   # the main menu is the top: start again from it
+            return
+        if nav and nav[-1].upper() == key:
+            return
+        if key in (n.upper() for n in nav):                     # going back to a screen already in the trail
+            while nav and nav[-1].upper() != key:
+                nav.pop()
+            return
+        nav.append(cmd)
+        del nav[:-NAV_DEPTH]
+
+    def back(self) -> list[dict]:
+        nav = self.state.setdefault('nav', [])
+        if nav:
+            nav.pop()                                           # leave the screen they are on
+        if not nav:
+            return self.menu()
+        return self._route(nav[-1])
+
+    def _where_you_were(self) -> list[dict]:
+        nav = self.state.get('nav') or []
+        note = "🤔 Sorry, I didn't get that."
+        if not nav or nav[-1].upper() == 'MENU':
+            replies = self.menu()
+            note += ' Tap *Menu* below, or type a match ID or a word like *TODAY*.'
+        else:
+            replies = self._route(nav[-1])
+            note += ' Here is where you were. Send *BACK* to go up a level or *MENU* for the main menu.'
+        first = replies[0]
+        return [{**first, 'text': f'{note}\n\n{first["text"]}'}] + replies[1:]
+
+    def _route(self, text: str) -> list[dict]:
         words = text.upper().replace(',', ' , ').split()
         if not words:
             return self.menu()
         head, rest = words[0], [w for w in words[1:] if w != ',']
         simple = {
             'HI': self.menu, 'HELLO': self.menu, 'MENU': self.menu, 'HELP': self.menu, 'START': self.menu,
-            'LIVE': self.live, 'SLIP': self.slip, 'CLEAR': self.clear, 'NO': self.cancel, 'CANCEL': self.cancel,
+            'LIVE': self.live, 'SLIP': self.slip, 'LOGOUT': self.logout, 'SIGNOUT': self.logout, 'CLEAR': self.clear, 'NO': self.cancel, 'CANCEL': self.cancel,
             'BALANCE': self.balance, 'BAL': self.balance, 'TICKETS': self.tickets, 'MYBETS': self.tickets,
             'BETS': self.tickets, 'BOOK': self.book, 'STOP': self.stop, 'UNLINK': self.stop,
             'STAKE': self.stake_prompt, 'PLACE': self.stake_prompt, 'BET': self.stake_prompt,
@@ -186,6 +317,10 @@ class Conversation(MenuMixin):
         }
         if head in simple and not rest:
             return simple[head]()
+        if head in ('LOGIN', 'SIGNIN'):
+            return self.login(text.split()[1:])                 # as typed: passwords are case-sensitive
+        if head in ('REGISTER', 'SIGNUP', 'JOIN') and not rest:
+            return self.register()
         if head == 'MENU' and rest:
             return self.section(rest[0])
         if head == 'CASHOUT' and len(rest) >= 2 and rest[1].isdigit():
@@ -198,7 +333,7 @@ class Conversation(MenuMixin):
             return self.support(rest)
         if head in ('NEXT', 'MORE') and not rest:
             return self.turn_page(1)
-        if head in ('PREV', 'BACK', 'PREVIOUS') and not rest:
+        if head in ('PREV', 'PREVIOUS') and not rest:
             return self.turn_page(-1)
         if head == 'LEAGUES':
             return self.leagues(int(rest[0]) - 1 if rest and rest[0].isdigit() else 0)
@@ -238,7 +373,8 @@ class Conversation(MenuMixin):
             if not rest:
                 return self.match(int(head))
             return self.add_picks(words)
-        return [_reply("Sorry, I didn't get that. Send MENU to see what you can do.", *MENU_BUTTONS)]
+        self._lost = True
+        return []
 
     # -- help / linking -------------------------------------------------------------
     def link_account(self, code: str) -> list[dict]:
@@ -250,6 +386,7 @@ class Conversation(MenuMixin):
             return [_reply(str(exc))]
         from apps.accounts.models import Player
         name = Player.objects.filter(pk=self.link.player_id).values_list('username', flat=True).first() or ''
+        self._start_session()
         return [_reply(f'✅ Linked to {name}. You can now bet from WhatsApp. Send GAMES to start.', *MENU_BUTTONS)]
 
     def stop(self) -> list[dict]:
@@ -261,10 +398,14 @@ class Conversation(MenuMixin):
         return [_reply('This number is unlinked. Nothing more can be placed from it until you link it again.')]
 
     def _need_link(self) -> Optional[list[dict]]:
-        if self.link:
+        """Anything private (balance, bets, money, account) needs a linked number
+        and, when the operator requires it, a logged-in session."""
+        if self.link and (not self.cfg.require_login or self.logged_in):
             return None
-        return [_reply(f'Link your account first: on the {_site()} website open {SITE_PATH}, '
-                       'get a code and send LINK 123456 here.')]
+        why = (f'🔒 You were logged out after {self.cfg.session_minutes} minutes without activity.\n\n'
+               if self.idle_logout else '🔒 ')
+        return [_reply(f'{why}Log in with your {_site()} website username and password: send *LOGIN*.\n'
+                       'New here? Send *REGISTER* to create an account.', ['LOGIN', '🔓 Log in'], ['REGISTER', '📝 Register'])]
 
     def _player(self):
         from apps.accounts.models import Player
@@ -632,7 +773,7 @@ class Conversation(MenuMixin):
                  'prompt': f'#{e.id} {home} v {away}: tap “All odds” 👇',
                  'list': {'button': 'All odds', 'sections': [
                      {'title': 'Match result', 'rows': rows},
-                     {'title': 'Markets', 'rows': group_rows}]}}]
+                     {'title': 'Markets', 'rows': _with_back(group_rows, room=LIST_SIZE - len(rows))}]}}]
 
     def all_markets(self, event_id: int, page: int = 0) -> list[dict]:
         e = self._event(event_id)
@@ -648,7 +789,7 @@ class Conversation(MenuMixin):
         if page + 1 < pages:
             rows.append([f'{e.id} M {page + 2}', 'More ▶', f'Page {page + 2} of {pages}'])
         return [{'text': f'{self._head(e)}\n\nChoose a group of markets.',
-                 'list': {'button': 'Choose', 'title': 'Market groups', 'rows': rows}}]
+                 'list': {'button': 'Choose', 'title': 'Market groups', 'rows': _with_back(rows)}}]
 
     @staticmethod
     def _outcome_line(o) -> str:
@@ -679,7 +820,7 @@ class Conversation(MenuMixin):
             if page + 1 < pages:
                 rows.append([f'{e.id} G {group} {page + 2}', 'More ▶', f'Page {page + 2} of {pages}'])
         return [{'text': '\n'.join(lines), 'prompt': f'#{e.id} · {label}: tap to choose 👇',
-                 'list': {'button': 'Choose', 'title': label, 'rows': rows}}]
+                 'list': {'button': 'Choose', 'title': label, 'rows': _with_back(rows)}}]
 
     def market(self, event_id: int, market_id: int, page: int = 0) -> list[dict]:
         e = self._event(event_id)
@@ -699,7 +840,7 @@ class Conversation(MenuMixin):
         if page + 1 < pages:
             rows.append([f'{e.id} K {m.id} {page + 2}', 'More ▶', f'Page {page + 2} of {pages}'])
         return [{'text': '\n'.join(lines), 'prompt': f'#{e.id} · {m.name}: tap to choose 👇',
-                 'list': {'button': 'Choose', 'title': m.name, 'rows': rows}}]
+                 'list': {'button': 'Choose', 'title': m.name, 'rows': _with_back(rows)}}]
 
     def pick_outcome(self, outcome_id: int) -> list[dict]:
         """Add any market's outcome (what a tap on an odds list sends)."""

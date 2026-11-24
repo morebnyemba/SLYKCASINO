@@ -3,6 +3,7 @@ the daily chat staking cap, rate limiting and delivering replies."""
 from __future__ import annotations
 
 import logging
+import re
 import secrets
 import threading
 from datetime import timedelta
@@ -56,20 +57,27 @@ def link(address: str, code: str, *, channel: str = WHATSAPP) -> ChatLink:
         raise ChatError('That code is wrong or has expired. Get a new one on the website: Account → WhatsApp betting.')
     row.used_at = now
     row.save(update_fields=['used_at'])
-    # One number per player and one player per number: the new link replaces both.
-    ChatLink.objects.filter(channel=channel, player_id=row.player_id).exclude(address=address).delete()
+    existing = attach(address, row.player_id, channel=channel)
+    cache.delete(_attempts_key(address))
+    return existing
+
+
+def attach(address: str, player_id: int, *, channel: str = WHATSAPP) -> ChatLink:
+    """Link `address` to the player. One number per player and one player per
+    number: a new link replaces both."""
+    ChatLink.objects.filter(channel=channel, player_id=player_id).exclude(address=address).delete()
     existing = ChatLink.objects.filter(channel=channel, address=address).first()
-    if existing and existing.player_id != row.player_id:
+    if existing and existing.player_id != player_id:
         existing.delete()
         existing = None
     if existing is None:
         try:
-            existing = ChatLink.objects.create(channel=channel, address=address, player_id=row.player_id)
+            with transaction.atomic():
+                existing = ChatLink.objects.create(channel=channel, address=address, player_id=player_id)
         except IntegrityError as exc:
             raise ChatError('Could not link right now, please try again.') from exc
-    cache.delete(_attempts_key(address))
-    from apps.accounts import services as accounts
-    accounts.audit(row.player_id, 'chat_linked', None, channel=channel, number=f'…{address[-4:]}')
+        from apps.accounts import services as accounts
+        accounts.audit(player_id, 'chat_linked', None, channel=channel, number=f'…{address[-4:]}')
     return existing
 
 
@@ -160,6 +168,71 @@ def withdraw_destinations(player_id: int) -> list[tuple[str, str, str]]:
             seen.add((method, phone))
             out.append((method, phone, labels.get(method, method.title())))
     return out[:5]
+
+
+# -- logging in -----------------------------------------------------------------------------
+
+_PIN_IN_TEXT = re.compile(r'^(\s*(?:CONFIRM|YES|Y|PIN)\s+)\d{3,8}\b', re.IGNORECASE)
+_LOGIN_IN_TEXT = re.compile(r'^(\s*(?:LOGIN|SIGNIN)\s+\S+\s+).+$', re.IGNORECASE | re.DOTALL)
+HIDDEN = '•••••• (hidden)'
+PW_FAILS_PER_NUMBER = 5          # per 15 minutes
+PW_FAILS_PER_USERNAME = 10       # per hour, across every number (stops password-guessing bots)
+
+
+def redact(text: str, *, secret: bool = False) -> str:
+    """A message as it may be stored and shown to staff: never with a password or PIN in it.
+    `secret` = the bot had just asked for a password, so the whole message is one."""
+    if secret:
+        return HIDDEN
+    text = _LOGIN_IN_TEXT.sub(lambda m: f'{m.group(1)}{HIDDEN}', text or '')
+    return _PIN_IN_TEXT.sub(lambda m: f'{m.group(1)}••••', text)
+
+
+def awaiting_secret(address: str, *, channel: str = WHATSAPP) -> bool:
+    """Did the bot just ask this number for a password?"""
+    from .models import ChatSession
+    state = ChatSession.objects.filter(channel=channel, address=address).values_list('state', flat=True).first() or {}
+    return any(isinstance(state.get(k), dict) and state[k].get('step') == 'password' for k in ('signin', 'signup'))
+
+
+def password_login(address: str, given: str, password: str):
+    """The player for the website username (or email) and password, or ChatError.
+    Same account resolution and password check as the website's login."""
+    from django.contrib.auth import authenticate, get_user_model
+    from django.core.cache import cache
+    from apps.accounts import utils as account_utils
+    given = (given or '').strip()
+    who = account_utils.normalize_username(given) if '@' not in given else given.lower()
+    k_num, k_user = f'chatbot:pw-fail:{address}', f'chatbot:pw-fail-user:{who}'
+    if cache.get(k_num, 0) >= PW_FAILS_PER_NUMBER or cache.get(k_user, 0) >= PW_FAILS_PER_USERNAME:
+        raise ChatError('Too many wrong tries. Wait 15 minutes and try again, or reset your password on the website.')
+    User = get_user_model()
+    lookup = {'email__iexact': given} if '@' in given else {'username__iexact': who}
+    names = list(User.objects.filter(**lookup).values_list('username', flat=True)[:2])
+    user = authenticate(username=names[0], password=password) if len(names) == 1 else None
+    player = getattr(user, 'player', None) if user else None
+    if player is None:
+        _bump(k_num, 15 * 60)
+        _bump(k_user, 3600)
+        from apps.accounts.models import Player
+        p = Player.objects.filter(user__username=names[0]).first() if len(names) == 1 else None
+        if p:
+            from apps.accounts import services as accounts
+            accounts.audit(p.id, 'chat_login_failed', None, number=f'…{address[-4:]}')
+        raise ChatError('Wrong username or password. Send LOGIN to try again.')
+    if player.is_suspended:
+        raise ChatError('This account has been suspended. Contact support.')
+    cache.delete(k_num)
+    return player
+
+
+def _bump(key: str, ttl: int) -> int:
+    from django.core.cache import cache
+    try:
+        return cache.incr(key)
+    except ValueError:
+        cache.set(key, 1, ttl)
+        return 1
 
 
 # -- rate limit ---------------------------------------------------------------------------

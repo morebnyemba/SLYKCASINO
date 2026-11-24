@@ -10,6 +10,7 @@ import { LoadingState, Spinner } from '@slyk/ui/components/spinner';
 import { PageHeader, Pager, TextInput } from '@/components/console/ui';
 import { AffiliateAnalyticsPanel } from '@/components/affiliates/affiliate-analytics';
 import { ProgrammeSettings } from '@/components/affiliates/programme-settings';
+import { AgentCodeRule } from '@/components/affiliates/agent-code-rule';
 import { PayoutsTab } from '@/components/affiliates/payouts-tab';
 import { AgentTicketsPanel, CreditingHealth } from '@/components/affiliates/agent-tickets';
 import { DepositCommissionsPanel } from '@/components/affiliates/deposit-commissions';
@@ -361,7 +362,7 @@ export default function AffiliatesPage() {
       <PageHeader icon={FaHandshake} eyebrow="Money" title="Affiliates" description="Approve partners, set their terms, and review and pay commissions." />
       <Filter value={tab} onChange={(v) => setTab(v as typeof tab)} options={[['affiliates', 'Affiliates'], ['commissions', 'Commissions'], ['payouts', 'Payouts'], ['competitions', 'Competitions'], ['programme', 'Programme settings']]} />
       {tab === 'affiliates' ? <AffiliatesTab /> : tab === 'commissions' ? <CommissionsTab />
-        : tab === 'payouts' ? <PayoutsTab /> : tab === 'competitions' ? <CompetitionsTab /> : <ProgrammeSettings />}
+        : tab === 'payouts' ? <PayoutsTab /> : tab === 'competitions' ? <CompetitionsTab /> : <div className="space-y-6"><AgentCodeRule /><ProgrammeSettings /></div>}
     </div>
   );
 }

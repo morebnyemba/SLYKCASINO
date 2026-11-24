@@ -55,38 +55,30 @@ class RegisterView(APIView):
     permission_classes = [AllowAny]
     throttle_classes = [AuthRateThrottle, RegisterRateThrottle]
 
+    def get(self, request):
+        """GET /api/auth/register/ — what the signup form must ask for."""
+        from . import signup
+        return Response({'agent_code_required': signup.agent_code_required()})
+
     def post(self, request):
         ser = RegisterSerializer(data=request.data)
         if not ser.is_valid():
             return Response(ser.errors, status=status.HTTP_400_BAD_REQUEST)
         d = ser.validated_data
+        from . import signup
+        # The agent code typed in the form, else the one from the agent's link (?ref=). A broken
+        # link is ignored while codes are optional; a typed code is always checked.
+        code = str(request.data.get('agent_code') or '').strip()
+        ref = str(request.data.get('ref') or '').strip()
+        if not code and ref:
+            from apps.affiliates import services as affiliates
+            code = ref if (signup.agent_code_required() or affiliates.get_active_by_code(ref)) else ''
         try:
-            player = services.register_player(
-                username=d['username'],
-                email=d['email'],
-                password=d['password'],
-                currency=d.get('currency', 'USD'),
-            )
-            services.audit(player.id, 'register', request)
-            from apps.risk import services as risk
-            from common.client_ip import client_ip
-            risk.safely(risk.on_register, player.id, client_ip(request))
-        except ValueError as exc:
-            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
-        except IntegrityError:
-            # Lost a race with a simultaneous signup for the same username/email.
-            return Response({'detail': 'username or email already registered'}, status=status.HTTP_400_BAD_REQUEST)
-        ref = request.data.get('ref')
-        if ref:
-            # Signed up through an affiliate link: attribute the player (best-effort).
-            # The account already exists, so a failure here must never fail the signup.
-            try:
-                from apps.affiliates import services as affiliate_services
-                affiliate_services.attach_referral(
-                    player_id=player.id, code=str(ref), campaign=str(request.data.get('ref_campaign') or ''),
-                )
-            except Exception:
-                logger.exception('referral attribution failed for player %s', player.id)
+            player = signup.sign_up(username=d['username'], email=d['email'], password=d['password'], agent_code=code,
+                                    campaign=str(request.data.get('ref_campaign') or '')[:50], request=request)
+        except signup.SignupError as exc:
+            return Response({exc.field: [str(exc)]} if exc.field != 'detail' else {'detail': str(exc)},
+                            status=status.HTTP_400_BAD_REQUEST)
         token = services.generate_verify_token(player.id)
         send_verification_email(player, token)
         return Response(PlayerSerializer(player).data, status=status.HTTP_201_CREATED)
