@@ -20,6 +20,7 @@ interface BotSettings {
   configured: boolean; webhook_path: string; webhook_url: string;
   linked_players: number; messages_24h: number; tickets_24h: number; staked_24h: string;
   connection: Connection; can_edit_connection: boolean;
+  allow_withdrawals: boolean; withdraw_daily_cap: string; withdraw_cooldown_hours: number; can_edit_withdrawals: boolean;
 }
 interface CheckResult {
   ok: boolean; error?: string; code?: string; warning?: string; diagnosis?: string;
@@ -132,6 +133,13 @@ export default function WhatsAppBotPage() {
     if (!form) return;
     const { enabled, allow_betting, allow_deposits, max_stake, daily_cap, pin_above } = form;
     void put({ enabled, allow_betting, allow_deposits, max_stake, daily_cap, pin_above }, 'Switches and limits saved.', 'limits');
+  }
+
+  function saveWithdrawals() {
+    if (!form) return;
+    const { allow_withdrawals, withdraw_daily_cap, withdraw_cooldown_hours } = form;
+    void put({ allow_withdrawals, withdraw_daily_cap, withdraw_cooldown_hours: Number(withdraw_cooldown_hours) },
+      allow_withdrawals ? 'WhatsApp withdrawals are on.' : 'WhatsApp withdrawals are off.', 'withdrawals');
   }
 
   function saveConnection() {
@@ -364,6 +372,32 @@ export default function WhatsAppBotPage() {
               </Field>
             </div>
             <Btn variant="primary" busy={busy === 'limits'} onClick={saveLimits}>Save</Btn>
+          </div>
+        )}
+      </Panel>
+
+      <Panel title="Withdrawals from WhatsApp"
+        description="Players type WITHDRAW. Every withdrawal needs their chat PIN (set only on the website), goes only to a mobile-money number their own deposits came from, and follows the usual withdrawal rules (verification, fees, fraud checks)."
+        actions={form && (form.allow_withdrawals ? <Badge tone="gold" dot>On</Badge> : <Badge tone="slate" dot>Off</Badge>)}>
+        {form && (
+          <div className="space-y-5">
+            <span className="flex items-center gap-2 text-sm font-semibold">
+              <Switch checked={form.allow_withdrawals} disabled={!form.can_edit_withdrawals}
+                onChange={(v) => setForm({ ...form, allow_withdrawals: v })} label="Allow withdrawals" /> Allow withdrawals from WhatsApp
+            </span>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Most per day ($)" hint="All of the player’s withdrawals that day count, from anywhere.">
+                <TextInput inputMode="decimal" value={form.withdraw_daily_cap} disabled={!form.can_edit_withdrawals}
+                  onChange={(e) => setForm({ ...form, withdraw_daily_cap: e.target.value.replace(/[^0-9.]/g, '') })} />
+              </Field>
+              <Field label="Wait after linking (hours)" hint="A newly linked number can’t withdraw until then (protects against SIM swaps).">
+                <TextInput inputMode="numeric" value={String(form.withdraw_cooldown_hours)} disabled={!form.can_edit_withdrawals}
+                  onChange={(e) => setForm({ ...form, withdraw_cooldown_hours: Number(e.target.value.replace(/\D/g, '') || 0) })} />
+              </Field>
+            </div>
+            {form.can_edit_withdrawals
+              ? <Btn variant="primary" busy={busy === 'withdrawals'} onClick={saveWithdrawals}>Save</Btn>
+              : <p className="text-xs text-muted-foreground">Only a superuser can change WhatsApp withdrawals.</p>}
           </div>
         )}
       </Panel>

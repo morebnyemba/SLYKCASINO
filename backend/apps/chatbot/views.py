@@ -200,6 +200,9 @@ class AdminChatbotView(APIView):
         tickets = ChatTicket.objects.filter(created_at__gte=since).aggregate(n=Count('id'), staked=Sum('stake'))
         return {
             **{f: getattr(cfg, f) for f in self.FLAGS}, **{f: str(getattr(cfg, f)) for f in self.MONEY},
+            'allow_withdrawals': cfg.allow_withdrawals, 'withdraw_daily_cap': str(cfg.withdraw_daily_cap),
+            'withdraw_cooldown_hours': cfg.withdraw_cooldown_hours,
+            'can_edit_withdrawals': bool(self.request.user.is_superuser),
             'configured': whatsapp.configured(),
             'webhook_path': '/api/chatbot/whatsapp/webhook/',
             # The address Meta must call: this API's own host (behind the proxy), not the admin's.
@@ -242,6 +245,32 @@ class AdminChatbotView(APIView):
                     setattr(cfg, f, v)
         except (InvalidOperation, ValueError, TypeError):
             return Response({'detail': 'Enter amounts of 0 or more.'}, status=status.HTTP_400_BAD_REQUEST)
+        # Money leaving through chat: only a superuser may change these (the form
+        # sends every field on each save, so it's a change that is refused, not presence).
+        try:
+            wanted = {}
+            if 'allow_withdrawals' in request.data:
+                wanted['allow_withdrawals'] = bool(request.data['allow_withdrawals'])
+            if 'withdraw_daily_cap' in request.data:
+                cap = Decimal(str(request.data['withdraw_daily_cap'])).quantize(Decimal('0.01'))
+                if cap < 0:
+                    raise InvalidOperation
+                wanted['withdraw_daily_cap'] = cap
+            if 'withdraw_cooldown_hours' in request.data:
+                hours = int(request.data['withdraw_cooldown_hours'])
+                if not 0 <= hours <= 720:
+                    raise ValueError
+                wanted['withdraw_cooldown_hours'] = hours
+        except (InvalidOperation, ValueError, TypeError):
+            return Response({'detail': 'Enter a withdrawal limit of 0 or more and a waiting time of 0 to 720 hours.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        changed_w = {k: v for k, v in wanted.items() if getattr(cfg, k) != v}
+        if changed_w and not request.user.is_superuser:
+            return Response({'detail': 'Only a superuser can change WhatsApp withdrawals.'}, status=status.HTTP_403_FORBIDDEN)
+        for k, v in changed_w.items():
+            setattr(cfg, k, v)
+        if changed_w:
+            accounts_services.audit(None, 'chatbot_withdrawals', request, **{k: str(v) for k, v in changed_w.items()})
         cfg.save()
         if any(f in request.data for f in (*self.FLAGS, *self.MONEY)):
             accounts_services.audit(None, 'chatbot_settings', request,

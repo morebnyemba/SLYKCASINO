@@ -143,6 +143,25 @@ def check_stake(link: ChatLink, stake: Decimal) -> None:
                         f'You can still stake ${max(left, Decimal("0")):.2f} today through chat.')
 
 
+# -- withdrawals -------------------------------------------------------------------------
+
+def withdraw_destinations(player_id: int) -> list[tuple[str, str, str]]:
+    """[(method, phone, label)]: the mobile-money numbers this player's paid
+    deposits came from. A chat withdrawal may only go to one of these, so
+    someone holding just the SIM can't send the money anywhere new."""
+    from apps.wallet.models import PaymentTransaction, WithdrawalRequest
+    labels = dict(WithdrawalRequest.Method.choices)
+    mobile = ('ecocash', 'onemoney', 'innbucks')
+    seen, out = set(), []
+    for method, phone in (PaymentTransaction.objects.filter(player_id=player_id, status=PaymentTransaction.Status.PAID)
+                          .exclude(phone='').order_by('-id').values_list('method', 'phone')):
+        method = (method or '').lower()
+        if method in mobile and (method, phone) not in seen:
+            seen.add((method, phone))
+            out.append((method, phone, labels.get(method, method.title())))
+    return out[:5]
+
+
 # -- rate limit ---------------------------------------------------------------------------
 
 def over_rate(address: str) -> bool:

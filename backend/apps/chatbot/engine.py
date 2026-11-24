@@ -122,6 +122,8 @@ def describe(e, code: str) -> tuple[str, str]:
     return 'Total goals', f'{"Over" if code.startswith("O") else "Under"} {code[1:]}'
 
 
+from .menus import MenuMixin  # noqa: E402  (menus reads this module's helpers at call time)
+
 # -- entry point -------------------------------------------------------------------
 
 def handle(address: str, text: str, *, channel: str = WHATSAPP, now=None) -> list[dict]:
@@ -153,7 +155,7 @@ def _handle(channel: str, address: str, text: str, now) -> list[dict]:
     return replies
 
 
-class Conversation:
+class Conversation(MenuMixin):
     def __init__(self, channel, address, link: Optional[ChatLink], session: ChatSession, now, cfg):
         self.channel, self.address, self.link, self.session, self.now, self.cfg = channel, address, link, session, now, cfg
         self.state = session.state if isinstance(session.state, dict) else {}
@@ -172,9 +174,28 @@ class Conversation:
             'BALANCE': self.balance, 'BAL': self.balance, 'TICKETS': self.tickets, 'MYBETS': self.tickets,
             'BETS': self.tickets, 'BOOK': self.book, 'STOP': self.stop, 'UNLINK': self.stop,
             'STAKE': self.stake_prompt, 'PLACE': self.stake_prompt, 'BET': self.stake_prompt,
+            'TODAY': lambda: self.games('', day=0), 'TOMORROW': lambda: self.games('', day=1),
+            'TOP': lambda: self.games('', top=True), 'SEARCH': self.search_prompt, 'FIND': self.search_prompt,
+            'OPEN': self.open_tickets, 'SETTLED': self.settled_tickets, 'CASHOUT': self.cashout_list,
+            'HISTORY': self.history, 'TRANSACTIONS': self.history, 'WITHDRAWALS': self.withdrawals_list,
+            'BONUS': self.my_bonus, 'BONUSES': self.my_bonus, 'OFFERS': self.offers, 'PROMOTIONS': self.offers,
+            'REFER': self.refer, 'AGENT': self.agent, 'AVIATOR': self.aviator, 'CRASHES': self.crashes,
+            'FAQ': self.faq, 'RULES': self.rules, 'SAFE': self.safe, 'WEBSITE': self.website,
+            'ACCOUNT': self.account, 'NOTIFICATIONS': self.notifications, 'ALERTS': self.notifications,
+            'CODE': lambda: [_reply('Send *CODE* and the booking code, e.g. *CODE AB12CD*.')],
         }
         if head in simple and not rest:
             return simple[head]()
+        if head == 'MENU' and rest:
+            return self.section(rest[0])
+        if head == 'CASHOUT' and len(rest) >= 2 and rest[1].isdigit():
+            return self.cashout_offer(rest[0], int(rest[1]))
+        if head == 'WITHDRAW':
+            return self.withdraw(rest)
+        if head == 'PROMO':
+            return self.promo(rest)
+        if head == 'SUPPORT':
+            return self.support(rest)
         if head in ('NEXT', 'MORE') and not rest:
             return self.turn_page(1)
         if head in ('PREV', 'BACK', 'PREVIOUS') and not rest:
@@ -214,20 +235,6 @@ class Conversation:
         return [_reply("Sorry, I didn't get that. Send MENU to see what you can do.", *MENU_BUTTONS)]
 
     # -- help / linking -------------------------------------------------------------
-    def menu(self) -> list[dict]:
-        site = _site()
-        lines = [f'👋 Welcome to {site} on WhatsApp.', '',
-                 '*GAMES* – upcoming matches (NEXT for more) · *LEAGUES* – pick a league',
-                 '*LIVE* – matches in play now · *GAMES chelsea* – search',
-                 '*1234* – open a match: its main odds, then “All odds” for every market',
-                 '*1234 1* – type the match ID and pick (X 2 1X 12 X2 GG NG O2.5 U2.5)',
-                 'SLIP – your ticket · then Place bet and Confirm', 'BALANCE · TICKETS · DEPOSIT 10']
-        if not self.link:
-            lines += ['', f'To bet, link your account: on the {site} website open {SITE_PATH}, get a code and send LINK 123456 here.']
-        else:
-            lines += ['', 'STOP – unlink this number']
-        return [_reply('\n'.join(lines), *MENU_BUTTONS)]
-
     def link_account(self, code: str) -> list[dict]:
         if not code.isdigit():
             return [_reply(f'Send LINK and the 6-digit code from the website ({SITE_PATH}), e.g. LINK 123456.')]
@@ -302,7 +309,7 @@ class Conversation:
         tail = ' · '.join(x for x in (row, f'+{more} market{"" if more == 1 else "s"}' if more else '') if x)
         return head + (f'\n{tail}' if tail else '')
 
-    def _upcoming(self, *, query: str = '', league: Optional[int] = None):
+    def _upcoming(self, *, query: str = '', league: Optional[int] = None, day: Optional[int] = None, top: bool = False):
         from django.db.models import Count, F, Q
         from apps.sportsbook.models import Event
         qs = Event.objects.filter(is_open=True, has_odds=True).filter(Q(starts_at__gt=self.now) | Q(starts_at__isnull=True))
@@ -311,6 +318,12 @@ class Conversation:
                            | Q(home_team__name__icontains=query) | Q(away_team__name__icontains=query))
         if league:
             qs = qs.filter(league_id=league)
+        if top:
+            qs = qs.filter(league__top_events=True)
+        if day is not None:
+            tz = services.local_tz()
+            start = timezone.localtime(self.now, tz).replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=day)
+            qs = qs.filter(starts_at__gte=start, starts_at__lt=start + timedelta(days=1))
         return (qs.select_related('league', 'home_team', 'away_team')
                 .annotate(open_markets=Count('markets', filter=Q(markets__is_open=True, markets__settled=False), distinct=True))
                 .order_by(F('starts_at').asc(nulls_last=True), 'name', 'id'))
@@ -329,18 +342,22 @@ class Conversation:
         nav = ([['PREV', '◀ Previous']] if page > 0 else []) + ([['NEXT', 'Next ▶']] if page + 1 < pages else [])
         return (nav + [b for b in extra if b])[:3]
 
-    def games(self, query: str, *, page: int = 0, league: Optional[int] = None) -> list[dict]:
+    def games(self, query: str, *, page: int = 0, league: Optional[int] = None, day: Optional[int] = None,
+              top: bool = False) -> list[dict]:
         q = query.strip()
-        qs = self._upcoming(query=q, league=league)
+        qs = self._upcoming(query=q, league=league, day=day, top=top)
         total = qs.count()
         if not total:
-            what = f' for “{q}”' if q else ''
-            return [_reply(f'No upcoming matches{what} right now.', 'LIVE', 'LEAGUES', 'MENU')]
+            what = (f' for “{q}”' if q else ' today' if day == 0 else ' tomorrow' if day == 1
+                    else ' in the top events' if top else '')
+            return [_reply(f'No upcoming matches{what} right now.', 'GAMES' if (day is not None or top) else 'LIVE',
+                           'LEAGUES', 'MENU')]
         pages = -(-total // PAGE_SIZE)
         page = max(0, min(page, pages - 1))
         events = list(qs[page * PAGE_SIZE:(page + 1) * PAGE_SIZE])
-        self.state['browse'] = {'kind': 'games', 'q': q, 'league': league, 'page': page}
-        title = (events[0].league.name if league and events[0].league_id else q) or 'Upcoming matches'
+        self.state['browse'] = {'kind': 'games', 'q': q, 'league': league, 'day': day, 'top': top, 'page': page}
+        title = ((events[0].league.name if league and events[0].league_id else q)
+                 or {0: "Today's matches", 1: "Tomorrow's matches"}.get(day) or ('Top events' if top else 'Upcoming matches'))
         lines = [f'⚽ *{title}* · {page * PAGE_SIZE + 1}–{page * PAGE_SIZE + len(events)} of {total}']
         day = group = None
         tz = services.local_tz()
@@ -382,7 +399,7 @@ class Conversation:
         if b.get('kind') == 'live':
             return self.live(page=page)
         if b.get('kind') == 'games':
-            return self.games(b.get('q') or '', page=page, league=b.get('league'))
+            return self.games(b.get('q') or '', page=page, league=b.get('league'), day=b.get('day'), top=bool(b.get('top')))
         if b.get('kind') == 'leagues':
             return self.leagues(page)
         if b.get('kind') == 'market':
@@ -775,6 +792,7 @@ class Conversation:
             return [_reply(str(exc))]
         wallet = WALLETS.get(wallet_word) or self._auto_wallet(stake)
         total = self._total()
+        self.state.pop('action', None)
         self.state['pending'] = {'stake': str(stake), 'wallet': wallet, 'odds': [leg['odds'] for leg in legs],
                                  'expires': (self.now + CONFIRM_FOR).isoformat(), 'pin_tries': 0}
         pin = services.needs_pin(self.link, stake)
@@ -801,12 +819,16 @@ class Conversation:
         return 'deposit'
 
     def cancel(self) -> list[dict]:
+        if self.state.pop('action', None):
+            return [_reply('Cancelled.', 'MENU')]
         had = self.state.pop('pending', None)
         return [_reply('Cancelled. Your selections are kept.' if had else 'Nothing to cancel.', VIEW_SLIP)]
 
     def confirm(self, pin: str) -> list[dict]:
         if (r := self._need_link()) or (r := self._blocked()):
             return r
+        if self.state.get('action'):
+            return self.confirm_action(pin)
         pending = self.state.get('pending')
         if not pending:
             return [_reply('There is no ticket waiting. Press Place bet first.', PLACE_BET)]

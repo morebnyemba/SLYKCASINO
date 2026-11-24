@@ -23,6 +23,13 @@ class ChatbotSettings(models.Model):
     daily_cap = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('200.00'))
     # Stakes above this need the player's chat PIN (set on the website). 0 = every bet.
     pin_above = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('20.00'))
+    # Withdrawals from chat: off until a superuser turns them on. Always need the
+    # chat PIN (set only on the website), pay only to a number the player's own
+    # deposits came from, stop at this many dollars a day (all withdrawals that
+    # day count), and wait this long after a number is linked (SIM-swap defence).
+    allow_withdrawals = models.BooleanField(default=False)
+    withdraw_daily_cap = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('100.00'))
+    withdraw_cooldown_hours = models.PositiveSmallIntegerField(default=48)
 
     # -- the WhatsApp connection (Meta Cloud API), set in the admin. Blank = use
     # the WHATSAPP_* value from .env.prod. Secrets are stored encrypted (secrets.py)
