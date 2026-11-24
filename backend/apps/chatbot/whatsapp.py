@@ -3,7 +3,8 @@ message parsing and sending replies.
 
 Settings: Admin → WhatsApp bot (stored encrypted), falling back to the environment:
   WHATSAPP_TOKEN            — a permanent system-user access token
-  WHATSAPP_PHONE_NUMBER_ID  — the sending number's id (not the number itself)
+  WHATSAPP_PHONE_NUMBER_ID  — the sending number's id (not the number itself); the only ID sending uses
+  WHATSAPP_BUSINESS_ACCOUNT_ID — the account the number belongs to (optional: checks, number lookup)
   WHATSAPP_APP_SECRET       — the Meta app secret; signs every webhook (X-Hub-Signature-256)
   WHATSAPP_VERIFY_TOKEN     — any string; Meta echoes it when you subscribe the webhook
   WHATSAPP_GRAPH_VERSION    — e.g. v21.0
@@ -146,37 +147,97 @@ def _json(res) -> dict:
 
 def check_connection() -> dict:
     """Ask Meta about the configured number with the configured token: the
-    business name and number it's registered as, or why it failed."""
+    business name and number it's registered as, or why it failed. With the
+    WhatsApp Business Account ID also set, it can tell a wrong ID from a token
+    without access, and checks the number belongs to that account."""
     if not configured():
         return {'ok': False, 'error': 'Add the phone number ID and access token first.'}
-    pid = _setting('phone_number_id')
+    pid, waba = _setting('phone_number_id'), _setting('waba_id')
+    if waba and pid == waba:
+        return {'ok': False, 'code': 'same_id',
+                'error': 'The phone number ID box holds the WhatsApp Business Account ID. Use "Find my numbers" to get the phone number ID.'}
     res, err = _graph('GET', pid, params={'fields': 'display_phone_number,verified_name,quality_rating'})
     if err:
         return {'ok': False, 'error': err}
     if res.status_code >= 300:
         code, text = _meta_error(res)
-        return {'ok': False, 'error': text, 'code': code}
+        out = {'ok': False, 'error': text, 'code': code}
+        if code == '100' and waba:
+            out.update(_diagnose_id(pid, waba))
+        return out
     body = _json(res)
     out = {'ok': True, 'verified_name': body.get('verified_name', ''),
            'display_phone_number': body.get('display_phone_number', ''),
            'quality_rating': body.get('quality_rating', '')}
-    # Registration state is a second, tolerant request: if Meta rejects these
-    # fields the connection is still good, we just can't say if it is registered.
-    res2, _ = _graph('GET', pid, params={'fields': 'platform_type,status,code_verification_status'})
-    if res2 is not None and res2.status_code < 300:
-        extra = _json(res2)
-        out.update(platform_type=extra.get('platform_type', ''), status=extra.get('status', ''),
-                   code_verification_status=extra.get('code_verification_status', ''))
-        if extra.get('platform_type') and extra['platform_type'] != 'CLOUD_API':
-            out['warning'] = ('This number is not registered with the Cloud API, so it cannot send yet. '
-                              'Use "Register number" with a 6-digit PIN.')
+    warnings = []
+    # Details and registration state are a second, tolerant request: if Meta
+    # rejects these fields the connection is still good, we just show less.
+    extra = _number_details(pid)
+    out.update(extra)
+    if extra.get('platform_type') and extra['platform_type'] != 'CLOUD_API':
+        warnings.append('This number is not registered with the Cloud API, so it cannot send yet. '
+                        'Use "Register number" with a 6-digit PIN.')
+    if waba:
+        res3, _ = _graph('GET', waba, params={'fields': 'name,currency,timezone_id,account_review_status'})
+        if res3 is not None and res3.status_code < 300:
+            acct = _json(res3)
+            out['account'] = {k: str(acct.get(k) or '') for k in ('name', 'currency', 'timezone_id', 'account_review_status')}
+        listed = list_numbers(waba)
+        if listed['ok'] and pid not in {n['id'] for n in listed['numbers']}:
+            warnings.append('This number is not under the WhatsApp Business Account ID you entered: one of the two IDs is wrong.')
+        subs, _ = _graph('GET', f'{waba}/subscribed_apps')
+        if subs is not None and subs.status_code < 300 and not (_json(subs).get('data') or []):
+            warnings.append('No app is subscribed to this WhatsApp Business Account, so incoming messages will not reach the bot.')
+    if warnings:
+        out['warning'] = ' '.join(warnings)
     return out
 
 
-def list_numbers(waba_id: str) -> dict:
+# Fields worth showing about a number. Asked for in one go; if Meta rejects any
+# (field names differ between Graph versions), fall back to the basic three.
+DETAIL_FIELDS = ('platform_type', 'status', 'code_verification_status', 'name_status',
+                 'messaging_limit_tier', 'account_mode', 'throughput')
+
+
+def _number_details(pid: str) -> dict:
+    for fields in (DETAIL_FIELDS, DETAIL_FIELDS[:3]):
+        res, _ = _graph('GET', pid, params={'fields': ','.join(fields)})
+        if res is not None and res.status_code < 300:
+            body = _json(res)
+            out = {}
+            for f in fields:
+                v = body.get(f)
+                if isinstance(v, dict):          # throughput: {"level": "STANDARD"}
+                    v = v.get('level', '')
+                out[f] = str(v or '')
+            return out
+    return {}
+
+
+def _diagnose_id(pid: str, waba: str) -> dict:
+    """Meta's error 100 means "no such ID" or "no access", without saying which.
+    Asking for the account's numbers tells them apart."""
+    listed = list_numbers(waba)
+    if listed['ok']:
+        numbers = listed['numbers']
+        if pid in {n['id'] for n in numbers}:
+            return {'diagnosis': 'The token can see the account but not this number: give the system user full control of the WhatsApp account.'}
+        names = ', '.join(f'{n["display_phone_number"]} (ID {n["id"]})' for n in numbers[:5]) or 'none'
+        return {'diagnosis': f'The phone number ID is wrong. This account\'s numbers: {names}. Pick one under "Find my numbers".',
+                'numbers': numbers}
+    if listed.get('code') == '100':
+        return {'diagnosis': 'The token cannot see this WhatsApp Business Account either: it is a token problem, not the ID. '
+                             'Assign the account to the token\'s system user (full control) and give it whatsapp_business_messaging.'}
+    return {}
+
+
+def list_numbers(waba_id: str = '') -> dict:
     """The phone numbers (with their IDs) under a WhatsApp Business Account, so
-    staff can copy the right Phone number ID instead of guessing."""
-    waba_id = (waba_id or '').strip()
+    staff can copy the right Phone number ID instead of guessing. Without an ID,
+    the configured one."""
+    waba_id = (waba_id or _setting('waba_id') or '').strip()
+    if not waba_id:
+        return {'ok': False, 'error': 'Enter the WhatsApp Business Account ID.'}
     if not waba_id.isdigit():
         return {'ok': False, 'error': 'The WhatsApp Business Account ID is digits only.'}
     if not _setting('token'):
@@ -196,6 +257,127 @@ def list_numbers(waba_id: str) -> dict:
              'code_verification_status': r.get('code_verification_status', '')}
             for r in _json(res).get('data') or []]
     return {'ok': True, 'numbers': rows, 'current': _setting('phone_number_id')}
+
+
+# -- business profile (belongs to the phone number, not the account) -------------
+
+PROFILE_FIELDS = ('about', 'address', 'description', 'email', 'websites', 'vertical')
+PROFILE_LIMITS = {'about': 139, 'address': 256, 'description': 512, 'email': 128}
+VERTICALS = ('UNDEFINED', 'OTHER', 'AUTO', 'BEAUTY', 'APPAREL', 'EDU', 'ENTERTAIN', 'EVENT_PLAN', 'FINANCE',
+             'GROCERY', 'GOVT', 'HOTEL', 'HEALTH', 'NONPROFIT', 'PROF_SERVICES', 'RETAIL', 'TRAVEL', 'RESTAURANT')
+PHOTO_TYPES = ('image/jpeg', 'image/png')
+PHOTO_MAX = 5 * 1024 * 1024
+
+
+class ProfileError(ValueError):
+    """A profile value Meta would refuse (shown to staff)."""
+
+
+def get_profile() -> dict:
+    if not configured():
+        return {'ok': False, 'error': 'Add the phone number ID and access token first.'}
+    res, err = _graph('GET', f'{_setting("phone_number_id")}/whatsapp_business_profile',
+                      params={'fields': ','.join((*PROFILE_FIELDS, 'profile_picture_url'))})
+    if err:
+        return {'ok': False, 'error': err}
+    if res.status_code >= 300:
+        code, text = _meta_error(res)
+        return {'ok': False, 'error': text, 'code': code}
+    row = (_json(res).get('data') or [{}])[0]
+    return {'ok': True, 'profile': {
+        **{f: row.get(f) or '' for f in ('about', 'address', 'description', 'email', 'vertical')},
+        'websites': list(row.get('websites') or []), 'profile_picture_url': row.get('profile_picture_url') or ''}}
+
+
+def clean_profile(data: dict) -> dict:
+    """Only the fields sent, checked against Meta's limits."""
+    out = {}
+    for f, limit in PROFILE_LIMITS.items():
+        if f in data:
+            v = str(data[f] or '').strip()
+            if len(v) > limit:
+                raise ProfileError(f'{f.capitalize()} is at most {limit} characters.')
+            if f == 'about' and not v:
+                raise ProfileError('About cannot be empty (WhatsApp shows it under the name).')
+            if f == 'email' and v and ('@' not in v or ' ' in v):
+                raise ProfileError('Enter a valid email address.')
+            out[f] = v
+    if 'websites' in data:
+        sites = [str(w).strip() for w in (data['websites'] or []) if str(w).strip()]
+        if len(sites) > 2:
+            raise ProfileError('WhatsApp allows at most 2 websites.')
+        for w in sites:
+            if not w.startswith(('http://', 'https://')) or len(w) > 256:
+                raise ProfileError('Websites start with http:// or https:// and are at most 256 characters.')
+        out['websites'] = sites
+    if 'vertical' in data:
+        v = str(data['vertical'] or '').strip().upper()
+        if v and v not in VERTICALS:
+            raise ProfileError('Pick a category from the list.')
+        if v:
+            out['vertical'] = v
+    return out
+
+
+def update_profile(data: dict) -> dict:
+    if not configured():
+        return {'ok': False, 'error': 'Add the phone number ID and access token first.'}
+    try:
+        fields = clean_profile(data)
+    except ProfileError as exc:
+        return {'ok': False, 'error': str(exc)}
+    if not fields:
+        return {'ok': False, 'error': 'Nothing to change.'}
+    res, err = _graph('POST', f'{_setting("phone_number_id")}/whatsapp_business_profile',
+                      json={'messaging_product': 'whatsapp', **fields})
+    if err:
+        return {'ok': False, 'error': err}
+    if res.status_code >= 300:
+        code, text = _meta_error(res)
+        return {'ok': False, 'error': text, 'code': code}
+    return {'ok': True, 'changed': sorted(fields)}
+
+
+def upload_profile_photo(content: bytes, content_type: str) -> dict:
+    """Meta's resumable upload (per app) gives a handle; the profile takes the handle."""
+    if content_type not in PHOTO_TYPES:
+        return {'ok': False, 'error': 'Use a JPG or PNG image.'}
+    if not content or len(content) > PHOTO_MAX:
+        return {'ok': False, 'error': 'The photo must be under 5 MB.'}
+    if not configured():
+        return {'ok': False, 'error': 'Add the phone number ID and access token first.'}
+    app_id = _setting('app_id')
+    if not app_id:
+        return {'ok': False, 'error': 'Add the Meta app ID in the connection settings first (Meta app → Settings → Basic → App ID).'}
+    res, err = _graph('POST', f'{app_id}/uploads', params={'file_length': len(content), 'file_type': content_type})
+    if err:
+        return {'ok': False, 'error': err}
+    if res.status_code >= 300:
+        code, text = _meta_error(res)
+        return {'ok': False, 'error': text, 'code': code}
+    session = str(_json(res).get('id') or '')
+    if not session.startswith('upload:'):
+        return {'ok': False, 'error': 'Meta did not open an upload session.'}
+    import requests
+    try:
+        up = requests.post(f'https://graph.facebook.com/{_setting("graph_version")}/{session}', data=content, timeout=30,
+                           headers={'Authorization': f'OAuth {_setting("token")}', 'file_offset': '0'})
+    except requests.RequestException as exc:
+        return {'ok': False, 'error': f'Could not reach Meta: {exc.__class__.__name__}.'}
+    if up.status_code >= 300:
+        code, text = _meta_error(up)
+        return {'ok': False, 'error': text, 'code': code}
+    handle = str(_json(up).get('h') or '')
+    if not handle:
+        return {'ok': False, 'error': 'Meta did not return an upload handle.'}
+    res, err = _graph('POST', f'{_setting("phone_number_id")}/whatsapp_business_profile',
+                      json={'messaging_product': 'whatsapp', 'profile_picture_handle': handle})
+    if err:
+        return {'ok': False, 'error': err}
+    if res.status_code >= 300:
+        code, text = _meta_error(res)
+        return {'ok': False, 'error': text, 'code': code}
+    return {'ok': True}
 
 
 def register_number(pin: str) -> dict:

@@ -4,13 +4,14 @@ import { useEffect, useState } from 'react';
 import { BsWhatsapp } from 'react-icons/bs';
 import { Badge, Btn, Field, Notice, PageHeader, Panel, Switch, Tabs, TextInput } from '@/components/console/ui';
 import { DeliveryHealth, Inbox } from '@/components/chatbot/inbox';
+import { BusinessProfile } from '@/components/chatbot/profile';
 import { useAuth } from '@/lib/auth-context';
 import { authedPost, authedRequest, useApi } from '@/lib/use-api';
 
 type Source = 'admin' | 'env' | 'default' | 'unset' | 'unreadable';
 interface PlainSetting { label: string; source: Source; env: string; secret: false; value: string }
 interface SecretSetting { label: string; source: Source; env: string; secret: true; set: boolean; hint: string }
-type ConnKey = 'phone_number_id' | 'display_number' | 'token' | 'app_secret' | 'verify_token' | 'graph_version' | 'time_zone';
+type ConnKey = 'phone_number_id' | 'waba_id' | 'app_id' | 'display_number' | 'token' | 'app_secret' | 'verify_token' | 'graph_version' | 'time_zone';
 type Connection = Record<ConnKey, PlainSetting | SecretSetting> & { updated_by: string; updated_at: string | null };
 
 interface BotSettings {
@@ -21,15 +22,56 @@ interface BotSettings {
   connection: Connection; can_edit_connection: boolean;
 }
 interface CheckResult {
-  ok: boolean; error?: string; code?: string; warning?: string;
+  ok: boolean; error?: string; code?: string; warning?: string; diagnosis?: string;
   verified_name?: string; display_phone_number?: string; quality_rating?: string;
+  platform_type?: string; status?: string; code_verification_status?: string; name_status?: string;
+  messaging_limit_tier?: string; account_mode?: string; throughput?: string;
+  account?: { name: string; currency: string; timezone_id: string; account_review_status: string };
+}
+
+const LIMIT_TIER: Record<string, string> = {
+  TIER_50: '50 people / day', TIER_250: '250 people / day', TIER_1K: '1,000 people / day', TIER_2K: '2,000 people / day',
+  TIER_10K: '10,000 people / day', TIER_100K: '100,000 people / day', TIER_UNLIMITED: 'Unlimited',
+};
+const words = (v?: string) => (v ? v.replace(/_/g, ' ').toLowerCase().replace(/^\w/, (c) => c.toUpperCase()) : '');
+
+/** What Meta says about the number, after a successful Test connection. */
+function NumberDetails({ c }: { c: CheckResult }) {
+  const quality = { GREEN: 'green', YELLOW: 'gold', RED: 'red' } as const;
+  const rows: [string, React.ReactNode][] = [
+    ['Business name', c.verified_name],
+    ['Number', c.display_phone_number],
+    ['Quality', c.quality_rating && <Badge tone={quality[c.quality_rating as keyof typeof quality] ?? 'slate'} dot>{words(c.quality_rating)}</Badge>],
+    ['Name review', words(c.name_status)],
+    ['Cloud API', c.platform_type && (c.platform_type === 'CLOUD_API'
+      ? <Badge tone="green" dot>Registered</Badge> : <Badge tone="red" dot>Not registered</Badge>)],
+    ['Status', words(c.status)],
+    ['Messaging limit', c.messaging_limit_tier && (LIMIT_TIER[c.messaging_limit_tier] ?? words(c.messaging_limit_tier))],
+    ['Mode', words(c.account_mode)],
+    ['Throughput', words(c.throughput)],
+    ['Verification', words(c.code_verification_status)],
+    ['Business account', c.account && [c.account.name, c.account.currency].filter(Boolean).join(' · ')],
+    ['Account review', words(c.account?.account_review_status)],
+  ];
+  return (
+    <dl className="grid gap-x-6 gap-y-3 rounded-xl border border-win/40 bg-win/5 p-4 text-sm sm:grid-cols-3">
+      {rows.filter(([, v]) => v).map(([k, v]) => (
+        <div key={k}>
+          <dt className="text-xs text-muted-foreground">{k}</dt>
+          <dd className="mt-0.5 font-semibold">{v}</dd>
+        </div>
+      ))}
+    </dl>
+  );
 }
 interface MetaNumber { id: string; display_phone_number: string; verified_name: string; quality_rating: string; code_verification_status: string }
 interface NumbersResult { ok: boolean; error?: string; numbers?: MetaNumber[]; current?: string }
 
 const money = (v: string | number) => `$${Number(v).toFixed(2)}`;
 const PLAIN: { key: ConnKey; hint: string; placeholder: string }[] = [
-  { key: 'phone_number_id', hint: 'Meta → WhatsApp → API setup → Phone number ID (digits, not the number itself).', placeholder: '123456789012345' },
+  { key: 'phone_number_id', hint: 'Meta → WhatsApp → API setup → Phone number ID (digits, not the number itself). The only ID used to send.', placeholder: '123456789012345' },
+  { key: 'waba_id', hint: 'Optional, not used to send. Lets Test connection check the number belongs to this account and tell a wrong ID from a token problem.', placeholder: '987654321098765' },
+  { key: 'app_id', hint: 'Optional. Meta app → Settings → Basic → App ID. Only needed to change the profile photo.', placeholder: '1234567890123456' },
   { key: 'display_number', hint: 'The bot’s number as players should save it. Shown on the website.', placeholder: '+263 77 000 1111' },
   { key: 'graph_version', hint: 'Meta’s Graph API version. Leave as is unless Meta retires it.', placeholder: 'v21.0' },
   { key: 'time_zone', hint: 'Kick-off times in chat and the daily chat limit’s day.', placeholder: 'Africa/Harare' },
@@ -74,6 +116,7 @@ export default function WhatsAppBotPage() {
       plain[key] = s.source === 'admin' ? s.value : '';
     }
     setConn(plain);
+    setWaba((w) => w || (data.connection.waba_id as PlainSetting).value || '');
   }, [data]);
 
   async function put(body: Record<string, unknown>, ok: string, key: string) {
@@ -121,7 +164,7 @@ export default function WhatsAppBotPage() {
   }
 
   async function useNumber(n: MetaNumber) {
-    await put({ connection: { phone_number_id: n.id, display_number: n.display_phone_number } },
+    await put({ connection: { phone_number_id: n.id, waba_id: waba.trim(), display_number: n.display_phone_number } },
       `Now using ${n.display_phone_number} (ID ${n.id}). Press Test connection.`, `use-${n.id}`);
     setCheck(null);
     setFound((f) => f && { ...f, current: n.id });
@@ -219,9 +262,11 @@ export default function WhatsAppBotPage() {
               {editable && <Btn variant="primary" busy={busy === 'conn'} onClick={saveConnection}>Save connection</Btn>}
               <Btn busy={busy === 'test'} onClick={testConnection}>Test connection</Btn>
               {check && (check.ok
-                ? <span className="text-sm text-win">✓ Meta knows this number: <b>{check.verified_name}</b> ({check.display_phone_number}{check.quality_rating ? `, quality ${check.quality_rating}` : ''})</span>
+                ? <span className="text-sm text-win">✓ Connected</span>
                 : <span className="text-sm text-destructive">✗ {check.error}</span>)}
             </div>
+            {check?.ok && <NumberDetails c={check} />}
+            {check && !check.ok && check.diagnosis && <Notice tone="red">{check.diagnosis}</Notice>}
             {check?.ok && check.warning && <Notice tone="red">{check.warning}</Notice>}
             <div className="rounded-xl border border-border/70 p-3 text-sm">
               <p className="text-xs text-muted-foreground">Webhook callback URL (Meta → WhatsApp → Configuration; subscribe to “messages”)</p>
@@ -294,6 +339,8 @@ export default function WhatsAppBotPage() {
           </div>
         </Panel>
       )}
+
+      <BusinessProfile editable={editable} />
 
       <Panel title="Switches and limits">
         {form && (
