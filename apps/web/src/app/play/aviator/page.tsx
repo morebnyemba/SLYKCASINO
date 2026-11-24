@@ -7,7 +7,8 @@ import { ChatPanel } from '@/components/jet/chat-panel';
 import { FlightScene } from '@/components/jet/flight-scene';
 import { BetsList, HistoryStrip } from '@/components/jet/side-panels';
 import { useAuth } from '@/lib/auth-context';
-import { multiplierAt, useJet, useJetChat, type BonusAviator, type JetBet, type JetRound } from '@/lib/jet';
+import { authedPost } from '@/lib/use-api';
+import { multiplierAt, useJet, useJetChat, type BonusAviator, type FreeSpinOffer, type JetBet, type JetRound } from '@/lib/jet';
 import * as sound from '@/lib/jet-sound';
 import { GAME_WALLET_IDS, WALLET_LABEL } from '@/lib/wallets';
 
@@ -137,7 +138,7 @@ const EMPTY: JetBet[] = [];
 /** The multiplayer crash game (named in the admin; BetBlits Aviator by default). */
 export default function AviatorPage() {
   const { user } = useAuth();
-  const { state, error, now, placeBet, cancelBet, cashOut, claimBonusProfit } = useJet();
+  const { state, error, now, placeBet, cancelBet, cashOut, claimBonusProfit, reload } = useJet();
   const [multiplier, setMultiplier] = useState(1);
   const [rulesOpen, setRulesOpen] = useState(false);
   const chat = useJetChat();
@@ -204,6 +205,7 @@ export default function AviatorPage() {
           </button>
         )}
       </header>
+      {(state.free_spin_offers ?? []).length > 0 && <FreeSpinOffers offers={state.free_spin_offers ?? []} onClaimed={reload} />}
 
       {rulesOpen && (
         <div className="mb-3 rounded-2xl border border-[#2c2d30] bg-[#1b1c1d] p-4 text-sm leading-relaxed text-white/80">
@@ -346,6 +348,41 @@ function BonusProfitChip({ pot, onClaim }: {
           {note && <p className={`mt-2 font-semibold ${note.tone === 'err' ? 'text-[#f87171]' : 'text-[#22c55e]'}`}>{note.text}</p>}
         </div>
       )}
+    </div>
+  );
+}
+
+
+/** Free spins staff gave: claim them and they appear in the bet panel as free bets. */
+function FreeSpinOffers({ offers, onClaimed }: { offers: FreeSpinOffer[]; onClaimed: () => void }) {
+  const { accessToken } = useAuth();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const spins = offers.reduce((n, o) => n + o.count, 0);
+  async function claim() {
+    if (!accessToken) return;
+    setBusy(true);
+    setError('');
+    const res = await authedPost<{ claimed: number }>('/jet/free-spins/', {}, accessToken);
+    setBusy(false);
+    if (res.error) setError(res.error);
+    else onClaimed();
+  }
+  return (
+    <div className="mb-2 flex flex-wrap items-center gap-3 rounded-xl border border-[#f5b400]/50 bg-[#f5b400]/10 px-3 py-2 text-white">
+      <BsStars className="shrink-0 text-[#f5b400]" />
+      <div className="min-w-0 flex-1 text-xs">
+        <p className="font-extrabold">🎁 You have {spins} free spin{spins === 1 ? '' : 's'}</p>
+        <p className="text-white/65">
+          {offers.map((o) => `${o.count} × $${Number(o.amount).toFixed(2)}`).join(' · ')}
+          {offers[0]?.message ? ` · ${offers[0].message}` : ''} · claim by {new Date(offers[0].expires_at).toLocaleDateString()}
+        </p>
+        {error && <p className="font-bold text-[#ff6b6b]">{error}</p>}
+      </div>
+      <button onClick={claim} disabled={busy}
+        className="rounded-full bg-[#f5b400] px-4 py-1.5 text-xs font-extrabold text-black disabled:opacity-60">
+        {busy ? 'Claiming…' : 'Claim'}
+      </button>
     </div>
   );
 }

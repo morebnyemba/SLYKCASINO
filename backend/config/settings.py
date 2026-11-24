@@ -337,6 +337,11 @@ CELERY_TASK_TIME_LIMIT = 300
 # Periodic reconciliation. Each manager is idempotent, so cadence is a safety
 # knob, not a correctness one — running more often just narrows drift windows.
 CELERY_BEAT_SCHEDULE = {
+    'promotions-cashback': {
+        # Cashback on losses: pays each finished period once (promotions.cashback).
+        'task': 'apps.promotions.tasks.pay_cashback',
+        'schedule': 60 * 60,
+    },
     'risk-sweep': {
         # Hourly fraud patterns no single event shows (big winnings, linked
         # accounts backing the same selections).

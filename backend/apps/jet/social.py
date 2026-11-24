@@ -189,7 +189,8 @@ def rain(*, players: int | None = None, amount=None, now=None) -> dict:
 def maybe_auto_rain(now=None):
     """Called between rounds: rain when the schedule says it's time."""
     now = now or timezone.now()
-    JetFreeBet.objects.filter(status=JetFreeBet.Status.AVAILABLE, expires_at__lte=now).update(status=JetFreeBet.Status.EXPIRED)
+    JetFreeBet.objects.filter(status__in=(JetFreeBet.Status.AVAILABLE, JetFreeBet.Status.OFFERED),
+                              expires_at__lte=now).update(status=JetFreeBet.Status.EXPIRED)
     cfg = JetSettings.load()
     if not (cfg.rain_enabled and cfg.chat_enabled and cfg.rain_every_minutes):
         return None

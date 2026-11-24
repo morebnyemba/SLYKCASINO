@@ -176,6 +176,7 @@ class JetFreeBet(models.Model):
     shows up as a bonus cost in NGR and never as gaming turnover or GGR."""
 
     class Status(models.TextChoices):
+        OFFERED = 'offered', 'Offered (not claimed yet)'
         AVAILABLE = 'available', 'Available'
         USED = 'used', 'Used'
         EXPIRED = 'expired', 'Expired'
@@ -183,6 +184,8 @@ class JetFreeBet(models.Model):
     player_id = models.BigIntegerField(db_index=True)
     amount = models.DecimalField(max_digits=10, decimal_places=2)
     source = models.CharField(max_length=20, default='rain')
+    # Free spins staff gave (free_spins.py): offered until the player claims them.
+    grant = models.ForeignKey('JetFreeSpinGrant', null=True, blank=True, on_delete=models.SET_NULL, related_name='free_bets')
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.AVAILABLE, db_index=True)
     expires_at = models.DateTimeField()
     bet = models.OneToOneField(JetBet, null=True, blank=True, on_delete=models.SET_NULL, related_name='free_bet')
@@ -221,3 +224,27 @@ class JetChatMute(models.Model):
 
     class Meta:
         db_table = 'jet_chat_mute'
+
+
+class JetFreeSpinGrant(models.Model):
+    """Free spins staff gave to a group of players (free_spins.py): each player
+    is offered `count` free bets of `amount`, claimable until `expires_at`."""
+
+    class Audience(models.TextChoices):
+        ALL = 'all', 'All players'
+        DEPOSITORS = 'depositors', 'Players who have deposited'
+        USERNAMES = 'usernames', 'Chosen players'
+
+    audience = models.CharField(max_length=12, choices=Audience.choices, default=Audience.ALL)
+    usernames = models.TextField(blank=True, default='')
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    count = models.PositiveSmallIntegerField(default=1)
+    message = models.CharField(max_length=200, blank=True, default='')
+    expires_at = models.DateTimeField()
+    players = models.PositiveIntegerField(default=0)
+    created_by = models.CharField(max_length=150)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'jet_free_spin_grant'
+        ordering = ['-id']

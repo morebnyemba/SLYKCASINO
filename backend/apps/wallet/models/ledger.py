@@ -70,6 +70,10 @@ class LedgerEntry(models.Model):
         # Profit from Aviator bonus bets ($0.10 from the Bonus wallet, profit
         # only), claimed by the player into Deposit or (capped) Winnings.
         BONUS_PROFIT = 'bonus_profit', 'Bonus profit claimed'
+        # Promotions paid in real money (Winnings): a multiple lost by one match
+        # (promotions.refunds) and a share of a period's losses (promotions.cashback).
+        LOSS_REFUND = 'loss_refund', 'Lost-by-one refund'
+        CASHBACK = 'cashback', 'Cashback'
 
     wallet = models.ForeignKey(
         'wallet.Wallet', on_delete=models.CASCADE, related_name='entries',
