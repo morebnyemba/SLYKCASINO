@@ -52,6 +52,9 @@ VIEW_SLIP = ['SLIP', '🧾 View slip']
 PLACE_BET = ['STAKE', '✅ Place bet']
 CONFIRM = ['CONFIRM', '✅ Confirm']
 CANCEL = ['NO', '✖ Cancel']
+BACK = ['BACK', '⬅️ Back']
+RETURN = ['RETURN', '⬅️ Back']        # after a mistake: where they were, not a level up
+NAV_DEPTH = 12
 QUICK_STAKES = (Decimal('1'), Decimal('2'), Decimal('5'), Decimal('10'), Decimal('20'), Decimal('50'))
 # The order picks are offered in a match's tap list (WhatsApp shows at most ten).
 PICK_ORDER = ('1', 'X', '2', 'GG', 'NG', 'O2.5', 'U2.5', '1X', '12', 'X2', 'O1.5', 'U1.5', 'O3.5', 'U3.5')
@@ -121,6 +124,38 @@ def describe(e, code: str) -> tuple[str, str]:
         return words[code]
     return 'Total goals', f'{"Over" if code.startswith("O") else "Under"} {code[1:]}'
 
+
+# Commands that open a screen (worth coming back to). Actions (a pick, BET, CONFIRM,
+# LOGIN…) are not screens: BACK and a mistake return to the screen they were sent from.
+SCREENS = {
+    'MENU', 'HI', 'HELLO', 'HELP', 'START', 'GAMES', 'TODAY', 'TOMORROW', 'MATCHES', 'FOOTBALL', 'TOP', 'LIVE',
+    'LEAGUES', 'LEAGUE', 'COUNTRIES', 'COUNTRY', 'SEARCH', 'FIND', 'SLIP', 'OPEN', 'SETTLED', 'TICKETS', 'MYBETS', 'BETS',
+    'BALANCE', 'BAL', 'HISTORY', 'TRANSACTIONS', 'WITHDRAWALS', 'BONUS', 'BONUSES', 'OFFERS', 'PROMOTIONS', 'REFER',
+    'AGENT', 'AVIATOR', 'CRASHES', 'FAQ', 'RULES', 'SAFE', 'WEBSITE', 'ACCOUNT', 'NOTIFICATIONS', 'ALERTS',
+}
+
+
+def _is_screen(words: list[str]) -> bool:
+    if not words:
+        return False
+    head, rest = words[0], words[1:]
+    if head == 'CASHOUT':
+        return not rest                                  # the list, not "CASHOUT B 12"
+    if head.isdigit():                                   # a match, its markets, a group or a market
+        return not rest or rest[0] in ('M', 'MARKETS', 'ODDS', 'ALL', 'G', 'K')
+    return head in SCREENS
+
+
+def _with_back(rows: list, room: int = 10) -> list:
+    """A list's rows plus a Back row, when WhatsApp's ten-row limit leaves room."""
+    return rows + [['BACK', '⬅️ Back', 'Up one level']] if len(rows) < room else rows
+
+
+def _looks_like_error(reply: dict) -> bool:
+    t = reply.get('text') or ''
+    return t.startswith(('⚠️', '“')) or any(p in t for p in (
+        'is not a pick', 'There is no match', 'does not exist', 'not available', 'Send WITHDRAW and', 'Send BET and',
+        'No league matching', 'No country matching', 'No upcoming matches for'))
 
 from .menus import MenuMixin  # noqa: E402  (menus reads this module's helpers at call time)
 
@@ -218,7 +253,62 @@ class Conversation(MenuMixin):
         return [_reply('🔒 Logged out. Send *LOGIN* and your PIN to log in again.', 'MENU')]
 
     # -- routing --------------------------------------------------------------------
+    # -- where the player is: BACK, and getting lost ------------------------------------
     def dispatch(self, text: str) -> list[dict]:
+        """Answer one message, remembering the screens the player opened so BACK goes up a
+        level and a message the bot doesn't understand shows where they were instead of a dead end."""
+        self._lost = False
+        words = text.upper().split()
+        if words in (['BACK'], ['UP']):
+            return self.back()
+        if words == ['RETURN']:                                 # after a mistake: the screen they were on
+            nav = self.state.get('nav') or []
+            return self._route(nav[-1]) if nav else self.menu()
+        replies = self._route(text)
+        if self._lost:
+            return self._where_you_were()
+        if _is_screen(words):
+            self._remember(' '.join(text.split()))
+        elif replies and _looks_like_error(replies[-1]) and len(replies[-1].get('buttons') or []) < 3:
+            replies[-1] = {**replies[-1], 'buttons': list(replies[-1].get('buttons') or []) + [RETURN]}
+        return replies
+
+    def _remember(self, cmd: str) -> None:
+        nav = self.state.setdefault('nav', [])
+        key = cmd.upper()
+        if key in ('MENU', 'HI', 'HELLO', 'HELP', 'START'):
+            nav[:] = ['MENU']                                   # the main menu is the top: start again from it
+            return
+        if nav and nav[-1].upper() == key:
+            return
+        if key in (n.upper() for n in nav):                     # going back to a screen already in the trail
+            while nav and nav[-1].upper() != key:
+                nav.pop()
+            return
+        nav.append(cmd)
+        del nav[:-NAV_DEPTH]
+
+    def back(self) -> list[dict]:
+        nav = self.state.setdefault('nav', [])
+        if nav:
+            nav.pop()                                           # leave the screen they are on
+        if not nav:
+            return self.menu()
+        return self._route(nav[-1])
+
+    def _where_you_were(self) -> list[dict]:
+        nav = self.state.get('nav') or []
+        note = "🤔 Sorry, I didn't get that."
+        if not nav or nav[-1].upper() == 'MENU':
+            replies = self.menu()
+            note += ' Tap *Menu* below, or type a match ID or a word like *TODAY*.'
+        else:
+            replies = self._route(nav[-1])
+            note += ' Here is where you were. Send *BACK* to go up a level or *MENU* for the main menu.'
+        first = replies[0]
+        return [{**first, 'text': f'{note}\n\n{first["text"]}'}] + replies[1:]
+
+    def _route(self, text: str) -> list[dict]:
         words = text.upper().replace(',', ' , ').split()
         if not words:
             return self.menu()
@@ -255,7 +345,7 @@ class Conversation(MenuMixin):
             return self.support(rest)
         if head in ('NEXT', 'MORE') and not rest:
             return self.turn_page(1)
-        if head in ('PREV', 'BACK', 'PREVIOUS') and not rest:
+        if head in ('PREV', 'PREVIOUS') and not rest:
             return self.turn_page(-1)
         if head == 'LEAGUES':
             return self.leagues(int(rest[0]) - 1 if rest and rest[0].isdigit() else 0)
@@ -295,7 +385,8 @@ class Conversation(MenuMixin):
             if not rest:
                 return self.match(int(head))
             return self.add_picks(words)
-        return [_reply("Sorry, I didn't get that. Send MENU to see what you can do.", *MENU_BUTTONS)]
+        self._lost = True
+        return []
 
     # -- help / linking -------------------------------------------------------------
     def link_account(self, code: str) -> list[dict]:
@@ -698,7 +789,7 @@ class Conversation(MenuMixin):
                  'prompt': f'#{e.id} {home} v {away}: tap “All odds” 👇',
                  'list': {'button': 'All odds', 'sections': [
                      {'title': 'Match result', 'rows': rows},
-                     {'title': 'Markets', 'rows': group_rows}]}}]
+                     {'title': 'Markets', 'rows': _with_back(group_rows, room=LIST_SIZE - len(rows))}]}}]
 
     def all_markets(self, event_id: int, page: int = 0) -> list[dict]:
         e = self._event(event_id)
@@ -714,7 +805,7 @@ class Conversation(MenuMixin):
         if page + 1 < pages:
             rows.append([f'{e.id} M {page + 2}', 'More ▶', f'Page {page + 2} of {pages}'])
         return [{'text': f'{self._head(e)}\n\nChoose a group of markets.',
-                 'list': {'button': 'Choose', 'title': 'Market groups', 'rows': rows}}]
+                 'list': {'button': 'Choose', 'title': 'Market groups', 'rows': _with_back(rows)}}]
 
     @staticmethod
     def _outcome_line(o) -> str:
@@ -745,7 +836,7 @@ class Conversation(MenuMixin):
             if page + 1 < pages:
                 rows.append([f'{e.id} G {group} {page + 2}', 'More ▶', f'Page {page + 2} of {pages}'])
         return [{'text': '\n'.join(lines), 'prompt': f'#{e.id} · {label}: tap to choose 👇',
-                 'list': {'button': 'Choose', 'title': label, 'rows': rows}}]
+                 'list': {'button': 'Choose', 'title': label, 'rows': _with_back(rows)}}]
 
     def market(self, event_id: int, market_id: int, page: int = 0) -> list[dict]:
         e = self._event(event_id)
@@ -765,7 +856,7 @@ class Conversation(MenuMixin):
         if page + 1 < pages:
             rows.append([f'{e.id} K {m.id} {page + 2}', 'More ▶', f'Page {page + 2} of {pages}'])
         return [{'text': '\n'.join(lines), 'prompt': f'#{e.id} · {m.name}: tap to choose 👇',
-                 'list': {'button': 'Choose', 'title': m.name, 'rows': rows}}]
+                 'list': {'button': 'Choose', 'title': m.name, 'rows': _with_back(rows)}}]
 
     def pick_outcome(self, outcome_id: int) -> list[dict]:
         """Add any market's outcome (what a tap on an odds list sends)."""

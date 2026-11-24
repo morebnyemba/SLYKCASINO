@@ -76,7 +76,7 @@ class BrowsingAndSlipTests(_Base):
         result, markets = reply['list']['sections']
         self.assertEqual(result['rows'][0], [f'{self.e1.id} 1', '1 · 2.00', 'Match result: Dynamos'])
         self.assertEqual([r[0] for r in result['rows']], [f'{self.e1.id} {c}' for c in ('1', 'X', '2')])
-        self.assertEqual(markets['rows'], [[f'{self.e1.id} G main', 'Main', '1 market']])
+        self.assertEqual(markets['rows'], [[f'{self.e1.id} G main', 'Main', '1 market'], ['BACK', '⬅️ Back', 'Up one level']])
         from apps.chatbot import whatsapp
         body = whatsapp.payload_for(NUMBER, reply)
         self.assertEqual(body['interactive']['type'], 'list')
@@ -861,8 +861,9 @@ class AllOddsTests(_Base):
         self.assertEqual(rows[-1][1], 'More ▶')
         page2 = self.say(rows[-1][0])[0]['list']['rows']
         self.assertTrue(page2[0][1].endswith('1-4'))
-        page3 = self.say('NEXT')[0]['list']['rows']       # NEXT also pages a market: the last 7 options
-        self.assertEqual((len(page3), page3[0][1].endswith('3-3'), page3[-1][1].endswith('4-4')), (7, True, True))
+        page3 = self.say('NEXT')[0]['list']['rows']       # NEXT also pages a market: the last 7 options, then Back
+        self.assertEqual((len(page3), page3[0][1].endswith('3-3'), page3[-2][1].endswith('4-4'), page3[-1][0]),
+                         (8, True, True, 'BACK'))
         [added] = self.say(page2[0][0])                  # tap → on the slip, confirmed
         self.assertIn('Correct score: *1-4*', added['text'])
         self.assertNotIn('(#', added['text'])            # no internal code shown
@@ -1215,3 +1216,51 @@ class LoginTests(_Base):
                                         HTTP_X_HUB_SIGNATURE_256=sig)
         stored = list(InboundMessage.objects.values_list('text', flat=True))
         self.assertEqual(sorted(stored), sorted(['LOGIN ••••', 'confirm ••••', 'YES ••••']))
+
+
+
+class NavigationTests(_Base):
+    """BACK goes up a level; a message the bot doesn't understand shows where the player was."""
+
+    def test_back_climbs_the_levels(self):
+        self.say('MENU')
+        self.say('MENU BET')
+        self.say('TODAY')
+        self.say(str(self.e1.id))
+        self.say(f'{self.e1.id} G main')
+        self.assertIn(f'*#{self.e1.id} Dynamos v Highlanders*', text(self.say('BACK')))   # the match
+        self.assertIn('⚽ *', text(self.say('BACK')))                                       # today's list
+        back = self.say('BACK')[0]                                                          # the Bet section
+        self.assertEqual(back['list']['rows'][0][0], 'TODAY')
+        self.assertEqual(self.say('BACK')[0]['list']['rows'][0][0], 'MENU ACCOUNT')         # the main menu
+        self.assertEqual(self.say('BACK')[0]['list']['rows'][0][0], 'MENU ACCOUNT')         # and it stays there
+
+    def test_a_mistake_shows_where_they_were(self):
+        self.say('GAMES')
+        self.say(str(self.e1.id))
+        [reply] = self.say('blah blah')
+        self.assertIn("Sorry, I didn't get that. Here is where you were", reply['text'])
+        self.assertIn(f'*#{self.e1.id} Dynamos v Highlanders*', reply['text'])
+        self.assertIn('list', reply)                                                         # its taps are there too
+        self.assertIn('Upcoming', text(self.say('BACK')))                                    # the mistake isn't a level
+
+    def test_lost_on_the_menu_or_with_nothing_open(self):
+        [reply] = self.say('qwerty')
+        self.assertIn("Sorry, I didn't get that", reply['text'])
+        self.assertEqual(reply['list']['rows'][0][0], 'MENU ACCOUNT')
+
+    def test_errors_offer_a_way_back(self):
+        self.say('GAMES')
+        out = self.say(f'{self.e1.id} ZZ')[0]
+        self.assertIn('not a pick', out['text'])
+        self.assertIn(['RETURN', '⬅️ Back'], out['buttons'])
+        self.assertIn('Upcoming', text(self.say('RETURN')))                                  # back to where they were
+
+    def test_prev_still_turns_pages(self):
+        soon = timezone.now() + timedelta(days=2)
+        for i in range(10):
+            Event.objects.create(name=f'T{i} vs C{i}', starts_at=soon + timedelta(minutes=i), status='NS',
+                                 odds=D('2'), odds_draw=D('3'), odds_away=D('4'))
+        self.say('GAMES')
+        self.assertIn('9–12 of 12', text(self.say('NEXT')))
+        self.assertIn('1–8 of 12', text(self.say('PREV')))
