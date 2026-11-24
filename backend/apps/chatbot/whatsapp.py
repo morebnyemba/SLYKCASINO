@@ -124,28 +124,95 @@ def payload_for(to: str, reply: dict) -> dict:
     }}
 
 
+def _graph(method: str, path: str, **kw):
+    """One Graph API call with the configured token. Returns (response, error_text);
+    exactly one of them is None."""
+    import requests
+    url = f'https://graph.facebook.com/{_setting("graph_version")}/{path}'
+    try:
+        res = requests.request(method, url, timeout=10, headers={'Authorization': f'Bearer {_setting("token")}'}, **kw)
+    except requests.RequestException as exc:
+        return None, f'Could not reach Meta: {exc.__class__.__name__}.'
+    return res, None
+
+
+def _json(res) -> dict:
+    try:
+        body = res.json()
+    except ValueError:
+        return {}
+    return body if isinstance(body, dict) else {}
+
+
 def check_connection() -> dict:
     """Ask Meta about the configured number with the configured token: the
     business name and number it's registered as, or why it failed."""
     if not configured():
         return {'ok': False, 'error': 'Add the phone number ID and access token first.'}
-    import requests
-    url = f'https://graph.facebook.com/{_setting("graph_version")}/{_setting("phone_number_id")}'
-    try:
-        res = requests.get(url, timeout=10, headers={'Authorization': f'Bearer {_setting("token")}'},
-                           params={'fields': 'display_phone_number,verified_name,quality_rating'})
-    except requests.RequestException as exc:
-        return {'ok': False, 'error': f'Could not reach Meta: {exc.__class__.__name__}.'}
-    try:
-        body = res.json()
-    except ValueError:
-        body = {}
+    pid = _setting('phone_number_id')
+    res, err = _graph('GET', pid, params={'fields': 'display_phone_number,verified_name,quality_rating'})
+    if err:
+        return {'ok': False, 'error': err}
     if res.status_code >= 300:
-        err = (body.get('error') or {}).get('message') or f'Meta answered {res.status_code}.'
-        return {'ok': False, 'error': str(err)[:300]}
-    return {'ok': True, 'verified_name': body.get('verified_name', ''),
-            'display_phone_number': body.get('display_phone_number', ''),
-            'quality_rating': body.get('quality_rating', '')}
+        code, text = _meta_error(res)
+        return {'ok': False, 'error': text, 'code': code}
+    body = _json(res)
+    out = {'ok': True, 'verified_name': body.get('verified_name', ''),
+           'display_phone_number': body.get('display_phone_number', ''),
+           'quality_rating': body.get('quality_rating', '')}
+    # Registration state is a second, tolerant request: if Meta rejects these
+    # fields the connection is still good, we just can't say if it is registered.
+    res2, _ = _graph('GET', pid, params={'fields': 'platform_type,status,code_verification_status'})
+    if res2 is not None and res2.status_code < 300:
+        extra = _json(res2)
+        out.update(platform_type=extra.get('platform_type', ''), status=extra.get('status', ''),
+                   code_verification_status=extra.get('code_verification_status', ''))
+        if extra.get('platform_type') and extra['platform_type'] != 'CLOUD_API':
+            out['warning'] = ('This number is not registered with the Cloud API, so it cannot send yet. '
+                              'Use "Register number" with a 6-digit PIN.')
+    return out
+
+
+def list_numbers(waba_id: str) -> dict:
+    """The phone numbers (with their IDs) under a WhatsApp Business Account, so
+    staff can copy the right Phone number ID instead of guessing."""
+    waba_id = (waba_id or '').strip()
+    if not waba_id.isdigit():
+        return {'ok': False, 'error': 'The WhatsApp Business Account ID is digits only.'}
+    if not _setting('token'):
+        return {'ok': False, 'error': 'Add the access token first.'}
+    fields = 'id,display_phone_number,verified_name,quality_rating,code_verification_status'
+    res, err = _graph('GET', f'{waba_id}/phone_numbers', params={'fields': fields})
+    if err:
+        return {'ok': False, 'error': err}
+    if res.status_code >= 300:
+        code, text = _meta_error(res)
+        if code == '100':
+            text = ('Meta cannot find that WhatsApp Business Account with this token. Check the ID, and that the token\'s system user '
+                    f'has been assigned this account. ({text[-160:]})')
+        return {'ok': False, 'error': text[:400], 'code': code}
+    rows = [{'id': str(r.get('id', '')), 'display_phone_number': r.get('display_phone_number', ''),
+             'verified_name': r.get('verified_name', ''), 'quality_rating': r.get('quality_rating', ''),
+             'code_verification_status': r.get('code_verification_status', '')}
+            for r in _json(res).get('data') or []]
+    return {'ok': True, 'numbers': rows, 'current': _setting('phone_number_id')}
+
+
+def register_number(pin: str) -> dict:
+    """Register the configured number with the Cloud API using a 6-digit PIN
+    (the two-step verification PIN; it is set the first time)."""
+    pin = (pin or '').strip()
+    if not (pin.isdigit() and len(pin) == 6):
+        return {'ok': False, 'error': 'The PIN is exactly 6 digits.'}
+    if not configured():
+        return {'ok': False, 'error': 'Add the phone number ID and access token first.'}
+    res, err = _graph('POST', f'{_setting("phone_number_id")}/register', json={'messaging_product': 'whatsapp', 'pin': pin})
+    if err:
+        return {'ok': False, 'error': err}
+    if res.status_code >= 300:
+        code, text = _meta_error(res)
+        return {'ok': False, 'error': text, 'code': code}
+    return {'ok': True}
 
 
 @dataclass(frozen=True)
@@ -166,7 +233,15 @@ def _meta_error(res) -> tuple[str, str]:
     detail = ((err.get('error_data') or {}).get('details') or err.get('message') or res.text[:200] or '').strip()
     hint = {
         '190': 'The access token is invalid or has expired (a temporary token lasts 24 hours: create a permanent system-user token).',
-        '100': 'Meta does not recognise this phone number ID (use the Phone number ID, not the WhatsApp Business Account ID).',
+        '100': 'Meta cannot find this phone number ID with this token. Either it is not the Phone number ID (a WhatsApp Business Account ID '
+               'looks the same), or the token\'s system user has not been given the WhatsApp account. '
+               'Use "Find my numbers" to look the ID up.',
+        '200': 'This token is not allowed to use this WhatsApp account: assign the account to its system user with full control, '
+               'and give the token whatsapp_business_messaging.',
+        '10': 'This token lacks permission: it needs whatsapp_business_management and whatsapp_business_messaging.',
+        '133010': 'This number is not registered with the Cloud API yet: use "Register number" with a 6-digit PIN.',
+        '133005': 'The registration PIN is wrong.',
+        '133016': 'Too many registration attempts: Meta blocks this number from registering for a while.',
         '131030': 'This recipient is not on the allowed list (a number in test mode can only message numbers added in Meta).',
         '131047': 'More than 24 hours since this person last wrote: free-text replies are blocked until they message again.',
         '131026': 'The message could not be delivered: this number may not be on WhatsApp, or has blocked the business.',

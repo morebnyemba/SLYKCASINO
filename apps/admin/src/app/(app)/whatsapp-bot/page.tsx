@@ -20,7 +20,12 @@ interface BotSettings {
   linked_players: number; messages_24h: number; tickets_24h: number; staked_24h: string;
   connection: Connection; can_edit_connection: boolean;
 }
-interface CheckResult { ok: boolean; error?: string; verified_name?: string; display_phone_number?: string; quality_rating?: string }
+interface CheckResult {
+  ok: boolean; error?: string; code?: string; warning?: string;
+  verified_name?: string; display_phone_number?: string; quality_rating?: string;
+}
+interface MetaNumber { id: string; display_phone_number: string; verified_name: string; quality_rating: string; code_verification_status: string }
+interface NumbersResult { ok: boolean; error?: string; numbers?: MetaNumber[]; current?: string }
 
 const money = (v: string | number) => `$${Number(v).toFixed(2)}`;
 const PLAIN: { key: ConnKey; hint: string; placeholder: string }[] = [
@@ -55,6 +60,11 @@ export default function WhatsAppBotPage() {
   const [busy, setBusy] = useState('');
   const [notice, setNotice] = useState<{ tone: 'green' | 'red'; text: string } | null>(null);
   const [check, setCheck] = useState<CheckResult | null>(null);
+  const [waba, setWaba] = useState('');
+  const [found, setFound] = useState<NumbersResult | null>(null);
+  const [pin, setPin] = useState('');
+  const [pinAck, setPinAck] = useState(false);
+  const [registered, setRegistered] = useState<{ ok: boolean; text: string } | null>(null);
   useEffect(() => {
     if (!data) return;
     setForm(data);
@@ -100,6 +110,31 @@ export default function WhatsAppBotPage() {
     const res = await authedPost<CheckResult>('/admin/chatbot/test/', {}, accessToken);
     setBusy('');
     setCheck(res.data ?? { ok: false, error: res.error });
+  }
+
+  async function findNumbers() {
+    if (!accessToken) return;
+    setBusy('find'); setFound(null);
+    const res = await authedPost<NumbersResult>('/admin/chatbot/numbers/', { waba_id: waba.trim() }, accessToken);
+    setBusy('');
+    setFound(res.data ?? { ok: false, error: res.error });
+  }
+
+  async function useNumber(n: MetaNumber) {
+    await put({ connection: { phone_number_id: n.id, display_number: n.display_phone_number } },
+      `Now using ${n.display_phone_number} (ID ${n.id}). Press Test connection.`, `use-${n.id}`);
+    setCheck(null);
+    setFound((f) => f && { ...f, current: n.id });
+  }
+
+  async function registerNumber() {
+    if (!accessToken) return;
+    setBusy('register'); setRegistered(null);
+    const res = await authedPost<{ ok: boolean; error?: string }>('/admin/chatbot/register/', { pin }, accessToken);
+    setBusy('');
+    const out = res.data ?? { ok: false, error: res.error };
+    setRegistered(out.ok ? { ok: true, text: 'Registered. Press Test connection to confirm.' } : { ok: false, text: out.error ?? 'Registration failed.' });
+    if (out.ok) { setPin(''); setPinAck(false); }
   }
 
   const set = (k: 'max_stake' | 'daily_cap' | 'pin_above') => (e: React.ChangeEvent<HTMLInputElement>) =>
@@ -187,6 +222,7 @@ export default function WhatsAppBotPage() {
                 ? <span className="text-sm text-win">✓ Meta knows this number: <b>{check.verified_name}</b> ({check.display_phone_number}{check.quality_rating ? `, quality ${check.quality_rating}` : ''})</span>
                 : <span className="text-sm text-destructive">✗ {check.error}</span>)}
             </div>
+            {check?.ok && check.warning && <Notice tone="red">{check.warning}</Notice>}
             <div className="rounded-xl border border-border/70 p-3 text-sm">
               <p className="text-xs text-muted-foreground">Webhook callback URL (Meta → WhatsApp → Configuration; subscribe to “messages”)</p>
               <code className="select-all break-all font-mono">{webhook || '…/api/chatbot/whatsapp/webhook/'}</code>
@@ -199,6 +235,65 @@ export default function WhatsAppBotPage() {
           </div>
         )}
       </Panel>
+
+      {editable && (
+        <Panel title="Connection tools"
+          description="If Test connection says Meta cannot find the phone number ID, look the right one up here. Register only if Meta says the number is not registered.">
+          <div className="space-y-6">
+            <div className="space-y-3">
+              <Field label="WhatsApp Business Account ID"
+                hint="Meta Business Settings → Accounts → WhatsApp accounts (or the WhatsApp Business Account ID shown on API setup). Not the phone number ID.">
+                <div className="flex gap-2">
+                  <TextInput inputMode="numeric" value={waba} placeholder="123456789012345"
+                    onChange={(e) => setWaba(e.target.value.replace(/\D/g, ''))} />
+                  <Btn busy={busy === 'find'} disabled={!waba} onClick={findNumbers}>Find my numbers</Btn>
+                </div>
+              </Field>
+              {found && !found.ok && <p className="text-sm text-destructive">✗ {found.error}</p>}
+              {found?.ok && !found.numbers?.length && (
+                <p className="text-sm text-muted-foreground">Meta lists no phone numbers on that account. Add a number in WhatsApp Manager first.</p>
+              )}
+              {found?.ok && !!found.numbers?.length && (
+                <ul className="divide-y divide-border/70 rounded-xl border border-border/70">
+                  {found.numbers.map((n) => (
+                    <li key={n.id} className="flex flex-wrap items-center justify-between gap-3 p-3 text-sm">
+                      <span>
+                        <b>{n.display_phone_number}</b> · {n.verified_name || 'no name'}
+                        {n.quality_rating ? ` · quality ${n.quality_rating}` : ''}
+                        <br /><span className="text-xs text-muted-foreground">Phone number ID <code className="select-all font-mono">{n.id}</code></span>
+                      </span>
+                      {found.current === n.id
+                        ? <Badge tone="green" dot>In use</Badge>
+                        : <Btn size="sm" busy={busy === `use-${n.id}`} onClick={() => useNumber(n)}>Use this number</Btn>}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            <div className="space-y-3 border-t border-border/70 pt-5">
+              <Field label="Registration PIN"
+                hint="Six digits you choose now (it becomes this number’s two-step PIN; keep it safe). Never sent anywhere but Meta, and never stored.">
+                <div className="flex gap-2">
+                  <TextInput type="password" inputMode="numeric" autoComplete="new-password" maxLength={6} value={pin} placeholder="••••••"
+                    onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 6))} />
+                  <Btn busy={busy === 'register'} disabled={pin.length !== 6 || !pinAck} onClick={registerNumber}>Register number</Btn>
+                </div>
+              </Field>
+              <label className="flex items-start gap-2 text-xs text-muted-foreground">
+                <input type="checkbox" className="mt-0.5" checked={pinAck} onChange={(e) => setPinAck(e.target.checked)} />
+                <span>
+                  I understand: registering moves this number onto the Cloud API (it stops working in the WhatsApp or WhatsApp Business app), and
+                  repeated wrong PINs lock registration for a while.
+                </span>
+              </label>
+              {registered && (registered.ok
+                ? <span className="text-sm text-win">✓ {registered.text}</span>
+                : <span className="text-sm text-destructive">✗ {registered.text}</span>)}
+            </div>
+          </div>
+        </Panel>
+      )}
 
       <Panel title="Switches and limits">
         {form && (
@@ -229,7 +324,7 @@ export default function WhatsAppBotPage() {
       <Panel title="Before going live">
         <ol className="list-decimal space-y-2 pl-5 text-sm text-muted-foreground">
           <li>In Meta Business, create an app with the <b className="text-foreground">WhatsApp</b> product and add a phone number. Use a number you can afford to lose, not your main support line.</li>
-          <li>Create a system user with a permanent token that has <code>whatsapp_business_messaging</code>, then fill in the connection above and press <b className="text-foreground">Test connection</b>.</li>
+          <li>Create a system user with a permanent token that has <code>whatsapp_business_messaging</code>, then fill in the connection above and press <b className="text-foreground">Test connection</b>. If Meta cannot find the ID, assign the WhatsApp account to that system user (full control), then use <b className="text-foreground">Find my numbers</b>.</li>
           <li>Set the webhook callback URL and verify token in Meta, and subscribe to <b className="text-foreground">messages</b>.</li>
           <li>Meta’s policy restricts real-money gambling on WhatsApp without its written approval. Apply for it; until then the number can be banned if reported.</li>
         </ol>

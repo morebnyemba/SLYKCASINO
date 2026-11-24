@@ -16,7 +16,7 @@ from rest_framework.test import APIClient
 
 from apps.accounts import services as accounts
 from apps.accounts.models import Player
-from apps.chatbot import engine, services
+from apps.chatbot import engine, services, whatsapp
 from apps.chatbot.models import ChatbotSettings, ChatLink, ChatTicket, InboundMessage
 from apps.sportsbook.models import Bet, BetSlip, Event, Market, MarketOutcome
 from apps.wallet import services as wallet
@@ -444,10 +444,11 @@ class ConnectionSettingsTests(_Base):
             @staticmethod
             def json():
                 return {'verified_name': 'BetBlits', 'display_phone_number': '+263 77 000 1111', 'quality_rating': 'GREEN'}
-        with patch('requests.get', return_value=Res()) as get:
+        with patch('requests.request', return_value=Res()) as get:
             body = self.boss.post('/api/admin/chatbot/test/').json()
         self.assertEqual((body['ok'], body['verified_name']), (True, 'BetBlits'))
-        self.assertIn('/444', get.call_args.args[0])
+        self.assertEqual(get.call_args.args[0], 'GET')
+        self.assertIn('/444', get.call_args.args[1])
         self.assertEqual(get.call_args.kwargs['headers']['Authorization'], 'Bearer EAAGsecret-token-9876')
 
 
@@ -588,3 +589,90 @@ class DeliveryLogTests(_Base):
             out = staff.post('/api/admin/chatbot/health/', {'to': '263771234567'}, format='json').json()
         self.assertEqual(out['ok'], False)
         self.assertIn('allowed list', out['error'])
+
+
+@override_settings(WHATSAPP_TOKEN='tok', WHATSAPP_PHONE_NUMBER_ID='555')
+class ConnectionToolsTests(TestCase):
+    """Find the right Phone number ID, see whether it is registered, register it."""
+
+    def clients(self):
+        from django.contrib.auth.models import User
+        boss, clerk = APIClient(), APIClient()
+        boss.force_authenticate(User.objects.create_superuser('boss', 'b@example.com', 'x'))
+        clerk.force_authenticate(User.objects.create_user('clerk', 'c@example.com', 'x', is_staff=True))
+        return boss, clerk
+
+    def test_a_wrong_id_says_how_to_find_the_right_one(self):
+        err = _Res(400, {'error': {'code': 100, 'message': "Unsupported post request. Object with ID '555' does not exist"}})
+        with patch('requests.request', return_value=err):
+            out = whatsapp.check_connection()
+        self.assertEqual((out['ok'], out['code']), (False, '100'))
+        self.assertIn('Find my numbers', out['error'])
+
+    def test_an_unregistered_number_is_flagged(self):
+        ok = _Res(200, {'verified_name': 'BetBlits', 'display_phone_number': '+263 77 1', 'quality_rating': 'GREEN'})
+        extra = _Res(200, {'platform_type': 'NOT_APPLICABLE', 'status': 'PENDING'})
+        with patch('requests.request', side_effect=[ok, extra]):
+            out = whatsapp.check_connection()
+        self.assertTrue(out['ok'])
+        self.assertIn('Register number', out['warning'])
+
+    def test_a_registered_number_has_no_warning_and_a_tolerated_second_failure_stays_ok(self):
+        ok = _Res(200, {'verified_name': 'BetBlits', 'display_phone_number': '+263 77 1'})
+        with patch('requests.request', side_effect=[ok, _Res(200, {'platform_type': 'CLOUD_API', 'status': 'CONNECTED'})]):
+            self.assertNotIn('warning', whatsapp.check_connection())
+        with patch('requests.request', side_effect=[ok, _Res(400, {'error': {'code': 100, 'message': 'bad field'}})]):
+            out = whatsapp.check_connection()
+        self.assertTrue(out['ok'])
+        self.assertNotIn('warning', out)
+
+    def test_numbers_are_listed_from_the_account_id(self):
+        boss, _ = self.clients()
+        body = {'data': [{'id': '109', 'display_phone_number': '+263 77 123', 'verified_name': 'BetBlits', 'quality_rating': 'GREEN'}]}
+        with patch('requests.request', return_value=_Res(200, body)) as req:
+            out = boss.post('/api/admin/chatbot/numbers/', {'waba_id': '777'}, format='json').json()
+        self.assertTrue(req.call_args.args[1].endswith('/777/phone_numbers'))
+        self.assertEqual((out['ok'], out['numbers'][0]['id'], out['current']), (True, '109', '555'))
+
+    def test_a_bad_account_id_is_rejected_without_calling_meta(self):
+        boss, _ = self.clients()
+        with patch('requests.request') as req:
+            out = boss.post('/api/admin/chatbot/numbers/', {'waba_id': 'abc'}, format='json').json()
+        self.assertFalse(out['ok'])
+        req.assert_not_called()
+
+    def test_a_missing_account_explains_the_assignment_step(self):
+        boss, _ = self.clients()
+        err = _Res(400, {'error': {'code': 100, 'message': 'Object with ID does not exist'}})
+        with patch('requests.request', return_value=err):
+            out = boss.post('/api/admin/chatbot/numbers/', {'waba_id': '777'}, format='json').json()
+        self.assertEqual((out['ok'], out['code']), (False, '100'))
+        self.assertIn('assigned', out['error'])
+
+    def test_register_sends_the_pin_and_never_audits_it(self):
+        from apps.accounts.models import AuditLog
+        boss, _ = self.clients()
+        with patch('requests.request', return_value=_Res(200, {'success': True})) as req:
+            out = boss.post('/api/admin/chatbot/register/', {'pin': '123456'}, format='json').json()
+        self.assertTrue(out['ok'])
+        self.assertEqual(req.call_args.kwargs['json'], {'messaging_product': 'whatsapp', 'pin': '123456'})
+        self.assertTrue(req.call_args.args[1].endswith('/555/register'))
+        self.assertNotIn('123456', ' '.join(str(a.metadata) for a in AuditLog.objects.all()))
+
+    def test_register_rejects_a_bad_pin_and_reports_metas_refusal(self):
+        boss, _ = self.clients()
+        with patch('requests.request') as req:
+            self.assertFalse(boss.post('/api/admin/chatbot/register/', {'pin': '12'}, format='json').json()['ok'])
+        req.assert_not_called()
+        err = _Res(400, {'error': {'code': 133005, 'message': 'Two step verification PIN Mismatch'}})
+        with patch('requests.request', return_value=err):
+            out = boss.post('/api/admin/chatbot/register/', {'pin': '654321'}, format='json').json()
+        self.assertEqual((out['ok'], out['code']), (False, '133005'))
+        self.assertIn('PIN is wrong', out['error'])
+
+    def test_only_superusers_can_use_the_tools(self):
+        _, clerk = self.clients()
+        with patch('requests.request') as req:
+            self.assertEqual(clerk.post('/api/admin/chatbot/numbers/', {'waba_id': '777'}, format='json').status_code, 403)
+            self.assertEqual(clerk.post('/api/admin/chatbot/register/', {'pin': '123456'}, format='json').status_code, 403)
+        req.assert_not_called()
