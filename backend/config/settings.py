@@ -585,6 +585,8 @@ WHATSAPP_PHONE_NUMBER_ID = os.environ.get('WHATSAPP_PHONE_NUMBER_ID', '')
 # The WhatsApp Business Account the number belongs to. Not needed to send; used to check the
 # phone number ID really belongs to it, list its numbers and check webhook subscription.
 WHATSAPP_BUSINESS_ACCOUNT_ID = os.environ.get('WHATSAPP_BUSINESS_ACCOUNT_ID', '')
+# The Meta app's ID. Only needed to upload the WhatsApp profile photo (Meta's upload API is per app).
+WHATSAPP_APP_ID = os.environ.get('WHATSAPP_APP_ID', '')
 WHATSAPP_APP_SECRET = os.environ.get('WHATSAPP_APP_SECRET', '')
 WHATSAPP_VERIFY_TOKEN = os.environ.get('WHATSAPP_VERIFY_TOKEN', '')
 WHATSAPP_GRAPH_VERSION = os.environ.get('WHATSAPP_GRAPH_VERSION', '')  # default v21.0 (apps.chatbot.config)

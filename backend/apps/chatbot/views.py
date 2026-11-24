@@ -21,6 +21,7 @@ from django.http import HttpResponse, HttpResponseForbidden
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status
+from rest_framework.parsers import MultiPartParser
 from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -271,6 +272,43 @@ class AdminChatbotNumbersView(_SuperuserOnly):
 
     def post(self, request):
         return self._guard(request) or Response(whatsapp.list_numbers(str(request.data.get('waba_id') or '')))
+
+
+class AdminChatbotProfileView(_SuperuserOnly):
+    """GET/PUT /api/admin/chatbot/profile/ — the number's WhatsApp business profile
+    (about, description, address, email, websites, category). Any staff member
+    can read it; only a superuser changes what players see."""
+
+    def get(self, request):
+        return Response(whatsapp.get_profile())
+
+    def put(self, request):
+        denied = self._guard(request)
+        if denied:
+            return denied
+        result = whatsapp.update_profile(request.data if isinstance(request.data, dict) else {})
+        if result['ok']:
+            accounts_services.audit(None, 'chatbot_profile', request, changed=','.join(result['changed']))
+        return Response(result)
+
+
+class AdminChatbotProfilePhotoView(_SuperuserOnly):
+    """POST /api/admin/chatbot/profile/photo/ (multipart "file") — the profile photo."""
+    parser_classes = [MultiPartParser]
+
+    def post(self, request):
+        denied = self._guard(request)
+        if denied:
+            return denied
+        upload = request.FILES.get('file')
+        if upload is None:
+            return Response({'ok': False, 'error': 'Choose a photo.'})
+        if upload.size > whatsapp.PHOTO_MAX:
+            return Response({'ok': False, 'error': 'The photo must be under 5 MB.'})
+        result = whatsapp.upload_profile_photo(upload.read(), upload.content_type or '')
+        if result['ok']:
+            accounts_services.audit(None, 'chatbot_profile', request, changed='photo')
+        return Response(result)
 
 
 class AdminChatbotRegisterView(_SuperuserOnly):
