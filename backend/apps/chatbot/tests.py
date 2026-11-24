@@ -63,19 +63,20 @@ class BrowsingAndSlipTests(_Base):
     def test_menu_and_games_with_ids_need_no_account(self):
         self.assertIn('LINK 123456', text(self.say('hi')))
         out = text(self.say('GAMES'))
-        self.assertIn(f'#{self.e1.id} Dynamos vs Highlanders', out)
-        self.assertIn('1 2.00 X 3.20 2 3.80', out)
-        self.assertIn(f'#{self.e2.id}', text(self.say('games caps')))
-        self.assertNotIn(f'#{self.e1.id}', text(self.say('games caps')))
+        self.assertIn(f'*{self.e1.id}* · ', out)
+        self.assertIn('Dynamos v Highlanders', out)
+        self.assertIn('`1 2.00 · X 3.20 · 2 3.80`', out)
+        self.assertIn('CAPS United v FC Platinum', text(self.say('games caps')))
+        self.assertNotIn('Dynamos', text(self.say('games caps')))
 
     def test_a_match_offers_its_picks_to_tap(self):
         [reply] = self.say(str(self.e1.id))
-        for line in ('1 · Match result: Dynamos @ 2.00', 'X · Match result: Draw @ 3.20',
-                     '2 · Match result: Highlanders @ 3.80', 'O2.5 · Total goals: Over 2.5 @ 2.10'):
+        for line in ('1 · Dynamos — *2.00*', 'X · Draw — *3.20*', '2 · Highlanders — *3.80*', 'O2.5 *2.10* · U2.5 *1.70*'):
             self.assertIn(line, reply['text'])
-        rows = reply['list']['rows']
-        self.assertEqual(rows[0], [f'{self.e1.id} 1', '1 @ 2.00', 'Match result: Dynamos'])
-        self.assertEqual([r[0] for r in rows], [f'{self.e1.id} {c}' for c in ('1', 'X', '2', 'O2.5', 'U2.5')])
+        result, markets = reply['list']['sections']
+        self.assertEqual(result['rows'][0], [f'{self.e1.id} 1', '1 · 2.00', 'Match result: Dynamos'])
+        self.assertEqual([r[0] for r in result['rows']], [f'{self.e1.id} {c}' for c in ('1', 'X', '2')])
+        self.assertEqual(markets['rows'], [[f'{self.e1.id} G main', 'Main', '1 market']])
         from apps.chatbot import whatsapp
         body = whatsapp.payload_for(NUMBER, reply)
         self.assertEqual(body['interactive']['type'], 'list')
@@ -85,11 +86,11 @@ class BrowsingAndSlipTests(_Base):
     def test_building_a_slip(self):
         [reply] = self.say(f'{self.e1.id} 1, {self.e2.id} GG')
         out = reply['text']
-        self.assertEqual(out.count('✅ Selection confirmed'), 2)    # every selection is confirmed back
+        self.assertEqual(out.count('✅ *Selection added*'), 2)      # every selection is confirmed back
         self.assertIn(f'#{self.e1.id} Dynamos vs Highlanders', out)
-        self.assertIn('Match result: Dynamos (1)\nOdds 2.00', out)
-        self.assertIn('Both teams to score: Yes (GG)\nOdds 1.80', out)
-        self.assertIn('2 selections · total odds 3.60', out)       # 2.00 × 1.80
+        self.assertIn('Match result: *Dynamos* (1)\nOdds *2.00*', out)
+        self.assertIn('Both teams to score: *Yes* (GG)\nOdds *1.80*', out)
+        self.assertIn('2 selections · total odds *3.60*', out)     # 2.00 × 1.80
         self.assertEqual([b[1] for b in reply['buttons']], ['➕ Add more', '🧾 View slip', '✅ Place bet'])
         self.assertIn('not a pick', text(self.say(f'{self.e1.id} ZZ')))
         self.assertIn('not available', text(self.say(f'{self.e2.id} O2.5')))
@@ -177,7 +178,9 @@ class BettingTests(_Base):
         out = text(self.say('TICKETS'))                                  # the ticket list
         self.assertIn(f'#{self.e1.id} Dynamos vs Highlanders\n     🕒 {k1}', out)
         self.assertIn(f'#{self.e2.id} CAPS United vs FC Platinum\n     🕒 {k2}', out)
-        self.assertIn(f'🕒 {k1}', text(self.say('GAMES')))                 # and the match list
+        games = text(self.say('GAMES'))                                  # and the match list: day, then time
+        self.assertIn(f'📅 *{timezone.localtime(self.e1.starts_at, tz).strftime("%a %d %b")}*', games)
+        self.assertIn(f'*{self.e1.id}* · {timezone.localtime(self.e1.starts_at, tz).strftime("%H:%M")} · ', games)
 
     def test_kick_off_is_in_harare_time_not_server_utc(self):
         from apps.chatbot.engine import kickoff
@@ -805,3 +808,102 @@ class NumberDetailsAndProfileTests(TestCase):
     def test_the_photo_needs_the_app_id_and_an_image(self):
         self.assertIn('app ID', whatsapp.upload_profile_photo(b'x', 'image/png')['error'])
         self.assertIn('JPG or PNG', whatsapp.upload_profile_photo(b'x', 'image/gif')['error'])
+
+
+class AllOddsTests(_Base):
+    """Every match and every playable price can be reached from chat, and only playable ones are shown."""
+
+    def _many(self, n, league=None):
+        soon = timezone.now() + timedelta(days=1)
+        return [Event.objects.create(name=f'Team {i} vs Club {i}', starts_at=soon + timedelta(minutes=i), status='NS',
+                                     odds=D('2.00'), odds_draw=D('3.00'), odds_away=D('4.00'), league=league)
+                for i in range(n)]
+
+    def test_games_pages_through_every_match(self):
+        self._many(18)                                   # 20 with the two from setUp
+        first = self.say('GAMES')[0]
+        self.assertIn('1–8 of 20', first['text'])
+        self.assertIn(['NEXT', 'Next ▶'], first['buttons'])
+        self.assertNotIn(['PREV', '◀ Previous'], first['buttons'])
+        seen = set()
+        for reply in (first, self.say('NEXT')[0], self.say('NEXT')[0]):
+            seen.update(int(x) for x in __import__('re').findall(r'^\*(\d+)\* ·', reply['text'], flags=__import__('re').M))
+        self.assertEqual(len(seen), 20)                  # three pages, nothing missed or repeated
+        last = self.say('NEXT')[0]                       # past the end stays on the last page
+        self.assertIn('17–20 of 20', last['text'])
+        self.assertNotIn(['NEXT', 'Next ▶'], last['buttons'])
+        self.assertIn('9–16 of 20', self.say('PREV')[0]['text'])
+
+    def test_leagues_narrow_the_list(self):
+        from apps.sportsbook.models import LeagueSetting
+        epl = LeagueSetting.objects.create(league_id=39, name='Premier League')
+        self._many(3, league=epl)
+        [reply] = self.say('LEAGUES')
+        row = next(r for r in reply['list']['rows'] if r[1] == 'Premier League')
+        self.assertEqual((row[0], row[2]), (f'LEAGUE {epl.id}', '3 matches'))
+        out = self.say(row[0])[0]['text']
+        self.assertIn('⚽ *Premier League* · 1–3 of 3', out)
+        self.assertNotIn('Dynamos', out)
+
+    def test_every_market_is_reachable_and_tappable(self):
+        cs = Market.objects.create(event=self.e1, key='correct_score:ft', name='Correct score', kind='correct_score', group='score')
+        for h in range(5):
+            for a in range(5):
+                MarketOutcome.objects.create(market=cs, key=f'{h}:{a}', label=f'{h}-{a}', odds=D('9.00') + h + a)
+        [match] = self.say(str(self.e1.id))
+        groups = {r[0]: r for r in match['list']['sections'][1]['rows']}
+        self.assertIn(f'{self.e1.id} G score', groups)
+        [market] = self.say(f'{self.e1.id} G score')      # a group with one market opens it straight away
+        self.assertIn('📊 *Correct score*', market['text'])
+        self.assertIn('• 4-4 *17.00*', market['text'])   # every price is in the text…
+        rows = market['list']['rows']
+        self.assertEqual(len(rows), 10)                  # …and the taps page: 9 options + More
+        self.assertEqual(rows[-1][1], 'More ▶')
+        page2 = self.say(rows[-1][0])[0]['list']['rows']
+        self.assertTrue(page2[0][1].endswith('1-4'))
+        page3 = self.say('NEXT')[0]['list']['rows']       # NEXT also pages a market: the last 7 options
+        self.assertEqual((len(page3), page3[0][1].endswith('3-3'), page3[-1][1].endswith('4-4')), (7, True, True))
+        [added] = self.say(page2[0][0])                  # tap → on the slip, confirmed
+        self.assertIn('Correct score: *1-4*', added['text'])
+        self.assertNotIn('(#', added['text'])            # no internal code shown
+
+    def test_closed_settled_and_decided_prices_are_hidden_and_refused(self):
+        dnb = Market.objects.create(event=self.e1, key='dnb:ft', name='Draw no bet', kind='draw_no_bet')
+        home = MarketOutcome.objects.create(market=dnb, key='home', label='Dynamos', odds=D('1.50'))
+        shut = MarketOutcome.objects.create(market=dnb, key='away', label='Highlanders', odds=D('2.60'), is_open=False)
+        gone = Market.objects.create(event=self.e1, key='oe:ft', name='Odd/even', kind='odd_even', settled=True)
+        MarketOutcome.objects.create(market=gone, key='odd', label='Odd', odds=D('1.90'))
+        text_ = self.say(f'{self.e1.id} G main')[0]['text']
+        self.assertIn('Dynamos *1.50*', text_)
+        self.assertNotIn('Highlanders *2.60*', text_)
+        self.assertNotIn('Odd/even', text_)
+        self.assertIn('suspended', text(self.say(f'PICK {shut.id}')))       # a stale tap is refused
+        self.assertIn('Draw no bet: *Dynamos*', text(self.say(f'PICK {home.id}')))
+        self.assertIn('no longer exists', text(self.say('PICK 99999999')))
+
+    def test_tapping_the_same_price_twice_keeps_one_leg(self):
+        btts_yes = MarketOutcome.objects.get(market__event=self.e2, key='yes')
+        self.say(f'{self.e2.id} GG')                     # typed…
+        out = self.say(f'PICK {btts_yes.id}')[0]['text']   # …then tapped: the same outcome
+        self.assertIn('Your ticket: 1 selection ·', out)
+        slip = text(self.say('SLIP'))
+        self.assertIn('1) ', slip)
+        self.assertNotIn('2) ', slip)
+
+    def test_long_text_is_split_instead_of_cut(self):
+        from apps.chatbot import whatsapp
+        long = '\n'.join(f'line {i} ' + 'x' * 60 for i in range(100))       # ~7,000 characters
+        parts = whatsapp.fit([{'text': long, 'prompt': 'Tap 👇', 'list': {'button': 'Choose', 'rows': [['a', 'A']]}}])
+        self.assertEqual(''.join(p['text'] + '\n' for p in parts[:-1]).rstrip('\n'), long)   # every character arrives
+        self.assertTrue(all(len(p['text']) <= whatsapp.MAX_TEXT for p in parts))
+        self.assertEqual((parts[-1]['text'], parts[-1]['list']['button']), ('Tap 👇', 'Choose'))
+        short = {'text': 'hi', 'buttons': ['MENU']}
+        self.assertEqual(whatsapp.fit([short]), [short])
+
+    def test_a_list_never_sends_more_than_ten_rows(self):
+        from apps.chatbot import whatsapp
+        reply = {'text': 'x', 'list': {'button': 'Go', 'sections': [
+            {'title': 'A', 'rows': [[f'a{i}', f'A{i}'] for i in range(6)]},
+            {'title': 'B', 'rows': [[f'b{i}', f'B{i}'] for i in range(6)]}]}}
+        sections = whatsapp.payload_for(NUMBER, reply)['interactive']['action']['sections']
+        self.assertEqual([len(s['rows']) for s in sections], [6, 4])

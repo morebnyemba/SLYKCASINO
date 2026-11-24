@@ -291,6 +291,35 @@ def _check_event_bettable(event_id: int, selection: str = Selection.HOME, odds: 
     return False
 
 
+def outcome_unavailable(event: Event, market: Market, outcome: MarketOutcome, *, in_play: Optional[bool] = None,
+                        event_ok: Optional[bool] = None) -> Optional[str]:
+    """Why this outcome can't be backed right now, or None when it can. The one
+    rulebook for placing a bet and for showing what's playable (chat, lists).
+    `event_ok` lets a caller listing many outcomes of one event check the event once."""
+    if in_play is None:
+        in_play = _started(event)
+    if event_ok is None:
+        event_ok = in_play_bettable(event) if in_play else event.is_open
+    if (
+        not event_ok or not market.is_open or market.settled
+        or not outcome.is_open or outcome.result != MarketOutcome.Result.PENDING or outcome.odds <= 1
+    ):
+        return f'{market.name} — {outcome.label} is suspended.'
+    if in_play:
+        from . import live_guard
+        if live_guard.outcome_decided(event, market, outcome):
+            return f'{market.name} — {outcome.label} is already decided.'
+        if live_guard.below_live_floor(outcome.odds):
+            return f'{market.name} — {outcome.label} is too short a price to take in play.'
+        from . import near_win
+        if near_win.outcome_near_won(event, market, outcome):
+            return f'{market.name} — {outcome.label} is as good as decided, so it can’t be backed now.'
+        if not live_guard.live_price_fresh(event, outcome.live_priced_at):
+            # A pre-match price, or one the live feed has stopped quoting.
+            return f'{market.name} — {outcome.label} is suspended.'
+    return None
+
+
 def _lock_bettable_outcome(outcome_id: int, odds: Decimal) -> tuple[MarketOutcome, bool]:
     """Row-lock an outcome and check it can be backed at `odds` right now.
     Returns (outcome, in_play)."""
@@ -304,24 +333,9 @@ def _lock_bettable_outcome(outcome_id: int, odds: Decimal) -> tuple[MarketOutcom
         raise SelectionUnavailable('That selection no longer exists.') from exc
     market, event = outcome.market, outcome.market.event
     in_play = _started(event)
-    event_ok = in_play_bettable(event) if in_play else event.is_open
-    if (
-        not event_ok or not market.is_open or market.settled
-        or not outcome.is_open or outcome.result != MarketOutcome.Result.PENDING
-    ):
-        raise SelectionUnavailable(f'{market.name} — {outcome.label} is suspended.')
-    if in_play:
-        from . import live_guard
-        if live_guard.outcome_decided(event, market, outcome):
-            raise SelectionUnavailable(f'{market.name} — {outcome.label} is already decided.')
-        if live_guard.below_live_floor(outcome.odds):
-            raise SelectionUnavailable(f'{market.name} — {outcome.label} is too short a price to take in play.')
-        from . import near_win
-        if near_win.outcome_near_won(event, market, outcome):
-            raise SelectionUnavailable(f'{market.name} — {outcome.label} is as good as decided, so it can’t be backed now.')
-        if not live_guard.live_price_fresh(event, outcome.live_priced_at):
-            # A pre-match price, or one the live feed has stopped quoting.
-            raise SelectionUnavailable(f'{market.name} — {outcome.label} is suspended.')
+    reason = outcome_unavailable(event, market, outcome, in_play=in_play)
+    if reason:
+        raise SelectionUnavailable(reason)
     if utils.quantize(odds) != utils.quantize(outcome.odds):
         raise OddsChanged(f'{market.name} — {outcome.label}', utils.quantize(odds), outcome.odds, outcome.id)
     return outcome, in_play
