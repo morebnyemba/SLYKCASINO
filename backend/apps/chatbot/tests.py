@@ -1073,3 +1073,54 @@ class CashoutChatTests(_Base):
                 self.assertIn('Cashed out *$6.40*', text(self.say('CONFIRM')))
         self.assertEqual(take.call_args.kwargs, {'kind': 'bet', 'ticket_id': bet.id, 'player_id': link.player_id,
                                                  'expected': D('6.40')})
+
+
+class SearchTests(_Base):
+    """League and country search, forgiving of spelling mistakes."""
+
+    def setUp(self):
+        super().setUp()
+        from apps.sportsbook.models import LeagueSetting, Team
+        self.epl = LeagueSetting.objects.create(league_id=39, name='Premier League', country='England')
+        self.champ = LeagueSetting.objects.create(league_id=40, name='Championship', country='England')
+        self.psl = LeagueSetting.objects.create(league_id=400, name='Premier Soccer League', country='Zimbabwe')
+        soon = timezone.now() + timedelta(days=1)
+        ars, che = Team.objects.create(name='Arsenal'), Team.objects.create(name='Chelsea')
+        Event.objects.create(name='Arsenal vs Chelsea', home_team=ars, away_team=che, starts_at=soon, status='NS',
+                             league=self.epl, odds=D('2'), odds_draw=D('3'), odds_away=D('4'))
+        Event.objects.create(name='Leeds vs Burnley', starts_at=soon, status='NS', league=self.champ,
+                             odds=D('2'), odds_draw=D('3'), odds_away=D('4'))
+        Event.objects.filter(pk__in=[self.e1.pk, self.e2.pk]).update(league=self.psl)
+
+    def test_scoring(self):
+        from apps.chatbot import search
+        self.assertEqual(search.best('arsnal', ['Arsenal', 'Chelsea', 'Arsenal Tula']), ['Arsenal', 'Arsenal Tula'])
+        self.assertEqual(search.best('premeir leage', ['Premier League', 'Premier Soccer League', 'La Liga'])[0], 'Premier League')
+        self.assertEqual(search.best('zimbabwae', ['Zimbabwe', 'Zambia']), ['Zimbabwe'])
+        self.assertEqual(search.best('atletico', ['Atlético Madrid']), ['Atlético Madrid'])      # accents don't matter
+        self.assertEqual(search.best('xyzzy', ['Arsenal', 'Chelsea']), [])
+
+    def test_a_misspelt_team_still_finds_its_match(self):
+        out = text(self.say('GAMES arsnal'))
+        self.assertIn('Showing results for “Arsenal” (you typed “arsnal”)', out)
+        self.assertIn('Arsenal v Chelsea', out)
+
+    def test_league_by_name_even_misspelt(self):
+        out = text(self.say('LEAGUE premeir leage'))
+        self.assertIn('Premier League', out)
+        [many] = self.say('LEAGUE premier')                              # two leagues contain "premier": pick one
+        self.assertEqual({r[1] for r in many['list']['rows']}, {'Premier League', 'Premier Soccer League'})
+        self.assertIn('Leeds v Burnley', text(self.say('LEAGUE champinship')))
+
+    def test_country(self):
+        [eng] = self.say('COUNTRY england')                              # two leagues there: choose
+        self.assertEqual({r[1] for r in eng['list']['rows']}, {'Premier League', 'Championship'})
+        out = text(self.say('COUNTRY zimbabwae'))                       # one league there: straight to its matches
+        self.assertIn('Showing Zimbabwe (you typed “zimbabwae”)', out)
+        self.assertIn('Dynamos v Highlanders', out)
+        [countries] = self.say('COUNTRIES')
+        self.assertEqual([r[0] for r in countries['list']['rows']], ['COUNTRY England', 'COUNTRY Zimbabwe'])
+        self.assertIn('No country matching', text(self.say('COUNTRY atlantis')))
+
+    def test_searching_a_country_name_in_games(self):
+        self.assertIn('Leeds v Burnley', text(self.say('GAMES england')))

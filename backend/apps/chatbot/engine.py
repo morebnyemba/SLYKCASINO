@@ -202,8 +202,14 @@ class Conversation(MenuMixin):
             return self.turn_page(-1)
         if head == 'LEAGUES':
             return self.leagues(int(rest[0]) - 1 if rest and rest[0].isdigit() else 0)
-        if head == 'LEAGUE' and rest and rest[0].isdigit():
+        if head == 'LEAGUE' and rest and rest[0].isdigit() and len(rest) == 1:
             return self.games('', league=int(rest[0]))
+        if head == 'LEAGUE':
+            return self.find_league(' '.join(text.split()[1:]))
+        if head == 'COUNTRY':
+            return self.find_country(' '.join(text.split()[1:]))
+        if head == 'COUNTRIES':
+            return self.countries(int(rest[0]) - 1 if rest and rest[0].isdigit() else 0)
         if head == 'PICK' and rest and rest[0].isdigit():
             return self.pick_outcome(int(rest[0]))
         if head == 'LIVE' and rest and rest[0].isdigit():
@@ -314,7 +320,7 @@ class Conversation(MenuMixin):
         from apps.sportsbook.models import Event
         qs = Event.objects.filter(is_open=True, has_odds=True).filter(Q(starts_at__gt=self.now) | Q(starts_at__isnull=True))
         if query:
-            qs = qs.filter(Q(name__icontains=query) | Q(league__name__icontains=query)
+            qs = qs.filter(Q(name__icontains=query) | Q(league__name__icontains=query) | Q(league__country__icontains=query)
                            | Q(home_team__name__icontains=query) | Q(away_team__name__icontains=query))
         if league:
             qs = qs.filter(league_id=league)
@@ -342,11 +348,31 @@ class Conversation(MenuMixin):
         nav = ([['PREV', '◀ Previous']] if page > 0 else []) + ([['NEXT', 'Next ▶']] if page + 1 < pages else [])
         return (nav + [b for b in extra if b])[:3]
 
+    def _names(self) -> tuple[set, set, set]:
+        """(team, league, country) names that have upcoming matches: what a search can mean."""
+        rows = self._upcoming().order_by().values_list('home_team__name', 'away_team__name', 'league__name', 'league__country')
+        teams, leagues, countries = set(), set(), set()
+        for home, away, league, country in rows:
+            teams.update(x for x in (home, away) if x)
+            if league:
+                leagues.add(league)
+            if country:
+                countries.add(country)
+        return teams, leagues, countries
+
     def games(self, query: str, *, page: int = 0, league: Optional[int] = None, day: Optional[int] = None,
-              top: bool = False) -> list[dict]:
+              top: bool = False, note: str = '') -> list[dict]:
         q = query.strip()
         qs = self._upcoming(query=q, league=league, day=day, top=top)
         total = qs.count()
+        if not total and q and not note:
+            # Nothing has that spelling: try what they probably meant ("arsnal" → "Arsenal").
+            from . import search
+            teams, leagues, countries = self._names()
+            guess = search.best(q, teams | leagues | countries, limit=1)
+            if guess:
+                return self.games(guess[0], page=page, league=league, day=day, top=top,
+                                  note=f'🔎 Showing results for “{guess[0]}” (you typed “{q}”)')
         if not total:
             what = (f' for “{q}”' if q else ' today' if day == 0 else ' tomorrow' if day == 1
                     else ' in the top events' if top else '')
@@ -358,7 +384,7 @@ class Conversation(MenuMixin):
         self.state['browse'] = {'kind': 'games', 'q': q, 'league': league, 'day': day, 'top': top, 'page': page}
         title = ((events[0].league.name if league and events[0].league_id else q)
                  or {0: "Today's matches", 1: "Tomorrow's matches"}.get(day) or ('Top events' if top else 'Upcoming matches'))
-        lines = [f'⚽ *{title}* · {page * PAGE_SIZE + 1}–{page * PAGE_SIZE + len(events)} of {total}']
+        lines = ([note, ''] if note else []) + [f'⚽ *{title}* · {page * PAGE_SIZE + 1}–{page * PAGE_SIZE + len(events)} of {total}']
         day = group = None
         tz = services.local_tz()
         for e in events:
@@ -401,29 +427,102 @@ class Conversation(MenuMixin):
         if b.get('kind') == 'games':
             return self.games(b.get('q') or '', page=page, league=b.get('league'), day=b.get('day'), top=bool(b.get('top')))
         if b.get('kind') == 'leagues':
-            return self.leagues(page)
+            return self.leagues(page, country=b.get('country'))
+        if b.get('kind') == 'countries':
+            return self.countries(page)
         if b.get('kind') == 'market':
             return self.market(b['match'], b['market'], page)
         return self.games('', page=max(page, 0))
 
-    def leagues(self, page: int = 0) -> list[dict]:
+    def _league_rows(self, country: Optional[str] = None) -> list[dict]:
         from django.db.models import Count
-        rows = list(self._upcoming().order_by().values('league_id', 'league__name', 'league__top_events', 'league__sort_order')
+        qs = self._upcoming().order_by()
+        if country is not None:
+            qs = qs.filter(league__country=country)
+        return list(qs.values('league_id', 'league__name', 'league__country', 'league__top_events', 'league__sort_order')
                     .annotate(n=Count('id', distinct=True)).filter(league_id__isnull=False)
                     .order_by('-league__top_events', 'league__sort_order', 'league__name'))
+
+    def leagues(self, page: int = 0, *, country: Optional[str] = None, note: str = '') -> list[dict]:
+        rows = self._league_rows(country)
+        if not rows:
+            return [_reply('No upcoming matches right now.', 'LIVE', 'MENU')]
+        if country is not None and len(rows) == 1:          # one league in that country: straight to its matches
+            return self.games('', league=rows[0]['league_id'], note=note)
+        per = LIST_SIZE - 1
+        pages = -(-len(rows) // per)
+        page = max(0, min(page, pages - 1))
+        chunk = rows[page * per:(page + 1) * per]
+        self.state['browse'] = {'kind': 'leagues', 'page': page, 'country': country}
+        options = [[f'LEAGUE {r["league_id"]}', r['league__name'],
+                    f'{r["n"]} match{"" if r["n"] == 1 else "es"}' + (f' · {r["league__country"]}' if r['league__country'] and not country else '')]
+                   for r in chunk]
+        if page + 1 < pages:
+            options.append([f'COUNTRY {country} {page + 2}' if country else f'LEAGUES {page + 2}', 'More leagues ▶',
+                            f'Page {page + 2} of {pages}'])
+        total = sum(r['n'] for r in rows)
+        where = f' in {country}' if country else ''
+        return [{'text': (f'{note}\n\n' if note else '') + f'🏆 *Leagues{where}* · {len(rows)} with {total} upcoming matches'
+                         '\n\nTap a league to see its matches.',
+                 'list': {'button': 'Choose a league', 'title': f'Leagues {page + 1}/{pages}', 'rows': options}}]
+
+    def countries(self, page: int = 0) -> list[dict]:
+        from django.db.models import Count
+        rows = list(self._upcoming().order_by().exclude(league__country='').filter(league__isnull=False)
+                    .values('league__country').annotate(n=Count('id', distinct=True)).order_by('league__country'))
         if not rows:
             return [_reply('No upcoming matches right now.', 'LIVE', 'MENU')]
         per = LIST_SIZE - 1
         pages = -(-len(rows) // per)
         page = max(0, min(page, pages - 1))
-        chunk = rows[page * per:(page + 1) * per]
-        self.state['browse'] = {'kind': 'leagues', 'page': page}
-        options = [[f'LEAGUE {r["league_id"]}', r['league__name'], f'{r["n"]} match{"" if r["n"] == 1 else "es"}'] for r in chunk]
+        self.state['browse'] = {'kind': 'countries', 'page': page}
+        options = [[f'COUNTRY {r["league__country"]}', r['league__country'], f'{r["n"]} match{"" if r["n"] == 1 else "es"}']
+                   for r in rows[page * per:(page + 1) * per]]
         if page + 1 < pages:
-            options.append([f'LEAGUES {page + 2}', 'More leagues ▶', f'Page {page + 2} of {pages}'])
-        total = sum(r['n'] for r in rows)
-        return [{'text': f'🏆 *Leagues* · {len(rows)} with {total} upcoming matches\n\nTap a league to see its matches.',
-                 'list': {'button': 'Choose a league', 'title': f'Leagues {page + 1}/{pages}', 'rows': options}}]
+            options.append([f'COUNTRIES {page + 2}', 'More countries ▶', f'Page {page + 2} of {pages}'])
+        return [{'text': f'🗺️ *Countries* · {len(rows)} with upcoming matches\n\nTap a country, or type e.g. *COUNTRY spain*.',
+                 'list': {'button': 'Choose a country', 'title': f'Countries {page + 1}/{pages}', 'rows': options}}]
+
+    def find_country(self, text: str) -> list[dict]:
+        from . import search
+        words = text.split()
+        page = 0
+        if len(words) > 1 and words[-1].isdigit():
+            page, text = int(words[-1]) - 1, ' '.join(words[:-1])
+        if not text.strip():
+            return self.countries()
+        _, _, names = self._names()
+        exact = [c for c in names if search.norm(c) == search.norm(text)]
+        found = exact or search.best(text, names, limit=1)
+        if not found:
+            return [_reply(f'No country matching “{text}” has upcoming matches. Tap below to see them all.', 'COUNTRIES', 'MENU')]
+        note = '' if exact else f'🔎 Showing {found[0]} (you typed “{text}”)'
+        return self.leagues(page, country=found[0], note=note)
+
+    def find_league(self, text: str) -> list[dict]:
+        from . import search
+        rows = self._league_rows()
+        if not text.strip():
+            return self.leagues()
+        names = {r['league__name'] for r in rows if r['league__name']}
+        q = search.norm(text)
+        hits = [n for n in names if q and q in search.norm(n)]
+        note = ''
+        if not hits:
+            hits = search.best(text, names, limit=9)
+            note = f'🔎 Showing leagues like “{text}”' if hits else ''
+        if not hits:
+            return [_reply(f'No league matching “{text}” has upcoming matches.', 'LEAGUES', 'COUNTRIES')]
+        chosen = [r for r in rows if r['league__name'] in hits]
+        if len(chosen) == 1:
+            return self.games('', league=chosen[0]['league_id'], note=note.replace('leagues like', 'results for') if note else '')
+        rank = {n: i for i, n in enumerate(hits)}
+        chosen.sort(key=lambda r: rank.get(r['league__name'], 99))
+        options = [[f'LEAGUE {r["league_id"]}', r['league__name'],
+                    f'{r["n"]} match{"" if r["n"] == 1 else "es"}' + (f' · {r["league__country"]}' if r['league__country'] else '')]
+                   for r in chosen[:LIST_SIZE]]
+        return [{'text': (f'{note}\n\n' if note else '') + f'🏆 {len(chosen)} leagues match “{text}”. Tap one.',
+                 'list': {'button': 'Choose a league', 'title': 'Leagues', 'rows': options}}]
 
     # -- one match: quick picks, then every market by group ---------------------------
 

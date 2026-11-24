@@ -42,6 +42,7 @@ ITEMS = {
         ('LIVE', '🔴 Live now', 'Matches trading in play'),
         ('TOP', '⭐ Top events', 'The leagues we feature'),
         ('LEAGUES', '🌍 Leagues', 'Pick a league'),
+        ('COUNTRIES', '🗺️ Countries', 'Leagues by country'),
         ('GAMES', '⚽ All upcoming', 'Every upcoming match, page by page'),
         ('SEARCH', '🔎 Search', 'Find a team or league'),
         ('SLIP', '🧾 My slip', 'The ticket you are building'),
@@ -119,8 +120,10 @@ class MenuMixin:
     # -- bet: today / tomorrow / top / search -------------------------------------------
     def search_prompt(self) -> list[dict]:
         from . import engine
-        return [engine._reply('🔎 Send *GAMES* and a team or league, e.g. *GAMES dynamos* or *GAMES premier*.',
-                              'TODAY', 'LEAGUES')]
+        return [engine._reply('🔎 *Search* (spelling mistakes are fine)\n\n'
+                              '• *GAMES arsenal* – a team, league or country\n'
+                              '• *LEAGUE premier* – a league\n'
+                              '• *COUNTRY zimbabwe* – a country’s leagues', 'LEAGUES', 'COUNTRIES')]
 
     # -- my bets ---------------------------------------------------------------------------
     def _my_tickets(self, statuses, limit: int = 10) -> list:
