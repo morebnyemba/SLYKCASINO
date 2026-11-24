@@ -11,7 +11,7 @@ import { authedPost, authedRequest, useApi } from '@/lib/use-api';
 type Source = 'admin' | 'env' | 'default' | 'unset' | 'unreadable';
 interface PlainSetting { label: string; source: Source; env: string; secret: false; value: string }
 interface SecretSetting { label: string; source: Source; env: string; secret: true; set: boolean; hint: string }
-type ConnKey = 'phone_number_id' | 'waba_id' | 'app_id' | 'display_number' | 'token' | 'app_secret' | 'verify_token' | 'graph_version' | 'time_zone';
+type ConnKey = 'phone_number_id' | 'waba_id' | 'app_id' | 'gemini_api_key' | 'ai_model' | 'display_number' | 'token' | 'app_secret' | 'verify_token' | 'graph_version' | 'time_zone';
 type Connection = Record<ConnKey, PlainSetting | SecretSetting> & { updated_by: string; updated_at: string | null };
 
 interface BotSettings {
@@ -22,6 +22,7 @@ interface BotSettings {
   connection: Connection; can_edit_connection: boolean;
   allow_withdrawals: boolean; withdraw_daily_cap: string; withdraw_cooldown_hours: number; can_edit_withdrawals: boolean;
   require_login: boolean; session_minutes: number;
+  ai_enabled: boolean; ai_knowledge: string; ai_daily_limit: number; ai_ready: boolean;
 }
 interface CheckResult {
   ok: boolean; error?: string; code?: string; warning?: string; diagnosis?: string;
@@ -74,6 +75,7 @@ const PLAIN: { key: ConnKey; hint: string; placeholder: string }[] = [
   { key: 'phone_number_id', hint: 'Meta → WhatsApp → API setup → Phone number ID (digits, not the number itself). The only ID used to send.', placeholder: '123456789012345' },
   { key: 'waba_id', hint: 'Optional, not used to send. Lets Test connection check the number belongs to this account and tell a wrong ID from a token problem.', placeholder: '987654321098765' },
   { key: 'app_id', hint: 'Optional. Meta app → Settings → Basic → App ID. Only needed to change the profile photo.', placeholder: '1234567890123456' },
+  { key: 'ai_model', hint: 'Google Gemini model for the AI assistant. Leave as is unless Google retires it.', placeholder: 'gemini-2.5-flash' },
   { key: 'display_number', hint: 'The bot’s number as players should save it. Shown on the website.', placeholder: '+263 77 000 1111' },
   { key: 'graph_version', hint: 'Meta’s Graph API version. Leave as is unless Meta retires it.', placeholder: 'v21.0' },
   { key: 'time_zone', hint: 'Kick-off times in chat and the daily chat limit’s day.', placeholder: 'Africa/Harare' },
@@ -82,6 +84,7 @@ const SECRETS: { key: ConnKey; hint: string }[] = [
   { key: 'token', hint: 'A permanent system-user token with whatsapp_business_messaging.' },
   { key: 'app_secret', hint: 'Meta app → Settings → Basic → App secret. Checks every webhook is really from Meta.' },
   { key: 'verify_token', hint: 'Any long random string. Enter the same one in Meta’s webhook settings.' },
+  { key: 'gemini_api_key', hint: 'Google AI Studio → Get API key. Powers the AI assistant.' },
 ];
 const SOURCE: Record<Source, { label: string; tone: 'green' | 'slate' | 'red' | 'gold' }> = {
   admin: { label: 'Set here', tone: 'green' }, env: { label: 'From .env.prod', tone: 'slate' },
@@ -147,6 +150,30 @@ export default function WhatsAppBotPage() {
     if (!form) return;
     void put({ require_login: form.require_login, session_minutes: Number(form.session_minutes) },
       'Login settings saved. They apply to the next message.', 'login');
+  }
+
+  const [aiQ, setAiQ] = useState('');
+  const [aiA, setAiA] = useState<{ reply: string; handoff: boolean; reason?: string } | null>(null);
+  const [knows, setKnows] = useState<string | null>(null);
+
+  function saveAi() {
+    if (!form) return;
+    void put({ ai_enabled: form.ai_enabled, ai_knowledge: form.ai_knowledge, ai_daily_limit: Number(form.ai_daily_limit) },
+      'AI assistant saved. It applies to the next message.', 'ai');
+  }
+
+  async function tryAi() {
+    if (!accessToken || !aiQ.trim()) return;
+    setBusy('ai-try'); setAiA(null);
+    const res = await authedPost<{ reply: string; handoff: boolean; reason?: string }>('/admin/chatbot/ai/test/', { question: aiQ }, accessToken);
+    setBusy('');
+    if (res.error) setNotice({ tone: 'red', text: res.error }); else setAiA(res.data ?? null);
+  }
+
+  async function showKnowledge() {
+    if (!accessToken) return;
+    const res = await authedRequest<{ knowledge: string }>('GET', '/admin/chatbot/ai/knowledge/', accessToken);
+    setKnows(res.data?.knowledge ?? res.error ?? '');
   }
 
   function saveConnection() {
@@ -379,6 +406,51 @@ export default function WhatsAppBotPage() {
               </Field>
             </div>
             <Btn variant="primary" busy={busy === 'limits'} onClick={saveLimits}>Save</Btn>
+          </div>
+        )}
+      </Panel>
+
+      <Panel title="AI assistant (Google Gemini)"
+        description="Answers anything that isn’t a menu command: how to bet, deposits, withdrawals, bonuses, Aviator, rules. It learns the site from your live settings, never places bets or moves money, gives no tips, and hands money problems and anything it isn’t sure of to a person (Inbox → Needs a person)."
+        actions={form && (form.ai_enabled && form.ai_ready ? <Badge tone="green" dot>On</Badge>
+          : form.ai_enabled ? <Badge tone="gold" dot>On, no API key</Badge> : <Badge tone="slate" dot>Off</Badge>)}>
+        {form && (
+          <div className="space-y-5">
+            <span className="flex items-center gap-2 text-sm font-semibold">
+              <Switch checked={form.ai_enabled} disabled={!form.can_edit_withdrawals}
+                onChange={(v) => setForm({ ...form, ai_enabled: v })} label="AI assistant" /> Answer questions with the AI assistant
+            </span>
+            {!form.ai_ready && <p className="text-xs text-gold">Add the Google Gemini API key in the connection above first.</p>}
+            <Field label="Also tell it (optional)" hint="Anything players ask that the settings don’t say: opening hours, how long payouts take, house rules. It already knows your stakes, fees, bonus rules, promotions, cashback and refunds.">
+              <textarea value={form.ai_knowledge} disabled={!form.can_edit_withdrawals} rows={5} maxLength={6000}
+                onChange={(e) => setForm({ ...form, ai_knowledge: e.target.value })}
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm" />
+            </Field>
+            <Field label="Questions per number per day" hint="Keeps costs predictable; past the limit, questions go to a person.">
+              <TextInput inputMode="numeric" value={String(form.ai_daily_limit)} disabled={!form.can_edit_withdrawals}
+                onChange={(e) => setForm({ ...form, ai_daily_limit: Number(e.target.value.replace(/\D/g, '') || 0) })} />
+            </Field>
+            <div className="flex flex-wrap gap-2">
+              {form.can_edit_withdrawals && <Btn variant="primary" busy={busy === 'ai'} onClick={saveAi}>Save</Btn>}
+              <Btn onClick={showKnowledge}>What it knows</Btn>
+            </div>
+            {knows !== null && (
+              <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded-lg bg-muted/40 p-3 text-xs">{knows}</pre>
+            )}
+            <div className="space-y-2 border-t border-border/70 pt-4">
+              <p className="text-sm font-semibold">Try it</p>
+              <div className="flex gap-2">
+                <TextInput value={aiQ} onChange={(e) => setAiQ(e.target.value)} placeholder="How do I withdraw my winnings?"
+                  onKeyDown={(e) => { if (e.key === 'Enter') void tryAi(); }} />
+                <Btn busy={busy === 'ai-try'} disabled={!form.ai_ready || !aiQ.trim()} onClick={tryAi}>Ask</Btn>
+              </div>
+              {aiA && (
+                <div className="rounded-lg bg-muted/40 p-3 text-sm">
+                  <p className="whitespace-pre-wrap">{aiA.reply}</p>
+                  {aiA.handoff && <p className="mt-1 text-xs font-bold text-gold">Would hand over to a person: {aiA.reason || 'needs a person'}</p>}
+                </div>
+              )}
+            </div>
           </div>
         )}
       </Panel>

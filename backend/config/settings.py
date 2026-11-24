@@ -595,6 +595,9 @@ WHATSAPP_APP_ID = os.environ.get('WHATSAPP_APP_ID', '')
 WHATSAPP_APP_SECRET = os.environ.get('WHATSAPP_APP_SECRET', '')
 WHATSAPP_VERIFY_TOKEN = os.environ.get('WHATSAPP_VERIFY_TOKEN', '')
 WHATSAPP_GRAPH_VERSION = os.environ.get('WHATSAPP_GRAPH_VERSION', '')  # default v21.0 (apps.chatbot.config)
+# The WhatsApp AI assistant (apps.chatbot.ai). Also settable in Admin → WhatsApp bot.
+GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
+GEMINI_MODEL = os.environ.get('GEMINI_MODEL', '')  # default gemini-2.5-flash
 # The bot's number as players should save it (shown on the website), e.g. +263 77 123 4567.
 WHATSAPP_DISPLAY_NUMBER = os.environ.get('WHATSAPP_DISPLAY_NUMBER', '')
 # Kick-off times in chat are written in the players' local time (the server runs on UTC).

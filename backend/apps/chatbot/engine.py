@@ -258,6 +258,10 @@ class Conversation(MenuMixin, SignInMixin):
             return self._route(nav[-1]) if nav else self.menu()
         replies = self._route(text)
         if self._lost:
+            from . import ai
+            if ai.enabled(self.cfg) and sum(ch.isalpha() for ch in text) >= 3:
+                # Not a command: a question for the AI assistant (answered in the background).
+                return [{'ai_question': text, 'player_id': self.link.player_id if self.logged_in else None}]
             return self._where_you_were()
         if _is_screen(words):
             self._remember(' '.join(text.split()))
@@ -336,7 +340,9 @@ class Conversation(MenuMixin, SignInMixin):
         if head == 'PROMO':
             return self.promo(rest)
         if head == 'SUPPORT':
-            return self.support(rest)
+            return self.support(text.split()[1:])
+        if head in ('HUMAN', 'PERSON', 'STAFF', 'OPERATOR') and len(words) <= 3:
+            return self.support(['(asked for a person)'])
         if head in ('NEXT', 'MORE') and not rest:
             return self.turn_page(1)
         if head in ('PREV', 'PREVIOUS') and not rest:

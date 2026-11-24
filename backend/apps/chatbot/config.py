@@ -36,6 +36,8 @@ FIELDS: dict[str, Field] = {
     'app_secret': Field('app_secret_enc', 'WHATSAPP_APP_SECRET', secret=True, label='App secret'),
     'verify_token': Field('verify_token_enc', 'WHATSAPP_VERIFY_TOKEN', secret=True, label='Webhook verify token'),
     'graph_version': Field('graph_version', 'WHATSAPP_GRAPH_VERSION', default='v21.0', label='Graph API version'),
+    'gemini_api_key': Field('gemini_key_enc', 'GEMINI_API_KEY', secret=True, label='Google Gemini API key'),
+    'ai_model': Field('ai_model', 'GEMINI_MODEL', default='gemini-2.5-flash', label='Gemini model'),
     'time_zone': Field('time_zone', 'CHATBOT_TIME_ZONE', default='Africa/Harare', label='Players’ time zone'),
 }
 
@@ -104,7 +106,9 @@ def _validate(name: str, v: str) -> str:
             raise ConfigError(f'“{v}” is not a time zone. Use a name like Africa/Harare.') from exc
     if name == 'display_number' and len(v) > 32:
         raise ConfigError('The number shown to players is at most 32 characters.')
-    if name in ('token', 'app_secret', 'verify_token'):
+    if name == 'ai_model' and v and not re.fullmatch(r'[a-z0-9][a-z0-9.\-]{2,59}', v):
+        raise ConfigError('The model name looks like gemini-2.5-flash.')
+    if name in ('token', 'app_secret', 'verify_token', 'gemini_api_key'):
         if len(v) > 1000 or any(ch.isspace() for ch in v):
             raise ConfigError(f'The {FIELDS[name].label.lower()} has no spaces. Paste it again.')
         if name == 'verify_token' and len(v) < 12:

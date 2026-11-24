@@ -1363,3 +1363,114 @@ class SameMatchChatTests(_Base):
         self.assertIn(f'Total odds {priced["combined_odds"]}', slip)        # the price it will be placed at
         self.linked()
         self.assertIn('2 matches (3 picks)', text(self.say('STAKE')))       # a ticket counts matches, not picks
+
+
+@override_settings(WHATSAPP_APP_SECRET=SECRET, WHATSAPP_TOKEN='tok', WHATSAPP_PHONE_NUMBER_ID='555', GEMINI_API_KEY='gk-test')
+class AiAssistantTests(_Base):
+    """Free text goes to Gemini (in the background), grounded in the live rules; money problems go to a person."""
+
+    def setUp(self):
+        super().setUp()
+        from django.core.cache import cache
+        cache.clear()
+        cfg = ChatbotSettings.load()
+        cfg.ai_enabled = True
+        cfg.ai_knowledge = 'Support hours are 8am to 8pm.'
+        cfg.save()
+
+    def gemini(self, reply, handoff=False, reason=''):
+        body = {'candidates': [{'content': {'parts': [{'text': json.dumps({'reply': reply, 'handoff': handoff, 'reason': reason})}]}}]}
+        return _Res(200, body)
+
+    def ask(self, text_, gemini_res):
+        """Send a WhatsApp message through the webhook and return (gemini call, sent replies)."""
+        raw = json.dumps({'entry': [{'changes': [{'value': {'messages': [
+            {'from': NUMBER, 'id': f'wamid.{abs(hash(text_))}', 'type': 'text', 'text': {'body': text_}}]}}]}]}).encode()
+        sig = 'sha256=' + hmac.new(SECRET.encode(), raw, hashlib.sha256).hexdigest()
+        sent = []
+
+        def post(url, **kw):
+            if 'generativelanguage' in url:
+                return gemini_res
+            sent.append(kw.get('json') or {})
+            return _Res(200, {'messages': [{'id': f'wamid.out{len(sent)}'}]})
+        with patch('requests.post', side_effect=post) as p, patch.object(services.threading, 'Thread', _Inline), \
+                self.captureOnCommitCallbacks(execute=True):
+            APIClient().generic('POST', '/api/chatbot/whatsapp/webhook/', raw, content_type='application/json',
+                                HTTP_X_HUB_SIGNATURE_256=sig)
+        call = next((c for c in p.call_args_list if 'generativelanguage' in c.args[0]), None)
+        return call, [m for m in sent if m.get('type') in ('text', 'interactive')]
+
+    def test_a_question_is_answered_from_the_live_rules(self):
+        from apps.chatbot.models import OutboundMessage
+        call, sent = self.ask('how do i withdraw my money?', self.gemini('Go to *Account → Wallet* and tap *Withdraw*.'))
+        self.assertIsNotNone(call)
+        self.assertEqual(call.kwargs['headers']['x-goog-api-key'], 'gk-test')
+        self.assertIn('gemini-2.5-flash', call.args[0])
+        system = call.kwargs['json']['system_instruction']['parts'][0]['text']
+        for fact in ('WITHDRAWALS: from Winnings, fee', 'BETTING: stake', 'Support hours are 8am to 8pm',
+                     'Never give betting tips', 'handoff=true'):
+            self.assertIn(fact, system)
+        self.assertNotIn('ACCOUNT (the player asking', system)            # not logged in: no account data
+        self.assertEqual(OutboundMessage.objects.filter(source='ai').count(), 1)
+        self.assertTrue(any('Withdraw' in json.dumps(m) for m in sent))
+
+    def test_money_problems_are_handed_to_a_person(self):
+        from apps.chatbot.models import SupportRequest
+        _, sent = self.ask('my deposit of 20 has not arrived', self.gemini('Sorry about that.', True, 'Deposit not credited'))
+        req = SupportRequest.objects.get(address=NUMBER)
+        self.assertEqual((req.reason, req.source, req.resolved_at), ('Deposit not credited', 'ai', None))
+        self.assertIn('a person will reply here', json.dumps(sent))
+
+    def test_a_logged_in_player_gets_answers_about_their_own_account(self):
+        self.linked()
+        call, _ = self.ask('what is my balance and where is my withdrawal', self.gemini('Your Deposit balance is $100.'))
+        system = call.kwargs['json']['system_instruction']['parts'][0]['text']
+        self.assertIn('BALANCES: Deposit $100.00', system)
+        self.assertNotIn(NUMBER, system)                                     # never the phone number
+
+    def test_gemini_failing_still_answers_and_hands_over(self):
+        from apps.chatbot.models import SupportRequest
+        _, sent = self.ask('can you help me please', _Res(500, {'error': 'boom'}))
+        self.assertIn('a person will reply here', json.dumps(sent))
+        self.assertEqual(SupportRequest.objects.get().reason, 'AI unavailable')
+
+    def test_commands_never_go_to_the_ai(self):
+        call, _ = self.ask('GAMES', self.gemini('x'))
+        self.assertIsNone(call)
+
+    def test_daily_limit(self):
+        cfg = ChatbotSettings.load()
+        cfg.ai_daily_limit = 1
+        cfg.save()
+        self.ask('first question here', self.gemini('ok'))
+        call, sent = self.ask('second question here', self.gemini('ok'))
+        self.assertIsNone(call)
+        self.assertIn('passed this one to our team', json.dumps(sent))
+
+    def test_off_means_the_old_fallback(self):
+        cfg = ChatbotSettings.load()
+        cfg.ai_enabled = False
+        cfg.save()
+        self.assertIn("didn't get that", text(self.say('what is cashback')))
+
+    def test_staff_see_and_resolve_needs_a_person(self):
+        from django.contrib.auth.models import User
+        self.ask('my withdrawal is late', self.gemini('Sorry.', True, 'Withdrawal late'))
+        staff = APIClient()
+        staff.force_authenticate(User.objects.create_user('desk', 'd@example.com', 'x', is_staff=True))
+        inbox = staff.get('/api/admin/chatbot/inbox/').json()
+        self.assertEqual((inbox['needs_person'], inbox['conversations'][0]['needs_person']), (1, True))
+        self.assertEqual(staff.get(f'/api/admin/chatbot/inbox/{NUMBER}/').json()['needs_person']['reason'], 'Withdrawal late')
+        with patch('requests.post', return_value=_Res(200, {'messages': [{'id': 'w'}]})):
+            staff.post(f'/api/admin/chatbot/inbox/{NUMBER}/', {'text': 'We are checking it now.'}, format='json')
+        self.assertIsNone(staff.get(f'/api/admin/chatbot/inbox/{NUMBER}/').json()['needs_person'])   # a reply resolves it
+
+    def test_admin_try_it(self):
+        from django.contrib.auth.models import User
+        staff = APIClient()
+        staff.force_authenticate(User.objects.create_user('desk', 'd@example.com', 'x', is_staff=True))
+        with patch('requests.post', return_value=self.gemini('Bets start at $0.50.')):
+            out = staff.post('/api/admin/chatbot/ai/test/', {'question': 'minimum stake?'}, format='json').json()
+        self.assertEqual((out['reply'], out['handoff']), ('Bets start at $0.50.', False))
+        self.assertIn('BETTING: stake', staff.get('/api/admin/chatbot/ai/knowledge/').json()['knowledge'])
