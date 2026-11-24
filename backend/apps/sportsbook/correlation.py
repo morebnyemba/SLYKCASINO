@@ -125,8 +125,13 @@ def fit(event) -> Optional[tuple[float, float]]:
     return round(total * share, 4), round(total * (1 - share), 4)
 
 
-def group_price(event, legs: list[tuple['same_match.Pick', Decimal]], percent: Decimal, *, in_play: bool = False) -> Decimal:
-    """One price for every pick from one match: `legs` = [(pick, offered odds)]."""
+_FIT = object()
+
+
+def group_price(event, legs: list[tuple['same_match.Pick', Decimal]], percent: Decimal, *, in_play: bool = False,
+                model=_FIT) -> Decimal:
+    """One price for every pick from one match: `legs` = [(pick, offered odds)]. `model` = fit(event)
+    already worked out (the Combined tab prices hundreds of pairs from one fit)."""
     product = Decimal('1')
     for _, odds in legs:
         product *= Decimal(odds)
@@ -135,7 +140,10 @@ def group_price(event, legs: list[tuple['same_match.Pick', Decimal]], percent: D
     flat = Decimal(percent) / Decimal('100')
     modelled = [(p, o) for p, o in legs if same_match._wins(p) is not None]
     others = len(legs) - len(modelled)
-    model = fit(event) if (event is not None and not in_play and len(modelled) >= 2) else None
+    if model is _FIT:
+        model = fit(event) if (event is not None and not in_play and len(modelled) >= 2) else None
+    elif in_play or len(modelled) < 2:
+        model = None
     factor = None
     if model is not None:
         w = weights(*model)

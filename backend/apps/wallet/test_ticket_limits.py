@@ -72,7 +72,8 @@ class TicketLimitTests(TestCase):
             sb.place_accumulator(stake=D('5'), legs=legs(13), player_id=self.player.id, wallet='deposit')
         limits = APIClient().get('/api/multibet-bonus/').json()['limits']
         self.assertEqual(limits, {'min_stake': '2.00', 'max_stake': '50.00', 'max_selections': 12,
-                                  'same_match_bets': True, 'same_match_price_percent': '90.00'})
+                                  'same_match_bets': True, 'same_match_price_percent': '90.00',
+                                  'max_picks_per_match': 2})
 
     def test_staff_cannot_save_impossible_limits(self):
         for body in ({'min_stake': '0'}, {'min_stake': '20', 'max_stake': '10'}, {'max_selections': 1},

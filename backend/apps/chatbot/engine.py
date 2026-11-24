@@ -396,6 +396,11 @@ class Conversation(MenuMixin, SignInMixin):
             return self.pick_outcome(int(rest[0]))
         if head == 'LIVE' and rest and rest[0].isdigit():
             return self.live(page=int(rest[0]) - 1)
+        if head.isdigit() and rest and rest[0] in ('C', 'COMBO', 'COMBOS', 'COMBINED'):
+            nums = [int(x) for x in rest[1:3] if x.isdigit()]
+            return self.combos(int(head), nums[0] if nums else None, nums[1] - 1 if len(nums) > 1 else 0)
+        if head == 'COMBO' and len(rest) == 2 and rest[0].isdigit():
+            return self.pick_combo(int(rest[0]), rest[1].lower())
         if head.isdigit() and rest and rest[0] in ('M', 'MARKETS', 'ODDS', 'ALL'):
             return self.all_markets(int(head), int(rest[1]) - 1 if len(rest) > 1 and rest[1].isdigit() else 0)
         if head.isdigit() and len(rest) >= 2 and rest[0] == 'G':
@@ -813,6 +818,10 @@ class Conversation(MenuMixin, SignInMixin):
                   f'Type a pick to add it, e.g. *{e.id} {(main or quick or [("1", 0)])[0][0]}*.']
         rows = [[f'{e.id} {c}', f'{c} · {_odds(p)}', f'Match result: {describe(e, c)[1]}'] for c, p in main]
         group_rows = [[f'{e.id} G {g}', label, f'{n} market{"" if n == 1 else "s"}'] for g, label, n in groups]
+        n_combos = self._combo_data(e)['count']
+        if n_combos:
+            group_rows.insert(0, [f'{e.id} C', '🔗 Combined picks', f'{n_combos} ready-made pairs, e.g. Win & Over 1.5'])
+            lines.insert(-1, f'🔗 *{n_combos} combined picks*: send *{e.id} C*.')
         room = LIST_SIZE - len(rows)
         if len(group_rows) > room:
             group_rows = group_rows[:room - 1] + [[f'{e.id} M', 'More markets ▶', f'{len(groups)} groups in all']]
@@ -821,6 +830,75 @@ class Conversation(MenuMixin, SignInMixin):
                  'list': {'button': 'All odds', 'sections': [
                      {'title': 'Match result', 'rows': rows},
                      {'title': 'Markets', 'rows': _with_back(group_rows, room=LIST_SIZE - len(rows))}]}}]
+
+    # -- combined picks: two picks from one match at one price (sportsbook.combos) ----------
+    @staticmethod
+    def _combo_data(e) -> dict:
+        from apps.sportsbook import combos
+        try:
+            return combos.for_event(e.id) or {'count': 0, 'groups': [], 'combos': []}
+        except Exception:  # noqa: BLE001 — a match page must still open
+            logger.exception('combos for #%s failed', e.id)
+            return {'count': 0, 'groups': [], 'combos': []}
+
+    def combos(self, event_id: int, group: Optional[int] = None, page: int = 0) -> list[dict]:
+        """`<id> C`: the groups of combined picks; `<id> C <group> [page]`: the picks in one, to tap."""
+        e = self._event(event_id)
+        if (r := self._closed(e, event_id)):
+            return r
+        data = self._combo_data(e)
+        if not data['count']:
+            return [_reply(f'#{e.id}: no combined picks right now (they are built from the open markets).', f'{e.id}', 'GAMES')]
+        groups = data['groups']
+        if group is None or not 1 <= group <= len(groups):
+            counts = {g: sum(1 for c in data['combos'] if c['group'] == g) for g in groups}
+            rows = [[f'{e.id} C {i}', g[:24], f'{counts[g]} picks'] for i, g in enumerate(groups[:LIST_SIZE - 1], 1)]
+            return [{'text': f'{self._head(e)}\n\n🔗 *Combined picks* · {data["count"]}\nTwo picks from this match at one '
+                             f'price that allows for how they go together. Both must win.\n\nChoose a group.',
+                     'list': {'button': 'Choose', 'title': 'Combined picks', 'rows': _with_back(rows)}}]
+        name = groups[group - 1]
+        items = [c for c in data['combos'] if c['group'] == name]
+        per = LIST_SIZE - 1
+        pages = -(-len(items) // per)
+        page = max(0, min(page, pages - 1))
+        chunk = items[page * per:(page + 1) * per]
+        rows = []
+        for c in chunk:
+            title = c['name'] if len(c['name']) <= 24 else c['name'][:23].rsplit(' ', 1)[0].rstrip(' &') + '…'
+            rows.append([f'COMBO {e.id} {c["key"]}', title, f'Odds {_odds(c["odds"])} · {c["name"]}'[:72]])
+        if page + 1 < pages:
+            rows.append([f'{e.id} C {group} {page + 2}', 'More ▶', f'Page {page + 2} of {pages}'])
+        lines = [self._head(e), '', f'🔗 *{name}* · page {page + 1}/{pages}', '']
+        lines += [f'{c["name"]} — *{_odds(c["odds"])}*' for c in chunk]
+        return [{'text': '\n'.join(lines) + '\n\nTap one to add it.',
+                 'list': {'button': 'Pick one', 'title': name[:24], 'rows': _with_back(rows)}}]
+
+    def pick_combo(self, event_id: int, key: str) -> list[dict]:
+        """Put a combined pick's two legs on the slip, replacing this match's other picks."""
+        from apps.sportsbook.models import MarketOutcome
+        e = self._event(event_id)
+        if (r := self._closed(e, event_id)):
+            return r
+        combo = next((c for c in self._combo_data(e)['combos'] if c['key'] == key), None)
+        if combo is None:
+            return [_reply('That combined pick isn’t available any more: prices have moved.', f'{e.id} C', VIEW_SLIP)]
+        found = []
+        for leg in combo['legs']:
+            if leg.get('outcome_id'):
+                o = MarketOutcome.objects.select_related('market').filter(pk=leg['outcome_id']).first()
+                if o is None:
+                    return [_reply('That combined pick isn’t available any more.', f'{e.id} C')]
+                code = self._code_for(o.market, o) if (o.market.period == 'ft' and o.market.metric == 'goals') else ''
+                found.append({'match': e.id, 'pick': code or f'#{o.id}', 'event_id': None, 'selection': None,
+                              'outcome_id': o.id, 'event': e.name, 'market': o.market.name, 'pick_text': o.label,
+                              'kickoff': kickoff(e), 'label': f'{e.name} – {o.market.name}: {o.label}', 'odds': leg['odds']})
+            else:
+                code = {'home': '1', 'draw': 'X', 'away': '2'}[leg['selection']]
+                found.append(self._leg(e, code, Decimal(leg['odds']), event_id=e.id, selection=leg['selection']))
+        self.state['legs'][:] = [x for x in self.state['legs'] if x['match'] != e.id]
+        replies = self._add_legs(found, [])
+        first = replies[0]
+        return [{**first, 'text': f'🔗 *{combo["name"]}* · one price *{_odds(combo["odds"])}*\n\n{first["text"]}'}] + replies[1:]
 
     def all_markets(self, event_id: int, page: int = 0) -> list[dict]:
         e = self._event(event_id)
@@ -973,6 +1051,11 @@ class Conversation(MenuMixin, SignInMixin):
                 problems.append(str(exc))
         return self._add_legs(found, problems)
 
+    @staticmethod
+    def _per_match() -> int:
+        from apps.wallet.models import WalletRules
+        return WalletRules.load().max_picks_per_match
+
     def _add_legs(self, found: list[dict], problems: list[str]) -> list[dict]:
         """Put legs on the slip (replacing the same pick) and confirm each one."""
         added = []
@@ -983,6 +1066,10 @@ class Conversation(MenuMixin, SignInMixin):
             if leg['match'] not in {x['match'] for x in legs} and len({x['match'] for x in legs}) >= MAX_LEGS:
                 problems.append(f'a slip holds at most {MAX_LEGS} picks')
                 break
+            per_match = self._per_match()
+            if sum(1 for x in legs if x['match'] == leg['match']) >= per_match:
+                problems.append(f'at most {per_match} picks from one match (#{leg["match"]}): remove one with REMOVE first')
+                continue
             legs.append(leg)
             added.append(leg)
         self.state.pop('pending', None)

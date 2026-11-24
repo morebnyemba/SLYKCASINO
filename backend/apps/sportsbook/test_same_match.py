@@ -68,7 +68,17 @@ class SameMatchMultipleTests(TestCase):
         with self.assertRaisesMessage(ValueError, 'same market'):
             self.place(self.leg(self.ou, 'over'), self.leg(self.ou, 'under'))
 
+    def test_at_most_two_picks_from_one_match_by_default(self):
+        with self.assertRaisesMessage(ValueError, 'At most 2 picks from one match'):
+            self.place(self.home(), self.leg(self.ou, 'over'), self.leg(self.btts, 'yes'), self.home(self.other, '1.50'))
+        out = sb.check_accumulator([self.home(), self.leg(self.ou, 'over'), self.leg(self.btts, 'yes')])
+        self.assertIn('At most 2 picks', out['problem']['message'])
+        self.assertEqual(wallet_services.betting_limits()['max_picks_per_match'], 2)
+
     def test_three_picks_from_one_match_and_one_from_another(self):
+        rules = WalletRules.load()
+        rules.max_picks_per_match = 3
+        rules.save()
         slip = self.place(self.home(), self.leg(self.ou, 'over'), self.leg(self.btts, 'yes'), self.home(self.other, '1.50'))
         # (2.00 × 2.00 × 1.80 × 0.9²) × 1.50 = 8.748
         self.assertEqual(slip.combined_odds, D('8.75'))
@@ -151,6 +161,9 @@ class CombinedMatchEntryTests(TestCase):
 
     def test_placed_ticket_stores_the_match_price_and_counts_matches(self):
         rules = WalletRules.load()
+        rules.max_picks_per_match = 3
+        rules.save()
+        rules = WalletRules.load()
         rules.max_selections = 2                                           # 4 picks, but only 2 matches
         rules.save()
         slip = sb.place_accumulator(wallet='deposit', stake=D('5'), player_id=self.player.id, legs=self.legs())
@@ -169,3 +182,62 @@ class CombinedMatchEntryTests(TestCase):
         rules.save()
         with self.assertRaises(ValueError):
             sb.place_accumulator(wallet='deposit', stake=D('5'), player_id=self.player.id, legs=self.legs())
+
+
+class CombosTests(TestCase):
+    """The Combined tab: every valid pair of open picks from one match, priced like the ticket."""
+
+    def setUp(self):
+        self.player = _player('comboplayer')
+        self.event = Event.objects.create(name='Chelsea v Arsenal', odds=D('2.10'), odds_draw=D('3.40'), odds_away=D('3.50'),
+                                          is_open=True)
+        for line, over, under in (('0.5', '1.07', '8.00'), ('1.5', '1.30', '3.40'), ('2.5', '1.95', '1.85'),
+                                  ('3.5', '3.30', '1.32'), ('4.5', '6.00', '1.11')):
+            _market(self.event, 'over_under', f'over_under:ft:{line}', [('over', over), ('under', under)], line=D(line))
+        _market(self.event, 'btts', 'btts:ft', [('yes', '1.80'), ('no', '1.95')])
+        _market(self.event, 'double_chance', 'double_chance:ft', [('1x', '1.30'), ('12', '1.33'), ('x2', '1.70')])
+        _market(self.event, 'odd_even', 'odd_even:ft', [('odd', '1.90'), ('even', '1.90')])
+        for side, kind in (('home', 'home_over_under'), ('away', 'away_over_under')):
+            _market(self.event, kind, f'{kind}:ft:0.5', [('over', '1.35'), ('under', '3.00')], line=D('0.5'))
+            _market(self.event, kind, f'{kind}:ft:1.5', [('over', '2.60'), ('under', '1.45')], line=D('1.5'))
+
+    def test_a_full_match_has_over_100_valid_priced_pairs(self):
+        from apps.sportsbook import combos
+        from apps.sportsbook.same_match import relation
+        data = APIClient().get(f'/api/events/{self.event.id}/combos/').json()
+        self.assertGreaterEqual(data['count'], 100)
+        self.assertEqual(data['groups'][0], 'Result & Goals')
+        names = {c['name'] for c in data['combos']}
+        self.assertIn('Chelsea Win & Over 1.5 Goals', names)
+        self.assertNotIn('Chelsea Win & Under 0.5 Goals', names)          # can never both win
+        picks = {p['leg'].get('outcome_id') or p['leg']['selection']: p for p in combos._picks(self.event)}
+        for c in data['combos']:
+            a, b = (picks[leg.get('outcome_id') or leg['selection']] for leg in c['legs'])
+            self.assertEqual(relation(a['pick'], b['pick']), 'different')
+            self.assertLessEqual(D(c['odds']), a['odds'] * b['odds'])      # never above the straight product
+
+    def test_a_combo_places_at_its_shown_price(self):
+        data = APIClient().get(f'/api/events/{self.event.id}/combos/').json()
+        combo = next(c for c in data['combos'] if c['name'] == 'Chelsea Win & Over 1.5 Goals')
+        other = Event.objects.create(name='Spurs v Leeds', odds=D('1.50'), is_open=True)
+        legs = [{'event': 'x', **leg} for leg in combo['legs']] + [
+            {'event': 'y', 'odds': '1.50', 'event_id': other.id, 'selection': 'home'}]
+        check = sb.check_accumulator(legs)
+        self.assertIsNone(check['problem'])
+        self.assertEqual(check['matches'][0]['odds'], combo['odds'])
+        slip = sb.place_accumulator(wallet='deposit', stake=D('5.00'), player_id=self.player.id, legs=legs)
+        self.assertEqual(slip.combined_odds, D(check['combined_odds']))
+
+    def test_closed_markets_and_switched_off_same_match_give_nothing(self):
+        from apps.sportsbook.models import Market
+        Market.objects.filter(event=self.event).update(is_open=False)
+        self.event.is_open = False
+        self.event.save()
+        self.assertEqual(APIClient().get(f'/api/events/{self.event.id}/combos/').json()['count'], 0)
+        self.event.is_open = True
+        self.event.save()
+        rules = WalletRules.load()
+        rules.same_match_bets = False
+        rules.save()
+        from apps.sportsbook import combos
+        self.assertEqual(combos.build(self.event), [])

@@ -49,6 +49,8 @@ class WalletRules(models.Model):
     # price by this % because such picks tend to win together.
     same_match_bets = models.BooleanField(default=True)
     same_match_price_percent = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal('90.00'))
+    # The most picks one match may have on a multiple (a combined pick is two).
+    max_picks_per_match = models.PositiveSmallIntegerField(default=2)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

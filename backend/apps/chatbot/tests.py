@@ -78,7 +78,8 @@ class BrowsingAndSlipTests(_Base):
         result, markets = reply['list']['sections']
         self.assertEqual(result['rows'][0], [f'{self.e1.id} 1', '1 · 2.00', 'Match result: Dynamos'])
         self.assertEqual([r[0] for r in result['rows']], [f'{self.e1.id} {c}' for c in ('1', 'X', '2')])
-        self.assertEqual(markets['rows'], [[f'{self.e1.id} G main', 'Main', '1 market'], ['BACK', '⬅️ Back', 'Up one level']])
+        self.assertEqual(markets['rows'][0][:2], [f'{self.e1.id} C', '🔗 Combined picks'])
+        self.assertEqual(markets['rows'][1:], [[f'{self.e1.id} G main', 'Main', '1 market'], ['BACK', '⬅️ Back', 'Up one level']])
         from apps.chatbot import whatsapp
         body = whatsapp.payload_for(NUMBER, reply)
         self.assertEqual(body['interactive']['type'], 'list')
@@ -1642,3 +1643,30 @@ class KnowledgeBaseTests(_Base):
         BotQuestion.objects.filter(pk=old.pk).update(created_at=timezone.now() - timedelta(days=91))
         BotQuestion.objects.create(address=NUMBER, text='y', source='none')
         self.assertEqual(purge_bot_questions(), 1)
+
+
+class CombinedPicksTests(_Base):
+    """WhatsApp: a match offers ready-made combined picks; one tap puts both legs on the slip."""
+
+    def setUp(self):
+        super().setUp()
+        from apps.sportsbook.test_markets import _market
+        for line, over, under in (('1.5', '1.30', '3.40'), ('3.5', '3.30', '1.32')):
+            _market(self.e1, 'over_under', f'over_under:ft:{line}', [('over', over), ('under', under)], line=D(line))
+        _market(self.e1, 'btts', 'btts:ft', [('yes', '1.80'), ('no', '1.95')])
+
+    def test_combined_picks_from_the_match_view_to_the_slip(self):
+        self.linked()
+        out = self.say(str(self.e1.id))[0]
+        rows = [r for sec in out['list']['sections'] for r in sec['rows']]
+        self.assertTrue(any(r[0] == f'{self.e1.id} C' for r in rows))
+        groups = self.say(f'{self.e1.id} C')[0]['list']['rows']
+        self.assertEqual(groups[0][1], 'Result & Goals')
+        picks = self.say(groups[0][0])[0]['list']['rows']
+        win_over = next(r for r in picks if r[0].startswith('COMBO') and 'Win & Over 1.5' in r[2])
+        out = text(self.say(win_over[0]))
+        self.assertIn('one price', out)
+        legs = self.say('SLIP')
+        self.assertIn('Over 1.5', text(legs))
+        # a third pick from the same match is refused
+        self.assertIn('at most 2 picks from one match', text(self.say(f'{self.e1.id} GG')))

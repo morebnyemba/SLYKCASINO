@@ -69,7 +69,8 @@ def betting_limits() -> dict:
     rules = WalletRules.load()
     return {'min_stake': f'{rules.min_stake:.2f}', 'max_stake': f'{rules.max_stake:.2f}',
             'max_selections': rules.max_selections, 'same_match_bets': rules.same_match_bets,
-            'same_match_price_percent': f'{rules.same_match_price_percent:.2f}'}
+            'same_match_price_percent': f'{rules.same_match_price_percent:.2f}',
+            'max_picks_per_match': rules.max_picks_per_match}
 
 
 # -- provisioning / reads ----------------------------------------------------

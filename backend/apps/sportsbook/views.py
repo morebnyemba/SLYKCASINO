@@ -83,6 +83,15 @@ class EventViewSet(viewsets.ModelViewSet):
             return [int(v) for v in raw.split(',') if v.strip().isdigit()][:50]
         return Response(services.current_prices(event_ids=ids('events'), outcome_ids=ids('outcomes')))
 
+    @action(detail=True, methods=['get'], url_path='combos')
+    def combos(self, request, pk=None):
+        """Ready-made combined picks for this match (two picks priced together), for the Combined tab."""
+        from . import combos
+        data = combos.for_event(int(pk))
+        if data is None:
+            return Response({'detail': 'Event not found'}, status=status.HTTP_404_NOT_FOUND)
+        return Response(data)
+
     @action(detail=True, methods=['post'], url_path='settle-score')
     def settle_score(self, request, pk=None):
         """Record the final (90-minute) score and settle the 1X2 plus every market

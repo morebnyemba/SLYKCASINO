@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { BsChevronLeft, BsChevronDown, BsCheckCircleFill, BsSearch, BsXCircleFill } from 'react-icons/bs';
 import { OddsButton } from '@/components/odds-button';
+import { CombinedPicks, useCombos } from '@/components/combined-picks';
 import { LiveBadge, TeamBadge, sportMeta } from '@/components/event-row';
 import { useLiveOdds } from '@/lib/use-live-odds';
 import { useLiveMarkets } from '@/lib/use-live-markets';
@@ -14,7 +15,7 @@ import {
   teamNames, withTeamNames, type EventItem, type Market, type MarketGroup, type MarketOutcome,
 } from '@/lib/sports';
 
-type Tab = 'all' | MarketGroup;
+type Tab = 'all' | 'combined' | MarketGroup;
 
 /** A card on the board: one market, or several lines of the same market as a table. */
 type Block =
@@ -276,8 +277,10 @@ export function EventMarkets({ ev }: { ev: EventItem }) {
     for (const b of blocks) c[b.group] = (c[b.group] ?? 0) + 1;
     return c;
   }, [blocks]);
-  const tabs: { id: Tab; label: string; count: number }[] = [
+  const combos = useCombos(ev.id, tab === 'combined');
+  const tabs: { id: Tab; label: string; count?: number }[] = [
     { id: 'all', label: 'All', count: blocks.length + 1 },
+    { id: 'combined', label: '🔗 Combined', count: combos.data?.count },
     ...MARKET_GROUPS.filter((g) => counts[g.id]).map((g) => ({
       id: g.id, label: g.label, count: (counts[g.id] ?? 0) + (g.id === 'main' ? 1 : 0),
     })),
@@ -303,7 +306,7 @@ export function EventMarkets({ ev }: { ev: EventItem }) {
   const resultMatches = searching && tokens.every((t) => normalize(
     `main match result 1x2 winner win full time ft ${resultOutcomes.map((o) => o.label).join(' ')}`,
   ).includes(t));
-  const allVisible = filtered ?? (tab === 'all' ? blocks : blocks.filter((b) => b.group === tab));
+  const allVisible = filtered ?? (tab === 'all' ? blocks : tab === 'combined' ? [] : blocks.filter((b) => b.group === tab));
   // Big matches carry 150+ markets: the first MARKET_BATCH render, more as the player scrolls
   // (search results always show in full).
   const [blockLimit, setBlockLimit] = useState(MARKET_BATCH);
@@ -591,7 +594,7 @@ export function EventMarkets({ ev }: { ev: EventItem }) {
                 }`}
               >
                 {t.label}
-                <span className={`rounded-full px-1.5 text-[10px] ${tab === t.id ? 'bg-white/20' : 'bg-muted'}`}>{t.count}</span>
+                {t.count != null && <span className={`rounded-full px-1.5 text-[10px] ${tab === t.id ? 'bg-white/20' : 'bg-muted'}`}>{t.count}</span>}
               </button>
             ))}
           </div>
@@ -600,6 +603,9 @@ export function EventMarkets({ ev }: { ev: EventItem }) {
       )}
 
       <div className="space-y-3">
+        {tab === 'combined' && !searching && (
+          <CombinedPicks eventId={ev.id} eventName={ev.name} closed={closed} data={combos.data} failed={combos.failed} />
+        )}
         {showResult && (
           <Collapsible forceOpen={searching} title={hasDraw ? 'Match result (1X2)' : 'Match winner'} badge={finalResult ? (
             <span className="rounded bg-muted px-2 py-0.5 text-[10.5px] font-bold text-muted-foreground">Settled</span>

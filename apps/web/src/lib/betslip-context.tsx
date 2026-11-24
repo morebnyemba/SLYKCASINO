@@ -136,7 +136,7 @@ export function bonusFor(ladder: BonusLadder | null, legs: BetLeg[], matchOdds?:
 }
 
 /** Stake and selection limits every ticket must meet (set by staff). */
-export interface TicketLimits { minStake: number; maxStake: number; maxSelections: number; sameMatchBets: boolean; sameMatchPercent: number }
+export interface TicketLimits { minStake: number; maxStake: number; maxSelections: number; sameMatchBets: boolean; sameMatchPercent: number; maxPerMatch: number }
 
 /** Why a stake can't be placed, or null. Bonus tickets stake the whole wallet, so only the selection limit applies. */
 export function stakeProblem(limits: TicketLimits | null, stake: number, wallet: WalletId | null): string | null {
@@ -183,6 +183,8 @@ interface BetslipContextValue {
   isOnSlip: (eventId: string | number, selection: Selection) => boolean;
   isOutcomeOnSlip: (outcomeId: number) => boolean;
   toggleLeg: (leg: BetLeg) => void;
+  /** Put a combined pick (several legs from one match) on the slip, replacing that match's picks. */
+  addCombo: (legs: BetLeg[]) => void;
   removeLeg: (key: string) => void;
   clear: () => void;
   place: () => Promise<void>;
@@ -237,7 +239,7 @@ export function BetslipProvider({ children }: { children: React.ReactNode }) {
       .then((r) => (r.ok ? r.json() : null))
       .then((d: {
         min_odds: string; cap: string; tiers: { min_legs: number; percent: string }[];
-        limits?: { min_stake: string; max_stake: string; max_selections: number; same_match_bets?: boolean; same_match_price_percent?: string };
+        limits?: { min_stake: string; max_stake: string; max_selections: number; same_match_bets?: boolean; same_match_price_percent?: string; max_picks_per_match?: number };
       } | null) => {
         if (cancelled || !d) return;
         setLadder({
@@ -251,6 +253,7 @@ export function BetslipProvider({ children }: { children: React.ReactNode }) {
             maxSelections: d.limits.max_selections,
             sameMatchBets: d.limits.same_match_bets ?? false,
             sameMatchPercent: Number(d.limits.same_match_price_percent ?? 100),
+            maxPerMatch: d.limits.max_picks_per_match ?? 2,
           });
         }
       })
@@ -371,8 +374,34 @@ export function BetslipProvider({ children }: { children: React.ReactNode }) {
       if (prev.some((l) => keyOf(l) === key)) return prev.filter((l) => keyOf(l) !== key);
       // One pick per market: tapping another price in the same market swaps it.
       const next = [...prev.filter((l) => !sameMarket(l, leg)), leg];
+      const perMatch = limitsRef.current?.maxPerMatch ?? 2;
+      if (next.filter((l) => String(l.eventId) === String(leg.eventId)).length > perMatch) {
+        setStatus(`At most ${perMatch} pick${perMatch === 1 ? '' : 's'} from one match. Remove one first.`);
+        return prev;
+      }
       const max = limitsRef.current?.maxSelections;
       if (max && next.length > max) {
+        setStatus(`A ticket can have at most ${max} selections.`);
+        return prev;
+      }
+      return next;
+    });
+  }, []);
+
+  // A ready-made combined pick: its legs replace whatever this match had on the slip.
+  const addCombo = useCallback((comboLegs: BetLeg[]) => {
+    setStatus(null);
+    setLegs((prev) => {
+      const ids = new Set(comboLegs.map((l) => String(l.eventId)));
+      const keysIn = new Set(comboLegs.map(keyOf));
+      const already = prev.filter((l) => ids.has(String(l.eventId)));
+      if (already.length === comboLegs.length && already.every((l) => keysIn.has(keyOf(l)))) {
+        return prev.filter((l) => !ids.has(String(l.eventId)));          // tapped again: take it off
+      }
+      const next = [...prev.filter((l) => !ids.has(String(l.eventId))), ...comboLegs];
+      const max = limitsRef.current?.maxSelections;
+      const matches = new Set(next.map((l) => String(l.eventId))).size;
+      if (max && matches > max) {
         setStatus(`A ticket can have at most ${max} selections.`);
         return prev;
       }
@@ -596,7 +625,7 @@ export function BetslipProvider({ children }: { children: React.ReactNode }) {
   const value: BetslipContextValue = {
     legs, limits, mode, setMode, accaStake, setAccaStake, legStakes, setLegStake,
     combinedOdds, potentialPayout, bonus, maxBonusPercent: Math.max(0, ...(ladder?.tiers.map((t) => t.percent) ?? [0])), loadCode, status, busy, wallet, setWallet, conflictingEvents, conflictMessage, sameMatchPercent, matchGroups, fixtures,
-    isOnSlip, isOutcomeOnSlip, toggleLeg, removeLeg, clear, place,
+    isOnSlip, isOutcomeOnSlip, toggleLeg, addCombo, removeLeg, clear, place,
     hasPriceChanges, hasSuspended, acceptPriceChanges,
     slipOpen, setSlipOpen,
   };
