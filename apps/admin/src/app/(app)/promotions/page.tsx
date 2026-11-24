@@ -127,11 +127,15 @@ export default function PromotionsPage() {
   }
 
   async function handleDelete(id: number) {
-    if (!accessToken || !confirm('Delete this promotion?')) return;
-    await fetch(`${config.apiUrl}/promotions/${id}/`, {
+    if (!accessToken || !confirm('Delete this promotion? Players who already claimed it keep their bonus.')) return;
+    const res = await fetch(`${config.apiUrl}/promotions/${id}/`, {
       method: 'DELETE',
       headers: { Authorization: `Bearer ${accessToken}` },
-    });
+    }).catch(() => null);
+    if (!res || !res.ok) {
+      const body = res ? ((await res.json().catch(() => ({}))) as { detail?: string }) : {};
+      window.alert(body.detail ?? 'Could not delete the promotion. Check your connection and try again.');
+    }
     refetch();
   }
 

@@ -352,3 +352,31 @@ class SiteAnnouncementTests(TestCase):
         self.assertEqual(res.status_code, 200)
         self.assertEqual(APIClient().get('/api/announcement/').json(), {'enabled': False})
         self.assertEqual(APIClient().put('/api/admin/announcement/', {'enabled': True}, format='json').status_code, 401)
+
+
+class DeletePromotionTests(TestCase):
+    """Delete works: unclaimed promotions are erased; claimed ones are removed but their claims stay."""
+
+    def test_delete_claimed_and_unclaimed(self):
+        from decimal import Decimal as D
+        from django.contrib.auth.models import User
+        from rest_framework.test import APIClient
+        from apps.accounts import services as accounts
+        from apps.promotions.models import Promotion, PromotionClaim
+        staff = APIClient()
+        staff.force_authenticate(User.objects.create_superuser('boss', 'boss@example.com', 'x'))
+        fresh = Promotion.objects.create(name='Fresh', code='FRESH', bonus_amount=D('5'))
+        self.assertEqual(staff.delete(f'/api/promotions/{fresh.pk}/').status_code, 204)
+        self.assertFalse(Promotion.objects.filter(pk=fresh.pk).exists())
+        used = Promotion.objects.create(name='Used', code='USED', bonus_amount=D('5'))
+        player = accounts.register_player(username='claimer', email='c@example.com', password='Pass-word-123')
+        claim = PromotionClaim.objects.create(player_id=player.id, promotion=used, bonus_amount=D('5'), wagering_required=D('5'))
+        self.assertEqual(staff.delete(f'/api/promotions/{used.pk}/').status_code, 204)        # used to crash (500)
+        self.assertTrue(PromotionClaim.objects.filter(pk=claim.pk).exists())                 # the claim is kept
+        names = [p['name'] for p in staff.get('/api/promotions/').json().get('results', staff.get('/api/promotions/').json())]
+        self.assertNotIn('Used', names)
+        other = accounts.register_player(username='late', email='l@example.com', password='Pass-word-123')
+        c = APIClient()
+        c.force_authenticate(other.user)
+        res = c.post(f'/api/promotions/{used.pk}/claim/')
+        self.assertIn(res.status_code, (400, 404))                                          # never claimable again
