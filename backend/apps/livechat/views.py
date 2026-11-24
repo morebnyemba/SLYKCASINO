@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from rest_framework import status
+from rest_framework.parsers import JSONParser, MultiPartParser
 from rest_framework.permissions import AllowAny, IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -73,8 +74,10 @@ class AdminSupportInboxView(APIView):
 
 class AdminSupportThreadView(APIView):
     """GET /api/admin/support/<player_id>/ — one conversation (marks the player's
-    messages read); POST {body} — reply as staff (the player is notified)."""
+    messages read); POST {body} — reply as staff (the player is notified), or
+    multipart {file, body}: a photo or video with an optional message."""
     permission_classes = [IsAdminUser]
+    parser_classes = [JSONParser, MultiPartParser]
 
     def get(self, request, player_id: int):
         from apps.accounts.models import Player
@@ -94,9 +97,36 @@ class AdminSupportThreadView(APIView):
         from . import support
         if not Player.objects.filter(pk=player_id).exists():
             return Response({'detail': 'Player not found.'}, status=status.HTTP_404_NOT_FOUND)
+        upload = request.FILES.get('file')
+        found = None
+        if upload is not None:
+            from common.attachments import AttachmentError, inspect
+            try:
+                found = inspect(upload)
+            except AttachmentError as exc:
+                return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         try:
-            msg = support.staff_reply(player_id=player_id, body=request.data.get('body', ''),
+            msg = support.staff_reply(player_id=player_id, body=request.data.get('body', ''), upload=upload, found=found,
                                       staff_name=request.user.get_full_name() or request.user.get_username())
         except support.SupportError as exc:
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(support.payload(msg), status=status.HTTP_201_CREATED)
+
+
+class SupportAttachmentView(APIView):
+    """GET /api/support/attachments/<id>/ — a photo or video in a support
+    conversation: only staff and the player whose conversation it is."""
+    permission_classes = [AllowAny]
+
+    def get(self, request, pk: int):
+        from django.http import FileResponse, Http404
+        from .models import ChatMessage
+        msg = ChatMessage.objects.filter(pk=pk).exclude(attachment='').first()
+        if msg is None:
+            raise Http404
+        user = request.user
+        if not (user and user.is_authenticated and user.is_staff):
+            player = accounts_services.get_current_player(request)
+            if player is None or player.id != msg.player_id:
+                raise Http404                                   # don't reveal that it exists
+        return FileResponse(msg.attachment.open('rb'), content_type=msg.attachment_mime or 'application/octet-stream')

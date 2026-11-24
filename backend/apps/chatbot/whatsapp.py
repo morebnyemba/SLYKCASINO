@@ -144,6 +144,10 @@ def payload_for(to: str, reply: dict) -> dict:
     A button's or row's id is the command it sends, so a tap reads like typing it."""
     text = reply['text'][:MAX_TEXT]
     base = {'messaging_product': 'whatsapp', 'recipient_type': 'individual', 'to': to}
+    media = reply.get('media')
+    if media and media.get('id'):                       # a photo or video uploaded to Meta first (send())
+        kind = media['kind']
+        return {**base, 'type': kind, kind: {'id': media['id'], **({'caption': text[:MAX_INTERACTIVE_TEXT]} if text else {})}}
     pick_list = reply.get('list')
     if pick_list and (pick_list.get('rows') or pick_list.get('sections')):
         def row(r):
@@ -478,6 +482,24 @@ def _meta_error(res) -> tuple[str, str]:
     return code, (f'{hint} ({detail})' if hint and detail else hint or detail or f'Meta answered {res.status_code}.')[:400]
 
 
+def upload_media(content: bytes, mime: str, name: str) -> tuple[str, Optional['SendResult']]:
+    """Upload a photo or video to Meta for this number: (media id, None), or ('', the failure)."""
+    import requests
+    url = f'https://graph.facebook.com/{_setting("graph_version")}/{_setting("phone_number_id")}/media'
+    try:
+        res = requests.post(url, timeout=60, headers={'Authorization': f'Bearer {_setting("token")}'},
+                            data={'messaging_product': 'whatsapp', 'type': mime}, files={'file': (name, content, mime)})
+    except requests.RequestException as exc:
+        return '', SendResult(False, error=f'Could not upload the file to Meta ({exc.__class__.__name__}).', code='network')
+    if res.status_code >= 300:
+        code, text = _meta_error(res)
+        return '', SendResult(False, error=f'Meta refused the file: {text}', code=code)
+    media_id = str(_json(res).get('id') or '')
+    if not media_id:
+        return '', SendResult(False, error='Meta did not return an id for the file.', code='media')
+    return media_id, None
+
+
 def send(to: str, reply: dict) -> SendResult:
     """Send one reply. Never raises; the result says what Meta answered."""
     if not configured():
@@ -486,6 +508,12 @@ def send(to: str, reply: dict) -> SendResult:
         return SendResult(False, error=f'WhatsApp is not connected: the {" and ".join(missing)} {"is" if len(missing) == 1 else "are"} not set '
                                       '(Admin → WhatsApp bot → Connection).', code='not_configured')
     import requests
+    media = reply.get('media')
+    if media and not media.get('id'):
+        media_id, failed = upload_media(media['content'], media['mime'], media.get('name') or f'file.{media["mime"].split("/")[-1]}')
+        if failed:
+            return failed
+        reply = {**reply, 'media': {'kind': media['kind'], 'id': media_id}}
     url = f'https://graph.facebook.com/{_setting("graph_version")}/{_setting("phone_number_id")}/messages'
     try:
         res = requests.post(url, json=payload_for(to, reply), timeout=10,

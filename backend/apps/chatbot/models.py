@@ -23,6 +23,13 @@ class ChatbotSettings(models.Model):
     daily_cap = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('200.00'))
     # Stakes above this need the player's chat PIN (set on the website). 0 = every bet.
     pin_above = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('20.00'))
+    # Withdrawals from chat: off until a superuser turns them on. Always need the
+    # chat PIN (set only on the website), pay only to a number the player's own
+    # deposits came from, stop at this many dollars a day (all withdrawals that
+    # day count), and wait this long after a number is linked (SIM-swap defence).
+    allow_withdrawals = models.BooleanField(default=False)
+    withdraw_daily_cap = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('100.00'))
+    withdraw_cooldown_hours = models.PositiveSmallIntegerField(default=48)
 
     # -- the WhatsApp connection (Meta Cloud API), set in the admin. Blank = use
     # the WHATSAPP_* value from .env.prod. Secrets are stored encrypted (secrets.py)
@@ -147,6 +154,10 @@ class OutboundMessage(models.Model):
     address = models.CharField(max_length=32, db_index=True)
     text = models.TextField()
     buttons = models.JSONField(default=list, blank=True)
+    # A photo or video staff sent (the text is its caption). Kept so the inbox can show it.
+    media_kind = models.CharField(max_length=8, blank=True, default='')
+    media_mime = models.CharField(max_length=20, blank=True, default='')
+    media = models.FileField(upload_to='whatsapp/%Y/%m/', blank=True, default='')
     source = models.CharField(max_length=8, choices=Source.choices, default=Source.BOT)
     sent_by = models.CharField(max_length=150, blank=True, default='')
     provider_id = models.CharField(max_length=128, blank=True, default='', db_index=True)

@@ -907,3 +907,220 @@ class AllOddsTests(_Base):
             {'title': 'B', 'rows': [[f'b{i}', f'B{i}'] for i in range(6)]}]}}
         sections = whatsapp.payload_for(NUMBER, reply)['interactive']['action']['sections']
         self.assertEqual([len(s['rows']) for s in sections], [6, 4])
+
+
+class MenuTests(_Base):
+    """Two-level, tappable menu: every item answers, nothing clashes with match IDs."""
+
+    def test_the_menu_is_a_short_tap_list_of_sections(self):
+        from apps.chatbot import whatsapp
+        [reply] = self.say('MENU')
+        body = whatsapp.payload_for(NUMBER, reply)
+        rows = body['interactive']['action']['sections'][0]['rows']
+        self.assertEqual(len(rows), 8)
+        self.assertLessEqual(len(body['interactive']['body']['text']), 1024)
+        self.assertIn('LINK 123456', reply['text'])                      # not linked yet: says how
+        [money] = self.say('MENU MONEY')
+        cmds = [r[0] for r in money['list']['rows']]
+        self.assertEqual(cmds[:3], ['BALANCE', 'DEPOSIT', 'WITHDRAW'])
+        self.assertEqual(cmds[-1], 'MENU')                                # back to the main menu
+        self.assertIn(f'#{self.e1.id}', text(self.say(str(self.e1.id))))  # a number is still a match
+
+    def test_every_menu_item_answers(self):
+        from apps.chatbot.menus import ITEMS, SECTIONS
+        self.linked()
+        for cmd, _, _ in SECTIONS:
+            self.assertIn('list', self.say(cmd)[0], cmd)
+        for _, rows in ITEMS.values():
+            for cmd, _, _ in rows:
+                if cmd in ('STOP',):
+                    continue
+                out = text(self.say(cmd))
+                self.assertNotIn("didn't get that", out, cmd)
+                self.assertTrue(out.strip(), cmd)
+
+    def test_today_and_tomorrow(self):
+        tz = services.local_tz()
+        start = timezone.localtime(timezone.now(), tz).replace(hour=0, minute=0, second=0, microsecond=0)
+        late_today = start + timedelta(hours=23, minutes=30)
+        tomorrow = start + timedelta(days=1, hours=15)
+        Event.objects.all().delete()
+        Event.objects.create(name='Late vs Night', starts_at=late_today, status='NS', odds=D('2'), odds_draw=D('3'), odds_away=D('4'))
+        Event.objects.create(name='Morrow vs Next', starts_at=tomorrow, status='NS', odds=D('2'), odds_draw=D('3'), odds_away=D('4'))
+        today, tmr = text(self.say('TODAY')), text(self.say('TOMORROW'))
+        if late_today > timezone.now():
+            self.assertIn('Late v Night', today)
+        self.assertNotIn('Morrow', today)
+        self.assertIn("Tomorrow's matches", tmr)
+        self.assertIn('Morrow v Next', tmr)
+        self.assertNotIn('Late', tmr)
+
+
+@override_settings(FRONTEND_URL='https://betblits.test')
+class ChatWithdrawalTests(_Base):
+    """WITHDRAW: off until enabled, PIN always, only to a number deposits came from, capped, not right after linking."""
+
+    def setUp(self):
+        super().setUp()
+        from apps.wallet.models import PaymentTransaction
+        self.player.kyc_status = self.player.Kyc.VERIFIED
+        self.player.save(update_fields=['kyc_status'])
+        wallet.credit(player_id=self.player.id, amount=D('80'), kind='adjustment', bucket='winnings', idempotency_key='chat:win')
+        PaymentTransaction.objects.create(reference='dep-1', player_id=self.player.id, method='ecocash', phone='0771234567',
+                                          amount=D('20'), status=PaymentTransaction.Status.PAID)
+        self.link = self.linked()
+        ChatLink.objects.filter(pk=self.link.pk).update(linked_at=timezone.now() - timedelta(days=3))
+        services.set_pin(ChatLink.objects.get(pk=self.link.pk), '4321')
+        cfg = ChatbotSettings.load()
+        cfg.allow_withdrawals = True
+        cfg.save()
+
+    def requests(self):
+        from apps.wallet.models import WithdrawalRequest
+        return WithdrawalRequest.objects.filter(player_id=self.player.id)
+
+    def test_off_by_default(self):
+        cfg = ChatbotSettings.load()
+        cfg.allow_withdrawals = False
+        cfg.save()
+        self.assertIn('switched off', text(self.say('WITHDRAW 10')))
+        self.assertEqual(self.requests().count(), 0)
+
+    def test_a_withdrawal_with_the_pin_goes_to_the_deposit_number(self):
+        info = text(self.say('WITHDRAW'))
+        self.assertIn('$80.00', info)
+        self.assertIn('EcoCash ••4567', info)
+        quote = text(self.say('WITHDRAW 20'))
+        self.assertIn('You receive: *$19.00*', quote)                    # 5% fee
+        self.assertIn('Wrong or missing PIN', text(self.say('CONFIRM')))
+        self.assertEqual(self.requests().count(), 0)
+        done = text(self.say('CONFIRM 4321'))
+        self.assertIn('Withdrawal requested: *$20.00*', done)
+        req = self.requests().get()
+        self.assertEqual((req.amount, req.method, req.account_number, req.wallet), (D('20.00'), 'ecocash', '0771234567', 'winnings'))
+
+    def test_three_wrong_pins_cancel_it(self):
+        self.say('WITHDRAW 10')
+        self.say('CONFIRM 0000')
+        self.say('CONFIRM 1111')
+        self.assertIn('cancelled', text(self.say('CONFIRM 2222')))
+        self.assertIn('There is no ticket waiting', text(self.say('CONFIRM 4321')))   # the right PIN now does nothing
+        self.assertEqual(self.requests().count(), 0)
+
+    def test_no_pin_no_withdrawal(self):
+        services.clear_pin(ChatLink.objects.get(pk=self.link.pk))
+        self.assertIn('need your chat PIN', text(self.say('WITHDRAW 10')))
+
+    def test_a_newly_linked_number_waits(self):
+        ChatLink.objects.filter(pk=self.link.pk).update(linked_at=timezone.now() - timedelta(hours=2))
+        self.assertIn('newly linked number', text(self.say('WITHDRAW 10')))
+
+    def test_only_to_numbers_deposits_came_from(self):
+        from apps.wallet.models import PaymentTransaction
+        PaymentTransaction.objects.all().delete()
+        self.assertIn('none yet', text(self.say('WITHDRAW 10')))
+        PaymentTransaction.objects.create(reference='dep-2', player_id=self.player.id, method='ecocash', phone='0771234567',
+                                          amount=D('5'), status=PaymentTransaction.Status.PAID)
+        PaymentTransaction.objects.create(reference='dep-3', player_id=self.player.id, method='onemoney', phone='0711112222',
+                                          amount=D('5'), status=PaymentTransaction.Status.PAID)
+        PaymentTransaction.objects.create(reference='dep-4', player_id=self.player.id, method='ecocash', phone='0779999999',
+                                          amount=D('5'), status=PaymentTransaction.Status.FAILED)      # never paid: not offered
+        [choose] = self.say('WITHDRAW 10')
+        labels = [r[1] for r in choose['list']['rows']]
+        self.assertEqual(sorted(labels), ['EcoCash ••4567', 'OneMoney ••2222'])
+        onemoney = next(r[0] for r in choose['list']['rows'] if 'OneMoney' in r[1])
+        self.say(onemoney)
+        self.say('CONFIRM 4321')
+        self.assertEqual(self.requests().get().account_number, '0711112222')
+
+    def test_the_daily_chat_limit(self):
+        cfg = ChatbotSettings.load()
+        cfg.withdraw_daily_cap = D('30')
+        cfg.save()
+        self.say('WITHDRAW 20')
+        self.say('CONFIRM 4321')
+        self.assertIn('up to $30.00 a day ($10.00 left today)', text(self.say('WITHDRAW 15')))
+
+    def test_only_a_superuser_changes_withdrawal_settings(self):
+        from django.contrib.auth.models import User
+        clerk, boss = APIClient(), APIClient()
+        clerk.force_authenticate(User.objects.create_user('clerk', 'c@example.com', 'x', is_staff=True))
+        boss.force_authenticate(User.objects.create_superuser('boss', 'b@example.com', 'x'))
+        cfg = ChatbotSettings.load()
+        same = {'max_stake': '40', 'allow_withdrawals': True, 'withdraw_daily_cap': str(cfg.withdraw_daily_cap),
+                'withdraw_cooldown_hours': cfg.withdraw_cooldown_hours}
+        self.assertEqual(clerk.put('/api/admin/chatbot/', same, format='json').status_code, 200)   # unchanged: fine
+        self.assertEqual(clerk.put('/api/admin/chatbot/', {**same, 'allow_withdrawals': False}, format='json').status_code, 403)
+        self.assertTrue(ChatbotSettings.load().allow_withdrawals)
+        out = boss.put('/api/admin/chatbot/', {**same, 'withdraw_cooldown_hours': 72}, format='json').json()
+        self.assertEqual((out['withdraw_cooldown_hours'], out['can_edit_withdrawals']), (72, True))
+
+
+class CashoutChatTests(_Base):
+    def test_cash_out_from_chat(self):
+        from apps.sportsbook import cashout
+        from apps.sportsbook.models import Bet
+        link = self.linked()
+        bet = Bet.objects.create(player_id=link.player_id, event='Dynamos vs Highlanders', stake=D('5'), odds=D('2'),
+                                 status='open', event_ref=self.e1, wallet='deposit')
+        offer = cashout.Offer(available=True, value=D('6.40'))
+        with patch.object(cashout, 'bet_offer', return_value=offer), patch.object(cashout, 'slip_offer', return_value=offer):
+            [lst] = self.say('CASHOUT')
+            row = lst['list']['rows'][0]
+            self.assertEqual((row[0], row[1][:5]), (f'CASHOUT B {bet.id}', '$6.40'))
+            self.assertIn('You get *$6.40*', text(self.say(row[0])))
+            with patch.object(cashout, 'cash_out', return_value=(bet, None)) as take:
+                self.assertIn('Cashed out *$6.40*', text(self.say('CONFIRM')))
+        self.assertEqual(take.call_args.kwargs, {'kind': 'bet', 'ticket_id': bet.id, 'player_id': link.player_id,
+                                                 'expected': D('6.40')})
+
+
+class SearchTests(_Base):
+    """League and country search, forgiving of spelling mistakes."""
+
+    def setUp(self):
+        super().setUp()
+        from apps.sportsbook.models import LeagueSetting, Team
+        self.epl = LeagueSetting.objects.create(league_id=39, name='Premier League', country='England')
+        self.champ = LeagueSetting.objects.create(league_id=40, name='Championship', country='England')
+        self.psl = LeagueSetting.objects.create(league_id=400, name='Premier Soccer League', country='Zimbabwe')
+        soon = timezone.now() + timedelta(days=1)
+        ars, che = Team.objects.create(name='Arsenal'), Team.objects.create(name='Chelsea')
+        Event.objects.create(name='Arsenal vs Chelsea', home_team=ars, away_team=che, starts_at=soon, status='NS',
+                             league=self.epl, odds=D('2'), odds_draw=D('3'), odds_away=D('4'))
+        Event.objects.create(name='Leeds vs Burnley', starts_at=soon, status='NS', league=self.champ,
+                             odds=D('2'), odds_draw=D('3'), odds_away=D('4'))
+        Event.objects.filter(pk__in=[self.e1.pk, self.e2.pk]).update(league=self.psl)
+
+    def test_scoring(self):
+        from apps.chatbot import search
+        self.assertEqual(search.best('arsnal', ['Arsenal', 'Chelsea', 'Arsenal Tula']), ['Arsenal', 'Arsenal Tula'])
+        self.assertEqual(search.best('premeir leage', ['Premier League', 'Premier Soccer League', 'La Liga'])[0], 'Premier League')
+        self.assertEqual(search.best('zimbabwae', ['Zimbabwe', 'Zambia']), ['Zimbabwe'])
+        self.assertEqual(search.best('atletico', ['Atlético Madrid']), ['Atlético Madrid'])      # accents don't matter
+        self.assertEqual(search.best('xyzzy', ['Arsenal', 'Chelsea']), [])
+
+    def test_a_misspelt_team_still_finds_its_match(self):
+        out = text(self.say('GAMES arsnal'))
+        self.assertIn('Showing results for “Arsenal” (you typed “arsnal”)', out)
+        self.assertIn('Arsenal v Chelsea', out)
+
+    def test_league_by_name_even_misspelt(self):
+        out = text(self.say('LEAGUE premeir leage'))
+        self.assertIn('Premier League', out)
+        [many] = self.say('LEAGUE premier')                              # two leagues contain "premier": pick one
+        self.assertEqual({r[1] for r in many['list']['rows']}, {'Premier League', 'Premier Soccer League'})
+        self.assertIn('Leeds v Burnley', text(self.say('LEAGUE champinship')))
+
+    def test_country(self):
+        [eng] = self.say('COUNTRY england')                              # two leagues there: choose
+        self.assertEqual({r[1] for r in eng['list']['rows']}, {'Premier League', 'Championship'})
+        out = text(self.say('COUNTRY zimbabwae'))                       # one league there: straight to its matches
+        self.assertIn('Showing Zimbabwe (you typed “zimbabwae”)', out)
+        self.assertIn('Dynamos v Highlanders', out)
+        [countries] = self.say('COUNTRIES')
+        self.assertEqual([r[0] for r in countries['list']['rows']], ['COUNTRY England', 'COUNTRY Zimbabwe'])
+        self.assertIn('No country matching', text(self.say('COUNTRY atlantis')))
+
+    def test_searching_a_country_name_in_games(self):
+        self.assertIn('Leeds v Burnley', text(self.say('GAMES england')))

@@ -14,6 +14,10 @@ class ChatMessage(models.Model):
     # from staff, who wrote them, and when the other side read the message.
     from_staff = models.BooleanField(default=False)
     staff_name = models.CharField(max_length=150, blank=True)
+    # A photo or video staff sent (support.staff_reply); served only to staff and this player.
+    attachment = models.FileField(upload_to='support/%Y/%m/', blank=True, default='')
+    attachment_kind = models.CharField(max_length=8, blank=True, default='')
+    attachment_mime = models.CharField(max_length=20, blank=True, default='')
     read_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 

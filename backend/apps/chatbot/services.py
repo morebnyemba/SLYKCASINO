@@ -143,6 +143,25 @@ def check_stake(link: ChatLink, stake: Decimal) -> None:
                         f'You can still stake ${max(left, Decimal("0")):.2f} today through chat.')
 
 
+# -- withdrawals -------------------------------------------------------------------------
+
+def withdraw_destinations(player_id: int) -> list[tuple[str, str, str]]:
+    """[(method, phone, label)]: the mobile-money numbers this player's paid
+    deposits came from. A chat withdrawal may only go to one of these, so
+    someone holding just the SIM can't send the money anywhere new."""
+    from apps.wallet.models import PaymentTransaction, WithdrawalRequest
+    labels = dict(WithdrawalRequest.Method.choices)
+    mobile = ('ecocash', 'onemoney', 'innbucks')
+    seen, out = set(), []
+    for method, phone in (PaymentTransaction.objects.filter(player_id=player_id, status=PaymentTransaction.Status.PAID)
+                          .exclude(phone='').order_by('-id').values_list('method', 'phone')):
+        method = (method or '').lower()
+        if method in mobile and (method, phone) not in seen:
+            seen.add((method, phone))
+            out.append((method, phone, labels.get(method, method.title())))
+    return out[:5]
+
+
 # -- rate limit ---------------------------------------------------------------------------
 
 def over_rate(address: str) -> bool:
@@ -171,6 +190,10 @@ def record(address: str, reply: dict, *, channel: str = WHATSAPP, source: str = 
 def transmit(row, reply: dict) -> bool:
     """Send one logged message and write what happened to it onto its row."""
     from . import whatsapp
+    if row.media:                                      # the stored photo or video goes with it
+        with row.media.open('rb') as f:
+            reply = {**reply, 'media': {'kind': row.media_kind, 'mime': row.media_mime, 'content': f.read(),
+                                        'name': row.media.name.rsplit('/', 1)[-1]}}
     if row.channel != WHATSAPP:
         result = whatsapp.SendResult(False, error='Unsupported channel.', code='channel')
     else:
@@ -201,6 +224,17 @@ def deliver(address: str, replies: list[dict], *, channel: str = WHATSAPP) -> No
             logger.exception('chat delivery to …%s crashed', address[-4:])
 
     transaction.on_commit(lambda: threading.Thread(target=run, daemon=True).start())
+
+
+def send_media(channel: str, address: str, upload, found, caption: str, *, by: str) -> bool:
+    """Store a photo or video staff chose (`found` from common.attachments.inspect)
+    in the delivery log, then send it with `caption`."""
+    from django.core.files.base import ContentFile
+    from .models import OutboundMessage
+    row = OutboundMessage.objects.create(channel=channel, address=address, text=caption, source='staff', sent_by=by[:150],
+                                         media_kind=found.kind, media_mime=found.mime)
+    row.media.save(f'{row.pk}.{found.ext}', ContentFile(upload.read()), save=True)
+    return transmit(row, {'text': caption})
 
 
 def send_now(channel: str, address: str, replies: list[dict], *, source: str = 'bot', by: str = '') -> int:
