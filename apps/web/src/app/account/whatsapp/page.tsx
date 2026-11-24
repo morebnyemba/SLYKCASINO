@@ -19,6 +19,7 @@ interface ChatStatus {
   operator_daily_limit: string;
   max_stake: string;
   pin_above: string;
+  require_login?: boolean; session_minutes?: number;
   staked_today: string;
 }
 
@@ -149,9 +150,13 @@ export default function WhatsAppBettingPage() {
             <div className="space-y-2">
               <p className="flex items-center gap-2 text-sm font-bold"><FaLock size={12} /> Chat PIN {data.has_pin && <span className="text-xs font-semibold text-win">set</span>}</p>
               <p className="text-xs text-muted-foreground">
-                {data.has_pin
-                  ? 'Every bet from WhatsApp needs your PIN (reply YES 1234).'
-                  : `Bets above ${money(data.pin_above)} need a PIN. Set one to protect your account if someone else uses your phone.`}
+                {data.require_login
+                  ? (data.has_pin
+                    ? `You log in on WhatsApp with this PIN (send LOGIN 1234). You are logged out after ${data.session_minutes ?? 5} minutes without a message.`
+                    : 'You need a PIN to log in on WhatsApp (send LOGIN and your PIN). Set one now.')
+                  : data.has_pin
+                    ? 'Every bet from WhatsApp needs your PIN (reply YES 1234).'
+                    : `Bets above ${money(data.pin_above)} need a PIN. Set one to protect your account if someone else uses your phone.`}
               </p>
               <div className="flex flex-wrap gap-2">
                 <input value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 6))} inputMode="numeric"
@@ -161,7 +166,7 @@ export default function WhatsAppBettingPage() {
                   disabled={pin.length < 4 || busy === 'pin'} className="rounded-lg bg-secondary px-4 py-2 text-sm font-bold text-secondary-foreground disabled:opacity-50">
                   {data.has_pin ? 'Change PIN' : 'Set PIN'}
                 </button>
-                {data.has_pin && (
+                {data.has_pin && !data.require_login && (
                   <button onClick={() => run('nopin', () => authedDelete('/chatbot/me/pin/', accessToken!), 'PIN removed.')}
                     className="rounded-lg border border-border px-4 py-2 text-sm font-bold">Remove</button>
                 )}

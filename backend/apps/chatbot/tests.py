@@ -1124,3 +1124,94 @@ class SearchTests(_Base):
 
     def test_searching_a_country_name_in_games(self):
         self.assertIn('Leeds v Burnley', text(self.say('GAMES england')))
+
+
+class LoginTests(_Base):
+    """LOGIN with the chat PIN before anything private; logged out after 5 idle minutes."""
+
+    def setUp(self):
+        super().setUp()
+        from django.core.cache import cache
+        cache.clear()
+        self.link = self.linked()                        # linking logs in (the code came from the website)
+        services.set_pin(ChatLink.objects.get(pk=self.link.pk), '2468')
+
+    def at(self, minutes):
+        return timezone.now() + timedelta(minutes=minutes)
+
+    def say_at(self, msg, minutes):
+        return engine.handle(NUMBER, msg, now=self.at(minutes))
+
+    def test_idle_for_five_minutes_logs_out(self):
+        self.assertIn('Deposit', text(self.say_at('BALANCE', 0)))
+        self.assertIn('Deposit', text(self.say_at('BALANCE', 4)))          # activity keeps it alive
+        self.assertIn('Deposit', text(self.say_at('BALANCE', 8)))          # 4 minutes since the last message
+        out = text(self.say_at('BALANCE', 14))                             # 6 minutes idle
+        self.assertIn('logged out after 5 minutes without activity', out)
+        self.assertIn('LOGIN', out)
+        self.assertNotIn('Deposit', out)
+        self.assertIn('Dynamos', text(self.say_at('GAMES', 15)))           # browsing needs no login
+        self.assertIn('Logged in', text(self.say_at('LOGIN 2468', 16)))
+        self.assertIn('Deposit', text(self.say_at('BALANCE', 17)))
+
+    def test_logout_drops_anything_waiting_for_confirm(self):
+        self.say(f'{self.e1.id} 1')
+        self.say('BET 2')
+        self.assertIn('Logged out', text(self.say('LOGOUT')))
+        self.assertIn('Log in first', text(self.say('CONFIRM')))
+        self.say('LOGIN 2468')
+        self.assertIn('no ticket waiting', text(self.say('CONFIRM')))
+        self.assertIn('Your ticket', text(self.say('SLIP')))                # the slip itself is kept
+
+    def test_wrong_pins_pause_then_lock_until_a_new_pin(self):
+        self.say('LOGOUT')
+        for _ in range(4):
+            self.assertIn('Wrong PIN', text(self.say('LOGIN 0000')))
+        self.assertIn('Wait 15 minutes', text(self.say('LOGIN 0000')))
+        self.assertIn('Wait 15 minutes', text(self.say('LOGIN 2468')))     # even the right PIN, during the pause
+        from django.core.cache import cache
+        cache.delete(services._login_key(NUMBER, 'short'))               # 15 minutes later
+        for _ in range(4):
+            self.say('LOGIN 1111')
+        self.assertIn('now locked', text(self.say('LOGIN 1111')))         # 10 in a day
+        cache.delete(services._login_key(NUMBER, 'short'))
+        self.assertIn('locked', text(self.say('LOGIN 2468')))
+        services.set_pin(ChatLink.objects.get(pk=self.link.pk), '9753')    # a new PIN on the website unlocks
+        self.assertIn('Logged in', text(self.say('LOGIN 9753')))
+
+    def test_no_pin_means_set_one_on_the_website(self):
+        services.clear_pin(ChatLink.objects.get(pk=self.link.pk))
+        self.say('LOGOUT')
+        self.assertIn('set a chat PIN on the website', text(self.say('BALANCE')))
+
+    def test_login_can_be_switched_off(self):
+        self.say('LOGOUT')
+        cfg = ChatbotSettings.load()
+        cfg.require_login = False
+        cfg.save()
+        self.assertIn('Deposit', text(self.say('BALANCE')))
+
+    def test_my_account_is_first_and_shows_log_in_or_out(self):
+        [menu] = self.say('MENU')
+        self.assertEqual(menu['list']['rows'][0][0], 'MENU ACCOUNT')
+        self.assertIn('Logged in', menu['text'])
+        self.assertEqual(self.say('MENU ACCOUNT')[0]['list']['rows'][0][0], 'LOGOUT')
+        self.say('LOGOUT')
+        self.assertEqual(self.say('MENU ACCOUNT')[0]['list']['rows'][0][0], 'LOGIN')
+
+    def test_pins_never_reach_the_inbox(self):
+        import hashlib
+        import hmac
+        import json as _json
+        from apps.chatbot.models import InboundMessage
+        secret = 'chat-secret'
+        with override_settings(WHATSAPP_APP_SECRET=secret):
+            for i, body in enumerate(('LOGIN 2468', 'confirm 2468', 'YES 2468')):
+                raw = _json.dumps({'entry': [{'changes': [{'value': {'messages': [
+                    {'from': NUMBER, 'id': f'wamid.p{i}', 'type': 'text', 'text': {'body': body}}]}}]}]}).encode()
+                sig = 'sha256=' + hmac.new(secret.encode(), raw, hashlib.sha256).hexdigest()
+                with patch('requests.post'):
+                    APIClient().generic('POST', '/api/chatbot/whatsapp/webhook/', raw, content_type='application/json',
+                                        HTTP_X_HUB_SIGNATURE_256=sig)
+        stored = list(InboundMessage.objects.values_list('text', flat=True))
+        self.assertEqual(sorted(stored), sorted(['LOGIN ••••', 'confirm ••••', 'YES ••••']))

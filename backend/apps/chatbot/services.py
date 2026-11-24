@@ -3,6 +3,7 @@ the daily chat staking cap, rate limiting and delivering replies."""
 from __future__ import annotations
 
 import logging
+import re
 import secrets
 import threading
 from datetime import timedelta
@@ -92,7 +93,10 @@ def set_pin(link: ChatLink, pin: str) -> None:
     if not (pin.isdigit() and 4 <= len(pin) <= 6):
         raise ChatError('A PIN is 4 to 6 digits.')
     link.pin_hash = make_password(pin)
-    link.save(update_fields=['pin_hash'])
+    link.login_locked_at = None                         # a new PIN (set on the website) reopens chat login
+    link.save(update_fields=['pin_hash', 'login_locked_at'])
+    from django.core.cache import cache
+    cache.delete_many([_login_key(link.address, 'short'), _login_key(link.address, 'day')])
 
 
 def clear_pin(link: ChatLink) -> None:
@@ -160,6 +164,59 @@ def withdraw_destinations(player_id: int) -> list[tuple[str, str, str]]:
             seen.add((method, phone))
             out.append((method, phone, labels.get(method, method.title())))
     return out[:5]
+
+
+# -- logging in -----------------------------------------------------------------------------
+
+LOGIN_TRIES_SHORT = 5            # wrong PINs per 15 minutes before a pause
+LOGIN_TRIES_DAY = 10             # wrong PINs per day before chat login locks
+_PIN_IN_TEXT = re.compile(r'^(\s*(?:LOGIN|CONFIRM|YES|Y|PIN)\s+)\d{3,8}\b', re.IGNORECASE)
+
+
+def redact(text: str) -> str:
+    """A message as it may be stored and shown to staff: never with a PIN in it."""
+    return _PIN_IN_TEXT.sub(lambda m: f'{m.group(1)}••••', text or '')
+
+
+def _login_key(address: str, span: str) -> str:
+    return f'chatbot:login-fail:{span}:{address}'
+
+
+def check_login(link: ChatLink, pin: str) -> None:
+    """Log in with the chat PIN, or ChatError. Wrong PINs pause login after 5 in
+    15 minutes and lock it after 10 in a day (a new PIN on the website unlocks it)."""
+    from django.core.cache import cache
+    if not link.pin_hash:
+        raise ChatError('Set your chat PIN on the website first (Account → WhatsApp betting), then send LOGIN and your PIN.')
+    if link.login_locked_at:
+        raise ChatError('Chat login is locked after too many wrong PINs. Set a new PIN on the website '
+                        '(Account → WhatsApp betting) to unlock it.')
+    if cache.get(_login_key(link.address, 'short'), 0) >= LOGIN_TRIES_SHORT:
+        raise ChatError('Too many wrong PINs. Wait 15 minutes and try again.')
+    if pin_ok(link, pin):
+        cache.delete(_login_key(link.address, 'short'))
+        return
+    short = _bump(_login_key(link.address, 'short'), 15 * 60)
+    day = _bump(_login_key(link.address, 'day'), 24 * 3600)
+    from apps.accounts import services as accounts
+    if day >= LOGIN_TRIES_DAY:
+        link.login_locked_at = timezone.now()
+        link.save(update_fields=['login_locked_at'])
+        accounts.audit(link.player_id, 'chat_login_locked', None, number=f'…{link.address[-4:]}')
+        raise ChatError('Too many wrong PINs today: chat login is now locked. Set a new PIN on the website to unlock it.')
+    accounts.audit(link.player_id, 'chat_login_failed', None, number=f'…{link.address[-4:]}')
+    left = LOGIN_TRIES_SHORT - short
+    raise ChatError(f'Wrong PIN. {left} more tr{"y" if left == 1 else "ies"} before a 15-minute pause.' if left > 0
+                    else 'Wrong PIN. Wait 15 minutes and try again.')
+
+
+def _bump(key: str, ttl: int) -> int:
+    from django.core.cache import cache
+    try:
+        return cache.incr(key)
+    except ValueError:
+        cache.set(key, 1, ttl)
+        return 1
 
 
 # -- rate limit ---------------------------------------------------------------------------
