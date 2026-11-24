@@ -367,6 +367,27 @@ def cash_out(*, player_id: int, bet_id: int, now=None) -> JetBet:
     return _pay(bet, min(multiplier, _target(bet, cfg)), cfg, now)
 
 
+# -- round hooks ----------------------------------------------------------------
+# Other apps act at each stage of a round without the game knowing about them: the
+# WhatsApp bot places queued chat bets when betting opens and reports results after
+# the crash (chatbot.aviator, registered in ChatbotConfig.ready). The runner calls
+# run_hooks(); a failing hook is logged and never stops the game.
+HOOKS: dict[str, list] = {'open': [], 'flight': [], 'crash': []}
+
+
+def register_hook(stage: str, fn) -> None:
+    if fn not in HOOKS[stage]:
+        HOOKS[stage].append(fn)
+
+
+def run_hooks(stage: str, rnd: JetRound) -> None:
+    for fn in list(HOOKS.get(stage, [])):
+        try:
+            fn(rnd)
+        except Exception:  # noqa: BLE001 — a side feature must never stop the game
+            logger.exception('jet %s hook %s failed', stage, getattr(fn, '__name__', fn))
+
+
 # -- round lifecycle (driven by the runner) -----------------------------------
 
 @transaction.atomic

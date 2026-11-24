@@ -36,12 +36,14 @@ def _bot_chat(rnd, phase: str) -> None:
 
 def run_round() -> None:
     rnd = services.open_round()
+    services.run_hooks('open', rnd)          # e.g. bets queued from WhatsApp join this round
     feed = bots.Feed(rnd)  # simulated players: display only, never money
     _bot_chat(rnd, 'betting')
     while timezone.now() < rnd.betting_ends_at:
         feed.tick(timezone.now())
         time.sleep(min(0.5, max(0.0, (rnd.betting_ends_at - timezone.now()).total_seconds())))
     rnd = services.start_flight(rnd.id)
+    services.run_hooks('flight', rnd)
     feed.take_off(rnd)
     crash_at = rnd.started_at + timezone.timedelta(seconds=services.flight_seconds(rnd))
     while timezone.now() < crash_at:
@@ -49,6 +51,7 @@ def run_round() -> None:
         feed.tick(timezone.now())
         time.sleep(min(TICK, max(0.0, (crash_at - timezone.now()).total_seconds())))
     rnd = services.crash_round(rnd.id)
+    services.run_hooks('crash', rnd)         # e.g. results sent to WhatsApp players
     feed.rnd = rnd
     feed.tick(timezone.now())  # bots whose target was right at the crash point
     _bot_chat(rnd, 'crashed')

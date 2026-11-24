@@ -16,6 +16,8 @@ class ChatbotSettings(models.Model):
     """One row. Operator switches and limits for betting through chat."""
     enabled = models.BooleanField(default=True)
     allow_betting = models.BooleanField(default=True)
+    # Aviator played from chat (auto cash-out, results sent after each round: chatbot.aviator).
+    allow_aviator = models.BooleanField(default=True)
     allow_deposits = models.BooleanField(default=True)
     # The most one ticket placed through chat may stake.
     max_stake = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('50.00'))
@@ -134,6 +136,7 @@ class ChatTicket(models.Model):
     class Kind(models.TextChoices):
         BET = 'bet', 'Single'
         SLIP = 'slip', 'Multiple'
+        JET = 'jet', 'Aviator'
 
     channel = models.CharField(max_length=16, choices=CHANNELS, default=WHATSAPP)
     player_id = models.IntegerField(db_index=True)
@@ -276,3 +279,42 @@ class BotQuestion(models.Model):
 
     class Meta:
         ordering = ['-created_at']
+
+
+class AviatorOrder(models.Model):
+    """Aviator from chat: a bet for one round, or the same bet for several (autoplay). The jet
+    runner places it in each new round and the result is sent back after the crash
+    (chatbot.aviator). WhatsApp is too slow to watch the plane, so every bet has an auto cash-out."""
+
+    class Status(models.TextChoices):
+        ACTIVE = 'active', 'Playing'
+        DONE = 'done', 'Finished'
+        STOPPED = 'stopped', 'Stopped'
+
+    channel = models.CharField(max_length=16, choices=CHANNELS, default=WHATSAPP)
+    address = models.CharField(max_length=32, db_index=True)
+    player_id = models.IntegerField(db_index=True)
+    stake = models.DecimalField(max_digits=10, decimal_places=2)
+    auto_cashout = models.DecimalField(max_digits=10, decimal_places=2)
+    free = models.BooleanField(default=False)                   # played with free spins
+    rounds = models.PositiveSmallIntegerField(default=1)
+    placed = models.PositiveSmallIntegerField(default=0)        # rounds a bet went into
+    settled = models.PositiveSmallIntegerField(default=0)       # rounds reported back
+    staked = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    won = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    status = models.CharField(max_length=8, choices=Status.choices, default=Status.ACTIVE, db_index=True)
+    note = models.CharField(max_length=200, blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-id']
+
+
+class AviatorPlay(models.Model):
+    """One round of an AviatorOrder: the jet bet it placed."""
+    order = models.ForeignKey(AviatorOrder, on_delete=models.CASCADE, related_name='plays')
+    bet_id = models.BigIntegerField(unique=True)
+    round_id = models.BigIntegerField(db_index=True)
+    reported = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)

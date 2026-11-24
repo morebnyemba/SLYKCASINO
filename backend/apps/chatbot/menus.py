@@ -31,7 +31,7 @@ SECTIONS = (
     ('MENU MONEY', '💰 Money', 'Balance, deposit, withdraw, history'),
     ('MENU BONUS', '🎁 Bonuses & promos', 'Your bonus, offers, promo codes'),
     ('MENU REFER', '🤝 Refer & earn', 'Your referral link, agent dashboard'),
-    ('MENU AVIATOR', '🎮 Aviator', 'Play on the website, latest results'),
+    ('MENU AVIATOR', '✈️ Aviator', 'Play right here: no data needed'),
     ('MENU HELP', '🛟 Help', 'Support, FAQ, rules, play safe'),
 )
 
@@ -72,8 +72,12 @@ ITEMS = {
         ('AGENT', '🏢 Agent dashboard', 'Earnings and payouts'),
     )),
     'AVIATOR': ('🎮 Aviator', (
-        ('AVIATOR', '🎮 Play Aviator', 'Open it on the website'),
+        ('AVIATOR', '✈️ Play Aviator', 'Bet and cash out right here'),
+        ('AV AGAIN', '🔁 Same again', 'Your last Aviator bet'),
+        ('AV FREE', '🎁 Free spins', 'Claim and play them'),
+        ('AV BETS', '📋 My Aviator bets', 'Recent results'),
         ('CRASHES', '📈 Latest results', 'The last 10 rounds'),
+        ('AV HELP', '❓ How it works', 'Cash-out, autoplay, CASH'),
     )),
     'HELP': ('🛟 Help', (
         ('SUPPORT', '💬 Talk to us', 'A person replies here'),
@@ -254,6 +258,8 @@ class MenuMixin:
         if timezone.datetime.fromisoformat(action['expires']) < self.now:
             self.state.pop('action', None)
             return [engine._reply('That confirmation expired. Start again from the menu.', 'MENU')]
+        if action['type'] == 'aviator':
+            return self._do_aviator(action, pin)
         if action['type'] == 'withdraw':
             if not services.pin_ok(self.link, pin):
                 action['tries'] = action.get('tries', 0) + 1
