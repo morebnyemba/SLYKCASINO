@@ -116,3 +116,56 @@ class SameMatchMultipleTests(TestCase):
         bad = api.post('/api/betslips/check/', {'legs': [self.home(), self.leg(self.dc, '1x')]}, format='json').json()
         self.assertEqual(bad['problem']['legs'], [0, 1])
         self.assertIn('overlap', bad['problem']['message'])
+
+
+class CombinedMatchEntryTests(TestCase):
+    """Picks from one match are one entry at one correlation-aware price; the ticket counts matches."""
+
+    def setUp(self):
+        from django.utils import timezone
+        self.player = _player('combo')
+        soon = timezone.now() + timezone.timedelta(days=1)
+        self.event = Event.objects.create(name='Liverpool v Man United', odds=D('2.10'), odds_draw=D('3.40'),
+                                          odds_away=D('3.50'), is_open=True, starts_at=soon, status='NS')
+        self.other = Event.objects.create(name='Spurs v Leeds', odds=D('1.50'), odds_draw=D('4.00'), odds_away=D('6.00'),
+                                          is_open=True, starts_at=soon, status='NS')
+        self.ou = _market(self.event, 'over_under', 'over_under:ft:2.5', [('over', '1.90'), ('under', '1.90')], line=D('2.5'))
+        self.btts = _market(self.event, 'btts', 'btts:ft', [('yes', '1.80'), ('no', '2.00')])
+
+    def legs(self):
+        return [{'event': 'Liverpool v Man United', 'odds': '2.10', 'event_id': self.event.id, 'selection': 'home'},
+                {'event': 'btts yes', 'odds': '1.80', 'outcome_id': _outcome(self.btts, 'yes').id},
+                {'event': 'over', 'odds': '1.90', 'outcome_id': _outcome(self.ou, 'over').id},
+                {'event': 'Spurs v Leeds', 'odds': '1.50', 'event_id': self.other.id, 'selection': 'home'}]
+
+    def test_the_slip_check_groups_by_match_with_names_and_one_price(self):
+        from apps.sportsbook import correlation, services
+        res = sb.check_accumulator(self.legs())
+        self.assertEqual(res['fixtures'], 2)
+        self.assertEqual(res['names'][:3], ['Liverpool Win', 'BTTS YES', 'Over 2.5 Goals'])
+        first = next(m for m in res['matches'] if m['event_id'] == self.event.id)
+        self.assertEqual(first['legs'], [0, 1, 2])
+        product = D('2.10') * D('1.80') * D('1.90')
+        self.assertLess(D(first['odds']), product)                         # priced for how they move together
+        self.assertEqual(D(res['combined_odds']), (D(first['odds']) * D('1.50')).quantize(D('0.01')))
+
+    def test_placed_ticket_stores_the_match_price_and_counts_matches(self):
+        rules = WalletRules.load()
+        rules.max_selections = 2                                           # 4 picks, but only 2 matches
+        rules.save()
+        slip = sb.place_accumulator(wallet='deposit', stake=D('5'), player_id=self.player.id, legs=self.legs())
+        legs = list(slip.legs.order_by('id'))
+        group = {leg.match_odds for leg in legs[:3]}
+        self.assertEqual(len(group), 1)                                     # the same one price on each pick of the match
+        self.assertEqual(legs[3].match_odds, D('1.50'))
+        self.assertEqual(slip.combined_odds, (group.pop() * D('1.50')).quantize(D('0.01')))
+        from apps.sportsbook.serializers import BetSlipSerializer
+        data = BetSlipSerializer(slip).data
+        self.assertEqual([leg['pick_name'] for leg in data['legs']], ['Liverpool Win', 'BTTS YES', 'Over 2.5 Goals', 'Spurs Win'])
+
+    def test_the_match_limit_still_applies(self):
+        rules = WalletRules.load()
+        rules.max_selections = 1
+        rules.save()
+        with self.assertRaises(ValueError):
+            sb.place_accumulator(wallet='deposit', stake=D('5'), player_id=self.player.id, legs=self.legs())

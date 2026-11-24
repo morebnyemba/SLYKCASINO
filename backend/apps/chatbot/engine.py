@@ -146,6 +146,12 @@ def _is_screen(words: list[str]) -> bool:
     return head in SCREENS
 
 
+def _count(legs: list) -> str:
+    """'3 matches', or '2 matches (3 picks)': a slip counts matches, not picks."""
+    m, p = len({leg['match'] for leg in legs}), len(legs)
+    return f'{m} match{"" if m == 1 else "es"}' + (f' ({p} picks)' if p > m else '')
+
+
 def _with_back(rows: list, room: int = 10) -> list:
     """A list's rows plus a Back row, when WhatsApp's ten-row limit leaves room."""
     return rows + [['BACK', '⬅️ Back', 'Up one level']] if len(rows) < room else rows
@@ -933,7 +939,7 @@ class Conversation(MenuMixin, SignInMixin):
         for leg in found:
             legs[:] = [x for x in legs if not ((x['match'] == leg['match'] and x['pick'] == leg['pick'])
                                                or (leg['outcome_id'] and x.get('outcome_id') == leg['outcome_id']))]
-            if len(legs) >= MAX_LEGS:
+            if leg['match'] not in {x['match'] for x in legs} and len({x['match'] for x in legs}) >= MAX_LEGS:
                 problems.append(f'a slip holds at most {MAX_LEGS} picks')
                 break
             legs.append(leg)
@@ -947,15 +953,28 @@ class Conversation(MenuMixin, SignInMixin):
         if problems:
             out.append('⚠️ ' + '; '.join(problems))
         if legs:
-            n = len(legs)
-            out.append(f'🧾 Your ticket: {n} selection{"" if n == 1 else "s"} · total odds *{_odds(self._total())}*')
+            out.append(f'🧾 Your ticket: {_count(legs)} · total odds *{_odds(self._total())}*')
         return [_reply('\n\n'.join(out), ADD_MORE, VIEW_SLIP, PLACE_BET if legs else None)]
 
+    def _priced(self, legs: Optional[list] = None) -> dict:
+        """The slip as the sportsbook prices it: one price per match (picks from one
+        match priced together, correlation-aware), each pick's short name, the total."""
+        from apps.sportsbook import services as sb
+        legs = self.state['legs'] if legs is None else legs
+        if len({leg['match'] for leg in legs}) == len(legs):         # one pick per match: plain product
+            total = Decimal('1')
+            for leg in legs:
+                total *= Decimal(leg['odds'])
+            return {'total': total.quantize(Decimal('0.01')), 'match_odds': {}, 'names': []}
+        payload = [{'outcome_id': leg['outcome_id'], 'odds': leg['odds']} if leg.get('outcome_id')
+                   else {'event_id': leg['event_id'], 'selection': leg['selection'], 'odds': leg['odds']} for leg in legs]
+        checked = sb.check_accumulator(payload)
+        return {'total': Decimal(checked['combined_odds']),
+                'match_odds': {m['event_id']: Decimal(m['odds']) for m in checked.get('matches', []) if m['event_id']},
+                'names': checked.get('names') or []}
+
     def _total(self) -> Decimal:
-        total = Decimal('1')
-        for leg in self.state['legs']:
-            total *= Decimal(leg['odds'])
-        return total.quantize(Decimal('0.01'))
+        return self._priced()['total']
 
     def _slip_text(self) -> str:
         legs = self.state['legs']
@@ -965,14 +984,27 @@ class Conversation(MenuMixin, SignInMixin):
                 + '\n\nPress Place bet (or type BET 5). REMOVE 1234 takes a match off, CLEAR empties it.')
 
     def _selections(self, legs: Optional[list] = None) -> str:
-        """Every match on the ticket with its kick-off date and time, the pick and its price."""
+        """One entry per match, with its kick-off date and time: its pick and price, or
+        several picks from it joined ("Liverpool Win & BTTS YES") at their one price."""
         from apps.sportsbook.models import Event
         legs = self.state['legs'] if legs is None else legs
         events = Event.objects.in_bulk({leg['match'] for leg in legs})
-        return '\n'.join(f'{i}) #{leg["match"]} {leg.get("event") or leg["label"]}\n'
-                         f'    {kickoff(events.get(leg["match"]))}\n'
-                         f'    {leg.get("market", "Pick")}: {leg.get("pick_text") or leg["pick"]} @ {_odds(leg["odds"])}'
-                         for i, leg in enumerate(legs, 1))
+        priced = self._priced(legs)
+        groups: dict = {}
+        for i, leg in enumerate(legs):
+            groups.setdefault(leg['match'], []).append(i)
+        out = []
+        for n, (match, idxs) in enumerate(groups.items(), 1):
+            first = legs[idxs[0]]
+            head = f'{n}) #{match} {first.get("event") or first["label"]}\n    {kickoff(events.get(match))}\n'
+            if len(idxs) == 1:
+                out.append(head + f'    {first.get("market", "Pick")}: {first.get("pick_text") or first["pick"]} @ {_odds(first["odds"])}')
+                continue
+            names = [(priced['names'][i] if i < len(priced['names']) and priced['names'][i] else legs[i].get('pick_text') or legs[i]['pick'])
+                     for i in idxs]
+            price = priced['match_odds'].get(match)
+            out.append(head + f'    🔗 Same match: *{" & ".join(names)}* @ {_odds(price) if price else "—"}')
+        return '\n'.join(out)
 
     def slip(self) -> list[dict]:
         if not self.state['legs']:
@@ -988,8 +1020,7 @@ class Conversation(MenuMixin, SignInMixin):
             return [_reply('Your ticket is empty. Add a selection first, e.g. 1234 1.', 'GAMES')]
         cap = self.cfg.max_stake
         quick = [q for q in QUICK_STAKES if q <= cap][:3] or [cap]
-        n = len(legs)
-        return [_reply(f'🧾 {n} selection{"" if n == 1 else "s"} · total odds {_odds(self._total())}\n\n'
+        return [_reply(f'🧾 {_count(legs)} · total odds {_odds(self._total())}\n\n'
                        f'How much do you want to stake? Tap an amount, or type BET and any amount up to {_money(cap)}, e.g. BET 3.',
                        *[[f'BET {q.normalize():f}', _money(q)] for q in quick])]
 
@@ -1036,7 +1067,7 @@ class Conversation(MenuMixin, SignInMixin):
         self.state['pending'] = {'stake': str(stake), 'wallet': wallet, 'odds': [leg['odds'] for leg in legs],
                                  'expires': (self.now + CONFIRM_FOR).isoformat(), 'pin_tries': 0}
         pin = services.needs_pin(self.link, stake)
-        kind = 'Single' if len(legs) == 1 else f'Multiple · {len(legs)} selections'
+        kind = 'Single' if len(legs) == 1 else f'Multiple · {_count(legs)}'
         text = (f'🎟️ Confirm your ticket ({kind})\n\n{self._selections()}\n\n'
                 f'Stake {_money(stake)} from your {wallet} wallet\n'
                 f'Total odds {_odds(total)} · possible win {_money(stake * total)}\n\n'

@@ -97,6 +97,9 @@ class BetLeg(models.Model):
     result = models.CharField(max_length=10, choices=Result.choices, default=Result.PENDING)
     # This selection's match was being played when the ticket was placed.
     in_play = models.BooleanField(default=False)
+    # The one price of all this ticket's picks from this match (same on each of them):
+    # correlation-aware for several picks, the leg's own odds for one. Null on old tickets.
+    match_odds = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
 
     class Meta:
         db_table = 'sportsbook_betleg'

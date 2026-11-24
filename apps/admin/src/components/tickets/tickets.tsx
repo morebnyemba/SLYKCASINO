@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback, useEffect, useState } from 'react';
+import { Fragment, useCallback, useEffect, useState } from 'react';
 import { BsArrowDown, BsArrowUp, BsCheck2, BsClipboard, BsLink45Deg, BsPersonCircle } from 'react-icons/bs';
 import { Badge, Btn, Drawer, EmptyState, Notice, Pager, cx, money, tableClass, tdClass, thClass, trClass } from '@/components/console/ui';
 import { ImpersonateButton } from '@/components/players/impersonate';
@@ -11,7 +11,10 @@ import { authedRequest, useApi } from '@/lib/use-api';
 
 // The match a ticket is on (null for old free-text bets).
 interface Match { id: number; name: string; starts_at?: string | null; status?: string; score_home?: number | null; score_away?: number | null }
-interface Leg { id: number; event: string; match?: Match | null; market_name?: string | null; outcome_label?: string | null; selection: string; odds: string; result: string; in_play?: boolean }
+interface Leg { id: number; event: string; match?: Match | null; market_name?: string | null; outcome_label?: string | null; selection: string; odds: string; result: string; in_play?: boolean; pick_name?: string; match_odds?: string | null }
+
+/** Matches on a ticket: several picks from one match count once. */
+const fixturesOf = (legs: Leg[]) => new Set(legs.map((l, i) => (l.match?.id != null ? `m${l.match.id}` : `x${i}`))).size;
 export interface Ticket {
   ticket: string; kind: 'single' | 'multiple'; id: number; code?: string | null; player_id: number | null; username: string;
   stake: string; odds?: string; combined_odds?: string; status: string; payout: string; placed_at: string;
@@ -98,7 +101,7 @@ export function TicketsTable({ tickets, showPlayer = true, active, onOpen }: {
                 className={cx(trClass, 'cursor-pointer', active === t.ticket && 'bg-secondary/10 hover:bg-secondary/15')}>
                 <td className={cx(tdClass, 'whitespace-nowrap')}>
                   <span className="font-mono text-xs font-bold">#{t.ticket}</span>
-                  <p className="text-[11px] text-muted-foreground">{multi ? `Multiple · ${legs.length}` : 'Single'}</p>
+                  <p className="text-[11px] text-muted-foreground">{multi ? `Multiple · ${fixturesOf(legs)} match${fixturesOf(legs) === 1 ? '' : 'es'}${fixturesOf(legs) < legs.length ? ` (${legs.length} picks)` : ''}` : 'Single'}</p>
                 </td>
                 {showPlayer && (
                   <td className={cx(tdClass, 'whitespace-nowrap')}>
@@ -200,7 +203,7 @@ export function TicketDrawer({ ticket, onClose, onStep, hidePlayer }: {
       open={!!ticket}
       onClose={onClose}
       title={`Ticket #${ticket ?? ''}`}
-      description={ready ? `${t.kind === 'multiple' ? `Multiple · ${legs.length} selections` : 'Single'}${t.code ? ` · code ${t.code}` : ''} · placed ${when(t.placed_at)}` : 'Loading…'}
+      description={ready ? `${t.kind === 'multiple' ? `Multiple · ${fixturesOf(legs)} matches, ${legs.length} picks` : 'Single'}${t.code ? ` · code ${t.code}` : ''} · placed ${when(t.placed_at)}` : 'Loading…'}
       footer={(
         <div className="flex w-full flex-wrap items-center gap-2">
           {onStep && (
@@ -267,8 +270,17 @@ export function TicketDrawer({ ticket, onClose, onStep, hidePlayer }: {
             <ol className="space-y-2">
               {legs.map((leg, i) => {
                 const l = pick(leg);
+                const group = leg.match ? legs.filter((x) => x.match?.id === leg.match?.id) : [leg];
+                const firstOfGroup = group.length > 1 && group[0].id === leg.id;
                 return (
-                  <li key={leg.id} className="flex items-start gap-3 rounded-xl border border-border/70 p-3">
+                  <Fragment key={leg.id}>
+                  {firstOfGroup && (
+                    <li className="rounded-lg bg-secondary/10 px-3 py-1.5 text-xs font-semibold text-secondary">
+                      Same match · {group.length} picks priced together at {Number(leg.match_odds ?? 0) ? Number(leg.match_odds).toFixed(2) : '—'}
+                      {group.some((g) => g.pick_name) && <span className="ml-1 font-normal text-muted-foreground">({group.map((g) => g.pick_name).filter(Boolean).join(' & ')})</span>}
+                    </li>
+                  )}
+                  <li className={cx('flex items-start gap-3 rounded-xl border border-border/70 p-3', group.length > 1 && 'ml-3 border-secondary/40')}>
                     <span className={cx('mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full', LEG_DOT[leg.result] ?? LEG_DOT.pending)} />
                     <div className="min-w-0 flex-1">
                       <p className="font-semibold">
@@ -288,6 +300,7 @@ export function TicketDrawer({ ticket, onClose, onStep, hidePlayer }: {
                       <Badge tone={STATUS_TONE[leg.result === 'pending' ? 'open' : leg.result] ?? 'slate'}>{leg.result}</Badge>
                     </div>
                   </li>
+                  </Fragment>
                 );
               })}
             </ol>

@@ -58,6 +58,10 @@ export interface ApiSlipLeg {
   odds: string;
   result?: string;
   in_play?: boolean;
+  /** Short name as it reads on a combined ticket ("Liverpool Win", "BTTS YES"). */
+  pick_name?: string;
+  /** The one price of all this ticket's picks from this match. */
+  match_odds?: string | null;
 }
 
 export interface ApiSlip {
@@ -91,6 +95,8 @@ interface TicketLeg {
   info: BetMatch | null;
   /** This selection's match was being played when the ticket was placed. */
   inPlay: boolean;
+  /** Several picks from this match, shown as one entry: each pick and its result. */
+  parts?: { name: string; result: string; odds: number }[];
 }
 
 export interface Ticket {
@@ -182,12 +188,40 @@ export function ticketFromBet(b: ApiBet): Ticket {
   };
 }
 
+/** A combined result for picks from one match: lost if any lost, won once every pick won (or was voided). */
+function groupResult(results: string[]): string {
+  if (results.includes('lost')) return 'lost';
+  if (results.includes('pending')) return 'pending';
+  return results.every((r) => r === 'void') ? 'void' : 'won';
+}
+
+/** One entry per match: picks from the same match join into one ("Liverpool Win & BTTS YES") at one price. */
+function byMatch(legs: ApiSlipLeg[]): TicketLeg[] {
+  const groups = new Map<string, ApiSlipLeg[]>();
+  legs.forEach((l, i) => {
+    const key = l.match?.id != null ? `m${l.match.id}` : `x${i}`;
+    groups.set(key, [...(groups.get(key) ?? []), l]);
+  });
+  return [...groups.values()].map((group) => {
+    const legsOut = group.map((l) => toLeg(l, l.result ?? 'pending'));
+    if (group.length === 1) return legsOut[0];
+    const names = group.map((l, i) => l.pick_name || legsOut[i].pick);
+    const odds = Number(group[0].match_odds ?? 0) || legsOut.reduce((acc, l) => acc * l.odds, 1);
+    const result = groupResult(legsOut.map((l) => l.result));
+    return {
+      ...legsOut[0], market: `${group.length} picks · one price`, outcome: names.join(' & '), pick: names.join(' & '),
+      odds, result, inPlay: legsOut.some((l) => l.inPlay),
+      parts: legsOut.map((l, i) => ({ name: names[i], result: l.result, odds: l.odds })),
+    };
+  });
+}
+
 export function ticketFromSlip(s: ApiSlip): Ticket {
   return {
     key: `s${s.id}`, kind: 'multiple', id: s.id, code: s.code ?? null, stake: Number(s.stake), odds: Number(s.combined_odds),
     status: s.status, payout: s.payout == null ? null : Number(s.payout), placedAt: s.placed_at, settledAt: s.settled_at ?? null,
     bonusPercent: Number(s.bonus_percent ?? 0), bonus: Number(s.bonus ?? 0), inPlay: !!s.in_play, wallet: s.wallet ?? '',
-    legs: s.legs.map((l) => toLeg(l, l.result ?? 'pending')),
+    legs: byMatch(s.legs),
     cashout: s.cashout ?? null, cashoutPaid: Number(s.cashout_paid ?? 0), stakeCashedOut: Number(s.stake_cashed_out ?? 0),
   };
 }
@@ -436,7 +470,7 @@ export function BetTicket({ ticket, compact = false, offer, onChanged, collapsib
           {shown.map((l, i) => {
             const live = l.result === 'pending' && isLiveMatch(l.info);
             const score = scoreLine(l.info);
-            const sameMatch = !!l.info && t.legs.filter((x) => x.info?.id === l.info?.id).length > 1;
+            const sameMatch = !!l.parts;
             return (
               <li key={l.id} className="relative overflow-hidden rounded-lg bg-muted/60 px-3 pb-2.5 pt-2 text-[12.5px]">
                 <ResultTab result={l.result} live={live} />
@@ -463,6 +497,18 @@ export function BetTicket({ ticket, compact = false, offer, onChanged, collapsib
                       <p className="break-words text-[11px] font-semibold uppercase leading-tight tracking-wide text-muted-foreground">{l.market}</p>
                     )}
                     <p className="break-words text-[13.5px] font-extrabold leading-snug">{l.outcome}</p>
+                    {l.parts && (
+                      <ul className="mt-1 space-y-0.5 text-[11px] text-muted-foreground">
+                        {l.parts.map((p, j) => (
+                          <li key={j} className="flex items-center gap-1.5">
+                            <span aria-hidden className={p.result === 'won' ? 'text-win' : p.result === 'lost' ? 'text-destructive' : ''}>
+                              {p.result === 'won' ? '✓' : p.result === 'lost' ? '✗' : p.result === 'void' ? '↩' : '•'}
+                            </span>
+                            <span className="min-w-0 truncate">{p.name}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                   </div>
                   <span className="shrink-0 font-mono text-[13.5px] font-extrabold leading-snug">{l.odds.toFixed(2)}</span>
                 </div>
