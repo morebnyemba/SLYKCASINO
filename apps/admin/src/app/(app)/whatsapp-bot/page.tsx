@@ -10,7 +10,7 @@ import { authedPost, authedRequest, useApi } from '@/lib/use-api';
 type Source = 'admin' | 'env' | 'default' | 'unset' | 'unreadable';
 interface PlainSetting { label: string; source: Source; env: string; secret: false; value: string }
 interface SecretSetting { label: string; source: Source; env: string; secret: true; set: boolean; hint: string }
-type ConnKey = 'phone_number_id' | 'display_number' | 'token' | 'app_secret' | 'verify_token' | 'graph_version' | 'time_zone';
+type ConnKey = 'phone_number_id' | 'waba_id' | 'display_number' | 'token' | 'app_secret' | 'verify_token' | 'graph_version' | 'time_zone';
 type Connection = Record<ConnKey, PlainSetting | SecretSetting> & { updated_by: string; updated_at: string | null };
 
 interface BotSettings {
@@ -21,7 +21,7 @@ interface BotSettings {
   connection: Connection; can_edit_connection: boolean;
 }
 interface CheckResult {
-  ok: boolean; error?: string; code?: string; warning?: string;
+  ok: boolean; error?: string; code?: string; warning?: string; diagnosis?: string;
   verified_name?: string; display_phone_number?: string; quality_rating?: string;
 }
 interface MetaNumber { id: string; display_phone_number: string; verified_name: string; quality_rating: string; code_verification_status: string }
@@ -29,7 +29,8 @@ interface NumbersResult { ok: boolean; error?: string; numbers?: MetaNumber[]; c
 
 const money = (v: string | number) => `$${Number(v).toFixed(2)}`;
 const PLAIN: { key: ConnKey; hint: string; placeholder: string }[] = [
-  { key: 'phone_number_id', hint: 'Meta → WhatsApp → API setup → Phone number ID (digits, not the number itself).', placeholder: '123456789012345' },
+  { key: 'phone_number_id', hint: 'Meta → WhatsApp → API setup → Phone number ID (digits, not the number itself). The only ID used to send.', placeholder: '123456789012345' },
+  { key: 'waba_id', hint: 'Optional, not used to send. Lets Test connection check the number belongs to this account and tell a wrong ID from a token problem.', placeholder: '987654321098765' },
   { key: 'display_number', hint: 'The bot’s number as players should save it. Shown on the website.', placeholder: '+263 77 000 1111' },
   { key: 'graph_version', hint: 'Meta’s Graph API version. Leave as is unless Meta retires it.', placeholder: 'v21.0' },
   { key: 'time_zone', hint: 'Kick-off times in chat and the daily chat limit’s day.', placeholder: 'Africa/Harare' },
@@ -74,6 +75,7 @@ export default function WhatsAppBotPage() {
       plain[key] = s.source === 'admin' ? s.value : '';
     }
     setConn(plain);
+    setWaba((w) => w || (data.connection.waba_id as PlainSetting).value || '');
   }, [data]);
 
   async function put(body: Record<string, unknown>, ok: string, key: string) {
@@ -121,7 +123,7 @@ export default function WhatsAppBotPage() {
   }
 
   async function useNumber(n: MetaNumber) {
-    await put({ connection: { phone_number_id: n.id, display_number: n.display_phone_number } },
+    await put({ connection: { phone_number_id: n.id, waba_id: waba.trim(), display_number: n.display_phone_number } },
       `Now using ${n.display_phone_number} (ID ${n.id}). Press Test connection.`, `use-${n.id}`);
     setCheck(null);
     setFound((f) => f && { ...f, current: n.id });
@@ -222,6 +224,7 @@ export default function WhatsAppBotPage() {
                 ? <span className="text-sm text-win">✓ Meta knows this number: <b>{check.verified_name}</b> ({check.display_phone_number}{check.quality_rating ? `, quality ${check.quality_rating}` : ''})</span>
                 : <span className="text-sm text-destructive">✗ {check.error}</span>)}
             </div>
+            {check && !check.ok && check.diagnosis && <Notice tone="red">{check.diagnosis}</Notice>}
             {check?.ok && check.warning && <Notice tone="red">{check.warning}</Notice>}
             <div className="rounded-xl border border-border/70 p-3 text-sm">
               <p className="text-xs text-muted-foreground">Webhook callback URL (Meta → WhatsApp → Configuration; subscribe to “messages”)</p>

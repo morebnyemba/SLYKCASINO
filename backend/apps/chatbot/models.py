@@ -28,6 +28,7 @@ class ChatbotSettings(models.Model):
     # the WHATSAPP_* value from .env.prod. Secrets are stored encrypted (secrets.py)
     # and never sent back to the browser.
     phone_number_id = models.CharField(max_length=32, blank=True, default='')
+    waba_id = models.CharField(max_length=32, blank=True, default='')
     display_number = models.CharField(max_length=32, blank=True, default='')
     graph_version = models.CharField(max_length=10, blank=True, default='')
     time_zone = models.CharField(max_length=64, blank=True, default='')

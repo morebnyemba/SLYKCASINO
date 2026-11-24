@@ -676,3 +676,58 @@ class ConnectionToolsTests(TestCase):
             self.assertEqual(clerk.post('/api/admin/chatbot/numbers/', {'waba_id': '777'}, format='json').status_code, 403)
             self.assertEqual(clerk.post('/api/admin/chatbot/register/', {'pin': '123456'}, format='json').status_code, 403)
         req.assert_not_called()
+
+
+@override_settings(WHATSAPP_TOKEN='tok', WHATSAPP_PHONE_NUMBER_ID='555', WHATSAPP_BUSINESS_ACCOUNT_ID='777')
+class BusinessAccountIdTests(TestCase):
+    """The WABA ID is never used to send, but with it the check can say which ID is wrong."""
+
+    NUMBERS = _Res(200, {'data': [{'id': '109', 'display_phone_number': '+263 77 123', 'verified_name': 'BetBlits'}]})
+    NOT_FOUND = _Res(400, {'error': {'code': 100, 'message': 'Object with ID does not exist'}})
+
+    def test_sending_uses_only_the_phone_number_id(self):
+        with patch('requests.post', return_value=_Res(200, {'messages': [{'id': 'w'}]})) as post:
+            whatsapp.send('263771234567', {'text': 'hi'})
+        self.assertTrue(post.call_args.args[0].endswith('/555/messages'))
+        self.assertNotIn('777', post.call_args.args[0])
+
+    def test_a_wrong_phone_number_id_is_named_and_the_right_ones_listed(self):
+        with patch('requests.request', side_effect=[self.NOT_FOUND, self.NUMBERS]):
+            out = whatsapp.check_connection()
+        self.assertFalse(out['ok'])
+        self.assertIn('phone number ID is wrong', out['diagnosis'])
+        self.assertIn('109', out['diagnosis'])
+
+    def test_a_token_that_cannot_see_the_account_is_called_a_token_problem(self):
+        with patch('requests.request', side_effect=[self.NOT_FOUND, self.NOT_FOUND]):
+            out = whatsapp.check_connection()
+        self.assertIn('token problem', out['diagnosis'])
+
+    @override_settings(WHATSAPP_PHONE_NUMBER_ID='777')
+    def test_the_same_id_in_both_boxes_is_caught_without_calling_meta(self):
+        with patch('requests.request') as req:
+            out = whatsapp.check_connection()
+        self.assertEqual((out['ok'], out['code']), (False, 'same_id'))
+        req.assert_not_called()
+
+    def test_a_number_outside_the_account_and_no_webhook_subscription_are_warned(self):
+        ok = _Res(200, {'verified_name': 'BetBlits', 'display_phone_number': '+263 77 1'})
+        reg = _Res(200, {'platform_type': 'CLOUD_API'})
+        with patch('requests.request', side_effect=[ok, reg, self.NUMBERS, _Res(200, {'data': []})]):
+            out = whatsapp.check_connection()
+        self.assertTrue(out['ok'])
+        self.assertIn('not under the WhatsApp Business Account', out['warning'])
+        self.assertIn('No app is subscribed', out['warning'])
+
+    def test_find_my_numbers_defaults_to_the_configured_account(self):
+        with patch('requests.request', return_value=self.NUMBERS) as req:
+            out = whatsapp.list_numbers()
+        self.assertTrue(out['ok'])
+        self.assertTrue(req.call_args.args[1].endswith('/777/phone_numbers'))
+
+    def test_saving_the_same_id_twice_is_refused(self):
+        from apps.chatbot import config
+        with self.assertRaises(config.ConfigError):
+            config.update({'phone_number_id': '1818', 'waba_id': '1818'}, by='boss')
+        changed = config.update({'phone_number_id': '1818', 'waba_id': '2929'}, by='boss')
+        self.assertEqual(sorted(changed), ['phone_number_id', 'waba_id'])

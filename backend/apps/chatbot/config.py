@@ -29,6 +29,7 @@ class Field:
 
 FIELDS: dict[str, Field] = {
     'phone_number_id': Field('phone_number_id', 'WHATSAPP_PHONE_NUMBER_ID', label='Phone number ID'),
+    'waba_id': Field('waba_id', 'WHATSAPP_BUSINESS_ACCOUNT_ID', label='WhatsApp Business Account ID'),
     'display_number': Field('display_number', 'WHATSAPP_DISPLAY_NUMBER', label='Number shown to players'),
     'token': Field('token_enc', 'WHATSAPP_TOKEN', secret=True, label='Access token'),
     'app_secret': Field('app_secret_enc', 'WHATSAPP_APP_SECRET', secret=True, label='App secret'),
@@ -88,6 +89,8 @@ def _validate(name: str, v: str) -> str:
     v = v.strip()
     if name == 'phone_number_id' and v and not v.isdigit():
         raise ConfigError('The phone number ID is the long number from Meta (WhatsApp → API setup), digits only.')
+    if name == 'waba_id' and v and not v.isdigit():
+        raise ConfigError('The WhatsApp Business Account ID is the long number from Meta, digits only.')
     if name == 'graph_version' and v and not re.fullmatch(r'v\d{1,2}\.\d', v):
         raise ConfigError('The Graph API version looks like v21.0.')
     if name == 'time_zone' and v:
@@ -133,6 +136,9 @@ def update(data: dict, *, by: str) -> list[str]:
         elif v != getattr(cfg, f.column):
             setattr(cfg, f.column, v)
             changed.append(name)
+    if cfg.phone_number_id and cfg.phone_number_id == cfg.waba_id:
+        raise ConfigError('The phone number ID and the WhatsApp Business Account ID are different numbers: '
+                          'the same ID is in both boxes. Use "Find my numbers" to get the phone number ID.')
     if changed:
         cfg.connection_updated_by = by[:150]
         cfg.connection_updated_at = timezone.now()

@@ -3,7 +3,8 @@ message parsing and sending replies.
 
 Settings: Admin → WhatsApp bot (stored encrypted), falling back to the environment:
   WHATSAPP_TOKEN            — a permanent system-user access token
-  WHATSAPP_PHONE_NUMBER_ID  — the sending number's id (not the number itself)
+  WHATSAPP_PHONE_NUMBER_ID  — the sending number's id (not the number itself); the only ID sending uses
+  WHATSAPP_BUSINESS_ACCOUNT_ID — the account the number belongs to (optional: checks, number lookup)
   WHATSAPP_APP_SECRET       — the Meta app secret; signs every webhook (X-Hub-Signature-256)
   WHATSAPP_VERIFY_TOKEN     — any string; Meta echoes it when you subscribe the webhook
   WHATSAPP_GRAPH_VERSION    — e.g. v21.0
@@ -146,20 +147,29 @@ def _json(res) -> dict:
 
 def check_connection() -> dict:
     """Ask Meta about the configured number with the configured token: the
-    business name and number it's registered as, or why it failed."""
+    business name and number it's registered as, or why it failed. With the
+    WhatsApp Business Account ID also set, it can tell a wrong ID from a token
+    without access, and checks the number belongs to that account."""
     if not configured():
         return {'ok': False, 'error': 'Add the phone number ID and access token first.'}
-    pid = _setting('phone_number_id')
+    pid, waba = _setting('phone_number_id'), _setting('waba_id')
+    if waba and pid == waba:
+        return {'ok': False, 'code': 'same_id',
+                'error': 'The phone number ID box holds the WhatsApp Business Account ID. Use "Find my numbers" to get the phone number ID.'}
     res, err = _graph('GET', pid, params={'fields': 'display_phone_number,verified_name,quality_rating'})
     if err:
         return {'ok': False, 'error': err}
     if res.status_code >= 300:
         code, text = _meta_error(res)
-        return {'ok': False, 'error': text, 'code': code}
+        out = {'ok': False, 'error': text, 'code': code}
+        if code == '100' and waba:
+            out.update(_diagnose_id(pid, waba))
+        return out
     body = _json(res)
     out = {'ok': True, 'verified_name': body.get('verified_name', ''),
            'display_phone_number': body.get('display_phone_number', ''),
            'quality_rating': body.get('quality_rating', '')}
+    warnings = []
     # Registration state is a second, tolerant request: if Meta rejects these
     # fields the connection is still good, we just can't say if it is registered.
     res2, _ = _graph('GET', pid, params={'fields': 'platform_type,status,code_verification_status'})
@@ -168,15 +178,44 @@ def check_connection() -> dict:
         out.update(platform_type=extra.get('platform_type', ''), status=extra.get('status', ''),
                    code_verification_status=extra.get('code_verification_status', ''))
         if extra.get('platform_type') and extra['platform_type'] != 'CLOUD_API':
-            out['warning'] = ('This number is not registered with the Cloud API, so it cannot send yet. '
-                              'Use "Register number" with a 6-digit PIN.')
+            warnings.append('This number is not registered with the Cloud API, so it cannot send yet. '
+                            'Use "Register number" with a 6-digit PIN.')
+    if waba:
+        listed = list_numbers(waba)
+        if listed['ok'] and pid not in {n['id'] for n in listed['numbers']}:
+            warnings.append('This number is not under the WhatsApp Business Account ID you entered: one of the two IDs is wrong.')
+        subs, _ = _graph('GET', f'{waba}/subscribed_apps')
+        if subs is not None and subs.status_code < 300 and not (_json(subs).get('data') or []):
+            warnings.append('No app is subscribed to this WhatsApp Business Account, so incoming messages will not reach the bot.')
+    if warnings:
+        out['warning'] = ' '.join(warnings)
     return out
 
 
-def list_numbers(waba_id: str) -> dict:
+def _diagnose_id(pid: str, waba: str) -> dict:
+    """Meta's error 100 means "no such ID" or "no access", without saying which.
+    Asking for the account's numbers tells them apart."""
+    listed = list_numbers(waba)
+    if listed['ok']:
+        numbers = listed['numbers']
+        if pid in {n['id'] for n in numbers}:
+            return {'diagnosis': 'The token can see the account but not this number: give the system user full control of the WhatsApp account.'}
+        names = ', '.join(f'{n["display_phone_number"]} (ID {n["id"]})' for n in numbers[:5]) or 'none'
+        return {'diagnosis': f'The phone number ID is wrong. This account\'s numbers: {names}. Pick one under "Find my numbers".',
+                'numbers': numbers}
+    if listed.get('code') == '100':
+        return {'diagnosis': 'The token cannot see this WhatsApp Business Account either: it is a token problem, not the ID. '
+                             'Assign the account to the token\'s system user (full control) and give it whatsapp_business_messaging.'}
+    return {}
+
+
+def list_numbers(waba_id: str = '') -> dict:
     """The phone numbers (with their IDs) under a WhatsApp Business Account, so
-    staff can copy the right Phone number ID instead of guessing."""
-    waba_id = (waba_id or '').strip()
+    staff can copy the right Phone number ID instead of guessing. Without an ID,
+    the configured one."""
+    waba_id = (waba_id or _setting('waba_id') or '').strip()
+    if not waba_id:
+        return {'ok': False, 'error': 'Enter the WhatsApp Business Account ID.'}
     if not waba_id.isdigit():
         return {'ok': False, 'error': 'The WhatsApp Business Account ID is digits only.'}
     if not _setting('token'):
