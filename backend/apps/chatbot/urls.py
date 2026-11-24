@@ -16,5 +16,6 @@ urlpatterns = [
     path('admin/chatbot/register/', views.AdminChatbotRegisterView.as_view(), name='chatbot-admin-register'),
     path('admin/chatbot/inbox/', views.AdminInboxView.as_view(), name='chatbot-inbox'),
     path('admin/chatbot/inbox/<str:address>/', views.AdminInboxThreadView.as_view(), name='chatbot-thread'),
+    path('admin/chatbot/media/<int:pk>/', views.AdminChatbotMediaView.as_view(), name='chatbot-media'),
     path('admin/chatbot/health/', views.AdminChatbotHealthView.as_view(), name='chatbot-health'),
 ]

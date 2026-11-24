@@ -36,6 +36,7 @@ def _clean(body: str) -> str:
 def payload(m: ChatMessage) -> dict:
     return {
         'id': m.id, 'body': m.body, 'from_staff': m.from_staff,
+        'attachment': ({'kind': m.attachment_kind, 'url': f'/api/support/attachments/{m.id}/'} if m.attachment else None),
         'sender': (m.staff_name or 'Support team') if m.from_staff else 'You',
         'created_at': m.created_at.isoformat(), 'read': m.read_at is not None,
     }
@@ -65,14 +66,22 @@ def player_post(*, player_id: int, body: str, now=None) -> ChatMessage:
     return ChatMessage.objects.create(channel=channel_for(player_id), player_id=player_id, body=text)
 
 
-def staff_reply(*, player_id: int, body: str, staff_name: str) -> ChatMessage:
+def staff_reply(*, player_id: int, body: str, staff_name: str, upload=None, found=None) -> ChatMessage:
+    """A staff reply; with `upload` (checked by common.attachments.inspect into
+    `found`) it carries a photo or video and the text is optional."""
+    text = _clean(body) if (body or '').strip() or upload is None else ''
     msg = ChatMessage.objects.create(
-        channel=channel_for(player_id), player_id=player_id, body=_clean(body),
+        channel=channel_for(player_id), player_id=player_id, body=text,
         from_staff=True, staff_name=staff_name[:150],
+        attachment_kind=found.kind if upload is not None else '', attachment_mime=found.mime if upload is not None else '',
     )
+    if upload is not None:
+        from django.core.files.base import ContentFile
+        msg.attachment.save(f'{msg.pk}.{found.ext}', ContentFile(upload.read()), save=True)
     from apps.notifications import services as notif_services
+    preview = msg.body or ('📷 Sent you a photo' if msg.attachment_kind == 'image' else '🎬 Sent you a video')
     notif_services.notify(player_id=player_id, kind='account_alert', title='Support replied',
-                          body=msg.body[:140] + ('…' if len(msg.body) > 140 else ''))
+                          body=preview[:140] + ('…' if len(preview) > 140 else ''))
     return msg
 
 

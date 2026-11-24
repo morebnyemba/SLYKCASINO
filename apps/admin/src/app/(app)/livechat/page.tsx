@@ -7,12 +7,17 @@ import { FaRegCommentDots } from 'react-icons/fa';
 import { Badge, Btn, EmptyState, PageHeader, TextInput, cx } from '@/components/console/ui';
 import { useAuth } from '@/lib/auth-context';
 import { authedPost, useApi } from '@/lib/use-api';
+import { authedUpload } from '@/lib/upload';
+import { AttachPicker, AuthedMedia } from '@/components/chat/attachments';
 
 interface Thread {
   player_id: number; username: string; email: string; kyc_status: string | null; unread: number; messages: number;
   last_at: string; last_body: string; last_from_staff: boolean;
 }
-interface Message { id: number; body: string; from_staff: boolean; sender: string; created_at: string; read: boolean }
+interface Message {
+  id: number; body: string; from_staff: boolean; sender: string; created_at: string; read: boolean;
+  attachment?: { kind: string; url: string } | null;
+}
 interface ThreadDetail { player: { id: number; username: string; email: string; kyc_status: string | null }; results: Message[] }
 
 const ago = (iso: string) => {
@@ -82,6 +87,7 @@ function ThreadPane({ playerId, onChanged }: { playerId: number; onChanged: () =
   const { accessToken } = useAuth();
   const { data, refetch } = useApi<ThreadDetail>(`/admin/support/${playerId}/`);
   const [text, setText] = useState('');
+  const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const box = useRef<HTMLDivElement>(null);
@@ -97,12 +103,20 @@ function ThreadPane({ playerId, onChanged }: { playerId: number; onChanged: () =
 
   async function send(e: React.FormEvent) {
     e.preventDefault();
-    if (!accessToken || !text.trim()) return;
+    if (!accessToken || (!text.trim() && !file)) return;
     setBusy(true); setError(null);
-    const res = await authedPost(`/admin/support/${playerId}/`, { body: text.trim() }, accessToken);
+    let res;
+    if (file) {
+      const form = new FormData();
+      form.append('file', file);
+      form.append('body', text.trim());
+      res = await authedUpload(`/admin/support/${playerId}/`, form, accessToken);
+    } else {
+      res = await authedPost(`/admin/support/${playerId}/`, { body: text.trim() }, accessToken);
+    }
     setBusy(false);
     if (res.error) { setError(res.error); return; }
-    setText('');
+    setText(''); setFile(null);
     refresh();
   }
 
@@ -120,7 +134,8 @@ function ThreadPane({ playerId, onChanged }: { playerId: number; onChanged: () =
           <div key={m.id} className={cx('flex', m.from_staff && 'justify-end')}>
             <div className={cx('max-w-[78%] rounded-2xl px-4 py-2 text-sm', m.from_staff ? 'rounded-tr-sm bg-secondary text-secondary-foreground' : 'rounded-tl-sm bg-muted')}>
               <p className={cx('mb-0.5 text-xs font-semibold', m.from_staff ? 'text-secondary-foreground/80' : 'text-muted-foreground')}>{m.sender}</p>
-              <p className="whitespace-pre-wrap break-words">{m.body}</p>
+              {m.attachment && <div className="my-1"><AuthedMedia url={m.attachment.url} kind={m.attachment.kind} token={accessToken} /></div>}
+              {m.body && <p className="whitespace-pre-wrap break-words">{m.body}</p>}
               <p className={cx('mt-0.5 text-[10px]', m.from_staff ? 'text-secondary-foreground/70' : 'text-muted-foreground')}>
                 {new Date(m.created_at).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
                 {m.from_staff && (m.read ? ' · Seen' : ' · Sent')}
@@ -132,8 +147,10 @@ function ThreadPane({ playerId, onChanged }: { playerId: number; onChanged: () =
       <form onSubmit={send} className="border-t border-border p-3">
         {error && <p className="mb-2 text-xs font-semibold text-live">{error}</p>}
         <div className="flex gap-2">
-          <TextInput value={text} onChange={(e) => setText(e.target.value)} placeholder={`Reply to ${p?.username ?? 'the player'}…`} maxLength={1000} />
-          <Btn type="submit" variant="primary" icon={BsSendFill} busy={busy} disabled={!text.trim()}>Send</Btn>
+          <AttachPicker file={file} onChange={setFile} onError={setError} />
+          <TextInput value={text} onChange={(e) => setText(e.target.value)} maxLength={1000}
+            placeholder={file ? 'Add a message (optional)…' : `Reply to ${p?.username ?? 'the player'}…`} />
+          <Btn type="submit" variant="primary" icon={BsSendFill} busy={busy} disabled={!text.trim() && !file}>Send</Btn>
         </div>
       </form>
     </div>

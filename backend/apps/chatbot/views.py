@@ -21,7 +21,7 @@ from django.http import HttpResponse, HttpResponseForbidden
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status
-from rest_framework.parsers import MultiPartParser
+from rest_framework.parsers import JSONParser, MultiPartParser
 from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -411,6 +411,7 @@ def _thread(address: str) -> dict:
     outs = list(OutboundMessage.objects.filter(address=address).order_by('-created_at')[:100])
     messages = ([{'id': f'i{m.id}', 'direction': 'in', 'text': m.text, 'at': m.received_at.isoformat()} for m in ins]
                 + [{'id': f'o{m.id}', 'direction': 'out', 'text': m.text, 'buttons': m.buttons, 'at': m.created_at.isoformat(),
+                    'media': ({'kind': m.media_kind, 'url': f'/api/admin/chatbot/media/{m.id}/'} if m.media else None),
                     'status': m.status, 'status_label': m.get_status_display(), 'error': m.error, 'error_code': m.error_code,
                     'source': m.source, 'sent_by': m.sent_by} for m in outs])
     messages.sort(key=lambda m: m['at'])
@@ -422,8 +423,10 @@ def _thread(address: str) -> dict:
 
 class AdminInboxThreadView(APIView):
     """GET — one conversation. POST {text} — a staff reply (free text; WhatsApp allows it
-    only within 24 hours of the customer's last message)."""
+    only within 24 hours of the customer's last message), or multipart {file, text}: a
+    photo or video with an optional caption."""
     permission_classes = [IsAdminUser]
+    parser_classes = [JSONParser, MultiPartParser]
 
     def get(self, request, address: str):
         return Response(_thread(''.join(ch for ch in address if ch.isdigit())))
@@ -431,15 +434,38 @@ class AdminInboxThreadView(APIView):
     def post(self, request, address: str):
         address = ''.join(ch for ch in address if ch.isdigit())
         text = str(request.data.get('text') or '').strip()
-        if not text or len(text) > 1000:
-            return Response({'detail': 'Write a message of up to 1,000 characters.'}, status=status.HTTP_400_BAD_REQUEST)
+        upload = request.FILES.get('file')
+        if (not text and not upload) or len(text) > 1000:
+            return Response({'detail': 'Write a message (or caption) of up to 1,000 characters, or attach a photo or video.'},
+                            status=status.HTTP_400_BAD_REQUEST)
         last_in = _last_in(address)
         if not last_in or last_in < timezone.now() - WINDOW:
             return Response({'detail': 'WhatsApp only allows a free-text reply within 24 hours of the customer’s last message. '
                                        'They need to message us first.'}, status=status.HTTP_400_BAD_REQUEST)
+        if upload:
+            from common.attachments import AttachmentError, inspect
+            try:
+                found = inspect(upload)
+            except AttachmentError as exc:
+                return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            services.send_media(WHATSAPP, address, upload, found, text, by=request.user.get_username())
+            accounts_services.audit(None, 'chat_staff_media', request, number=f'…{address[-4:]}', kind=found.kind, size=upload.size)
+            return Response(_thread(address), status=status.HTTP_201_CREATED)
         services.send_now(WHATSAPP, address, [{'text': text}], source='staff', by=request.user.get_username())
         accounts_services.audit(None, 'chat_staff_message', request, number=f'…{address[-4:]}', length=len(text))
         return Response(_thread(address), status=status.HTTP_201_CREATED)
+
+
+class AdminChatbotMediaView(APIView):
+    """GET /api/admin/chatbot/media/<id>/ — a photo or video staff sent (staff only)."""
+    permission_classes = [IsAdminUser]
+
+    def get(self, request, pk: int):
+        from django.http import FileResponse, Http404
+        row = OutboundMessage.objects.filter(pk=pk).exclude(media='').first()
+        if row is None:
+            raise Http404
+        return FileResponse(row.media.open('rb'), content_type=row.media_mime or 'application/octet-stream')
 
 
 class AdminChatbotHealthView(APIView):

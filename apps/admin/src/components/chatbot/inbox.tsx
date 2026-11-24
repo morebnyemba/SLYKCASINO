@@ -5,13 +5,15 @@ import { BsCheck2, BsCheck2All, BsExclamationTriangleFill, BsSearch, BsSend } fr
 import { Badge, Btn, Field, Notice, Panel, TextInput, cx } from '@/components/console/ui';
 import { useAuth } from '@/lib/auth-context';
 import { authedPost, useApi } from '@/lib/use-api';
+import { authedUpload } from '@/lib/upload';
+import { AttachPicker, AuthedMedia } from '@/components/chat/attachments';
 
 interface Conversation {
   address: string; player: string | null; incoming: number; outgoing: number; last_at: string; last_text: string;
   last_direction: 'in' | 'out'; unanswered: boolean; failed: number; can_reply: boolean;
 }
 interface Message {
-  id: string; direction: 'in' | 'out'; text: string; at: string; buttons?: string[]; status?: 'queued' | 'sent' | 'delivered' | 'read' | 'failed';
+  id: string; direction: 'in' | 'out'; text: string; at: string; buttons?: string[]; media?: { kind: string; url: string } | null; status?: 'queued' | 'sent' | 'delivered' | 'read' | 'failed';
   status_label?: string; error?: string; error_code?: string; source?: 'bot' | 'staff' | 'test'; sent_by?: string;
 }
 interface Thread { address: string; player: string | null; messages: Message[]; can_reply: boolean; window_ends: string | null }
@@ -103,6 +105,7 @@ export function Inbox() {
   const [open, setOpen] = useState<string | null>(null);
   const { data: thread, refetch: refetchThread } = useApi<Thread>(open ? `/admin/chatbot/inbox/${open}/` : null);
   const [text, setText] = useState('');
+  const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<{ tone: 'green' | 'red'; text: string } | null>(null);
   const bottom = useRef<HTMLDivElement>(null);
@@ -112,10 +115,18 @@ export function Inbox() {
   async function send() {
     if (!accessToken || !open) return;
     setBusy(true); setNotice(null);
-    const res = await authedPost<Thread>(`/admin/chatbot/inbox/${open}/`, { text }, accessToken);
+    let res;
+    if (file) {
+      const form = new FormData();
+      form.append('file', file);
+      form.append('text', text);
+      res = await authedUpload<Thread>(`/admin/chatbot/inbox/${open}/`, form, accessToken);
+    } else {
+      res = await authedPost<Thread>(`/admin/chatbot/inbox/${open}/`, { text }, accessToken);
+    }
     setBusy(false);
     if (res.error) { setNotice({ tone: 'red', text: res.error }); return; }
-    setText('');
+    setText(''); setFile(null);
     refetchThread(); refetchList();
   }
 
@@ -168,7 +179,8 @@ export function Inbox() {
                 <div key={m.id} className={cx('flex', m.direction === 'out' ? 'justify-end' : 'justify-start')}>
                   <div className={cx('max-w-[78%] rounded-2xl px-3 py-2 text-sm',
                     m.direction === 'out' ? (m.status === 'failed' ? 'bg-live/15 ring-1 ring-live/40' : 'bg-secondary/20') : 'bg-card ring-1 ring-border')}>
-                    <p className="whitespace-pre-wrap break-words">{m.text}</p>
+                    {m.media && <div className="mb-1.5"><AuthedMedia url={m.media.url} kind={m.media.kind} token={accessToken} /></div>}
+                    {m.text && <p className="whitespace-pre-wrap break-words">{m.text}</p>}
                     {m.buttons && m.buttons.length > 0 && (
                       <div className="mt-1.5 flex flex-wrap gap-1">{m.buttons.map((b, i) => <span key={i} className="rounded-full border border-border px-2 py-0.5 text-[11px]">{b}</span>)}</div>
                     )}
@@ -186,11 +198,12 @@ export function Inbox() {
             <div className="space-y-2 border-t border-border/60 p-3">
               {notice && <Notice tone={notice.tone} onClose={() => setNotice(null)}>{notice.text}</Notice>}
               <div className="flex gap-2">
+                <AttachPicker file={file} onChange={setFile} disabled={!thread.can_reply} onError={(t) => setNotice({ tone: 'red', text: t })} />
                 <textarea value={text} onChange={(e) => setText(e.target.value)} rows={2} maxLength={1000} disabled={!thread.can_reply}
-                  placeholder={thread.can_reply ? 'Write a reply as support…' : 'Replies are blocked until they message again.'}
-                  onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && text.trim()) void send(); }}
+                  placeholder={thread.can_reply ? (file ? 'Add a caption (optional)…' : 'Write a reply as support…') : 'Replies are blocked until they message again.'}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && (text.trim() || file)) void send(); }}
                   className="min-h-[44px] flex-1 resize-none rounded-xl border border-border bg-input/60 px-3 py-2 text-sm outline-none focus:border-secondary disabled:opacity-60" />
-                <Btn variant="primary" icon={BsSend} busy={busy} disabled={!text.trim() || !thread.can_reply} onClick={send}>Send</Btn>
+                <Btn variant="primary" icon={BsSend} busy={busy} disabled={(!text.trim() && !file) || !thread.can_reply} onClick={send}>Send</Btn>
               </div>
               <p className="text-[11px] text-muted-foreground">Staff replies are logged. Players see them as coming from the same number as the bot.</p>
             </div>
