@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import type { IconType } from 'react-icons';
-import {
+import { BsBook,
   BsActivity, BsBroadcast, BsCalendar2Week, BsCashStack, BsChatDots, BsClockHistory, BsGift, BsGrid1X2,
   BsImages, BsList, BsMoonStars, BsPalette, BsPeople, BsPersonBadge, BsBoxArrowRight, BsSun, BsTicketPerforated,
   BsTrophy, BsXLg, BsDiagram3, BsDatabase, BsCreditCard2Front, BsAirplane, BsPieChart, BsBank, BsShieldExclamation, BsTicket, BsSliders, BsChatSquareText, BsShieldCheck, BsJournalText, BsWhatsapp, BsArrowCounterclockwise, BsStars,
@@ -62,6 +62,7 @@ export const NAV: NavSection[] = [
   { title: 'Marketing', items: [
     { href: '/banners', label: 'Banners', icon: BsImages },
     { href: '/whatsapp-bot', label: 'WhatsApp bot', icon: BsWhatsapp },
+    { href: '/knowledge-base', label: 'Knowledge base', icon: BsBook },
   ] },
   { title: 'Settings', items: [
     { href: '/betting-rules', label: 'Betting rules', icon: BsSliders },

@@ -592,3 +592,207 @@ class AdminAiKnowledgeView(APIView):
     def get(self, request):
         from . import ai
         return Response({'knowledge': ai.knowledge()})
+
+
+# -- knowledge base ---------------------------------------------------------------------------
+KB_FIELDS = ('question', 'example_questions', 'learned_questions', 'keywords', 'answer', 'buttons', 'category', 'is_active')
+
+
+def _article(a, values=None) -> dict:
+    from . import knowledge
+    return {'id': a.pk, 'question': a.question, 'example_questions': a.example_questions,
+            'learned_questions': a.learned_questions, 'keywords': a.keywords, 'answer': a.answer,
+            'preview': knowledge.render(a, values), 'buttons': a.buttons, 'category': a.category,
+            'category_label': a.get_category_display(), 'is_active': a.is_active, 'is_draft': a.is_draft,
+            'times_asked': a.times_asked, 'hit_count': a.hit_count, 'last_used_at': a.last_used_at,
+            'updated_by': a.updated_by, 'updated_at': a.updated_at}
+
+
+def _clean_article(data, partial: bool) -> tuple[dict, str]:
+    """The fields staff sent, tidied, or an error."""
+    from .models import KnowledgeArticle
+    out = {}
+    for f in KB_FIELDS:
+        if f not in data:
+            continue
+        v = data[f]
+        if f == 'is_active':
+            out[f] = bool(v)
+            continue
+        v = str(v or '').strip()
+        if f in ('example_questions', 'learned_questions'):
+            v = '\n'.join(line.strip()[:200] for line in v.splitlines() if line.strip())[:8000]
+        if f == 'buttons':
+            v = ','.join(b.strip().upper()[:20] for b in v.split(',') if b.strip())[:120] or 'MENU'
+        out[f] = v
+    if not partial or 'question' in out:
+        if not out.get('question'):
+            return {}, 'Type the question.'
+        if len(out['question']) > 200:
+            return {}, 'Keep the question under 200 characters.'
+    if not partial or 'answer' in out:
+        if not out.get('answer'):
+            return {}, 'Type the answer.'
+        if len(out['answer']) > 2000:
+            return {}, 'Keep the answer under 2000 characters: WhatsApp messages should be short.'
+    if 'category' in out and out['category'] not in KnowledgeArticle.Category.values:
+        return {}, 'Pick a category.'
+    if 'keywords' in out:
+        out['keywords'] = out['keywords'][:255]
+    return out, ''
+
+
+class AdminKnowledgeView(APIView):
+    """GET /api/admin/chatbot/knowledge/?drafts=1&q= — the answers (or the AI's drafts), the live
+    placeholders and counts. POST — a new answer."""
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        from django.db.models import Q
+        from . import knowledge
+        from .models import BotQuestion, KnowledgeArticle
+        drafts = request.query_params.get('drafts') in ('1', 'true')
+        qs = KnowledgeArticle.objects.filter(is_draft=drafts)
+        qs = qs.order_by('-times_asked', '-id') if drafts else qs.order_by('category', 'id')
+        q = (request.query_params.get('q') or '').strip()
+        if q:
+            qs = qs.filter(Q(question__icontains=q) | Q(answer__icontains=q) | Q(example_questions__icontains=q)
+                           | Q(learned_questions__icontains=q) | Q(keywords__icontains=q))
+        values = knowledge.placeholder_values()
+        since = timezone.now() - timedelta(days=30)
+        asked = BotQuestion.objects.filter(created_at__gte=since)
+        return Response({
+            'results': [_article(a, values) for a in qs[:500]],
+            'placeholders': [{'name': k, 'label': label, 'value': values[k]} for k, label in knowledge.PLACEHOLDERS.items()],
+            'categories': KnowledgeArticle.Category.choices,
+            'counts': {
+                'answers': KnowledgeArticle.objects.filter(is_draft=False).count(),
+                'drafts': KnowledgeArticle.objects.filter(is_draft=True).count(),
+                'unanswered': BotQuestion.objects.filter(source__in=BotQuestion.UNANSWERED, reviewed=False).count(),
+                'asked_30d': asked.count(),
+                'answered_30d': asked.filter(source__in=('kb', 'ai', 'ai_facts')).count(),
+                'kb_30d': asked.filter(source='kb').count(),
+            },
+        })
+
+    def post(self, request):
+        from .models import KnowledgeArticle
+        data, error = _clean_article(request.data, partial=False)
+        if error:
+            return Response({'detail': error}, status=status.HTTP_400_BAD_REQUEST)
+        a = KnowledgeArticle.objects.create(**data, updated_by=request.user.get_username())
+        if request.data.get('from_question'):                   # written for a logged question: it is dealt with
+            from .models import BotQuestion
+            BotQuestion.objects.filter(pk=request.data['from_question']).update(reviewed=True)
+        accounts_services.audit(None, 'chatbot_kb_create', request, article=a.pk)
+        return Response(_article(a), status=status.HTTP_201_CREATED)
+
+
+class AdminKnowledgeDetailView(APIView):
+    """PATCH /api/admin/chatbot/knowledge/<id>/ — edit (approve a draft with {"approve": true});
+    DELETE — remove it."""
+    permission_classes = [IsAdminUser]
+
+    def _get(self, pk):
+        from .models import KnowledgeArticle
+        return KnowledgeArticle.objects.filter(pk=pk).first()
+
+    def patch(self, request, pk: int):
+        a = self._get(pk)
+        if a is None:
+            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+        data, error = _clean_article(request.data, partial=True)
+        if error:
+            return Response({'detail': error}, status=status.HTTP_400_BAD_REQUEST)
+        approve = bool(request.data.get('approve')) and a.is_draft
+        for k, v in data.items():
+            setattr(a, k, v)
+        if approve:
+            a.is_draft, a.is_active = False, True
+        a.updated_by = request.user.get_username()
+        a.save()
+        accounts_services.audit(None, 'chatbot_kb_approve' if approve else 'chatbot_kb_edit', request, article=a.pk)
+        return Response(_article(a))
+
+    def delete(self, request, pk: int):
+        a = self._get(pk)
+        if a is None:
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        accounts_services.audit(None, 'chatbot_kb_delete', request, article=a.pk, question=a.question[:100])
+        a.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class AdminBotQuestionsView(APIView):
+    """GET /api/admin/chatbot/knowledge/questions/?status=unanswered|all&page= — what players asked and
+    how the bot answered. POST {ids, reviewed} — mark them dealt with."""
+    permission_classes = [IsAdminUser]
+    PAGE = 50
+
+    def get(self, request):
+        from .models import BotQuestion
+        qs = BotQuestion.objects.select_related('article')
+        st = request.query_params.get('status') or 'unanswered'
+        if st == 'unanswered':
+            qs = qs.filter(source__in=BotQuestion.UNANSWERED, reviewed=False)
+        elif st == 'handoff':
+            qs = qs.filter(source='handoff')
+        elif st in BotQuestion.Source.values:
+            qs = qs.filter(source=st)
+        try:
+            page = max(0, int(request.query_params.get('page') or 1) - 1)
+        except ValueError:
+            page = 0
+        total = qs.count()
+        rows = qs[page * self.PAGE:(page + 1) * self.PAGE]
+        return Response({'count': total, 'page': page + 1, 'pages': max(1, -(-total // self.PAGE)), 'results': [{
+            'id': r.pk, 'text': r.text, 'source': r.source, 'source_label': r.get_source_display(),
+            'article': r.article_id, 'article_question': r.article.question if r.article else '', 'score': r.score,
+            'reply': r.reply, 'reviewed': r.reviewed, 'address': r.address, 'created_at': r.created_at,
+        } for r in rows]})
+
+    def post(self, request):
+        from .models import BotQuestion
+        ids = [int(i) for i in (request.data.get('ids') or []) if str(i).isdigit()][:500]
+        n = BotQuestion.objects.filter(pk__in=ids).update(reviewed=bool(request.data.get('reviewed', True)))
+        return Response({'updated': n})
+
+
+class AdminKnowledgeTryView(APIView):
+    """POST /api/admin/chatbot/knowledge/try/ {question, use_ai} — what the bot would answer and why,
+    without logging, learning or counting it."""
+    permission_classes = [IsAdminUser]
+
+    def post(self, request):
+        from . import ai, knowledge
+        from .models import KnowledgeArticle
+        question = str(request.data.get('question') or '').strip()[:1000]
+        if not question:
+            return Response({'detail': 'Type a question.'}, status=status.HTTP_400_BAD_REQUEST)
+        ai_ready = ai.enabled()
+        use_ai = bool(request.data.get('use_ai', True)) and ai_ready
+        d = knowledge.decide(question, ai_on=use_ai)
+        out = {'action': d.action, 'problem': d.problem, 'ai_enabled': ai_ready, 'score': d.best.score if d.best else 0,
+               'matches': [{'id': m.article.pk, 'question': m.article.question, 'score': m.score} for m in d.matches],
+               'thresholds': {'sure': knowledge.SURE_SCORE, 'answer': knowledge.ANSWER_SCORE, 'suggest': knowledge.SUGGEST_SCORE},
+               'reply': '', 'buttons': [], 'article': None, 'handoff': False, 'known': None}
+        if d.action == 'kb':
+            r = knowledge.reply_for(d.best.article)
+            out.update(reply=r['text'], buttons=r['buttons'], article={'id': d.best.article.pk, 'question': d.best.article.question})
+        elif d.action == 'ai':
+            try:
+                res = ai.ask(question, history=False)
+            except Exception as exc:  # noqa: BLE001
+                return Response({**out, 'detail': f'Gemini did not answer: {exc}'[:300]}, status=status.HTTP_502_BAD_GATEWAY)
+            used = KnowledgeArticle.objects.filter(pk=res['answer_id'], is_active=True, is_draft=False).first() \
+                if res['answer_id'] > 0 else None
+            out.update(reply=res['reply'], handoff=res['handoff'], known=res['known'], reason=res['reason'],
+                       article={'id': used.pk, 'question': used.question} if used else None,
+                       buttons=knowledge.buttons(used) if used else ['MENU'])
+        elif d.action == 'suggest':
+            out['reply'] = knowledge.suggestions(d.matches)['text']
+            out['buttons'] = [m.article.question for m in d.matches]
+        else:
+            out['reply'] = ('Handed to a person (it sounds like a problem).' if d.problem
+                            else '“Sorry, I didn’t get that” and the screen they were on. Logged as unanswered.')
+        return Response(out)

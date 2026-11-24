@@ -47,3 +47,12 @@ def report_deposit(channel: str, address: str, reference: str, tries: int = 0) -
     elif txn.status != PaymentTransaction.Status.PENDING:
         services.send_now(channel, address, [{'text': f'❌ Your ${txn.amount:.2f} deposit did not go through. '
                                                       'Send DEPOSIT and the amount to try again.'}])
+
+
+@shared_task(name='apps.chatbot.tasks.purge_bot_questions')
+def purge_bot_questions(days: int = 90) -> int:
+    """The question log holds what players typed: keep it 90 days."""
+    from datetime import timedelta
+    from django.utils import timezone
+    from .models import BotQuestion
+    return BotQuestion.objects.filter(created_at__lt=timezone.now() - timedelta(days=days)).delete()[0]

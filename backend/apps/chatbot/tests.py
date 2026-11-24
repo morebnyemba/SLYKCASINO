@@ -1378,8 +1378,9 @@ class AiAssistantTests(_Base):
         cfg.ai_knowledge = 'Support hours are 8am to 8pm.'
         cfg.save()
 
-    def gemini(self, reply, handoff=False, reason=''):
-        body = {'candidates': [{'content': {'parts': [{'text': json.dumps({'reply': reply, 'handoff': handoff, 'reason': reason})}]}}]}
+    def gemini(self, reply, handoff=False, reason='', answer_id=0, known=True, personal=False):
+        out = {'reply': reply, 'handoff': handoff, 'reason': reason, 'answer_id': answer_id, 'known': known, 'personal': personal}
+        body = {'candidates': [{'content': {'parts': [{'text': json.dumps(out)}]}, 'finishReason': 'STOP'}]}
         return _Res(200, body)
 
     def ask(self, text_, gemini_res):
@@ -1403,7 +1404,7 @@ class AiAssistantTests(_Base):
 
     def test_a_question_is_answered_from_the_live_rules(self):
         from apps.chatbot.models import OutboundMessage
-        call, sent = self.ask('how do i withdraw my money?', self.gemini('Go to *Account → Wallet* and tap *Withdraw*.'))
+        call, sent = self.ask('can i bet on basketball?', self.gemini('Not yet: football and Aviator. *Withdraw* any time.'))
         self.assertIsNotNone(call)
         self.assertEqual(call.kwargs['headers']['x-goog-api-key'], 'gk-test')
         self.assertIn('gemini-2.5-flash', call.args[0])
@@ -1452,7 +1453,7 @@ class AiAssistantTests(_Base):
         cfg = ChatbotSettings.load()
         cfg.ai_enabled = False
         cfg.save()
-        self.assertIn("didn't get that", text(self.say('what is cashback')))
+        self.assertIn("didn't get that", text(self.say('do you sell pizza here')))
 
     def test_staff_see_and_resolve_needs_a_person(self):
         from django.contrib.auth.models import User
@@ -1474,3 +1475,170 @@ class AiAssistantTests(_Base):
             out = staff.post('/api/admin/chatbot/ai/test/', {'question': 'minimum stake?'}, format='json').json()
         self.assertEqual((out['reply'], out['handoff']), ('Bets start at $0.50.', False))
         self.assertIn('BETTING: stake', staff.get('/api/admin/chatbot/ai/knowledge/').json()['knowledge'])
+
+
+@override_settings(WHATSAPP_APP_SECRET=SECRET, WHATSAPP_TOKEN='tok', WHATSAPP_PHONE_NUMBER_ID='555', GEMINI_API_KEY='gk-test')
+class KnowledgeBaseTests(_Base):
+    """The knowledge base answers first, the AI fills the gaps, and what the AI works out is learned."""
+    gemini = AiAssistantTests.gemini
+    ask = AiAssistantTests.ask
+
+    def setUp(self):
+        super().setUp()
+        from django.core.cache import cache
+        cache.clear()
+        cfg = ChatbotSettings.load()
+        cfg.ai_enabled = True
+        cfg.save()
+
+    def ai_off(self):
+        cfg = ChatbotSettings.load()
+        cfg.ai_enabled = False
+        cfg.save()
+
+    def article(self, question):
+        from apps.chatbot.models import KnowledgeArticle
+        return KnowledgeArticle.objects.get(question=question)
+
+    def staff(self):
+        from django.contrib.auth.models import User
+        c = APIClient()
+        c.force_authenticate(User.objects.create_user('desk', 'd@example.com', 'x', is_staff=True))
+        return c
+
+    def test_the_matcher_forgives_typos_synonyms_and_shona(self):
+        from apps.chatbot import knowledge
+        for q, want in (('how do i withdrw my money', 'How do I withdraw my winnings?'),
+                        ('whats the fee for withdrawals', 'What does it cost to withdraw?'),
+                        ('ndingabvisa sei mari', 'How do I withdraw my winnings?'),
+                        ('i forgot my pasword', 'I forgot my password'),
+                        ('how much is the minimum stake', 'What are the betting limits?')):
+            best = knowledge.search(q)[0]
+            self.assertEqual(best.article.question, want, q)
+            self.assertGreaterEqual(best.score, knowledge.SURE_SCORE, q)
+
+    def test_a_sure_match_is_answered_from_the_knowledge_base_with_live_values_and_no_ai(self):
+        from apps.chatbot.models import BotQuestion
+        from apps.wallet.models import WithdrawalSettings
+        wd = WithdrawalSettings.load()
+        wd.fee_percent = D('7.5')
+        wd.save()
+        call, sent = self.ask('what is the withdrawal fee?', self.gemini('x'))
+        self.assertIsNone(call)                                             # no Gemini call
+        self.assertIn('costs 7.5%', json.dumps(sent))                       # the fee as set now
+        q = BotQuestion.objects.get()
+        self.assertEqual((q.source, q.article.question), ('kb', 'What does it cost to withdraw?'))
+        self.assertEqual(self.article('What does it cost to withdraw?').hit_count, 1)
+
+    def test_problems_never_get_a_general_answer(self):
+        call, _ = self.ask('my withdrawal is late', self.gemini('Sorry.', True, 'Withdrawal late'))
+        self.assertIsNotNone(call)                                          # to the AI, which sees the account
+        self.ai_off()
+        from apps.chatbot.models import SupportRequest
+        SupportRequest.objects.all().delete()
+        out = text(self.say('my deposit did not reflect'))
+        self.assertIn('a person will reply here', out)
+        self.assertEqual(SupportRequest.objects.get().reason, 'Player reported a problem')
+
+    def test_the_ai_reads_the_closest_answers_first_and_its_wording_is_learned(self):
+        from apps.chatbot.models import BotQuestion
+        art = self.article('How long does a withdrawal take?')
+        call, sent = self.ask('how long until i receive my payout', self.gemini('Usually the same day.', answer_id=art.pk))
+        system = call.kwargs['json']['system_instruction']['parts'][0]['text']
+        kb = system.split('closest to the question first):')[1].split('FACTS:')[0]
+        self.assertTrue(kb.strip().startswith(f'[{art.pk}] Q: How long does a withdrawal take?'))
+        self.assertEqual(BotQuestion.objects.get().source, 'ai')
+        art.refresh_from_db()
+        self.assertIn('how long until i receive my payout', art.learned_questions)
+        self.assertIn('WITHDRAWALS', json.dumps(sent))                      # the answer's own buttons
+        call, sent = self.ask('How long until I receive my payout?', self.gemini('x'))
+        self.assertIsNone(call)                                             # next time: no AI needed
+        self.assertIn('usually the same day', json.dumps(sent))
+
+    def test_an_answer_the_knowledge_base_lacks_becomes_a_draft_for_staff(self):
+        from apps.chatbot.models import KnowledgeArticle
+        self.ask('can i bet on basketball', self.gemini('Not yet: football and Aviator for now.'))
+        draft = KnowledgeArticle.objects.get(is_draft=True)
+        self.assertEqual((draft.question, draft.is_active, draft.times_asked), ('can i bet on basketball', False, 1))
+        self.ask('can i bet on basketball games?', self.gemini('Not yet.'))
+        draft.refresh_from_db()
+        self.assertEqual(draft.times_asked, 2)
+        self.assertEqual(KnowledgeArticle.objects.filter(is_draft=True).count(), 1)
+        call, _ = self.ask('can i bet on basketball please', self.gemini('Not yet.'))
+        self.assertIsNotNone(call)                                          # a draft is never sent to players
+
+    def test_nothing_private_or_personal_is_learned(self):
+        from apps.chatbot import knowledge
+        from apps.chatbot.models import KnowledgeArticle
+        self.assertIsNone(knowledge.learnable('send 5000 to 0771234567'))
+        self.assertIsNone(knowledge.learnable('my ticket was cheated'))
+        self.ask('what time do matches start on sundays', self.gemini('Your balance is $100.', personal=True))
+        self.linked()
+        self.ask('what about matches on public holidays', self.gemini('You have $100.00 in Deposit.'))
+        self.assertFalse(KnowledgeArticle.objects.filter(is_draft=True).exists())
+
+    def test_with_the_ai_down_a_close_answer_is_sent_instead_and_the_breaker_opens(self):
+        from apps.chatbot.models import SupportRequest
+        _, sent = self.ask('how long does it take to get paid', _Res(500, {}))
+        self.assertIn('usually the same day', json.dumps(sent))             # the knowledge base answer
+        self.assertFalse(SupportRequest.objects.exists())
+        self.ask('what about cricket bets', _Res(503, {}))
+        self.ask('and tennis bets maybe', _Res(503, {}))
+        call, sent = self.ask('do you have rugby', self.gemini('x'))
+        self.assertIsNone(call)                                             # 3 failures: skipped for a minute
+        self.assertIn('a person will reply here', json.dumps(sent))
+
+    def test_with_the_ai_off_near_answers_are_offered_and_faq_lists_them(self):
+        self.ai_off()
+        out = self.say('withdrawal question for ecocash')
+        rows = out[0]['list']['rows']
+        self.assertEqual((rows[0][1], rows[-1][0]), ('How do I withdraw my…', 'SUPPORT'))
+        self.assertIn('Withdraw from your *Winnings* wallet', text(self.say(rows[0][0])))
+        faq = self.say('FAQ')[0]
+        self.assertTrue(all(r[0].startswith('FAQ ') for r in faq['list']['rows'][:-1]))
+        self.assertLessEqual(max(len(r[1]) for r in faq['list']['rows']), 24)
+
+    def test_staff_manage_answers_drafts_and_questions(self):
+        from apps.chatbot.models import BotQuestion, KnowledgeArticle
+        staff = self.staff()
+        data = staff.get('/api/admin/chatbot/knowledge/').json()
+        self.assertGreaterEqual(data['counts']['answers'], 20)
+        self.assertIn('withdrawal_fee', {p['name'] for p in data['placeholders']})
+        self.assertEqual(staff.post('/api/admin/chatbot/knowledge/', {'question': '', 'answer': 'x'}, format='json').status_code, 400)
+        made = staff.post('/api/admin/chatbot/knowledge/', {
+            'question': 'Do you have basketball?', 'example_questions': 'basketball bets\nnba', 'keywords': 'basketball',
+            'answer': 'Not yet: football and Aviator on {site}.', 'buttons': 'today, menu', 'category': 'betting'}, format='json').json()
+        self.assertEqual((made['buttons'], made['preview']), ('TODAY,MENU', 'Not yet: football and Aviator on BetBlits.'))
+        self.ai_off()
+        self.assertIn('Not yet', text(self.say('any basketball?')))
+        # a draft: approve it
+        draft = KnowledgeArticle.objects.create(question='do you have tennis', answer='Not yet.', is_draft=True, is_active=False)
+        self.assertEqual([d['id'] for d in staff.get('/api/admin/chatbot/knowledge/?drafts=1').json()['results']], [draft.pk])
+        staff.patch(f'/api/admin/chatbot/knowledge/{draft.pk}/', {'approve': True}, format='json')
+        draft.refresh_from_db()
+        self.assertEqual((draft.is_draft, draft.is_active), (False, True))
+        # the question log
+        self.say('do you sell pizza here')
+        rows = staff.get('/api/admin/chatbot/knowledge/questions/').json()['results']
+        self.assertEqual((rows[0]['text'], rows[0]['source']), ('do you sell pizza here', 'none'))
+        staff.post('/api/admin/chatbot/knowledge/questions/', {'ids': [rows[0]['id']]}, format='json')
+        self.assertTrue(BotQuestion.objects.get(pk=rows[0]['id']).reviewed)
+        self.assertEqual(staff.delete(f'/api/admin/chatbot/knowledge/{draft.pk}/').status_code, 204)
+
+    def test_try_it_explains_the_decision_without_side_effects(self):
+        from apps.chatbot.models import BotQuestion
+        staff = self.staff()
+        out = staff.post('/api/admin/chatbot/knowledge/try/', {'question': 'withdrawal fee?'}, format='json').json()
+        self.assertEqual((out['action'], out['matches'][0]['question']), ('kb', 'What does it cost to withdraw?'))
+        with patch('requests.post', return_value=self.gemini('Not yet.', known=False, handoff=True)):
+            out = staff.post('/api/admin/chatbot/knowledge/try/', {'question': 'any rugby?'}, format='json').json()
+        self.assertEqual((out['action'], out['reply'], out['handoff']), ('ai', 'Not yet.', True))
+        self.assertFalse(BotQuestion.objects.exists())
+
+    def test_old_questions_are_purged(self):
+        from apps.chatbot.models import BotQuestion
+        from apps.chatbot.tasks import purge_bot_questions
+        old = BotQuestion.objects.create(address=NUMBER, text='x', source='none')
+        BotQuestion.objects.filter(pk=old.pk).update(created_at=timezone.now() - timedelta(days=91))
+        BotQuestion.objects.create(address=NUMBER, text='y', source='none')
+        self.assertEqual(purge_bot_questions(), 1)

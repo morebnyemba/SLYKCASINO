@@ -258,11 +258,7 @@ class Conversation(MenuMixin, SignInMixin):
             return self._route(nav[-1]) if nav else self.menu()
         replies = self._route(text)
         if self._lost:
-            from . import ai
-            if ai.enabled(self.cfg) and sum(ch.isalpha() for ch in text) >= 3:
-                # Not a command: a question for the AI assistant (answered in the background).
-                return [{'ai_question': text, 'player_id': self.link.player_id if self.logged_in else None}]
-            return self._where_you_were()
+            return self._free_text(text)
         if _is_screen(words):
             self._remember(' '.join(text.split()))
         elif replies and _looks_like_error(replies[-1]) and len(replies[-1].get('buttons') or []) < 3:
@@ -291,6 +287,43 @@ class Conversation(MenuMixin, SignInMixin):
         if not nav:
             return self.menu()
         return self._route(nav[-1])
+
+    def _free_text(self, text: str) -> list[dict]:
+        """Not a command: a question. The knowledge base first (a sure match is sent as staff wrote it), then
+        the AI assistant in the background, else close answers to tap (see knowledge.py)."""
+        from . import ai, knowledge
+        if sum(ch.isalpha() for ch in text) < 3:
+            return self._where_you_were()
+        d = knowledge.decide(text, ai_on=ai.enabled(self.cfg))
+        best = d.best
+        where = {'address': self.address, 'channel': self.channel, 'text': text}
+        if d.action == 'kb':
+            reply = knowledge.reply_for(best.article)
+            knowledge.record_hit(best.article)
+            knowledge.log(**where, source='kb', article=best.article, score=best.score, reply=reply['text'])
+            return [reply]
+        if d.action == 'ai':
+            return [{'ai_question': text, 'player_id': self.link.player_id if self.logged_in else None}]
+        if d.action == 'suggest':
+            knowledge.log(**where, source='suggested', article=best.article, score=best.score)
+            return [knowledge.suggestions(d.matches)]
+        if d.problem:
+            ai.handoff(self.address, channel=self.channel, player_id=self.link.player_id if self.link else None,
+                       reason='Player reported a problem', question=text, source='player')
+            knowledge.log(**where, source='handoff', score=best.score if best else 0, reply='Player reported a problem')
+            return [_reply('💬 Sorry about that. I’ve passed your message to our team and a person will reply here, '
+                           'usually within a few minutes in working hours.', 'MENU')]
+        knowledge.log(**where, source='none', score=best.score if best else 0)
+        return self._where_you_were()
+
+    def faq_answer(self, pk: int) -> list[dict]:
+        from . import knowledge
+        from .models import KnowledgeArticle
+        article = KnowledgeArticle.objects.filter(pk=pk, is_active=True, is_draft=False).first()
+        if article is None:
+            return self.faq()
+        knowledge.record_hit(article)
+        return [knowledge.reply_for(article)]
 
     def _where_you_were(self) -> list[dict]:
         nav = self.state.get('nav') or []
@@ -339,6 +372,8 @@ class Conversation(MenuMixin, SignInMixin):
             return self.withdraw(rest)
         if head == 'PROMO':
             return self.promo(rest)
+        if head == 'FAQ' and len(rest) == 1 and rest[0].isdigit():
+            return self.faq_answer(int(rest[0]))
         if head == 'SUPPORT':
             return self.support(text.split()[1:])
         if head in ('HUMAN', 'PERSON', 'STAFF', 'OPERATOR') and len(words) <= 3:
