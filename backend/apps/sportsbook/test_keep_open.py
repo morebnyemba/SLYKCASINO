@@ -345,9 +345,9 @@ class LiveFloorTests(InPlayBase):
 
     def test_pre_match_prices_are_not_affected(self):
         Event.objects.filter(pk=self.event.pk).update(status='NS', starts_at=timezone.now() + timedelta(hours=2))
-        short = Market.objects.create(event=self.event, key='over_under:ft:9.5', name='Over/Under', kind='over_under',
-                                      line=D('9.5'))
-        out = MarketOutcome.objects.create(market=short, key='under', label='Under 9.5', odds=D('1.01'))
+        short = Market.objects.create(event=self.event, key='over_under:ft:4.5', name='Over/Under', kind='over_under',
+                                      line=D('4.5'))
+        out = MarketOutcome.objects.create(market=short, key='under', label='Under 4.5', odds=D('1.01'))
         self.assertEqual(self.bet(out).status, 'open')
 
     def test_admin_sets_the_floor(self):

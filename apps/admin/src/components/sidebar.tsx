@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import type { IconType } from 'react-icons';
-import { BsBook,
+import { BsController, BsBook,
   BsActivity, BsBroadcast, BsCalendar2Week, BsCashStack, BsChatDots, BsClockHistory, BsGift, BsGrid1X2,
   BsImages, BsList, BsMoonStars, BsPalette, BsPeople, BsPersonBadge, BsBoxArrowRight, BsSun, BsTicketPerforated,
   BsTrophy, BsXLg, BsDiagram3, BsDatabase, BsCreditCard2Front, BsAirplane, BsPieChart, BsBank, BsShieldExclamation, BsTicket, BsSliders, BsChatSquareText, BsShieldCheck, BsJournalText, BsWhatsapp, BsArrowCounterclockwise, BsStars,
@@ -37,6 +37,7 @@ export const NAV: NavSection[] = [
   ] },
   { title: 'Games', items: [
     { href: '/games/aviator', label: 'Aviator', icon: BsAirplane },
+    { href: '/games/casino', label: 'Casino games', icon: BsController },
   ] },
   { title: 'Players', items: [
     { href: '/users', label: 'Players', icon: BsPeople, match: ['/users', '/players'] },

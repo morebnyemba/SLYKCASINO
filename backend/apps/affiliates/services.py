@@ -187,21 +187,27 @@ def update_programme(**values) -> AffiliateProgramme:
     return programme
 
 
-def on_deposit(*, player_id: int, amount: Decimal) -> bool:
-    """Called by the wallet for every new deposit. A referred player's FIRST
-    deposit earns the welcome bonus (a % of it, capped), credited to the Bonus
-    wallet. Once per player. Returns whether it gave one."""
+def welcome_bonus_for(player_id: int, amount: Decimal) -> Decimal:
+    """The welcome bonus this deposit would earn: a referred player's FIRST deposit only, else 0."""
     if not Referral.objects.filter(player_id=player_id).exists():
-        return False
+        return Decimal('0')
     if wallet_services.deposit_count(player_id) != 1:
-        return False  # only the first deposit
+        return Decimal('0')  # only the first deposit
     programme = AffiliateProgramme.load()
-    bonus = utils.welcome_bonus(
+    return utils.welcome_bonus(
         Decimal(amount), programme.welcome_bonus_percent, programme.welcome_bonus_cap,
         programme.welcome_bonus_min_deposit,
     )
+
+
+def on_deposit(*, player_id: int, amount: Decimal) -> bool:
+    """Credit a referred player's welcome bonus for their FIRST deposit (a % of it,
+    capped) to the Bonus wallet. Once per player. Returns whether it gave one.
+    (The wallet calls it only when the welcome bonus beats the running deposit promotion.)"""
+    bonus = welcome_bonus_for(player_id, amount)
     if bonus <= 0:
         return False
+    programme = AffiliateProgramme.load()
     from apps.promotions import services as promotions_services
     from apps.wallet.models import WalletRules
     rules = WalletRules.load()

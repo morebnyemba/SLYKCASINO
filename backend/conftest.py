@@ -60,3 +60,54 @@ def _fresh_rate_limits():
     start every test with none."""
     from django.core.cache import cache
     cache.clear()
+
+
+@pytest.fixture(autouse=True)
+def _fast_whatsapp(request, settings, django_db_blocker):
+    """No waiting between WhatsApp messages in tests, and no 18+ question before the menu:
+    both are tested on their own (marker `whatsapp_guard`)."""
+    if request.node.get_closest_marker('whatsapp_guard'):
+        return
+    settings.CHATBOT_PAIR_GAP_SECONDS = 0
+    settings.CHATBOT_RETRY_WAITS = (0, 0)
+    from django.test import TransactionTestCase
+    cls = request.node.cls
+    if not (cls and issubclass(cls, TransactionTestCase)):
+        return
+    from apps.chatbot.models import ChatbotSettings
+    with django_db_blocker.unblock():
+        ChatbotSettings.load()
+        ChatbotSettings.objects.update(age_gate=False)
+
+
+@pytest.fixture(autouse=True)
+def _no_betstop(request, django_db_blocker):
+    """Tests of other in-play features score goals and expect trading to go on: the bet stop
+    after a goal has its own tests (marker `betstop`)."""
+    if request.node.get_closest_marker('betstop'):
+        return
+    from django.test import TransactionTestCase
+    cls = request.node.cls
+    if not (cls and issubclass(cls, TransactionTestCase)):
+        return
+    from apps.sportsbook.models import LiveTradingSettings
+    with django_db_blocker.unblock():
+        LiveTradingSettings.load()
+        LiveTradingSettings.objects.filter(pk=1).update(betstop_seconds=0)
+
+
+@pytest.fixture(autouse=True)
+def _plain_cashout(request, django_db_blocker):
+    """Cash-out tests about pricing and paying cash out straight away at one margin: the house
+    protection rules (waits, caps, live margin, cut-off) have their own tests (`cashout_rules`)."""
+    if request.node.get_closest_marker('cashout_rules'):
+        return
+    from django.test import TransactionTestCase
+    cls = request.node.cls
+    if not (cls and issubclass(cls, TransactionTestCase)):
+        return
+    from apps.sportsbook.models import CashoutSettings
+    with django_db_blocker.unblock():
+        CashoutSettings.load()
+        CashoutSettings.objects.filter(pk=1).update(min_seconds_after_bet=0, live_delay_seconds=0, live_until_minute=0,
+                                                    max_percent_of_win=0, live_margin_percent=5)

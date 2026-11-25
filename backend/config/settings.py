@@ -606,7 +606,9 @@ GEMINI_MODEL = os.environ.get('GEMINI_MODEL', '')  # default gemini-2.5-flash
 # The bot's number as players should save it (shown on the website), e.g. +263 77 123 4567.
 WHATSAPP_DISPLAY_NUMBER = os.environ.get('WHATSAPP_DISPLAY_NUMBER', '')
 # Kick-off times in chat are written in the players' local time (the server runs on UTC).
-CHATBOT_TIME_ZONE = os.environ.get('CHATBOT_TIME_ZONE', '')  # default Africa/Harare (apps.chatbot.config)
+CHATBOT_TIME_ZONE = os.environ.get('CHATBOT_TIME_ZONE', '')
+# Seconds between messages to one WhatsApp number (Meta's pair rate limit, apps.chatbot.guard).
+CHATBOT_PAIR_GAP_SECONDS = float(os.environ.get('CHATBOT_PAIR_GAP_SECONDS', '0.5'))  # default Africa/Harare (apps.chatbot.config)
 
 # Players' local time zone, for time-of-day settings such as the Aviator house edge schedule.
 PLAYER_TIME_ZONE = os.environ.get('PLAYER_TIME_ZONE', 'Africa/Harare')

@@ -194,16 +194,20 @@ def _used_up(tier: DepositBonus, promo: Promotion, player_id: int) -> bool:
     return False
 
 
+def best_deposit_bonus(player_id: int, amount: Decimal) -> tuple[DepositBonus | None, Decimal]:
+    """The running deposit promotion this deposit would earn (tiers the player has used up are skipped)."""
+    usable = [t for t in _live_tiers()
+              if t.limit == DepositBonus.Limit.EVERY or not _used_up(t, _tier_promotion(t), player_id)]
+    return deposit_bonus_for(Decimal(amount), usable)
+
+
 @transaction.atomic
 def on_deposit(*, player_id: int, amount: Decimal, deposit_id: int) -> PromotionClaim | None:
     """Called by the wallet for every new deposit: credit the best running
     deposit promotion for its amount (if the player hasn't used it up), as
     bonus money locked until wagered. At most once per deposit."""
     amount = Decimal(amount)
-    # Skip tiers this player has used up, then pick the best of the rest.
-    usable = [t for t in _live_tiers()
-              if t.limit == DepositBonus.Limit.EVERY or not _used_up(t, _tier_promotion(t), player_id)]
-    tier, bonus = deposit_bonus_for(amount, usable)
+    tier, bonus = best_deposit_bonus(player_id, amount)
     if tier is None or bonus <= 0:
         return None
     promo = _tier_promotion(tier)

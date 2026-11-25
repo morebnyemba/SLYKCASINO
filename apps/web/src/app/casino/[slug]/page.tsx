@@ -54,6 +54,8 @@ export default function GamePage({ params, searchParams }: PageProps) {
 
   const { user, accessToken } = useAuth();
   const { data: wallet, refetch: refetchWallet } = useApi<Wallet>('/wallet/');
+  // A game that's listed but not live yet can't be played (the API refuses it too).
+  const { data: gameInfo } = useApi<{ coming_soon?: boolean; name?: string }>(gameId ? `/casino/games/${gameId}/` : null, { public: true });
 
   const [stake, setStake] = useState('5');
   const [payFrom, setPayFrom] = useState<WalletId | ''>('');
@@ -140,6 +142,16 @@ export default function GamePage({ params, searchParams }: PageProps) {
 
   const balance = demoMode ? demoBalance.toFixed(2) : (wallet?.balance ?? '0.00');
   const currency = demoMode ? 'FUN' : (wallet?.currency ?? 'USD');
+
+  if (gameInfo?.coming_soon) {
+    return (
+      <div className="mx-auto max-w-lg rounded-2xl border border-border bg-card p-8 text-center">
+        <p className="text-lg font-extrabold">{gameInfo.name ?? gameName} is coming soon</p>
+        <p className="mt-2 text-sm text-muted-foreground">It isn’t playable yet. Open it in the casino lobby and tap Notify me to hear when it’s live.</p>
+        <Link href="/casino" className="mt-5 inline-block rounded-xl bg-secondary px-5 py-2.5 text-sm font-bold text-secondary-foreground">Back to the casino</Link>
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto max-w-lg">

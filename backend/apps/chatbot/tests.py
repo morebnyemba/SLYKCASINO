@@ -1672,139 +1672,86 @@ class CombinedPicksTests(_Base):
         self.assertIn('at most 2 picks from one match', text(self.say(f'{self.e1.id} GG')))
 
 
-@override_settings(WHATSAPP_APP_SECRET=SECRET, WHATSAPP_TOKEN='tok', WHATSAPP_PHONE_NUMBER_ID='555')
-class AviatorOnWhatsAppTests(_Base):
-    """Aviator from chat: auto cash-out bets join a round (now or the next), results come back after the crash."""
+class AviatorOnTheWebsiteTests(_Base):
+    """Aviator is played on the website: the bot only points there (and shows the latest results)."""
 
-    def setUp(self):
-        super().setUp()
-        self.link = self.linked()
-        self.sent = []
+    def test_aviator_words_send_players_to_the_website(self):
+        for msg in ('AVIATOR', 'AV 1 2', 'FLY'):
+            out = text(self.say(msg))
+            self.assertIn('/aviator', out, msg)
+            self.assertIn('website', out, msg)
+        self.assertNotIn('CASH OUT', json.dumps(self.say('AVIATOR')))
 
-    def round(self, crash='2.50', now=None):
-        from apps.jet import services as jet
-        from apps.jet.models import JetRound
-        rnd = jet.open_round(now=now)
-        JetRound.objects.filter(pk=rnd.pk).update(crash_point=D(crash))
-        rnd.refresh_from_db()
-        return rnd
 
-    def stage(self, fn, *args, **kw):
-        """Run a round stage with outgoing WhatsApp messages captured."""
-        def post(url, **k):
-            self.sent.append(k.get('json') or {})
-            return _Res(200, {'messages': [{'id': f'wamid.av{len(self.sent)}'}]})
-        with patch('requests.post', side_effect=post), patch.object(services.threading, 'Thread', _Inline), \
-                self.captureOnCommitCallbacks(execute=True):
-            return fn(*args, **kw)
+@pytest.mark.whatsapp_guard
+@override_settings(WHATSAPP_APP_SECRET=SECRET, WHATSAPP_TOKEN='tok', WHATSAPP_PHONE_NUMBER_ID='555',
+                   CHATBOT_PAIR_GAP_SECONDS=0, CHATBOT_RETRY_WAITS=(0, 0))
+class WhatsAppGuardTests(_Base):
+    """Low ban risk: 24-hour window, pacing, backing off and pausing when Meta says so, 18+ gate."""
 
-    def texts(self):
-        return '\n'.join(json.dumps(m) for m in self.sent)
+    def inbound(self, number=NUMBER, hours_ago=0):
+        from apps.chatbot.models import InboundMessage
+        m = InboundMessage.objects.create(channel='whatsapp', address=number, provider_id=f'wamid.in{hours_ago}{number}', text='hi')
+        InboundMessage.objects.filter(pk=m.pk).update(received_at=timezone.now() - timedelta(hours=hours_ago))
 
-    def fly(self, rnd, crash_now=True):
-        from apps.jet import services as jet
-        self.stage(jet.run_hooks, 'flight', jet.start_flight(rnd.id, now=rnd.betting_ends_at))
-        if crash_now:
-            rnd.refresh_from_db()
-            self.stage(jet.run_hooks, 'crash', jet.crash_round(rnd.id))
+    def test_messages_the_bot_starts_only_go_inside_the_24_hour_window(self):
+        self.inbound(hours_ago=30)
+        with patch('requests.post', return_value=_Res(200, {'messages': [{'id': 'w1'}]})) as p:
+            self.assertEqual(services.send_now('whatsapp', NUMBER, [{'text': 'Ticket confirmed'}]), 0)
+        p.assert_not_called()                                              # not even attempted
+        from apps.chatbot.models import OutboundMessage
+        self.assertEqual(OutboundMessage.objects.get().error_code, 'window')
+        self.inbound(hours_ago=1)
+        with patch('requests.post', return_value=_Res(200, {'messages': [{'id': 'w2'}]})) as p:
+            self.assertEqual(services.send_now('whatsapp', NUMBER, [{'text': 'Ticket confirmed'}]), 1)
 
-    def test_menu_stake_cashout_confirm_and_a_win_reported(self):
-        from apps.chatbot.models import AviatorOrder, ChatTicket
-        home = self.say('AVIATOR')[0]
-        self.assertIn('no data needed', home['text'])
-        self.assertIn('AV 1', [r[0] for r in home['list']['rows']])
-        targets = self.say('AV 1')[0]['list']['rows']
-        self.assertEqual(targets[1][:2], ['AV 1.00 2', 'Cash out at 2.00x'])
-        self.assertIn('Tap *Confirm*', text(self.say('AV 1 2')))
-        rnd = self.round('2.50')
-        out = text(self.say('CONFIRM'))
-        self.assertIn(f'round {rnd.id}', out)                              # straight into the round taking bets
-        self.assertEqual(self.deposit_balance(), D('99'))
-        self.assertEqual(ChatTicket.objects.get().kind, 'jet')            # counts towards the daily chat limit
-        self.fly(rnd)
-        self.assertIn(f'Round {rnd.id} is flying', self.texts())
-        self.assertIn('Cashed out at 2.00x', self.texts())
-        self.assertIn('won *$2.00*', self.texts())
-        self.assertEqual(wallet.get_balances(self.player.id)['winnings'], D('1.00'))
-        self.assertEqual(AviatorOrder.objects.get().status, 'done')
+    def test_a_spam_flag_pauses_what_the_bot_starts_but_not_replies(self):
+        from apps.chatbot import guard
+        self.inbound()
+        flagged = _Res(400, {'error': {'code': 131048, 'message': 'Spam rate limit hit'}})
+        with patch('requests.post', return_value=flagged):
+            services.send_now('whatsapp', NUMBER, [{'text': 'x'}])
+        self.assertEqual(guard.paused()['code'], '131048')
+        with patch('requests.post', return_value=_Res(200, {'messages': [{'id': 'w'}]})) as p:
+            self.assertEqual(services.send_now('whatsapp', NUMBER, [{'text': 'y'}]), 0)
+            p.assert_not_called()
+            from apps.chatbot.models import OutboundMessage
+            row = services.record(NUMBER, {'text': 'reply'})
+            self.assertTrue(services.transmit(row, {'text': 'reply'}))     # answering the player still works
+        staff = APIClient()
+        from django.contrib.auth.models import User
+        staff.force_authenticate(User.objects.create_user('ops', 'o@example.com', 'x', is_staff=True))
+        health = staff.get('/api/admin/chatbot/health/').json()
+        self.assertIn('paused', health['problem'])
+        self.assertTrue(health['guard']['checklist'])
 
-    def test_a_late_bet_joins_the_next_round_and_autoplay_repeats(self):
-        from apps.chatbot.models import AviatorOrder
-        self.say('AV 1 2 3')
-        self.say('CONFIRM')                                                # no round taking bets: queued
-        order = AviatorOrder.objects.get()
-        self.assertEqual((order.placed, order.rounds), (0, 3))
-        for crash in ('1.50', '3.00', '1.20'):
-            from apps.jet import services as jet
-            rnd = self.round(crash)
-            self.stage(jet.run_hooks, 'open', rnd)
-            self.fly(rnd)
-        order.refresh_from_db()
-        self.assertEqual((order.placed, order.settled, order.status), (3, 3, 'done'))
-        self.assertEqual((order.staked, order.won), (D('3.00'), D('2.00')))
-        self.assertIn('Autoplay done', self.texts())
-        self.assertIn('Flew away before 2.00x', self.texts())
+    def test_backs_off_and_retries_when_meta_says_slow_down(self):
+        self.inbound()
+        answers = [_Res(400, {'error': {'code': 131056, 'message': 'pair rate limit'}}), _Res(200, {'messages': [{'id': 'ok'}]})]
+        with patch('requests.post', side_effect=answers) as p:
+            self.assertEqual(services.send_now('whatsapp', NUMBER, [{'text': 'x'}]), 1)
+        self.assertEqual(p.call_count, 2)
 
-    def test_cash_now_pays_at_the_server_multiplier(self):
-        from apps.jet import services as jet
-        rnd = self.round('5.00')
-        self.say('AV 2 4')
-        self.say('CONFIRM')
-        self.fly(rnd, crash_now=False)
-        from apps.jet import engine as jet_engine
-        with patch('apps.jet.services.timezone.now',
-                   return_value=rnd.betting_ends_at + timedelta(seconds=jet_engine.seconds_to(D('1.50')) + 0.05)):
-            out = text(self.say('CASH'))
-        self.assertIn('Cashed out at 1.50x', out)
-        self.assertIn('$3.00', out)
-        rnd.refresh_from_db()
-        self.stage(jet.run_hooks, 'crash', jet.crash_round(rnd.id))
-        self.assertIn('Cashed out at 1.50x', self.texts())
+    def test_messages_to_one_number_are_spaced(self):
+        import time
+        from apps.chatbot import guard
+        with self.settings(CHATBOT_PAIR_GAP_SECONDS=0.3):
+            start = time.time()
+            guard.throttle(NUMBER)
+            guard.throttle(NUMBER)
+            self.assertGreaterEqual(time.time() - start, 0.25)
 
-    def test_stop_refunds_a_bet_waiting_for_take_off(self):
-        rnd = self.round()
-        self.say('AV 1 2 5')
-        self.say('CONFIRM')
-        self.assertEqual(self.deposit_balance(), D('99'))
-        self.assertIn('refunded', text(self.say('AV STOP')))
-        self.assertEqual(self.deposit_balance(), D('100'))
-        from apps.jet import services as jet
-        self.stage(jet.run_hooks, 'open', self.round(now=rnd.betting_ends_at))
-        self.assertEqual(self.deposit_balance(), D('100'))                 # stopped: no more rounds
-
-    def test_limits_balance_and_switch(self):
+    def test_new_numbers_confirm_they_are_18_before_seeing_odds(self):
         cfg = ChatbotSettings.load()
-        cfg.daily_cap = D('5')
+        cfg.age_gate = True
         cfg.save()
-        self.assertIn('daily chat limit', text(self.say('AV 1 2 10')))
-        self.assertIn('between 1.01x', text(self.say('AV 1 1')))
-        cfg.allow_aviator = False
-        cfg.save()
-        self.assertIn('paused', text(self.say('AV 1 2')))
-
-    def test_running_out_of_money_stops_autoplay_with_a_message(self):
-        from apps.chatbot.models import AviatorOrder
-        from apps.jet import services as jet
-        wallet.debit(player_id=self.player.id, amount=D('98.50'), kind='casino_debit', bucket='deposit',
-                     idempotency_key='drain')
-        self.say('AV 1 2 3')
-        self.say('CONFIRM')
-        for crash in ('1.10', '1.10'):
-            rnd = self.round(crash)
-            self.stage(jet.run_hooks, 'open', rnd)
-            self.fly(rnd)
-        order = AviatorOrder.objects.get()
-        self.assertEqual((order.status, order.placed), ('stopped', 1))
-        self.assertIn('Aviator stopped', self.texts())
-
-    def test_free_spins_from_chat(self):
-        from apps.jet import free_spins, services as jet
-        free_spins.grant(audience='usernames', usernames='rudo', amount='0.50', count=2, days=3, by='admin')
-        self.assertIn('AV FREE', [r[0] for r in self.say('AVIATOR')[0]['list']['rows']])
-        self.assertEqual(self.say('AV FREE')[0]['list']['rows'][1][0], 'AV FREE 2')
-        self.say('AV FREE 2')
-        rnd = self.round('3.00')
-        self.say('CONFIRM')
-        self.fly(rnd)
-        self.assertIn('free spin won *$0.50* (paid as bonus)', self.texts())     # the profit, as bonus
-        self.assertEqual(self.deposit_balance(), D('100'))
+        match = str(self.e1.id)                    # by its number: "today" depends on the clock
+        out = text(self.say(match))
+        self.assertIn('18 or older', out)
+        self.assertNotIn('Dynamos', out)
+        self.assertIn('only for people aged 18', text(self.say('AGE NO')))
+        self.assertIn('only for people aged 18', text(self.say(match)))
+        self.assertIn('gamble responsibly', text(self.say('AGE YES')))
+        self.assertIn('Dynamos', text(self.say(match)))
+        other = '263779999999'
+        self.assertIn('username', text(self.say('LOGIN', number=other)))  # logging in is never blocked

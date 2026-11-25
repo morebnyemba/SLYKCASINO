@@ -55,8 +55,21 @@ def wall_clock_locked(event: Event, *, now=None) -> bool:
     return (now or timezone.now()) >= event.starts_at + timedelta(minutes=minute) + WALL_CLOCK_ALLOWANCE
 
 
+def betstop_seconds() -> int:
+    return LiveTradingSettings.current().betstop_seconds
+
+
+def betstop_active(event: Event, *, now=None) -> bool:
+    """Inside the bet stop after a goal (or a goal ruled out): the whole match is suspended."""
+    secs = betstop_seconds()
+    return bool(secs and event.last_goal_at
+                and (now or timezone.now()) - event.last_goal_at < timedelta(seconds=secs))
+
+
 def closed_reason(event: Event, *, now=None) -> Optional[str]:
     """Why in-play trading is shut on this match (None = it isn't)."""
+    if betstop_active(event, now=now):
+        return 'Goal! Markets reopen in a moment with new prices'
     if event.live_locked_at or wall_clock_locked(event, now=now):
         minute = LiveTradingSettings.load().lock_minute
         return f'In-play betting closes at {minute}\''
@@ -290,6 +303,10 @@ def live_price_fresh(event: Event, priced_at) -> bool:
         return True
     if priced_at is None or event.live_priced_at is None:
         return False
+    if betstop_seconds() and event.last_goal_at is not None:
+        # Bet stop: nothing during the pause, and afterwards only prices the feed quoted since the goal.
+        if betstop_active(event) or priced_at <= event.last_goal_at:
+            return False
     return event.live_priced_at - priced_at <= _grace()
 
 

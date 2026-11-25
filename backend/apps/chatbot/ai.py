@@ -91,10 +91,8 @@ def knowledge() -> str:
     lines.append(f'LOST BY ONE REFUND: {refund_rule()}')
     lines.append(f'CASHBACK: {cashback_rule()}')
     lines += [
-        'AVIATOR: a plane flies and the multiplier rises; cash out before it flies away. Playable on the website and fully on '
-        'WhatsApp (no data bundle needed): AVIATOR, then a stake and an auto cash-out, e.g. AV 1 2 = $1 cashing out at 2.00x; '
-        'AV 1 2 10 = autoplay for 10 rounds; CASH cashes out early; AV STOP stops; AV FREE plays free spins; AV BETS shows results. '
-        'Results arrive after every round.',
+        'AVIATOR: a plane flies and the multiplier rises; cash out before it flies away. Free spins from promotions are claimed on '
+        'the Aviator page. It runs on the website, not in WhatsApp.',
         f'WHATSAPP BOT: LOGIN (website username + password), REGISTER, MENU, TODAY, LIVE, LEAGUES, COUNTRY <name>, a match ID '
         f'to see its odds, then tap picks, BET <stake> and CONFIRM. BALANCE, OPEN, CASHOUT, DEPOSIT, WITHDRAW, HISTORY. '
         f'Most per ticket from WhatsApp {_m(chat.max_stake)}, {_m(chat.daily_cap)} a day. Logged out after '

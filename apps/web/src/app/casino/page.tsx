@@ -14,7 +14,7 @@ import { GameRow } from '@/components/game-row';
 import { useApi } from '@/lib/use-api';
 import { useFavorites } from '@/lib/use-favorites';
 import { CASINO_HERO_IMAGES } from '@/lib/game-images';
-import { CASINO_CATEGORIES as CATEGORIES, type Game, gameHref, gameTag, tileArt } from '@/lib/casino';
+import { BETBLITS_AVIATOR, CASINO_CATEGORIES as CATEGORIES, type Game, gameHref, gameTag, tileArt } from '@/lib/casino';
 import { Spinner } from '@slyk/ui/components/spinner';
 import { PageLoader } from '@/components/site-loader';
 
@@ -25,6 +25,8 @@ interface GamesResponse {
 
 const CATEGORY_ICONS: Record<string, IconType> = {
   all: GiCastle,
+  fast: GiRocketFlight,
+  mini: GiLightningFrequency,
   crash: GiRocketFlight,
   slots: GiCherry,
   live: GiPokerHand,
@@ -37,13 +39,15 @@ function CasinoLobby() {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
-  const { data, loading } = useApi<GamesResponse>('/casino/games/', { public: true });
+  // The whole catalogue in one go (500+ small rows): shelves and filters work on all of it.
+  const { data, loading } = useApi<GamesResponse>('/casino/games/?page_size=1000', { public: true });
   const [extraGames, setExtraGames] = useState<Game[]>([]);
   const [nextPage, setNextPage] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const apiGames = data?.results ?? [];
-  const games = useMemo(() => [...apiGames, ...extraGames], [apiGames, extraGames]);
-  const allIds = useMemo(() => games.map((g) => g.id), [games]);
+  // Our own Aviator leads the fast games; the catalogue follows (playable first, then coming soon).
+  const games = useMemo(() => [BETBLITS_AVIATOR, ...apiGames, ...extraGames], [apiGames, extraGames]);
+  const allIds = useMemo(() => games.filter((g) => g.id > 0 && !g.coming_soon).map((g) => g.id), [games]);
 
   useEffect(() => {
     setNextPage(data?.next ?? null);
@@ -80,7 +84,7 @@ function CasinoLobby() {
   const [sort, setSort] = useState<'popular' | 'name' | 'rtp'>('popular');
   const { favorites, toggleFavorite } = useFavorites();
 
-  const providers = useMemo(() => Array.from(new Set(games.map((g) => g.provider))).sort(), [games]);
+  const providers = useMemo(() => Array.from(new Set(games.map((g) => g.provider).filter((p) => p && p !== 'TBA'))).sort(), [games]);
   const visibleCategories = useMemo(() => {
     const present = new Set(games.map((g) => g.category).filter(Boolean));
     return CATEGORIES.filter((c) => c.value === 'all' || present.has(c.value));
@@ -103,8 +107,10 @@ function CasinoLobby() {
   // Lobby view = shelves per category; any filter switches to a flat grid.
   const lobbyView = category === 'all' && !onlyFavorites && !search.trim() && provider === 'all' && sort === 'popular';
   const favoriteGames = games.filter((g) => favorites.has(g.slug));
-  const topRtp = [...games].sort((a, b) => parseFloat(b.rtp) - parseFloat(a.rtp)).slice(0, 12);
-  const heroGames = games.slice(0, CASINO_HERO_IMAGES.length);
+  const playable = games.filter((g) => !g.coming_soon);
+  const topRtp = [...playable].filter((g) => g.id > 0).sort((a, b) => parseFloat(b.rtp) - parseFloat(a.rtp)).slice(0, 12);
+  const heroGames = playable.slice(0, CASINO_HERO_IMAGES.length);
+  const SHELF = 24;      // a shelf shows the first ones; "See all" opens the category
 
   const tabClass = (active: boolean) =>
     `flex shrink-0 items-center gap-2 rounded-xl px-3.5 py-2 text-[13px] font-bold transition-colors ${
@@ -234,7 +240,7 @@ function CasinoLobby() {
               key={c.value}
               title={c.label}
               icon={CATEGORY_ICONS[c.value]}
-              games={games.filter((g) => g.category === c.value)}
+              games={games.filter((g) => g.category === c.value).slice(0, SHELF)}
               allIds={allIds}
               favorites={favorites}
               onToggleFavorite={toggleFavorite}
@@ -248,6 +254,7 @@ function CasinoLobby() {
         <>
           <p className="text-sm font-semibold text-muted-foreground">
             {filtered.length} game{filtered.length === 1 ? '' : 's'}
+            {filtered.some((g) => g.coming_soon) && ` · ${filtered.filter((g) => g.coming_soon).length} coming soon: tap one to be notified`}
           </p>
           {filtered.length === 0 ? (
             <div className="rounded-2xl border border-border bg-card p-12 text-center">

@@ -39,11 +39,21 @@ class OddsChanged(ValueError):
         *, event_id: Optional[int] = None, selection: Optional[str] = None,
     ):
         self.current = current
+        self.expected = expected
         self.outcome_id = outcome_id
         # Set for a 1X2 pick (no outcome row), so the slip can find the leg.
         self.event_id = event_id
         self.selection = selection
         super().__init__(f'Odds for {label} changed from {expected} to {current}.')
+
+
+ODDS_POLICIES = ('ask', 'higher', 'any')
+
+
+def odds_change_acceptable(policy: str, exc: 'OddsChanged') -> bool:
+    """The player's choice for a price that moved before their bet was struck: 'ask' (never accept
+    silently), 'higher' (take a better price), 'any' (take whatever the price is now)."""
+    return policy == 'any' or (policy == 'higher' and Decimal(exc.current) > Decimal(exc.expected))
 
 
 class SelectionUnavailable(ValueError):
@@ -153,6 +163,24 @@ def _kicked_off(starts_at) -> bool:
 # penalties (ET/BT/P) are not traded, nor interrupted/suspended matches.
 IN_PLAY_STATUSES = ('1H', 'HT', '2H')
 
+# Goal lines stop at 4.5: over/under 5.5 and up (and the combined markets on them) are
+# never offered, whatever the feed quotes. They're skipped when the feed syncs, hidden
+# from every board and refused at placement.
+MAX_GOAL_LINE = Decimal('4.5')
+GOAL_LINE_KINDS = ('over_under', 'home_over_under', 'away_over_under', 'result_total', 'total_btts')
+
+
+def beyond_goal_lines(kind: str, metric: Optional[str], line) -> bool:
+    return (kind in GOAL_LINE_KINDS and (metric or 'goals') == 'goals' and line is not None
+            and abs(Decimal(line)) > MAX_GOAL_LINE)
+
+
+def offered_markets(qs):
+    """A Market queryset without the goal lines above MAX_GOAL_LINE."""
+    from django.db.models import Q
+    return qs.exclude(Q(kind__in=GOAL_LINE_KINDS, metric='goals')
+                      & (Q(line__gt=MAX_GOAL_LINE) | Q(line__lt=-MAX_GOAL_LINE)))
+
 
 def live_betting_enabled() -> bool:
     from django.conf import settings
@@ -186,6 +214,8 @@ def in_play_bettable(event: Event, *, now=None) -> bool:
     now = now or timezone.now()
     if live_guard.wall_clock_locked(event, now=now):
         return False  # the feed's clock went silent past the lock minute
+    if live_guard.betstop_active(event, now=now):
+        return False  # a goal just went in: everything waits for new prices
     if LiveTradingSettings.current().keep_markets_open:
         # A quiet feed doesn't suspend anything: markets stay open at their
         # last prices until the lock. New bets are still only accepted once the
@@ -301,7 +331,7 @@ def outcome_unavailable(event: Event, market: Market, outcome: MarketOutcome, *,
     if event_ok is None:
         event_ok = in_play_bettable(event) if in_play else event.is_open
     if (
-        not event_ok or not market.is_open or market.settled
+        not event_ok or not market.is_open or market.settled or beyond_goal_lines(market.kind, market.metric, market.line)
         or not outcome.is_open or outcome.result != MarketOutcome.Result.PENDING or outcome.odds <= 1
     ):
         return f'{market.name} — {outcome.label} is suspended.'
@@ -1018,7 +1048,7 @@ _LEG_RESULT = {'won': BetLeg.Result.WON, 'lost': BetLeg.Result.LOST, 'void': Bet
 
 def list_markets(event_id: int):
     """Every market on an event with its outcomes, in display order."""
-    return Market.objects.filter(event_id=event_id).prefetch_related('outcomes')
+    return offered_markets(Market.objects.filter(event_id=event_id)).prefetch_related('outcomes')
 
 
 @transaction.atomic
@@ -1199,6 +1229,8 @@ def apply_feed_markets(event: Event, markets: tuple[FeedMarketData, ...] | list[
     existing = {m.key: m for m in Market.objects.filter(event=event).prefetch_related('outcomes')}
     seen: set[str] = set()
     for data in markets:
+        if beyond_goal_lines(data.kind, data.metric, data.line):
+            continue                                    # never offered (MAX_GOAL_LINE): closed below
         seen.add(data.key)
         market = existing.get(data.key)
         if market is None:
@@ -1252,6 +1284,10 @@ def apply_feed_markets(event: Event, markets: tuple[FeedMarketData, ...] | list[
                 outcome.save(update_fields=['is_open'])
 
     for key, market in existing.items():
+        if market.is_open and not market.settled and beyond_goal_lines(market.kind, market.metric, market.line):
+            market.is_open = False
+            market.save(update_fields=['is_open'])
+            continue
         if key not in seen and market.is_open and not market.settled and not keep_open:
             market.is_open = False
             market.save(update_fields=['is_open'])

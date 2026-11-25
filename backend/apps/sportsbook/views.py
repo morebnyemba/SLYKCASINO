@@ -52,7 +52,7 @@ class EventViewSet(viewsets.ModelViewSet):
         ).order_by(*ordering)  # aggregation drops Meta.ordering, so re-apply it
         if self.action == 'retrieve':
             qs = qs.prefetch_related(Prefetch(
-                'markets', queryset=Market.objects.prefetch_related('outcomes'),
+                'markets', queryset=services.offered_markets(Market.objects.all()).prefetch_related('outcomes'),
             ))
         return qs
 
@@ -218,11 +218,22 @@ class BetViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.Create
                 stake=request.data.get('stake'),
                 odds=request.data.get('odds'),
             )
-            bet = services.place_bet(
-                event=dto.event, stake=dto.stake, odds=dto.odds, player_id=dto.player_id,
-                event_id=dto.event_id, selection=dto.selection, outcome_id=dto.outcome_id,
-                wallet=request.data.get('wallet'),
-            )
+            policy = str(request.data.get('accept_odds') or 'ask')
+            odds = dto.odds
+            for _ in range(3):           # the player's odds-change choice: re-strike at the current price
+                try:
+                    bet = services.place_bet(
+                        event=dto.event, stake=dto.stake, odds=odds, player_id=dto.player_id,
+                        event_id=dto.event_id, selection=dto.selection, outcome_id=dto.outcome_id,
+                        wallet=request.data.get('wallet'),
+                    )
+                    break
+                except services.OddsChanged as moved:
+                    if not services.odds_change_acceptable(policy, moved):
+                        raise
+                    odds = moved.current
+            else:
+                raise services.SelectionUnavailable('The price keeps moving: try again in a moment.')
         except services.OddsChanged as exc:
             return Response(
                 {
@@ -270,12 +281,23 @@ class BetSlipViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.Cr
                 stake=request.data.get('stake'),
                 legs=request.data.get('legs') or [],
             )
-            slip = services.place_accumulator(
-                stake=dto.stake,
-                legs=[leg.model_dump() for leg in dto.legs],
-                player_id=dto.player_id,
-                wallet=request.data.get('wallet'),
-            )
+            policy = str(request.data.get('accept_odds') or 'ask')
+            legs = [leg.model_dump() for leg in dto.legs]
+            for _ in range(len(legs) * 2 + 1):   # the player's odds-change choice, leg by leg
+                try:
+                    slip = services.place_accumulator(stake=dto.stake, legs=legs, player_id=dto.player_id,
+                                                      wallet=request.data.get('wallet'))
+                    break
+                except services.OddsChanged as moved:
+                    if not services.odds_change_acceptable(policy, moved):
+                        raise
+                    for leg in legs:
+                        if ((moved.outcome_id is not None and leg.get('outcome_id') == moved.outcome_id)
+                                or (moved.outcome_id is None and leg.get('event_id') == moved.event_id
+                                    and (leg.get('selection') or 'home') == moved.selection)):
+                            leg['odds'] = moved.current
+            else:
+                raise services.SelectionUnavailable('Prices keep moving: try again in a moment.')
         except services.OddsChanged as exc:
             return Response(
                 {
@@ -403,9 +425,11 @@ class CashoutOffersView(APIView):
 
 
 class AdminCashoutSettingsView(APIView):
-    """GET/PUT /api/admin/sportsbook/cashout/ — cash-out switches and margin,
-    plus what has been cashed out (today and all time)."""
+    """GET/PUT /api/admin/sportsbook/cashout/ — cash-out switches and margin, the house
+    protection rules, plus what has been cashed out (today, all time, the latest)."""
     permission_classes = [IsAdminUser]
+    BOOLS = ('suspend_on_feed_pause', 'block_flagged_players', 'allow_singles', 'allow_multiples')
+    INTS = ('max_percent_of_win', 'min_seconds_after_bet', 'live_until_minute', 'live_delay_seconds')
 
     def _payload(self):
         from django.db.models import Sum
@@ -415,9 +439,18 @@ class AdminCashoutSettingsView(APIView):
         today = timezone.localdate()
         agg = lambda qs: qs.aggregate(n=Count('id'), total=Sum('amount'))  # noqa: E731
         t, a = agg(Cashout.objects.filter(created_at__date=today)), agg(Cashout.objects.all())
+        recent = Cashout.objects.select_related('bet', 'slip').order_by('-created_at')[:30]
         return {
             'enabled': cfg.enabled, 'allow_partial': cfg.allow_partial, 'in_play': cfg.in_play,
             'margin_percent': f'{cfg.margin_percent:.2f}', 'min_amount': f'{cfg.min_amount:.2f}',
+            **{f: getattr(cfg, f) for f in self.BOOLS}, **{f: getattr(cfg, f) for f in self.INTS},
+            'live_margin_percent': f'{cfg.live_margin_percent:.2f}', 'max_amount': f'{cfg.max_amount:.2f}',
+            'recent': [{
+                'id': c.id, 'ticket': (c.bet.code if c.bet_id else c.slip.code) or (f'#{c.bet_id}' if c.bet_id else f'M{c.slip_id}'),
+                'player_id': c.player_id, 'amount': str(c.amount), 'stake': str(c.stake_portion), 'full': c.full,
+                'potential': str((c.bet.stake * c.bet.odds) if c.bet_id else (c.slip.stake * c.slip.combined_odds)),
+                'created_at': c.created_at,
+            } for c in recent],
             'updated_at': cfg.updated_at,
             'stats': {
                 'today': {'count': t['n'], 'total': str(t['total'] or 0)},
@@ -433,10 +466,31 @@ class AdminCashoutSettingsView(APIView):
         from .models import CashoutSettings
         cfg = CashoutSettings.load()
         data = request.data
-        for flag in ('enabled', 'allow_partial', 'in_play'):
+        for flag in ('enabled', 'allow_partial', 'in_play', *self.BOOLS):
             if flag in data:
                 setattr(cfg, flag, bool(data[flag]))
         try:
+            for f in self.INTS:
+                if f in data:
+                    setattr(cfg, f, int(data[f]))
+            if not 0 <= cfg.max_percent_of_win <= 100:
+                raise ValueError('The most an offer can be: 0–100% of the possible win (0 = no cap).')
+            if not 0 <= cfg.min_seconds_after_bet <= 3600:
+                raise ValueError('Wait after placing: 0–3600 seconds.')
+            if not 0 <= cfg.live_until_minute <= 120:
+                raise ValueError('In-play cash-out cut-off: minute 0–120 (0 = all match).')
+            if not 0 <= cfg.live_delay_seconds <= 10:
+                raise ValueError('In-play cash-out delay: 0–10 seconds.')
+            if 'live_margin_percent' in data:
+                live_margin = Decimal(str(data['live_margin_percent']))
+                if not Decimal('0') <= live_margin <= Decimal('50'):
+                    raise ValueError('The in-play margin must be between 0% and 50%.')
+                cfg.live_margin_percent = live_margin
+            if 'max_amount' in data:
+                cap = Decimal(str(data['max_amount'] or 0))
+                if cap < 0:
+                    raise ValueError('The most one cash-out pays can’t be negative (0 = no cap).')
+                cfg.max_amount = cap
             if 'margin_percent' in data:
                 margin = Decimal(str(data['margin_percent']))
                 if not Decimal('0') <= margin <= Decimal('50'):
@@ -447,8 +501,8 @@ class AdminCashoutSettingsView(APIView):
                 if minimum < Decimal('0.01'):
                     raise ValueError('The minimum must be at least $0.01.')
                 cfg.min_amount = minimum
-        except InvalidOperation:
-            return Response({'detail': 'Enter numbers for the margin and minimum.'}, status=status.HTTP_400_BAD_REQUEST)
+        except (InvalidOperation, TypeError):
+            return Response({'detail': 'Enter numbers for the margins and amounts.'}, status=status.HTTP_400_BAD_REQUEST)
         except ValueError as exc:
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         cfg.save()
@@ -482,7 +536,8 @@ class AdminLiveTradingSettingsView(APIView):
     review (a price jump with no goal, a burst of money on one pick). Also
     lists the matches held right now."""
     permission_classes = [IsAdminUser]
-    FIELDS = ('lock_minute', 'price_jump_percent', 'burst_minutes', 'live_price_grace_seconds', 'near_win_percent')
+    FIELDS = ('lock_minute', 'price_jump_percent', 'burst_minutes', 'live_price_grace_seconds', 'near_win_percent',
+              'betstop_seconds')
     FLAGS = ('hold_on_bad_feed', 'suspend_on_feed_pause', 'keep_markets_open')
 
     def _payload(self):
@@ -530,6 +585,8 @@ class AdminLiveTradingSettingsView(APIView):
         if not Decimal('0.5') <= cfg.near_win_goals_per_90 <= Decimal('6'):
             return Response({'detail': 'Goals per 90 minutes for the near-win guard: 0.50–6.00.'},
                             status=status.HTTP_400_BAD_REQUEST)
+        if not 0 <= cfg.betstop_seconds <= 180:
+            return Response({'detail': 'Bet stop after a goal: 0–180 seconds (0 = off).'}, status=status.HTTP_400_BAD_REQUEST)
         if not 15 <= cfg.live_price_grace_seconds <= 600:
             return Response({'detail': 'A selection the live feed stops pricing stays open 15–600 seconds.'},
                             status=status.HTTP_400_BAD_REQUEST)

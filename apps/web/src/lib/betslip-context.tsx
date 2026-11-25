@@ -136,6 +136,10 @@ export function bonusFor(ladder: BonusLadder | null, legs: BetLeg[], matchOdds?:
 }
 
 /** Stake and selection limits every ticket must meet (set by staff). */
+/** What to do when a price moves before the bet is struck (the industry's "odds change" setting). */
+export type OddsPolicy = 'ask' | 'higher' | 'any';
+const ODDS_POLICY_KEY = 'slyk:odds-policy';
+
 export interface TicketLimits { minStake: number; maxStake: number; maxSelections: number; sameMatchBets: boolean; sameMatchPercent: number; maxPerMatch: number }
 
 /** Why a stake can't be placed, or null. Bonus tickets stake the whole wallet, so only the selection limit applies. */
@@ -190,6 +194,9 @@ interface BetslipContextValue {
   place: () => Promise<void>;
   /** Some picks moved price since the player saw them (they must accept first). */
   hasPriceChanges: boolean;
+  /** Odds changes: ask every time, accept higher prices, or accept any. Remembered on this device. */
+  oddsPolicy: OddsPolicy;
+  setOddsPolicy: (p: OddsPolicy) => void;
   /** Some picks are suspended and can't be placed right now. */
   hasSuspended: boolean;
   acceptPriceChanges: () => void;
@@ -225,6 +232,19 @@ export function BetslipProvider({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [wallet, setWallet] = useState<WalletId | null>(null);
+  const [oddsPolicy, setOddsPolicyState] = useState<OddsPolicy>('higher');
+  const oddsPolicyRef = useRef<OddsPolicy>('higher');
+  oddsPolicyRef.current = oddsPolicy;
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(ODDS_POLICY_KEY);
+      if (saved === 'ask' || saved === 'higher' || saved === 'any') setOddsPolicyState(saved);
+    } catch { /* storage blocked: keep the default */ }
+  }, []);
+  const setOddsPolicy = useCallback((p: OddsPolicy) => {
+    setOddsPolicyState(p);
+    try { window.localStorage.setItem(ODDS_POLICY_KEY, p); } catch { /* storage blocked */ }
+  }, []);
   const [slipOpen, setSlipOpen] = useState(false);
   const [ladder, setLadder] = useState<BonusLadder | null>(null);
   const [limits, setLimits] = useState<TicketLimits | null>(null);
@@ -335,8 +355,10 @@ export function BetslipProvider({ children }: { children: React.ReactNode }) {
               ...l,
               odds: price,
               suspended: !open,
-              // Flag a move against what the player last accepted; moving back clears it.
-              changedFrom: price === seen ? undefined : seen,
+              // Flag a move against what the player last accepted (unless their odds-change
+              // choice takes it: any move, or a higher price); moving back clears it.
+              changedFrom: price === seen || oddsPolicyRef.current === 'any'
+                || (oddsPolicyRef.current === 'higher' && price > seen) ? undefined : seen,
             };
           });
           return changed ? next : prev;
@@ -551,7 +573,7 @@ export function BetslipProvider({ children }: { children: React.ReactNode }) {
       const problem = placeable.map((l) => stakeProblem(limits, parseFloat(legStakes[keyOf(l)] || '0'), wallet)).find(Boolean);
       if (problem) { setStatus(problem); setBusy(false); return; }
       const results = await Promise.all(placeable.map((l) => authedPost('/bets/', {
-        ...legPayload(l), stake: parseFloat(legStakes[keyOf(l)] || '0'), wallet,
+        ...legPayload(l), stake: parseFloat(legStakes[keyOf(l)] || '0'), wallet, accept_odds: oddsPolicy,
       }, accessToken)));
       announceWalletChange();
       const failed = results.filter((r) => r.error);
@@ -589,8 +611,8 @@ export function BetslipProvider({ children }: { children: React.ReactNode }) {
         return;
       }
       const res = legs.length === 1
-        ? await authedPost('/bets/', { ...legPayload(legs[0]), stake: stakeNum, wallet }, accessToken)
-        : await authedPost('/betslips/', { stake: stakeNum, legs: legs.map(legPayload), wallet }, accessToken);
+        ? await authedPost('/bets/', { ...legPayload(legs[0]), stake: stakeNum, wallet, accept_odds: oddsPolicy }, accessToken)
+        : await authedPost('/betslips/', { stake: stakeNum, legs: legs.map(legPayload), wallet, accept_odds: oddsPolicy }, accessToken);
       announceWalletChange();
       if (res.error) {
         // The API names the first stale outcome; move that leg to its new price.
@@ -620,13 +642,13 @@ export function BetslipProvider({ children }: { children: React.ReactNode }) {
       }
     }
     setBusy(false);
-  }, [accessToken, legs, mode, legStakes, accaStake, conflictingEvents, conflictMessage, applyPriceChange, confirmInPlay, wallet, limits]);
+  }, [accessToken, legs, mode, legStakes, accaStake, conflictingEvents, conflictMessage, applyPriceChange, confirmInPlay, wallet, limits, oddsPolicy]);
 
   const value: BetslipContextValue = {
     legs, limits, mode, setMode, accaStake, setAccaStake, legStakes, setLegStake,
     combinedOdds, potentialPayout, bonus, maxBonusPercent: Math.max(0, ...(ladder?.tiers.map((t) => t.percent) ?? [0])), loadCode, status, busy, wallet, setWallet, conflictingEvents, conflictMessage, sameMatchPercent, matchGroups, fixtures,
     isOnSlip, isOutcomeOnSlip, toggleLeg, addCombo, removeLeg, clear, place,
-    hasPriceChanges, hasSuspended, acceptPriceChanges,
+    hasPriceChanges, hasSuspended, acceptPriceChanges, oddsPolicy, setOddsPolicy,
     slipOpen, setSlipOpen,
   };
   return <BetslipContext.Provider value={value}>{children}</BetslipContext.Provider>;

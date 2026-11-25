@@ -65,8 +65,9 @@ export function ProgrammeSettings() {
           <div className="text-sm">
             <p className="font-semibold">Deposit bonus on the first deposit only</p>
             <p className="mt-1 text-muted-foreground">
-              On: a referred player’s first deposit gets the welcome bonus (never stacked with a promo code); their later deposits get no
-              deposit promotion or promo code. Off: later deposits get running deposit promotions and promo codes like everyone else.
+              Off (recommended): every deposit gets the best running deposit promotion or the promo code typed; a first deposit gets
+              the welcome bonus when it is bigger. On: players with an agent get no deposit promotion or promo code after their first
+              deposit, and since an agent code is required to register, that is every player.
             </p>
           </div>
           <Switch checked={form.referral_first_deposit_only} onChange={(v) => setForm({ ...form, referral_first_deposit_only: v })}

@@ -12,6 +12,25 @@ class CashoutSettings(models.Model):
     margin_percent = models.DecimalField(max_digits=5, decimal_places=2, default=5)
     # Offers below this are not shown, and partial cash-outs can't go below it.
     min_amount = models.DecimalField(max_digits=10, decimal_places=2, default=1)
+    # -- house protection (cashout.py). Every rule leans towards the house. --
+    # In play, prices move fastest: a bigger margin than pre-match.
+    live_margin_percent = models.DecimalField(max_digits=5, decimal_places=2, default=8)
+    # An offer never goes above this share of what the ticket could still win.
+    max_percent_of_win = models.PositiveSmallIntegerField(default=90)
+    # The most one cash-out pays (0 = no cap).
+    max_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    # No cash-out until a ticket has been placed this long (stops bet-and-cash-out tricks).
+    min_seconds_after_bet = models.PositiveSmallIntegerField(default=60)
+    # No in-play cash-out from this match minute (0 = all match).
+    live_until_minute = models.PositiveSmallIntegerField(default=85)
+    # In play, a cash-out waits this long, then is priced again; a goal meanwhile cancels it.
+    live_delay_seconds = models.PositiveSmallIntegerField(default=3)
+    # Nothing while the live feed has paused the match (a dangerous attack, VAR...).
+    suspend_on_feed_pause = models.BooleanField(default=True)
+    # Accounts under fraud review can't cash out.
+    block_flagged_players = models.BooleanField(default=True)
+    allow_singles = models.BooleanField(default=True)
+    allow_multiples = models.BooleanField(default=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -69,6 +88,11 @@ class LiveTradingSettings(models.Model):
     # 1-0 in the 85th minute (0 = off). The model assumes this many goals per 90
     # minutes; a higher figure refuses fewer picks.
     near_win_percent = models.PositiveSmallIntegerField(default=90)
+    # Bet stop (what bookmakers do on a goal): the moment the score changes, every
+    # in-play market on the match is suspended for this many seconds, and after that
+    # each price comes back only once the live feed has quoted it again since the goal,
+    # so nobody can take a pre-goal price. 0 = off.
+    betstop_seconds = models.PositiveSmallIntegerField(default=30)
     near_win_goals_per_90 = models.DecimalField(max_digits=4, decimal_places=2, default=Decimal('2.70'))
     updated_at = models.DateTimeField(auto_now=True)
 

@@ -195,26 +195,32 @@ def _after_new_entry(player_id: int, entry: LedgerEntry) -> None:
         payment = _deposit_payment(entry.reference)
         # Checked first, so a deposit from another account's number blocks its bonus.
         risk.safely(risk.on_deposit, player_id, amount=entry.amount, phone=payment.phone if payment else '')
-        # One bonus per deposit: a referred player's welcome bonus, else a promo
-        # code, else the best running deposit promotion — except that referred
-        # players get deposit bonuses on their first deposit only (programme switch).
-        welcomed = affiliate_services.on_deposit(player_id=player_id, amount=entry.amount)
-        blocked = not welcomed and affiliate_services.deposit_bonus_blocked(player_id)
+        # One bonus per deposit. A promo code the player typed comes first (except on a
+        # referred player's first deposit, which gets the welcome bonus); otherwise the
+        # bigger of the welcome bonus (first deposit) and the best running deposit
+        # promotion. The programme can still limit referred players to their first deposit.
         code = payment.promo_code if payment is not None else ''
-        if welcomed or blocked:
-            if code:
-                from apps.notifications import services as notif_services
-                notif_services.notify(
-                    player_id=player_id, kind='account_alert', title='Promo code not applied',
-                    body=(f'Your deposit is in your wallet, but {code} wasn’t applied: '
-                          + ('this deposit already got your welcome bonus.' if welcomed
-                             else 'referred players get a deposit bonus on their first deposit only.')))
+        welcome = affiliate_services.welcome_bonus_for(player_id, entry.amount)
+        blocked = welcome <= 0 and affiliate_services.deposit_bonus_blocked(player_id)
+        if code and (welcome > 0 or blocked):
+            if welcome > 0:
+                affiliate_services.on_deposit(player_id=player_id, amount=entry.amount)
+            from apps.notifications import services as notif_services
+            notif_services.notify(
+                player_id=player_id, kind='account_alert', title='Promo code not applied',
+                body=(f'Your deposit is in your wallet, but {code} wasn’t applied: '
+                      + ('this deposit already got your welcome bonus.' if welcome > 0
+                         else 'referred players get a deposit bonus on their first deposit only.')))
         elif code:
             from apps.promotions import promo_codes
             promo_codes.apply_to_deposit(player_id=player_id, code=code, amount=entry.amount,
                                          deposit_entry_id=entry.id)
-        else:
-            promotions_services.on_deposit(player_id=player_id, amount=entry.amount, deposit_id=entry.id)
+        elif not blocked:
+            _, promo = promotions_services.best_deposit_bonus(player_id, entry.amount)
+            if welcome > 0 and welcome >= promo:
+                affiliate_services.on_deposit(player_id=player_id, amount=entry.amount)
+            elif promo > 0:
+                promotions_services.on_deposit(player_id=player_id, amount=entry.amount, deposit_id=entry.id)
 
 
 def _deposit_payment(reference: str):

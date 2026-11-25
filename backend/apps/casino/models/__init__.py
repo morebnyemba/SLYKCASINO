@@ -1,6 +1,6 @@
 """casino schema — game catalog and per-play rounds. No logic here."""
 from .crash import CrashRound
-from .game import Game
+from .game import Game, GameWaitlist
 from .round import GameRound
 
-__all__ = ['CrashRound', 'Game', 'GameRound']
+__all__ = ['CrashRound', 'Game', 'GameRound', 'GameWaitlist']

@@ -164,7 +164,6 @@ def _looks_like_error(reply: dict) -> bool:
         'No league matching', 'No country matching', 'No upcoming matches for'))
 
 from .menus import MenuMixin  # noqa: E402
-from .aviator_chat import AviatorChatMixin  # noqa: E402
 from .signin import SignInMixin  # noqa: E402  (menus reads this module's helpers at call time)
 
 # -- entry point -------------------------------------------------------------------
@@ -198,7 +197,7 @@ def _handle(channel: str, address: str, text: str, now) -> list[dict]:
     return replies
 
 
-class Conversation(AviatorChatMixin, MenuMixin, SignInMixin):
+class Conversation(MenuMixin, SignInMixin):
     def __init__(self, channel, address, link: Optional[ChatLink], session: ChatSession, now, cfg):
         self.channel, self.address, self.link, self.session, self.now, self.cfg = channel, address, link, session, now, cfg
         self.state = session.state if isinstance(session.state, dict) else {}
@@ -251,6 +250,8 @@ class Conversation(AviatorChatMixin, MenuMixin, SignInMixin):
         answered = self.in_flow(text)                           # a log-in or sign-up question is waiting
         if answered is not None:
             return answered
+        if (gate := self._age_gate(text)) is not None:
+            return gate
         words = text.upper().split()
         if words in (['BACK'], ['UP']):
             return self.back()
@@ -288,6 +289,29 @@ class Conversation(AviatorChatMixin, MenuMixin, SignInMixin):
         if not nav:
             return self.menu()
         return self._route(nav[-1])
+
+    def _age_gate(self, text: str) -> Optional[list[dict]]:
+        """Betting is for adults: a number not linked to an account confirms it is 18+ once before
+        anything else (Meta asks gambling businesses to age-gate). Logging in or registering
+        stays possible: registration asks again, and an account has already confirmed."""
+        if not self.cfg.age_gate or self.link or self.state.get('adult'):
+            return None
+        word = ' '.join(text.upper().split())
+        if word in ('AGE YES', 'I AM 18+', 'YES 18', '18+'):
+            self.state['adult'] = True
+            self.state.pop('minor', None)
+            first = self.menu()[0]
+            return [{**first, 'text': '✅ Thanks. Please gamble responsibly.\n\n' + first['text']}]
+        if word in ('AGE NO', 'I AM UNDER 18', 'NO 18'):
+            self.state['minor'] = True
+            return [_reply(f'Sorry, {_site()} is only for people aged 18 and over.')]
+        if word.split()[:1] in (['LOGIN'], ['SIGNIN'], ['REGISTER'], ['SIGNUP'], ['JOIN'], ['STOP'], ['HELP']):
+            return None
+        if self.state.get('minor'):
+            return [_reply(f'Sorry, {_site()} is only for people aged 18 and over.')]
+        return [_reply(f'👋 Welcome to {_site()}!\n\nBetting is only for adults. Please confirm you are *18 or older* to '
+                       'continue. Already have an account? Send *LOGIN*.',
+                       ['AGE YES', '✅ I am 18+'], ['AGE NO', '✖ I am under 18'])]
 
     def _free_text(self, text: str) -> list[dict]:
         """Not a command: a question. The knowledge base first (a sure match is sent as staff wrote it), then
@@ -355,7 +379,7 @@ class Conversation(AviatorChatMixin, MenuMixin, SignInMixin):
             'HISTORY': self.history, 'TRANSACTIONS': self.history, 'WITHDRAWALS': self.withdrawals_list,
             'BONUS': self.my_bonus, 'BONUSES': self.my_bonus, 'OFFERS': self.offers, 'PROMOTIONS': self.offers,
             'REFER': self.refer, 'AGENT': self.agent, 'AVIATOR': self.aviator, 'CRASHES': self.crashes,
-            'CASH': self.cash, 'AV': self.aviator, 'FLY': self.aviator,
+            'AV': self.aviator, 'FLY': self.aviator,
             'FAQ': self.faq, 'RULES': self.rules, 'SAFE': self.safe, 'WEBSITE': self.website,
             'ACCOUNT': self.account, 'NOTIFICATIONS': self.notifications, 'ALERTS': self.notifications,
             'CODE': lambda: [_reply('Send *CODE* and the booking code, e.g. *CODE AB12CD*.')],
@@ -370,8 +394,8 @@ class Conversation(AviatorChatMixin, MenuMixin, SignInMixin):
             return self.section(rest[0])
         if head == 'CASHOUT' and len(rest) >= 2 and rest[1].isdigit():
             return self.cashout_offer(rest[0], int(rest[1]))
-        if head in ('AV', 'AVIATOR', 'FLY') and rest:
-            return self.av(rest)
+        if head in ('AV', 'AVIATOR', 'FLY'):                  # Aviator is played on the website only
+            return self.aviator()
         if head == 'WITHDRAW':
             return self.withdraw(rest)
         if head == 'PROMO':
@@ -738,7 +762,7 @@ class Conversation(AviatorChatMixin, MenuMixin, SignInMixin):
             return []
         rank = {g: i for i, g in enumerate(Market.Group.values)}
         out = []
-        for m in Market.objects.filter(event=e, is_open=True, settled=False).prefetch_related('outcomes'):
+        for m in sb.offered_markets(Market.objects.filter(event=e, is_open=True, settled=False)).prefetch_related('outcomes'):
             outs = [o for o in m.outcomes.all()
                     if sb.outcome_unavailable(e, m, o, in_play=in_play, event_ok=event_ok) is None]
             if outs:
