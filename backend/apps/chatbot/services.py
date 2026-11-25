@@ -260,17 +260,38 @@ def record(address: str, reply: dict, *, channel: str = WHATSAPP, source: str = 
                                           source=source, sent_by=by[:150])
 
 
-def transmit(row, reply: dict) -> bool:
-    """Send one logged message and write what happened to it onto its row."""
-    from . import whatsapp
+def transmit(row, reply: dict, *, initiated: bool = False) -> bool:
+    """Send one logged message and write what happened to it onto its row. Paced, with a
+    retry when Meta says slow down (guard.py). `initiated`: the business starts it (not a
+    reply to what the player just wrote): only inside the 24-hour window, never while Meta
+    has the number flagged."""
+    import time
+
+    from django.conf import settings
+
+    from . import guard, whatsapp
     if row.media:                                      # the stored photo or video goes with it
         with row.media.open('rb') as f:
             reply = {**reply, 'media': {'kind': row.media_kind, 'mime': row.media_mime, 'content': f.read(),
                                         'name': row.media.name.rsplit('/', 1)[-1]}}
+    result = None
     if row.channel != WHATSAPP:
         result = whatsapp.SendResult(False, error='Unsupported channel.', code='channel')
-    else:
-        result = whatsapp.send(row.address, reply)
+    elif initiated and (flag := guard.paused()):
+        result = whatsapp.SendResult(False, error=f'Not sent: {flag["reason"]}', code='paused')
+    elif initiated and not guard.in_window(row.address, row.channel):
+        result = whatsapp.SendResult(False, error='Not sent: more than 24 hours since this person last wrote '
+                                                  '(WhatsApp allows only replies inside 24 hours).', code='window')
+    if result is None:
+        waits = tuple(getattr(settings, 'CHATBOT_RETRY_WAITS', guard.RETRY_WAITS))
+        for attempt in range(len(waits) + 1):
+            guard.throttle(row.address)
+            result = whatsapp.send(row.address, reply)
+            if result.ok or result.code not in guard.RETRY_CODES or attempt == len(waits):
+                break
+            time.sleep(waits[attempt])
+        if not result.ok:
+            guard.note_error(result.code)
     row.provider_id = result.provider_id
     row.status = row.Status.SENT if result.ok else row.Status.FAILED
     row.error_code, row.error = result.code, result.error
@@ -319,7 +340,7 @@ def send_media(channel: str, address: str, upload, found, caption: str, *, by: s
     row = OutboundMessage.objects.create(channel=channel, address=address, text=caption, source='staff', sent_by=by[:150],
                                          media_kind=found.kind, media_mime=found.mime)
     row.media.save(f'{row.pk}.{found.ext}', ContentFile(upload.read()), save=True)
-    return transmit(row, {'text': caption})
+    return transmit(row, {'text': caption}, initiated=True)
 
 
 def send_now(channel: str, address: str, replies: list[dict], *, source: str = 'bot', by: str = '') -> int:
@@ -328,7 +349,7 @@ def send_now(channel: str, address: str, replies: list[dict], *, source: str = '
     sent = 0
     for reply in fit(replies):
         row = record(address, reply, channel=channel, source=source, by=by)
-        if transmit(row, reply):
+        if transmit(row, reply, initiated=True):
             sent += 1
     return sent
 

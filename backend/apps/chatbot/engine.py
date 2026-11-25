@@ -250,6 +250,8 @@ class Conversation(MenuMixin, SignInMixin):
         answered = self.in_flow(text)                           # a log-in or sign-up question is waiting
         if answered is not None:
             return answered
+        if (gate := self._age_gate(text)) is not None:
+            return gate
         words = text.upper().split()
         if words in (['BACK'], ['UP']):
             return self.back()
@@ -287,6 +289,29 @@ class Conversation(MenuMixin, SignInMixin):
         if not nav:
             return self.menu()
         return self._route(nav[-1])
+
+    def _age_gate(self, text: str) -> Optional[list[dict]]:
+        """Betting is for adults: a number not linked to an account confirms it is 18+ once before
+        anything else (Meta asks gambling businesses to age-gate). Logging in or registering
+        stays possible: registration asks again, and an account has already confirmed."""
+        if not self.cfg.age_gate or self.link or self.state.get('adult'):
+            return None
+        word = ' '.join(text.upper().split())
+        if word in ('AGE YES', 'I AM 18+', 'YES 18', '18+'):
+            self.state['adult'] = True
+            self.state.pop('minor', None)
+            first = self.menu()[0]
+            return [{**first, 'text': '✅ Thanks. Please gamble responsibly.\n\n' + first['text']}]
+        if word in ('AGE NO', 'I AM UNDER 18', 'NO 18'):
+            self.state['minor'] = True
+            return [_reply(f'Sorry, {_site()} is only for people aged 18 and over.')]
+        if word.split()[:1] in (['LOGIN'], ['SIGNIN'], ['REGISTER'], ['SIGNUP'], ['JOIN'], ['STOP'], ['HELP']):
+            return None
+        if self.state.get('minor'):
+            return [_reply(f'Sorry, {_site()} is only for people aged 18 and over.')]
+        return [_reply(f'👋 Welcome to {_site()}!\n\nBetting is only for adults. Please confirm you are *18 or older* to '
+                       'continue. Already have an account? Send *LOGIN*.',
+                       ['AGE YES', '✅ I am 18+'], ['AGE NO', '✖ I am under 18'])]
 
     def _free_text(self, text: str) -> list[dict]:
         """Not a command: a question. The knowledge base first (a sure match is sent as staff wrote it), then

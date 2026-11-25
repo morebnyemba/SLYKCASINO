@@ -23,7 +23,12 @@ interface Thread {
 interface Health {
   configured: boolean; problem: string; incoming_24h: number; outgoing_24h: number; by_status: Record<string, number>;
   failures: { error: string; code: string; count: number; last_at: string }[]; last_incoming_at: string | null; last_outgoing_at: string | null;
+  guard?: { paused: { reason: string; until: string; code: string } | null; window_hours: number; pair_gap_seconds: number; per_second: number; checklist: string[] };
+  quality?: { quality_rating?: string; messaging_limit_tier?: string; name_status?: string; status?: string; throughput?: string; warning?: string; error?: string } | null;
 }
+const QUALITY: Record<string, { label: string; tone: 'green' | 'gold' | 'red' }> = {
+  GREEN: { label: 'High', tone: 'green' }, YELLOW: { label: 'Medium', tone: 'gold' }, RED: { label: 'Low', tone: 'red' },
+};
 
 const ago = (iso: string | null) => {
   if (!iso) return 'never';
@@ -47,7 +52,7 @@ function Ticks({ m }: { m: Message }) {
 /** Delivery health: says in plain words whether sending works, what Meta refused and why, and can send a test. */
 export function DeliveryHealth() {
   const { accessToken } = useAuth();
-  const { data, refetch } = useApi<Health>('/admin/chatbot/health/');
+  const { data, refetch } = useApi<Health>('/admin/chatbot/health/?quality=1');
   const [to, setTo] = useState('');
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
@@ -88,6 +93,39 @@ export function DeliveryHealth() {
             </li>
           ))}
         </ul>
+      )}
+      {(data.quality || data.guard) && (
+        <div className="mt-4 grid gap-3 lg:grid-cols-2">
+          <div className="rounded-xl border border-border bg-card p-3 text-sm">
+            <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Standing with Meta</p>
+            {data.quality?.error ? <p className="mt-1 text-muted-foreground">{data.quality.error}</p> : data.quality ? (
+              <>
+                <p className="mt-1 flex flex-wrap items-center gap-2">
+                  Quality {(() => { const q = QUALITY[(data.quality.quality_rating || '').toUpperCase()];
+                    return q ? <Badge tone={q.tone} dot>{q.label}</Badge> : <Badge tone="slate">{data.quality.quality_rating || 'unknown'}</Badge>; })()}
+                  {data.quality.messaging_limit_tier && <span className="text-xs text-muted-foreground">Limit: {data.quality.messaging_limit_tier.replace('TIER_', '').toLowerCase()} people a day</span>}
+                  {data.quality.name_status && <span className="text-xs text-muted-foreground">Display name: {data.quality.name_status.toLowerCase().replace('_', ' ')}</span>}
+                </p>
+                {data.quality.warning && <p className="mt-2 text-live">{data.quality.warning}</p>}
+              </>
+            ) : <p className="mt-1 text-muted-foreground">Connect the number to see it.</p>}
+            {data.guard && (
+              <p className="mt-2 text-xs text-muted-foreground">
+                Protection on: the bot only messages people who wrote in the last {data.guard.window_hours} hours, spaces messages
+                to one number ({data.guard.pair_gap_seconds}s), sends at most {data.guard.per_second} a second, backs off when Meta
+                asks, and pauses itself if Meta flags the number.
+              </p>
+            )}
+          </div>
+          {data.guard && (
+            <div className="rounded-xl border border-border bg-card p-3 text-sm">
+              <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Only you can do these (in Meta)</p>
+              <ul className="mt-1 list-disc space-y-1 pl-4 text-xs">
+                {data.guard.checklist.map((c) => <li key={c}>{c}</li>)}
+              </ul>
+            </div>
+          )}
+        </div>
       )}
       <div className="mt-4 flex flex-wrap items-end gap-3">
         <Field label="Send a test message to" className="w-64" hint="With country code, e.g. 263771234567">

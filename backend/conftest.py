@@ -60,3 +60,21 @@ def _fresh_rate_limits():
     start every test with none."""
     from django.core.cache import cache
     cache.clear()
+
+
+@pytest.fixture(autouse=True)
+def _fast_whatsapp(request, settings, django_db_blocker):
+    """No waiting between WhatsApp messages in tests, and no 18+ question before the menu:
+    both are tested on their own (marker `whatsapp_guard`)."""
+    if request.node.get_closest_marker('whatsapp_guard'):
+        return
+    settings.CHATBOT_PAIR_GAP_SECONDS = 0
+    settings.CHATBOT_RETRY_WAITS = (0, 0)
+    from django.test import TransactionTestCase
+    cls = request.node.cls
+    if not (cls and issubclass(cls, TransactionTestCase)):
+        return
+    from apps.chatbot.models import ChatbotSettings
+    with django_db_blocker.unblock():
+        ChatbotSettings.load()
+        ChatbotSettings.objects.update(age_gate=False)

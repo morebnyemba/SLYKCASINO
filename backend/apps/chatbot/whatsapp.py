@@ -186,6 +186,31 @@ def _graph(method: str, path: str, **kw):
     return res, None
 
 
+def quality() -> dict:
+    """The number's standing with Meta (quality rating GREEN/YELLOW/RED, messaging tier, display-name
+    status), cached ten minutes. A falling rating is the warning before Meta limits or bans a number."""
+    from django.core.cache import cache
+    key = 'chatbot:wa:quality'
+    if (hit := cache.get(key)) is not None:
+        return hit
+    res, err = _graph('GET', _setting('phone_number_id'),
+                      params={'fields': 'quality_rating,messaging_limit_tier,name_status,throughput,status'})
+    if res is None or res.status_code >= 300:
+        out = {'error': err or 'Meta did not answer the quality check.'}
+    else:
+        body = _json(res)
+        tp = body.get('throughput')
+        out = {'quality_rating': str(body.get('quality_rating') or ''), 'messaging_limit_tier': str(body.get('messaging_limit_tier') or ''),
+               'name_status': str(body.get('name_status') or ''), 'status': str(body.get('status') or ''),
+               'throughput': str(tp.get('level', '') if isinstance(tp, dict) else tp or '')}
+        out['warning'] = {'YELLOW': 'Quality is Medium: people are blocking or reporting the number. Find out why before it drops '
+                                    'to Low, when Meta limits it.',
+                          'RED': 'Quality is Low: Meta may limit or ban the number. Stop anything that makes people block it.'
+                          }.get(out['quality_rating'].upper(), '')
+    cache.set(key, out, 600)
+    return out
+
+
 def _json(res) -> dict:
     try:
         body = res.json()

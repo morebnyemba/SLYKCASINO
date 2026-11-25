@@ -16,6 +16,9 @@ class ChatbotSettings(models.Model):
     """One row. Operator switches and limits for betting through chat."""
     enabled = models.BooleanField(default=True)
     allow_betting = models.BooleanField(default=True)
+    # A number not linked to an account confirms it's 18+ once before seeing odds (Meta asks
+    # gambling businesses to age-gate; registering asks again).
+    age_gate = models.BooleanField(default=True)
     allow_deposits = models.BooleanField(default=True)
     # The most one ticket placed through chat may stake.
     max_stake = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('50.00'))

@@ -1681,3 +1681,76 @@ class AviatorOnTheWebsiteTests(_Base):
             self.assertIn('/aviator', out, msg)
             self.assertIn('website', out, msg)
         self.assertNotIn('CASH OUT', json.dumps(self.say('AVIATOR')))
+
+
+@pytest.mark.whatsapp_guard
+@override_settings(WHATSAPP_APP_SECRET=SECRET, WHATSAPP_TOKEN='tok', WHATSAPP_PHONE_NUMBER_ID='555',
+                   CHATBOT_PAIR_GAP_SECONDS=0, CHATBOT_RETRY_WAITS=(0, 0))
+class WhatsAppGuardTests(_Base):
+    """Low ban risk: 24-hour window, pacing, backing off and pausing when Meta says so, 18+ gate."""
+
+    def inbound(self, number=NUMBER, hours_ago=0):
+        from apps.chatbot.models import InboundMessage
+        m = InboundMessage.objects.create(channel='whatsapp', address=number, provider_id=f'wamid.in{hours_ago}{number}', text='hi')
+        InboundMessage.objects.filter(pk=m.pk).update(received_at=timezone.now() - timedelta(hours=hours_ago))
+
+    def test_messages_the_bot_starts_only_go_inside_the_24_hour_window(self):
+        self.inbound(hours_ago=30)
+        with patch('requests.post', return_value=_Res(200, {'messages': [{'id': 'w1'}]})) as p:
+            self.assertEqual(services.send_now('whatsapp', NUMBER, [{'text': 'Ticket confirmed'}]), 0)
+        p.assert_not_called()                                              # not even attempted
+        from apps.chatbot.models import OutboundMessage
+        self.assertEqual(OutboundMessage.objects.get().error_code, 'window')
+        self.inbound(hours_ago=1)
+        with patch('requests.post', return_value=_Res(200, {'messages': [{'id': 'w2'}]})) as p:
+            self.assertEqual(services.send_now('whatsapp', NUMBER, [{'text': 'Ticket confirmed'}]), 1)
+
+    def test_a_spam_flag_pauses_what_the_bot_starts_but_not_replies(self):
+        from apps.chatbot import guard
+        self.inbound()
+        flagged = _Res(400, {'error': {'code': 131048, 'message': 'Spam rate limit hit'}})
+        with patch('requests.post', return_value=flagged):
+            services.send_now('whatsapp', NUMBER, [{'text': 'x'}])
+        self.assertEqual(guard.paused()['code'], '131048')
+        with patch('requests.post', return_value=_Res(200, {'messages': [{'id': 'w'}]})) as p:
+            self.assertEqual(services.send_now('whatsapp', NUMBER, [{'text': 'y'}]), 0)
+            p.assert_not_called()
+            from apps.chatbot.models import OutboundMessage
+            row = services.record(NUMBER, {'text': 'reply'})
+            self.assertTrue(services.transmit(row, {'text': 'reply'}))     # answering the player still works
+        staff = APIClient()
+        from django.contrib.auth.models import User
+        staff.force_authenticate(User.objects.create_user('ops', 'o@example.com', 'x', is_staff=True))
+        health = staff.get('/api/admin/chatbot/health/').json()
+        self.assertIn('paused', health['problem'])
+        self.assertTrue(health['guard']['checklist'])
+
+    def test_backs_off_and_retries_when_meta_says_slow_down(self):
+        self.inbound()
+        answers = [_Res(400, {'error': {'code': 131056, 'message': 'pair rate limit'}}), _Res(200, {'messages': [{'id': 'ok'}]})]
+        with patch('requests.post', side_effect=answers) as p:
+            self.assertEqual(services.send_now('whatsapp', NUMBER, [{'text': 'x'}]), 1)
+        self.assertEqual(p.call_count, 2)
+
+    def test_messages_to_one_number_are_spaced(self):
+        import time
+        from apps.chatbot import guard
+        with self.settings(CHATBOT_PAIR_GAP_SECONDS=0.3):
+            start = time.time()
+            guard.throttle(NUMBER)
+            guard.throttle(NUMBER)
+            self.assertGreaterEqual(time.time() - start, 0.25)
+
+    def test_new_numbers_confirm_they_are_18_before_seeing_odds(self):
+        cfg = ChatbotSettings.load()
+        cfg.age_gate = True
+        cfg.save()
+        out = text(self.say('TODAY'))
+        self.assertIn('18 or older', out)
+        self.assertNotIn('Dynamos', out)
+        self.assertIn('only for people aged 18', text(self.say('AGE NO')))
+        self.assertIn('only for people aged 18', text(self.say('TODAY')))
+        self.assertIn('gamble responsibly', text(self.say('AGE YES')))
+        self.assertIn('Dynamos', text(self.say('TODAY')))
+        other = '263779999999'
+        self.assertIn('username', text(self.say('LOGIN', number=other)))  # logging in is never blocked

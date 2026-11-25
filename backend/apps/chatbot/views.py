@@ -194,7 +194,7 @@ def _webhook_url(request) -> str:
 class AdminChatbotView(APIView):
     permission_classes = [IsAdminUser]
     MONEY = ('max_stake', 'daily_cap', 'pin_above')
-    FLAGS = ('enabled', 'allow_betting', 'allow_deposits')
+    FLAGS = ('enabled', 'allow_betting', 'allow_deposits', 'age_gate')
 
     def _payload(self):
         cfg = ChatbotSettings.load()
@@ -524,8 +524,14 @@ class AdminChatbotHealthView(APIView):
             problem = 'Messages are arriving but no replies are being sent or logged. Restart the Django service and check its logs.'
         elif reasons and (last_out and last_out.status == 'failed'):
             problem = f'The latest reply failed: {reasons[0]["error"]}'
+        from . import guard
+        flag = guard.paused()
+        if flag and not problem:
+            problem = f'Messages the bot starts on its own are paused until {flag["until"][:16].replace("T", " ")}: {flag["reason"]}'
         return Response({
-            'configured': whatsapp.configured(), 'problem': problem,
+            'configured': whatsapp.configured(), 'problem': problem, 'guard': guard.status(),
+            # Meta's quality rating: asked only when the page wants it (cached ten minutes).
+            'quality': whatsapp.quality() if whatsapp.configured() and request.query_params.get('quality') else None,
             'incoming_24h': InboundMessage.objects.filter(received_at__gte=since).count(),
             'outgoing_24h': out24.count(), 'by_status': by_status, 'failures': reasons,
             'last_incoming_at': last_in.received_at.isoformat() if last_in else None,
