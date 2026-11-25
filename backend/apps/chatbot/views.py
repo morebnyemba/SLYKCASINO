@@ -194,7 +194,7 @@ def _webhook_url(request) -> str:
 class AdminChatbotView(APIView):
     permission_classes = [IsAdminUser]
     MONEY = ('max_stake', 'daily_cap', 'pin_above')
-    FLAGS = ('enabled', 'allow_betting', 'allow_deposits', 'allow_aviator')
+    FLAGS = ('enabled', 'allow_betting', 'allow_deposits')
 
     def _payload(self):
         cfg = ChatbotSettings.load()

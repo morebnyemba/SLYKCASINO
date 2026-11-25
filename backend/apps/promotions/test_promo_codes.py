@@ -134,8 +134,10 @@ class ReferredPlayerPromoTests(_PromoBase):
                     .values_list('body', flat=True))
 
     def test_welcome_bonus_is_not_stacked_with_a_code_and_later_codes_are_refused(self):
+        from apps.affiliates import services as aff
         self.create(per_player_limit=0)
         self.refer()
+        aff.update_programme(referral_first_deposit_only=True)     # off by default now; staff can turn it on
         self.deposit('20', 'WELCOME50')            # welcome 10% = 2.00 — the code's 10.00 isn't added
         self.assertEqual(self.bonus(), D('2.00'))
         self.deposit('20', 'WELCOME50')            # a later deposit: no code for referred players

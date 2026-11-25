@@ -70,8 +70,9 @@ def _picks(event, *, now=None) -> list[dict]:
                 out.append({'pick': Pick(market='mr', kind='match_result', key=sel), 'family': 'result',
                             'odds': Decimal(price), 'short': pick_names.name(event=event, selection=sel),
                             'leg': {'event_id': event.pk, 'selection': sel, 'odds': str(price)}})
-    markets = (Market.objects.filter(event=event, is_open=True, settled=False, kind__in=KINDS, metric='goals',
-                                     period__in=('ft', '1h')).prefetch_related('outcomes'))
+    markets = (sb.offered_markets(Market.objects.filter(event=event, is_open=True, settled=False, kind__in=KINDS,
+                                                        metric='goals', period__in=('ft', '1h')))
+               .prefetch_related('outcomes'))
     for m in markets:
         if m.kind == 'match_result' and m.period == 'ft':
             continue                                    # the headline 1X2 is the event's own prices above

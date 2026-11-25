@@ -31,7 +31,7 @@ SECTIONS = (
     ('MENU MONEY', '💰 Money', 'Balance, deposit, withdraw, history'),
     ('MENU BONUS', '🎁 Bonuses & promos', 'Your bonus, offers, promo codes'),
     ('MENU REFER', '🤝 Refer & earn', 'Your referral link, agent dashboard'),
-    ('MENU AVIATOR', '✈️ Aviator', 'Play right here: no data needed'),
+    ('MENU AVIATOR', '🎮 Aviator', 'Play on the website, latest results'),
     ('MENU HELP', '🛟 Help', 'Support, FAQ, rules, play safe'),
 )
 
@@ -72,12 +72,8 @@ ITEMS = {
         ('AGENT', '🏢 Agent dashboard', 'Earnings and payouts'),
     )),
     'AVIATOR': ('🎮 Aviator', (
-        ('AVIATOR', '✈️ Play Aviator', 'Bet and cash out right here'),
-        ('AV AGAIN', '🔁 Same again', 'Your last Aviator bet'),
-        ('AV FREE', '🎁 Free spins', 'Claim and play them'),
-        ('AV BETS', '📋 My Aviator bets', 'Recent results'),
+        ('AVIATOR', '🎮 Play Aviator', 'Open it on the website'),
         ('CRASHES', '📈 Latest results', 'The last 10 rounds'),
-        ('AV HELP', '❓ How it works', 'Cash-out, autoplay, CASH'),
     )),
     'HELP': ('🛟 Help', (
         ('SUPPORT', '💬 Talk to us', 'A person replies here'),
@@ -94,6 +90,11 @@ ITEMS = {
         ('STOP', '🔓 Unlink this number', 'Stop betting from WhatsApp'),
     )),
 }
+
+
+def _site_name() -> str:
+    from apps.branding.models import SiteIdentity
+    return SiteIdentity.load().site_name or 'BetBlits'
 
 
 def site_url(path: str = '') -> str:
@@ -258,8 +259,6 @@ class MenuMixin:
         if timezone.datetime.fromisoformat(action['expires']) < self.now:
             self.state.pop('action', None)
             return [engine._reply('That confirmation expired. Start again from the menu.', 'MENU')]
-        if action['type'] == 'aviator':
-            return self._do_aviator(action, pin)
         if action['type'] == 'withdraw':
             if not services.pin_ok(self.link, pin):
                 action['tries'] = action.get('tries', 0) + 1
@@ -475,8 +474,9 @@ class MenuMixin:
     # -- Aviator ------------------------------------------------------------------------------------
     def aviator(self) -> list[dict]:
         from . import engine
-        return [engine._reply(f'🎮 *Aviator* plays live, so it runs on the website:\n{site_url("/aviator")}',
-                              ['CRASHES', '📈 Latest results'], 'MENU')]
+        return [engine._reply(f'✈️ *Aviator* is played on the {_site_name()} website, where you can watch the plane '
+                              f'and cash out live:\n{site_url("/aviator")}\n\nLog in with the same username and password '
+                              'you use here.', ['CRASHES', '📈 Latest results'], 'MENU')]
 
     def crashes(self) -> list[dict]:
         from apps.jet.models import JetRound

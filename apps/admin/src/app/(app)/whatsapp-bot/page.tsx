@@ -15,7 +15,7 @@ type ConnKey = 'phone_number_id' | 'waba_id' | 'app_id' | 'gemini_api_key' | 'ai
 type Connection = Record<ConnKey, PlainSetting | SecretSetting> & { updated_by: string; updated_at: string | null };
 
 interface BotSettings {
-  enabled: boolean; allow_betting: boolean; allow_deposits: boolean; allow_aviator: boolean;
+  enabled: boolean; allow_betting: boolean; allow_deposits: boolean;
   max_stake: string; daily_cap: string; pin_above: string;
   configured: boolean; webhook_path: string; webhook_url: string;
   linked_players: number; messages_24h: number; tickets_24h: number; staked_24h: string;
@@ -135,8 +135,8 @@ export default function WhatsAppBotPage() {
 
   function saveLimits() {
     if (!form) return;
-    const { enabled, allow_betting, allow_deposits, allow_aviator, max_stake, daily_cap, pin_above } = form;
-    void put({ enabled, allow_betting, allow_deposits, allow_aviator, max_stake, daily_cap, pin_above }, 'Switches and limits saved.', 'limits');
+    const { enabled, allow_betting, allow_deposits, max_stake, daily_cap, pin_above } = form;
+    void put({ enabled, allow_betting, allow_deposits, max_stake, daily_cap, pin_above }, 'Switches and limits saved.', 'limits');
   }
 
   function saveWithdrawals() {
@@ -388,7 +388,7 @@ export default function WhatsAppBotPage() {
         {form && (
           <div className="space-y-5">
             <div className="flex flex-wrap gap-6">
-              {([['enabled', 'Bot on'], ['allow_betting', 'Betting'], ['allow_deposits', 'Deposits'], ['allow_aviator', 'Aviator']] as const).map(([k, label]) => (
+              {([['enabled', 'Bot on'], ['allow_betting', 'Betting'], ['allow_deposits', 'Deposits']] as const).map(([k, label]) => (
                 <span key={k} className="flex items-center gap-2 text-sm font-semibold">
                   <Switch checked={form[k]} onChange={(v) => setForm({ ...form, [k]: v })} label={label} /> {label}
                 </span>

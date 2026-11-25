@@ -164,7 +164,6 @@ def _looks_like_error(reply: dict) -> bool:
         'No league matching', 'No country matching', 'No upcoming matches for'))
 
 from .menus import MenuMixin  # noqa: E402
-from .aviator_chat import AviatorChatMixin  # noqa: E402
 from .signin import SignInMixin  # noqa: E402  (menus reads this module's helpers at call time)
 
 # -- entry point -------------------------------------------------------------------
@@ -198,7 +197,7 @@ def _handle(channel: str, address: str, text: str, now) -> list[dict]:
     return replies
 
 
-class Conversation(AviatorChatMixin, MenuMixin, SignInMixin):
+class Conversation(MenuMixin, SignInMixin):
     def __init__(self, channel, address, link: Optional[ChatLink], session: ChatSession, now, cfg):
         self.channel, self.address, self.link, self.session, self.now, self.cfg = channel, address, link, session, now, cfg
         self.state = session.state if isinstance(session.state, dict) else {}
@@ -355,7 +354,7 @@ class Conversation(AviatorChatMixin, MenuMixin, SignInMixin):
             'HISTORY': self.history, 'TRANSACTIONS': self.history, 'WITHDRAWALS': self.withdrawals_list,
             'BONUS': self.my_bonus, 'BONUSES': self.my_bonus, 'OFFERS': self.offers, 'PROMOTIONS': self.offers,
             'REFER': self.refer, 'AGENT': self.agent, 'AVIATOR': self.aviator, 'CRASHES': self.crashes,
-            'CASH': self.cash, 'AV': self.aviator, 'FLY': self.aviator,
+            'AV': self.aviator, 'FLY': self.aviator,
             'FAQ': self.faq, 'RULES': self.rules, 'SAFE': self.safe, 'WEBSITE': self.website,
             'ACCOUNT': self.account, 'NOTIFICATIONS': self.notifications, 'ALERTS': self.notifications,
             'CODE': lambda: [_reply('Send *CODE* and the booking code, e.g. *CODE AB12CD*.')],
@@ -370,8 +369,8 @@ class Conversation(AviatorChatMixin, MenuMixin, SignInMixin):
             return self.section(rest[0])
         if head == 'CASHOUT' and len(rest) >= 2 and rest[1].isdigit():
             return self.cashout_offer(rest[0], int(rest[1]))
-        if head in ('AV', 'AVIATOR', 'FLY') and rest:
-            return self.av(rest)
+        if head in ('AV', 'AVIATOR', 'FLY'):                  # Aviator is played on the website only
+            return self.aviator()
         if head == 'WITHDRAW':
             return self.withdraw(rest)
         if head == 'PROMO':
@@ -738,7 +737,7 @@ class Conversation(AviatorChatMixin, MenuMixin, SignInMixin):
             return []
         rank = {g: i for i, g in enumerate(Market.Group.values)}
         out = []
-        for m in Market.objects.filter(event=e, is_open=True, settled=False).prefetch_related('outcomes'):
+        for m in sb.offered_markets(Market.objects.filter(event=e, is_open=True, settled=False)).prefetch_related('outcomes'):
             outs = [o for o in m.outcomes.all()
                     if sb.outcome_unavailable(e, m, o, in_play=in_play, event_ok=event_ok) is None]
             if outs:

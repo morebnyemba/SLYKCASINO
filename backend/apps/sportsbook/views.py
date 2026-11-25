@@ -52,7 +52,7 @@ class EventViewSet(viewsets.ModelViewSet):
         ).order_by(*ordering)  # aggregation drops Meta.ordering, so re-apply it
         if self.action == 'retrieve':
             qs = qs.prefetch_related(Prefetch(
-                'markets', queryset=Market.objects.prefetch_related('outcomes'),
+                'markets', queryset=services.offered_markets(Market.objects.all()).prefetch_related('outcomes'),
             ))
         return qs
 

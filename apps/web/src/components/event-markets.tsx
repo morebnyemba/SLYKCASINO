@@ -270,7 +270,15 @@ export function EventMarkets({ ev }: { ev: EventItem }) {
     ? (cur.score_home! > cur.score_away! ? 'home' : cur.score_home! < cur.score_away! ? 'away' : 'draw')
     : null;
 
-  const blocks = useMemo(() => buildBlocks(markets), [markets]);
+  // In play, a pick that can't be backed right now (already decided, as good as won, or
+  // suspended) is taken off the page, not greyed out. Every live update re-checks, so it
+  // comes back as soon as the feed reopens it.
+  const liveNow = inPlay && !finished;
+  const visibleMarkets = useMemo(() => (!liveNow ? markets : closed ? [] : markets
+    .filter((m) => m.is_open && !m.settled)
+    .map((m) => ({ ...m, outcomes: m.outcomes.filter((o) => o.is_open) }))
+    .filter((m) => m.outcomes.length > 0)), [markets, liveNow, closed]);
+  const blocks = useMemo(() => buildBlocks(visibleMarkets), [visibleMarkets]);
   // Badges count cards, not markets: a market with several lines is one card.
   const counts = useMemo(() => {
     const c: Record<string, number> = {};
@@ -323,7 +331,12 @@ export function EventMarkets({ ev }: { ev: EventItem }) {
     io.observe(el);
     return () => io.disconnect();
   }, [moreBlocks, blockLimit]);
-  const showResult = searching ? resultMatches : tab === 'all' || tab === 'main';
+  // The 1X2 in play: only the prices that can be taken now.
+  const shownResult = liveNow && !finalResult
+    ? resultOutcomes.filter((o) => o.odds != null && !cur.main_blocked?.includes(o.selection))
+    : resultOutcomes;
+  const resultHidden = liveNow && !finalResult && (closed || mainClosed || shownResult.length === 0);
+  const showResult = !resultHidden && (searching ? resultMatches : tab === 'all' || tab === 'main');
   const resultCount = visible.length + (showResult ? 1 : 0);
 
   const outcomeProps = (m: Market, o: MarketOutcome) => ({
@@ -419,8 +432,9 @@ export function EventMarkets({ ev }: { ev: EventItem }) {
           forceOpen={searching} renderOutcome={comboOutcome} />
       );
     }
-    // Column order comes from the first line (Over/Under, Home/Away, Home/Draw/Away).
-    const columns = block.markets[0].outcomes.map((o) => o.key);
+    // Column order from the lines' outcomes (Over/Under, Home/Away, Home/Draw/Away); in play a
+    // line may be missing a side that can't be backed now, so every line contributes.
+    const columns = [...new Set(block.markets.flatMap((m) => m.outcomes.map((o) => o.key)))];
     const colLabel = (key: string) => names(({ over: 'Over', under: 'Under', home: 'Home', draw: 'Draw', away: 'Away' } as Record<string, string>)[key] ?? key);
     const signed = block.markets[0].kind.includes('handicap');
     const grid = columns.length === 3 ? 'grid-cols-[56px_repeat(3,minmax(0,1fr))]' : 'grid-cols-[56px_repeat(2,minmax(0,1fr))]';
@@ -614,15 +628,15 @@ export function EventMarkets({ ev }: { ev: EventItem }) {
           ) : mainClosed ? (
             <span className="rounded bg-muted px-2 py-0.5 text-[10.5px] font-bold text-muted-foreground">Not available now</span>
           ) : undefined}>
-            <div className={`grid gap-2 ${resultOutcomes.length === 3 ? 'grid-cols-3' : resultOutcomes.length === 2 ? 'grid-cols-2' : 'grid-cols-1'}`}>
-              {finalResult ? resultOutcomes.map((o) => (
+            <div className={`grid gap-2 ${shownResult.length === 3 ? 'grid-cols-3' : shownResult.length === 2 ? 'grid-cols-2' : 'grid-cols-1'}`}>
+              {finalResult ? shownResult.map((o) => (
                 <SettledOutcome
                   key={o.selection}
                   label={o.label}
-                  stack={resultOutcomes.length === 3}
+                  stack={shownResult.length === 3}
                   outcome={{ odds: o.odds ?? 0, result: o.selection === finalResult ? 'won' : 'lost' }}
                 />
-              )) : resultOutcomes.map((o) => (
+              )) : shownResult.map((o) => (
                 <OddsButton
                   key={o.selection}
                   eventId={ev.id}
@@ -633,7 +647,7 @@ export function EventMarkets({ ev }: { ev: EventItem }) {
                   move={o.move}
                   size="lg"
                   disabled={closed || mainClosed || !!cur.main_blocked?.includes(o.selection)}
-                  stackOnMobile={resultOutcomes.length === 3}
+                  stackOnMobile={shownResult.length === 3}
                 />
               ))}
             </div>
@@ -662,6 +676,11 @@ export function EventMarkets({ ev }: { ev: EventItem }) {
               Show all markets
             </button>
           </div>
+        )}
+        {liveNow && markets.length > 0 && visibleMarkets.length === 0 && (
+          <p className="rounded-2xl border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">
+            No other options can be backed right now. They come back here as soon as they reopen.
+          </p>
         )}
         {markets.length === 0 && (
           <p className="rounded-2xl border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">

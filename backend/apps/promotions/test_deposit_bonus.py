@@ -70,13 +70,25 @@ class DepositBonusTests(TestCase):
         affiliates.update_programme(welcome_bonus_percent=30, welcome_bonus_cap=100)
         friend = accounts.create_player(username='friend')
         affiliates.attach_referral(player_id=friend.id, code='AGENT')
-        self.deposit('100', friend)            # first deposit: welcome bonus 30, not the 25 promo
+        self.deposit('100', friend)            # first deposit: welcome bonus 30 beats the 25 promo (never both)
         self.assertEqual(self.bonus_total(friend), D('30.00'))
-        self.deposit('100', friend)            # later deposits: nothing (first deposit only)
-        self.assertEqual(self.bonus_total(friend), D('30.00'))
-        affiliates.update_programme(referral_first_deposit_only=False)
-        self.deposit('100', friend)            # switch off: later deposits get the promotion again
+        self.deposit('100', friend)            # later deposits: the running promotion, automatically
         self.assertEqual(self.bonus_total(friend), D('55.00'))
+        affiliates.update_programme(referral_first_deposit_only=True)
+        self.deposit('100', friend)            # staff can still limit referred players to their first deposit
+        self.assertEqual(self.bonus_total(friend), D('55.00'))
+
+    def test_a_bigger_deposit_promotion_beats_a_small_welcome_bonus(self):
+        """Every player has an agent now: the first deposit gets whichever bonus is bigger."""
+        agent = accounts.create_player(username='agent2')
+        a = affiliates.apply(player_id=agent.id, code='AGENT2')
+        affiliates.set_status(a.id, Affiliate.Status.ACTIVE)
+        affiliates.update_programme(welcome_bonus_percent=10, welcome_bonus_cap=100)
+        friend = accounts.create_player(username='friend2')
+        affiliates.attach_referral(player_id=friend.id, code='AGENT2')
+        self.deposit('100', friend)            # welcome 10 < promo 25
+        self.assertEqual(self.bonus_total(friend), D('25.00'))
+        self.assertTrue(PromotionClaim.objects.filter(player_id=friend.id, promotion__code=f'deposit-bonus:{self.big.id}').exists())
 
     def test_admin_api_and_public_list(self):
         staff = APIClient()
