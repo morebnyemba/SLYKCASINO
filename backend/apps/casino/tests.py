@@ -160,3 +160,56 @@ class CrashApiTests(TestCase):
         # A second cash-out must not pay again.
         self.client.post(f'/api/casino/crash/{crash_id}/cashout/', {'multiplier': '1.20'}, format='json')
         self.assertEqual(wallet_services.get_balance(self.player.id), balance_after_first)
+
+
+class ComingSoonGamesTests(TestCase):
+    """500+ listed games: coming soon until launched; players ask to be told; launching tells them."""
+
+    def setUp(self):
+        self.player = _make_player('waiter', 'waiter@example.com')
+        self.client = APIClient()
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {str(RefreshToken.for_user(self.player.user).access_token)}')
+        self.live = _make_game('live-slot', 'Live Slot')
+        self.soon = Game.objects.get(slug='chicken-road')
+
+    def test_the_catalogue_is_seeded_with_500_plus_games_including_fast_and_mini(self):
+        self.assertGreaterEqual(Game.objects.filter(coming_soon=True).count(), 500)
+        for slug, category in (('jetx', 'fast'), ('chicken-road', 'fast'), ('maverick', 'fast'), ('navigator', 'fast'),
+                               ('mines', 'mini'), ('plinko', 'mini')):
+            self.assertEqual(Game.objects.get(slug=slug).category, category, slug)
+        data = APIClient().get('/api/casino/games/?page_size=1000').json()
+        self.assertGreaterEqual(len(data['results']), 500)
+        self.assertEqual(data['results'][0]['slug'], 'live-slot')           # playable games first
+        self.assertTrue(data['results'][-1]['coming_soon'])
+
+    def test_coming_soon_games_cannot_be_played(self):
+        resp = self.client.post(f'/api/casino/games/{self.soon.id}/play/', {'wallet': 'deposit', 'stake': '1.00'}, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('coming soon', resp.json()['detail'])
+
+    def test_notify_me_then_launch_notifies_once(self):
+        from apps.notifications.models import Notification
+        self.assertEqual(APIClient().post(f'/api/casino/games/{self.soon.id}/notify/').status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertTrue(self.client.post(f'/api/casino/games/{self.soon.id}/notify/').json()['waiting'])
+        self.client.post(f'/api/casino/games/{self.soon.id}/notify/')                 # twice: still one entry
+        self.assertEqual(self.client.get('/api/casino/waitlist/').json()['games'], [self.soon.id])
+        self.assertEqual(self.client.post(f'/api/casino/games/{self.live.id}/notify/').status_code, 400)   # already live
+        from django.contrib.auth.models import User
+        staff = APIClient()
+        staff.force_authenticate(User.objects.create_user('ops', 'ops@example.com', 'x', is_staff=True))
+        row = next(r for r in staff.get('/api/admin/casino/games/?status=soon&q=chicken road').json()['results']
+                   if r['id'] == self.soon.id)
+        self.assertEqual(row['waiting'], 1)
+        out = staff.patch(f'/api/admin/casino/games/{self.soon.id}/', {'coming_soon': False}, format='json').json()
+        self.assertEqual((out['coming_soon'], out['notified']), (False, 1))
+        self.assertEqual(Notification.objects.filter(player_id=self.player.id, title='Chicken Road is here!').count(), 1)
+        self.assertEqual(self.client.get('/api/casino/waitlist/').json()['games'], [])
+        staff.patch(f'/api/admin/casino/games/{self.soon.id}/', {'coming_soon': True}, format='json')
+        staff.patch(f'/api/admin/casino/games/{self.soon.id}/', {'coming_soon': False}, format='json')
+        self.assertEqual(Notification.objects.filter(player_id=self.player.id, title='Chicken Road is here!').count(), 1)
+
+    def test_players_can_cancel_and_admin_only(self):
+        self.client.post(f'/api/casino/games/{self.soon.id}/notify/')
+        self.assertFalse(self.client.delete(f'/api/casino/games/{self.soon.id}/notify/').json()['waiting'])
+        self.assertEqual(self.client.get('/api/casino/waitlist/').json()['games'], [])
+        self.assertEqual(self.client.get('/api/admin/casino/games/').status_code, status.HTTP_403_FORBIDDEN)

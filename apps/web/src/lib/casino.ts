@@ -6,10 +6,19 @@ export interface Game {
   category?: string;
   rtp: string;
   image_url?: string;
+  /** Listed but not playable yet: the tile offers "Notify me". */
+  coming_soon?: boolean;
 }
+
+/** Our own Aviator (the jet game), shown first among the fast games. */
+export const BETBLITS_AVIATOR: Game = {
+  id: -1, slug: 'betblits-aviator', name: 'Aviator', provider: 'BetBlits', category: 'fast', rtp: '97', coming_soon: false,
+};
 
 export const CASINO_CATEGORIES: { value: string; label: string }[] = [
   { value: 'all', label: 'Lobby' },
+  { value: 'fast', label: 'Fast Games' },
+  { value: 'mini', label: 'Mini Games' },
   { value: 'crash', label: 'Crash' },
   { value: 'slots', label: 'Slots' },
   { value: 'live', label: 'Live Casino' },
@@ -20,6 +29,7 @@ export const CASINO_CATEGORIES: { value: string; label: string }[] = [
 
 // Crash-category games open the dedicated Aviator-style page, not the slot view.
 export function gameHref(game: Game): string {
+  if (game.slug === BETBLITS_AVIATOR.slug) return '/aviator';
   if (game.category === 'crash') return '/casino/crash';
   return `/casino/${game.slug}?id=${game.id}`;
 }
@@ -66,7 +76,8 @@ export type GameTag = 'LIVE' | 'HOT' | 'NEW' | null;
 
 /** Derives a badge from real game fields: category, RTP, and recency of id. */
 export function gameTag(game: Game, allIds: number[]): GameTag {
-  if (game.category === 'live' || game.category === 'crash') return 'LIVE';
+  if (game.coming_soon) return null;
+  if (game.category === 'live' || game.category === 'crash' || game.slug === BETBLITS_AVIATOR.slug) return 'LIVE';
   if (parseFloat(game.rtp) >= 97.5) return 'HOT';
   const maxId = allIds.length ? Math.max(...allIds) : game.id;
   if (game.id >= maxId - 2) return 'NEW';

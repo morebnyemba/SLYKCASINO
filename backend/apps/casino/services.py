@@ -149,3 +149,39 @@ def _record_tournament_play(player_id: int, wagered: Decimal) -> None:
 def erase_player_data(player_id: int) -> int:
     return (GameRound.objects.filter(player_id=player_id).delete()[0]
             + CrashRound.objects.filter(player_id=player_id).delete()[0])
+
+
+# -- coming soon: the waitlist ------------------------------------------------------------
+
+def join_waitlist(*, player_id: int, game_id: int):
+    """Tell this player when a coming-soon game is ready. Idempotent."""
+    from .models import GameWaitlist
+    game = Game.objects.filter(pk=game_id, is_active=True).first()
+    if game is None:
+        raise ValueError('Game not found.')
+    if not game.coming_soon:
+        raise ValueError('This game is already available: play it now.')
+    entry, _ = GameWaitlist.objects.get_or_create(game=game, player_id=player_id)
+    return entry
+
+
+def leave_waitlist(*, player_id: int, game_id: int) -> None:
+    from .models import GameWaitlist
+    GameWaitlist.objects.filter(game_id=game_id, player_id=player_id, notified_at__isnull=True).delete()
+
+
+def launch(game) -> int:
+    """A coming-soon game is now playable: notify everyone waiting (once each). Returns how many."""
+    from django.utils import timezone
+
+    from apps.notifications import services as notif_services
+    from .models import GameWaitlist
+    if game.coming_soon:
+        game.coming_soon = False
+        game.save(update_fields=['coming_soon'])
+    waiting = list(GameWaitlist.objects.filter(game=game, notified_at__isnull=True).values_list('pk', 'player_id'))
+    for _, player_id in waiting:
+        notif_services.notify(player_id=player_id, kind='account_alert', title=f'{game.name} is here!',
+                              body=f'{game.name} is ready to play in the casino. You asked us to tell you. Good luck!')
+    GameWaitlist.objects.filter(pk__in=[pk for pk, _ in waiting]).update(notified_at=timezone.now())
+    return len(waiting)
