@@ -39,11 +39,21 @@ class OddsChanged(ValueError):
         *, event_id: Optional[int] = None, selection: Optional[str] = None,
     ):
         self.current = current
+        self.expected = expected
         self.outcome_id = outcome_id
         # Set for a 1X2 pick (no outcome row), so the slip can find the leg.
         self.event_id = event_id
         self.selection = selection
         super().__init__(f'Odds for {label} changed from {expected} to {current}.')
+
+
+ODDS_POLICIES = ('ask', 'higher', 'any')
+
+
+def odds_change_acceptable(policy: str, exc: 'OddsChanged') -> bool:
+    """The player's choice for a price that moved before their bet was struck: 'ask' (never accept
+    silently), 'higher' (take a better price), 'any' (take whatever the price is now)."""
+    return policy == 'any' or (policy == 'higher' and Decimal(exc.current) > Decimal(exc.expected))
 
 
 class SelectionUnavailable(ValueError):
@@ -204,6 +214,8 @@ def in_play_bettable(event: Event, *, now=None) -> bool:
     now = now or timezone.now()
     if live_guard.wall_clock_locked(event, now=now):
         return False  # the feed's clock went silent past the lock minute
+    if live_guard.betstop_active(event, now=now):
+        return False  # a goal just went in: everything waits for new prices
     if LiveTradingSettings.current().keep_markets_open:
         # A quiet feed doesn't suspend anything: markets stay open at their
         # last prices until the lock. New bets are still only accepted once the

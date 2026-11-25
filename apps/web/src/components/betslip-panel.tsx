@@ -166,6 +166,7 @@ export function SlipBody({ onClose, variant = 'card' }: {
     legs, limits, mode, setMode, accaStake, setAccaStake, legStakes, setLegStake,
     combinedOdds, potentialPayout, bonus, status, busy,
     removeLeg, clear, place, conflictingEvents, conflictMessage, sameMatchPercent, hasPriceChanges, hasSuspended, acceptPriceChanges, wallet,
+    oddsPolicy, setOddsPolicy,
     matchGroups, fixtures,
   } = useBetslip();
 
@@ -452,6 +453,16 @@ export function SlipBody({ onClose, variant = 'card' }: {
               </p>
             )}
 
+            <label className="mb-1 flex items-center justify-between gap-2 text-[11.5px] font-semibold text-muted-foreground">
+              Odds changes
+              <select value={oddsPolicy} onChange={(e) => setOddsPolicy(e.target.value as typeof oddsPolicy)}
+                aria-label="When odds change"
+                className="rounded-lg border border-border bg-background px-2 py-1 text-[11.5px] font-bold text-foreground outline-none">
+                <option value="higher">Accept higher odds</option>
+                <option value="any">Accept any odds</option>
+                <option value="ask">Always ask me</option>
+              </select>
+            </label>
           </div>
           <div className="sticky bottom-0 z-10 border-t border-border bg-card px-4 pb-3.5 pt-3">
             {user ? (

@@ -1745,12 +1745,13 @@ class WhatsAppGuardTests(_Base):
         cfg = ChatbotSettings.load()
         cfg.age_gate = True
         cfg.save()
-        out = text(self.say('TODAY'))
+        match = str(self.e1.id)                    # by its number: "today" depends on the clock
+        out = text(self.say(match))
         self.assertIn('18 or older', out)
         self.assertNotIn('Dynamos', out)
         self.assertIn('only for people aged 18', text(self.say('AGE NO')))
-        self.assertIn('only for people aged 18', text(self.say('TODAY')))
+        self.assertIn('only for people aged 18', text(self.say(match)))
         self.assertIn('gamble responsibly', text(self.say('AGE YES')))
-        self.assertIn('Dynamos', text(self.say('TODAY')))
+        self.assertIn('Dynamos', text(self.say(match)))
         other = '263779999999'
         self.assertIn('username', text(self.say('LOGIN', number=other)))  # logging in is never blocked
