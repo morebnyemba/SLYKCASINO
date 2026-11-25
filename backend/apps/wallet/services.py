@@ -221,6 +221,8 @@ def _after_new_entry(player_id: int, entry: LedgerEntry) -> None:
                 affiliate_services.on_deposit(player_id=player_id, amount=entry.amount)
             elif promo > 0:
                 promotions_services.on_deposit(player_id=player_id, amount=entry.amount, deposit_id=entry.id)
+        # The referring agent's deposit commission, paid on the first deposit when the programme says so.
+        affiliate_services.on_deposit_commission(player_id)
 
 
 def _deposit_payment(reference: str):

@@ -10,10 +10,10 @@ interface Programme {
   welcome_bonus_percent: string; welcome_bonus_cap: string; welcome_bonus_wagering: string; welcome_bonus_min_deposit: string;
   default_revshare_percent: string; default_cpa_amount: string; default_cpa_min_deposit: string; default_cpa_percent: string;
   default_cpa_cap: string; cpa_min_turnover_multiple: string; negative_carryover: boolean; min_payout: string;
-  external_payouts: boolean; auto_payout: boolean; auto_approve_commissions: boolean; lock_until_month_end: boolean; referral_first_deposit_only: boolean; updated_at: string;
+  external_payouts: boolean; auto_payout: boolean; auto_approve_commissions: boolean; lock_until_month_end: boolean; referral_first_deposit_only: boolean; cpa_on_first_deposit: boolean; updated_at: string;
   net_loss_since: string | null; net_loss_review_above: string; aviator_commission_percent: string;
 }
-type NumKey = Exclude<keyof Programme, 'negative_carryover' | 'external_payouts' | 'auto_payout' | 'auto_approve_commissions' | 'lock_until_month_end' | 'referral_first_deposit_only' | 'updated_at'
+type NumKey = Exclude<keyof Programme, 'negative_carryover' | 'external_payouts' | 'auto_payout' | 'auto_approve_commissions' | 'lock_until_month_end' | 'referral_first_deposit_only' | 'cpa_on_first_deposit' | 'updated_at'
   | 'net_loss_since'>;
 
 const n = (v: string) => Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 });
@@ -86,8 +86,22 @@ export function ProgrammeSettings() {
           {num('cpa_min_turnover_multiple', 'Play required (× first deposit)', 'They must also bet this many times their first deposit — stops deposit-and-withdraw farming.')}
         </div>
         <p className="mt-3 text-xs text-muted-foreground">
-          Example: a referral’s $50 first deposit earns the affiliate ${n(String(cpaExample))} once they’ve bet ${n(String(50 * Number(form.cpa_min_turnover_multiple)))}. {form.auto_approve_commissions ? 'It is paid as soon as they qualify.' : 'It waits for your approval (see Payouts below).'}
+          {form.cpa_on_first_deposit
+            ? <>Example: a referral’s $50 first deposit earns the agent ${n(String(cpaExample))} the moment it lands. If that player asks to withdraw before betting ${n(String(50 * Number(form.cpa_min_turnover_multiple)))}, it is taken back from the agent.</>
+            : <>Example: a referral’s $50 first deposit earns the agent ${n(String(cpaExample))} once they’ve bet ${n(String(50 * Number(form.cpa_min_turnover_multiple)))}.</>}
+          {' '}{form.auto_approve_commissions ? 'It is paid as soon as it’s due.' : 'It waits for your approval (see Payouts below).'}
         </p>
+        <div className="mt-4 flex items-start justify-between gap-4 border-t border-border pt-4">
+          <div className="text-sm">
+            <p className="font-semibold">Pay the deposit commission on the first deposit</p>
+            <p className="mt-1 text-muted-foreground">
+              On (default): agents are paid as soon as their customer’s first deposit lands; it comes back if the customer asks to
+              withdraw before betting the play required above. Off: agents are paid only once the customer has bet it.
+            </p>
+          </div>
+          <Switch checked={form.cpa_on_first_deposit} onChange={(v) => setForm({ ...form, cpa_on_first_deposit: v })}
+            label="Pay agents on the first deposit" />
+        </div>
       </Panel>
 
       <Panel title="How agents earn" description="Agents earn a share of what their customers actually lose — real-money stakes minus winnings, added up per agent and closed each night: their own rate on sports, and the Aviator rate below on Aviator and casino games. Bonus-wallet play and free bets never count; bonus money turned into Winnings is deducted."

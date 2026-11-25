@@ -244,7 +244,7 @@ def _public_programme() -> dict:
         'welcome_bonus_percent': str(p.welcome_bonus_percent), 'welcome_bonus_cap': str(p.welcome_bonus_cap),
         'welcome_bonus_wagering': str(p.welcome_bonus_wagering), 'welcome_bonus_min_deposit': str(p.welcome_bonus_min_deposit),
         'cpa_min_turnover_multiple': str(p.cpa_min_turnover_multiple), 'negative_carryover': p.negative_carryover,
-        'referral_first_deposit_only': p.referral_first_deposit_only,
+        'referral_first_deposit_only': p.referral_first_deposit_only, 'cpa_on_first_deposit': p.cpa_on_first_deposit,
     }
 
 

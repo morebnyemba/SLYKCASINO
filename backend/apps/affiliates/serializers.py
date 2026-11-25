@@ -49,7 +49,7 @@ class ProgrammeSerializer(serializers.ModelSerializer):
             'default_revshare_percent', 'default_cpa_amount', 'default_cpa_min_deposit', 'default_cpa_percent',
             'default_cpa_cap', 'cpa_min_turnover_multiple', 'negative_carryover', 'min_payout', 'external_payouts',
             'auto_payout', 'auto_approve_commissions', 'lock_until_month_end', 'referral_first_deposit_only',
-            'aviator_commission_percent', 'net_loss_since', 'net_loss_review_above', 'updated_at',
+            'cpa_on_first_deposit', 'aviator_commission_percent', 'net_loss_since', 'net_loss_review_above', 'updated_at',
         ]
         read_only_fields = fields
 

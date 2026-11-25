@@ -15,6 +15,7 @@ once, or to mobile money / a bank once an operator has sent the money).
 """
 from __future__ import annotations
 
+import logging
 import re
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
@@ -30,6 +31,8 @@ from apps.wallet import services as wallet_services
 from . import helpers, utils
 from .models import Affiliate, AffiliateClick, AffiliateProgramme, Commission, Payout, Referral, RevshareMonth
 from .reporting import affiliate_analytics, top_affiliates  # noqa: F401  (read-only analytics)
+
+logger = logging.getLogger(__name__)
 
 
 class AffiliateError(ValueError):
@@ -157,7 +160,7 @@ PROGRAMME_FIELDS = {
     'aviator_commission_percent': Decimal('100'),
 }
 PROGRAMME_FLAGS = ('negative_carryover', 'external_payouts', 'auto_payout', 'auto_approve_commissions',
-                   'lock_until_month_end', 'referral_first_deposit_only')
+                   'lock_until_month_end', 'referral_first_deposit_only', 'cpa_on_first_deposit')
 WELCOME_BONUS_CODE = 'SYS-REFERRAL-WELCOME'
 
 
@@ -528,10 +531,12 @@ def _agent_links(affiliate: Affiliate) -> set[int]:
 
 
 def _cpa_check(affiliate: Affiliate, totals: dict, first, multiple: Decimal, *, override: bool = False,
-               linked: bool = False):
+               linked: bool = False, strict: bool = False):
     """(amount, reason) for one referral: what the deposit commission would be
     and, when it isn't earned, why. With `override`, the minimum-deposit,
-    play-through and linked-account rules are skipped (staff paying by hand)."""
+    play-through and linked-account rules are skipped (staff paying by hand).
+    While the programme pays on the first deposit (cpa_on_first_deposit) the play-through
+    isn't waited for; `strict` checks it anyway (the claw-back on a withdrawal)."""
     deposits = totals.get('deposit', Decimal('0'))
     # Real money only: bonus money (the house's own) never qualifies a deposit commission.
     turnover = totals.get('real_turnover', Decimal('0'))
@@ -544,7 +549,8 @@ def _cpa_check(affiliate: Affiliate, totals: dict, first, multiple: Decimal, *, 
             return Decimal('0'), 'shares a payment number with the agent'
         if deposits < affiliate.cpa_min_deposit:
             return Decimal('0'), f'deposited {deposits:.2f} of the {affiliate.cpa_min_deposit:.2f} needed'
-        if turnover < first * multiple:
+        upfront = not strict and AffiliateProgramme.load().cpa_on_first_deposit
+        if not upfront and turnover < first * multiple:
             return Decimal('0'), f'bet {turnover:.2f} of the {first * multiple:.2f} needed'
     amount = utils.deposit_commission(first, affiliate.cpa_amount, affiliate.cpa_percent, affiliate.cpa_cap)
     return (amount, '') if amount > 0 else (Decimal('0'), 'works out to 0.00')
@@ -682,6 +688,66 @@ def pay_cpa(affiliate_id: int, *, player_ids: Optional[list[int]] = None, overri
         created += 1
         total += amount
     return {'created': created, 'approved': approved, 'amount': f'{total:.2f}'}
+
+
+def on_deposit_commission(player_id: int) -> None:
+    """A deposit landed: with the programme paying on the first deposit, the referring agent's
+    deposit commission is worked out straight away (after the deposit commits)."""
+    if not AffiliateProgramme.load().cpa_on_first_deposit:
+        return
+    ref = Referral.objects.filter(player_id=player_id).select_related('affiliate').first()
+    if ref is None or ref.affiliate.status != Affiliate.Status.ACTIVE \
+            or Commission.objects.filter(referral=ref, kind=Commission.Kind.CPA).exists():
+        return
+    affiliate_id = ref.affiliate_id
+
+    def run():
+        try:
+            with transaction.atomic():
+                affiliate = Affiliate.objects.select_for_update().filter(pk=affiliate_id, status=Affiliate.Status.ACTIVE).first()
+                if affiliate is not None:
+                    compute_cpa(affiliate)
+        except Exception:  # noqa: BLE001 — the hourly job retries; a deposit never fails over it
+            logger.exception('deposit commission for player %s failed', player_id)
+    transaction.on_commit(run)
+
+
+def on_withdrawal_request(player_id: int) -> Optional[Decimal]:
+    """A referral asks to withdraw: a deposit commission paid on their first deposit is taken
+    back from the agent if they haven't staked cpa_min_turnover_multiple × that deposit.
+    Returns the amount taken back (None when nothing was)."""
+    if not AffiliateProgramme.load().cpa_on_first_deposit:
+        return None
+    ref = Referral.objects.filter(player_id=player_id).first()
+    if ref is None:
+        return None
+    c = (Commission.objects.filter(referral=ref, kind=Commission.Kind.CPA).exclude(status=Commission.Status.REJECTED)
+         .first())
+    if c is None or 'rules waived' in (c.note or '') or c.amount <= 0:
+        return None
+    from . import clawback
+    with transaction.atomic():
+        affiliate = Affiliate.objects.select_for_update().get(pk=c.affiliate_id)
+        totals = _cpa_totals([player_id]).get(player_id, {})
+        first = wallet_services.first_deposit_amounts([player_id]).get(player_id)
+        multiple = AffiliateProgramme.load().cpa_min_turnover_multiple
+        correct, reason = _cpa_check(affiliate, totals, first, multiple, strict=True,
+                                     linked=player_id in _agent_links(affiliate))
+        correct = min(correct, c.amount)
+        if c.amount - correct < Decimal('0.01'):
+            return None
+        c.refresh_from_db()
+        why = f'the customer asked to withdraw before staking their first deposit {multiple.normalize():f}× ({reason})'
+        row = clawback.Row(commission_id=c.id, affiliate_id=affiliate.id, affiliate_code=affiliate.code, player_id=player_id,
+                           status=c.status, created_at=c.created_at, first_deposit=first,
+                           deposits=totals.get('deposit', Decimal('0')), real_turnover=totals.get('real_turnover', Decimal('0')),
+                           paid=c.amount, correct=correct, reason=why, waived=False)
+        result = clawback.AffiliateResult(affiliate_id=affiliate.id, code=affiliate.code, rows=[row])
+        clawback._apply(affiliate, [row], result, by='', label='Deposit commission taken back',
+                        notify=('Deposit commission taken back',
+                                '{excess} deposit commission was taken back: your customer asked to withdraw before '
+                                'playing their first deposit through.'))
+        return c.amount - correct
 
 
 def run_commissions(*, today: Optional[date] = None) -> dict:
