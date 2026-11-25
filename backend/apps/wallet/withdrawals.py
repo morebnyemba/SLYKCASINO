@@ -16,6 +16,7 @@ cancelling) returns the hold to the balance.
 """
 from __future__ import annotations
 
+import logging
 import re
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
@@ -26,6 +27,8 @@ from django.utils import timezone
 
 from . import services
 from .models import Bucket, LedgerEntry, PaymentTransaction, WithdrawalRequest, WithdrawalSettings
+
+logger = logging.getLogger(__name__)
 
 MOBILE = (WithdrawalRequest.Method.ECOCASH, WithdrawalRequest.Method.ONEMONEY, WithdrawalRequest.Method.INNBUCKS)
 OPEN = WithdrawalRequest.Status.REQUESTED
@@ -182,6 +185,12 @@ def request(*, player, amount, method: str, account_number: str = '', account_na
                    idempotency_key=f'withdrawal:{req.id}:hold', reference=f'withdrawal:{req.id}')
     # May hold this request (or freeze the account) if it looks wrong.
     risk.on_withdrawal_request(req)
+    # A deposit commission paid on the first deposit comes back if the deposit wasn't played through.
+    from apps.affiliates import services as affiliate_services
+    try:
+        affiliate_services.on_withdrawal_request(req.player_id)
+    except Exception:  # noqa: BLE001 — never block a player's withdrawal over the agent's commission
+        logger.exception('deposit commission claw-back failed for player %s', req.player_id)
     _notify(player.id, 'Withdrawal requested',
             f'We’ve received your request for ${amount:.2f} from your {Bucket(wallet).label} wallet to '
             f'{req.get_method_display()}. You’ll be sent ${req.payout_amount:.2f} after the ${fee:.2f} '

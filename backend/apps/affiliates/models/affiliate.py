@@ -202,6 +202,10 @@ class AffiliateProgramme(models.Model):
     # A deposit commission is only earned once the referral has staked at
     # least this many times their first deposit (stops deposit-and-withdraw farming).
     cpa_min_turnover_multiple = models.DecimalField(max_digits=5, decimal_places=2, default=3)
+    # Pay the deposit commission the moment the referral's first deposit lands (no play-through
+    # wait). It is taken back if they withdraw before staking that turnover (affiliates.services
+    # .on_withdrawal_request), so deposit-and-withdraw farming still earns nothing.
+    cpa_on_first_deposit = models.BooleanField(default=True)
     # Carry a losing month (negative net revenue) into the next months'
     # revenue share until it has been earned back.
     negative_carryover = models.BooleanField(default=True)

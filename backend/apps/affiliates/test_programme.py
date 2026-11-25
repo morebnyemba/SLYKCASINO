@@ -6,6 +6,8 @@ from __future__ import annotations
 from datetime import date, datetime, time
 from decimal import Decimal
 
+import pytest
+
 from django.contrib.auth.models import User
 from django.test import SimpleTestCase, TestCase
 from django.utils import timezone
@@ -236,3 +238,58 @@ class ProgrammeApiTests(ProgrammeBase):
         player.save(update_fields=['user'])
         api.force_authenticate(user)
         self.assertEqual(api.get('/api/admin/affiliate-programme/').status_code, 403)
+
+
+@pytest.mark.cpa_upfront
+class UpfrontDepositCommissionTests(ProgrammeBase):
+    """Agents are paid on the customer's first deposit; it comes back if the customer asks to
+    withdraw before playing it through (stops deposit-and-withdraw farming)."""
+
+    def deposit_now(self, player, amount, key):
+        with self.captureOnCommitCallbacks(execute=True):
+            return self.deposit(player, amount, key)
+
+    def test_paid_the_moment_the_first_deposit_lands(self):
+        alice = self.referred('alice')
+        self.deposit_now(alice, '50', 'a1')                          # no play yet
+        c = Commission.objects.get(kind='cpa')
+        self.assertEqual((c.base_amount, c.amount), (D('50.00'), D('15.00')))
+        self.deposit_now(alice, '50', 'a2')                          # once per customer
+        self.assertEqual(Commission.objects.filter(kind='cpa').count(), 1)
+
+    def test_taken_back_if_the_customer_withdraws_before_playing_it_through(self):
+        alice = self.referred('alice')
+        self.deposit_now(alice, '50', 'a1')
+        c = Commission.objects.get(kind='cpa')
+        services.approve(c.id)
+        self.assertEqual(services.on_withdrawal_request(alice.id), D('15.00'))
+        c.refresh_from_db()
+        self.assertEqual((c.status, c.amount), (Commission.Status.REJECTED, D('0.00')))
+        self.assertIsNone(services.on_withdrawal_request(alice.id))  # nothing left to take
+
+    def test_kept_once_the_deposit_is_played_through(self):
+        bob = self.referred('bob')
+        self.deposit_now(bob, '50', 'b1')
+        self.stake(bob, '50', 's1')                                  # 1x the first deposit (this programme's rule)
+        self.assertIsNone(services.on_withdrawal_request(bob.id))
+        self.assertEqual(Commission.objects.get(kind='cpa').amount, D('15.00'))
+
+    def test_switched_off_waits_for_the_play_through_again(self):
+        services.update_programme(cpa_on_first_deposit=False)
+        carol = self.referred('carol')
+        self.deposit_now(carol, '50', 'c1')
+        self.assertFalse(Commission.objects.filter(kind='cpa').exists())
+
+
+@pytest.mark.cpa_upfront
+@pytest.mark.affiliate_auto
+class UpfrontPaidToWalletTests(ProgrammeBase):
+    """With the programme defaults (auto-approve, auto-payout) the agent has the money right after the deposit."""
+
+    def test_agent_wallet_is_credited_right_after_the_deposit(self):
+        services.update_programme(welcome_bonus_percent=0)
+        before = wallet_services.get_balances(self.partner.id)['winnings']
+        alice = self.referred('alice')
+        with self.captureOnCommitCallbacks(execute=True):
+            self.deposit(alice, '50', 'a1')
+        self.assertEqual(wallet_services.get_balances(self.partner.id)['winnings'] - before, D('15.00'))

@@ -36,6 +36,10 @@ def _manual_affiliate_payouts(request, django_db_blocker):
     # The mandatory agent code is tested on its own (marker `agent_code`).
     if not request.node.get_closest_marker('agent_code'):
         values['require_agent_code'] = False
+    # Deposit commissions paid on the first deposit (with a claw-back) are tested on their own
+    # (marker `cpa_upfront`); the rest cover the play-through rule.
+    if not request.node.get_closest_marker('cpa_upfront'):
+        values['cpa_on_first_deposit'] = False
     if not values:
         return
     with django_db_blocker.unblock():
